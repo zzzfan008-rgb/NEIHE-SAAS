@@ -1,0 +1,54 @@
+# Dependencies
+node_modules
+
+# Local agent worktrees
+.claude/worktrees/
+
+# Build and release outputs
+/dist/
+/dist-server/
+releases/
+*.tsbuildinfo
+
+# Data & secrets
+.env
+.env.*
+!.env.example
+.secrets/
+*.pem
+*.key
+
+# Runtime data (built-in templates remain versioned)
+data/uploads/
+data/thumbnails/
+data/projects/
+data/assets/
+data/scene-analysis-cache/
+data/templates/user/
+data/quarantine/
+data/*.db
+data/*.db-*
+data/*.dump
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temp
+tmp/
+temp/
+
+# Test and local demo outputs
+.playwright/
+playwright-report/
+playwright-report-production/
+test-results/
+test-results-production/
+test-*.png
+test-*.jpg
+shot-*.png
+button-animation-demos.html

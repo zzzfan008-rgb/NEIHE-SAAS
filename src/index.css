@@ -1,0 +1,541 @@
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@custom-variant dark (&:is([data-theme="current"] *));
+@source "../index.html";
+@source "./";
+
+@theme {
+  --color-ink: #0a0a0a;
+  --color-paper: #fafaf8;
+  --color-gold: #c9a66b;
+  --color-golddeep: #896932;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background-color: #0a0a0a;
+  color: #e5e5e5;
+  font-family:
+    "Inter",
+    -apple-system,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.login-brand-title {
+  font-family:
+    "Helvetica Neue",
+    "Avenir Next",
+    "Inter",
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  font-feature-settings: "kern" 1, "liga" 1;
+}
+
+:root {
+  --gc-media-overlay-text: #f4f4f4;
+}
+
+/* ---- 深色滚动条 ---- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a3a;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- React Flow 深色适配 ---- */
+.react-flow {
+  background: #0a0a0a;
+}
+
+.react-flow__handle {
+  width: 18px;
+  height: 18px;
+  background:
+    radial-gradient(circle at 35% 30%, #fff4d6 0 9%, #e5c78f 18%, #c9a66b 52%, #806135 100%);
+  border: 3px solid #141414;
+  box-shadow:
+    0 0 0 1px rgba(201, 166, 107, 0.7),
+    0 3px 7px rgba(0, 0, 0, 0.55),
+    inset -2px -3px 4px rgba(67, 45, 17, 0.42),
+    inset 2px 2px 3px rgba(255, 242, 211, 0.55);
+  cursor: crosshair;
+  transition:
+    scale 140ms ease,
+    box-shadow 140ms ease,
+    filter 140ms ease;
+  z-index: 5;
+}
+.react-flow__handle:hover,
+.react-flow__handle.connectingfrom {
+  scale: 1.22;
+  filter: brightness(1.12);
+  box-shadow:
+    0 0 0 2px rgba(229, 199, 143, 0.7),
+    0 0 14px rgba(201, 166, 107, 0.72),
+    0 4px 8px rgba(0, 0, 0, 0.5),
+    inset -2px -3px 4px rgba(67, 45, 17, 0.35),
+    inset 2px 2px 3px rgba(255, 248, 226, 0.7);
+}
+.react-flow__handle.connectingto {
+  scale: 1.3;
+  filter: brightness(1.18);
+  box-shadow:
+    0 0 0 3px rgba(229, 199, 143, 0.38),
+    0 0 18px rgba(229, 199, 143, 0.85),
+    inset -2px -3px 4px rgba(67, 45, 17, 0.3),
+    inset 2px 2px 3px rgba(255, 250, 232, 0.8);
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #c9a66b;
+}
+.react-flow__connection-path {
+  stroke: #c9a66b;
+  stroke-width: 1.5;
+}
+
+.react-flow__minimap {
+  border: 1px solid #262626;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.react-flow__selection {
+  background: rgba(201, 166, 107, 0.08);
+  border: 1px solid rgba(201, 166, 107, 0.4);
+}
+
+/* ---- 生成中动画：方案 E 暗房显影 ---- */
+@keyframes develop-scan {
+  0%,
+  100% {
+    top: 8%;
+  }
+  50% {
+    top: 88%;
+  }
+}
+@keyframes develop-gridfade {
+  0%,
+  100% {
+    opacity: 0.12;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+@keyframes develop-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.develop-overlay {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid #262626;
+  background: linear-gradient(180deg, rgba(201, 166, 107, 0.05), rgba(201, 166, 107, 0.14));
+}
+.develop-overlay .develop-gridlines {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(201, 166, 107, 0.13) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(201, 166, 107, 0.13) 1px, transparent 1px);
+  background-size: 16px 16px;
+  animation: develop-gridfade 2s ease-in-out infinite;
+}
+.develop-overlay .develop-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #c9a66b, transparent);
+  box-shadow: 0 0 12px #c9a66b;
+  animation: develop-scan 1.6s ease-in-out infinite;
+}
+.develop-overlay .develop-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: rgba(201, 166, 107, 0.8);
+  letter-spacing: 0.2em;
+}
+
+.btn-running-breathe {
+  animation: develop-breathe 1.6s ease-in-out infinite;
+}
+
+/* ---- 主题：简白（白色为主） ---- */
+[data-theme="white"] body {
+  background-color: #ffffff !important;
+  color: #1d1d1f;
+}
+[data-theme="white"] .bg-ink,
+[data-theme="white"] .react-flow { background-color: #ffffff !important; }
+[data-theme="white"] .bg-\[\#141414\] { background-color: #ffffff !important; }
+[data-theme="white"] .bg-\[\#1a1a1a\] { background-color: #f5f5f7 !important; }
+[data-theme="white"] .bg-\[\#1d1d1f\] { background-color: #f5f5f7 !important; }
+[data-theme="white"] .bg-\[\#0f0f0f\] { background-color: #fbfbfd !important; }
+[data-theme="white"] .bg-\[\#3a3226\] { background-color: #e8e8ed !important; }
+[data-theme="white"] .border-\[\#262626\] { border-color: #d2d2d7 !important; }
+[data-theme="white"] .border-\[\#333\] { border-color: #c7c7cc !important; }
+[data-theme="white"] .text-neutral-200 { color: #1d1d1f !important; }
+[data-theme="white"] .text-neutral-300 { color: #3a3a3c !important; }
+[data-theme="white"] .text-neutral-400 { color: #48484a !important; }
+[data-theme="white"] .text-neutral-500 { color: #6e6e73 !important; }
+[data-theme="white"] .text-neutral-600 { color: #86868b !important; }
+[data-theme="white"] .text-neutral-700 { color: #98989d !important; }
+[data-theme="white"] .text-gold { color: #896932 !important; }
+[data-theme="white"] .placeholder\:text-neutral-600::placeholder { color: #98989d !important; }
+[data-theme="white"] .shadow-xl { box-shadow: 0 12px 28px rgba(26, 26, 26, 0.08) !important; }
+[data-theme="white"] .react-flow__minimap { border-color: #d2d2d7 !important; }
+[data-theme="white"] .react-flow__handle {
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 1px rgba(137, 105, 50, 0.62),
+    0 3px 7px rgba(29, 29, 31, 0.2),
+    inset -2px -3px 4px rgba(99, 72, 31, 0.28),
+    inset 2px 2px 3px rgba(255, 255, 255, 0.75);
+}
+[data-theme="white"] ::-webkit-scrollbar-thumb { background: #c7c7cc; }
+[data-theme="white"] ::-webkit-scrollbar-thumb:hover { background: #aeaeb2; }
+[data-theme="white"] .bg-\[\#141414\]\/90 { background-color: rgba(255,255,255,0.92) !important; }
+[data-theme="white"] .bg-\[\#161616\] { background-color: #ffffff !important; }
+[data-theme="white"] .hover\:bg-\[\#222\]:hover { background-color: #f5f5f7 !important; }
+
+/* ---- 主题：护眼绿（绿色为主） ---- */
+[data-theme="eye"] body {
+  background-color: #cfe3c2 !important;
+  color: #22331f;
+}
+[data-theme="eye"] .bg-ink,
+[data-theme="eye"] .react-flow { background-color: #cfe3c2 !important; }
+[data-theme="eye"] .bg-\[\#141414\] { background-color: #ddeccf !important; }
+[data-theme="eye"] .bg-\[\#1a1a1a\] { background-color: #d2e4c3 !important; }
+[data-theme="eye"] .bg-\[\#0f0f0f\] { background-color: #eaf4de !important; }
+[data-theme="eye"] .bg-\[\#3a3226\] { background-color: #bcd6a8 !important; }
+[data-theme="eye"] .border-\[\#262626\] { border-color: #aec99a !important; }
+[data-theme="eye"] .border-\[\#333\] { border-color: #98b884 !important; }
+[data-theme="eye"] .text-neutral-200 { color: #22331f !important; }
+[data-theme="eye"] .text-neutral-300 { color: #30452b !important; }
+[data-theme="eye"] .text-neutral-400 { color: #47623f !important; }
+[data-theme="eye"] .text-neutral-500 { color: #5c7a52 !important; }
+[data-theme="eye"] .text-neutral-600 { color: #729066 !important; }
+[data-theme="eye"] .text-neutral-700 { color: #86a279 !important; }
+[data-theme="eye"] .text-gold { color: #6e5320 !important; }
+[data-theme="eye"] .placeholder\:text-neutral-600::placeholder { color: #86a279 !important; }
+[data-theme="eye"] .react-flow__minimap { border-color: #aec99a !important; }
+[data-theme="eye"] .react-flow__handle {
+  border-color: #ddeccf;
+  box-shadow:
+    0 0 0 1px rgba(110, 83, 32, 0.58),
+    0 3px 7px rgba(48, 69, 43, 0.25),
+    inset -2px -3px 4px rgba(67, 45, 17, 0.3),
+    inset 2px 2px 3px rgba(255, 248, 226, 0.65);
+}
+[data-theme="eye"] ::-webkit-scrollbar-thumb { background: #98b884; }
+[data-theme="eye"] ::-webkit-scrollbar-thumb:hover { background: #7ea368; }
+[data-theme="eye"] .bg-\[\#141414\]\/90 { background-color: rgba(221,236,207,0.92) !important; }
+[data-theme="eye"] .bg-\[\#161616\] { background-color: #ddeccf !important; }
+[data-theme="eye"] .hover\:bg-\[\#222\]:hover { background-color: #d2e4c3 !important; }
+
+/* ---- 节点语义主题：画布节点与节点库共用，和周边面板颜色解耦 ---- */
+:root,
+[data-theme="current"] {
+  --gc-shell: #101214;
+  --gc-canvas: #0d0f11;
+  --gc-panel: #17191c;
+  --gc-panel-hover: #222529;
+  --gc-control: #0f1113;
+  --gc-text: #e5e7eb;
+  --gc-text-muted: #8b9198;
+  --gc-border: #2b2e32;
+  --gc-accent: #9a7333;
+  --gc-primary-foreground: #0a0a0a;
+  --gc-node-main: #f1f2f4;
+  --gc-node-header: #ffffff;
+  --gc-node-inner: #f8f9fa;
+  --gc-node-inner-hover: #ffffff;
+  --gc-node-border: #ccd0d5;
+  --gc-node-text: #25282c;
+  --gc-node-muted: #676c73;
+  --gc-node-accent: #9a7333;
+  --gc-handle-highlight: #f2ddb2;
+  --gc-handle-mid: #b18745;
+  --gc-handle-dark: #61451f;
+  --gc-handle-ring: rgba(154, 115, 51, 0.75);
+  --gc-handle-glow: rgba(176, 138, 74, 0.78);
+}
+
+[data-theme="white"] {
+  --gc-shell: #f6f5f2;
+  --gc-canvas: #eceae6;
+  --gc-panel: #fffefb;
+  --gc-panel-hover: #eceae6;
+  --gc-control: #f2f0ec;
+  --gc-text: #26282c;
+  --gc-text-muted: #696d73;
+  --gc-border: #d5d2cc;
+  --gc-accent: #dc7397;
+  --gc-primary-foreground: #1d1d1f;
+  --gc-node-main: #34373b;
+  --gc-node-header: #3f4247;
+  --gc-node-inner: #4b4f55;
+  --gc-node-inner-hover: #575c63;
+  --gc-node-border: #656a72;
+  --gc-node-text: #f4f4f5;
+  --gc-node-muted: #c0c2c6;
+  --gc-node-accent: #dc7397;
+  --gc-handle-highlight: #ffd7e3;
+  --gc-handle-mid: #e98faa;
+  --gc-handle-dark: #9e365d;
+  --gc-handle-ring: rgba(220, 115, 151, 0.78);
+  --gc-handle-glow: rgba(233, 125, 163, 0.8);
+}
+
+[data-theme="eye"] {
+  --gc-shell: #d9e4d2;
+  --gc-canvas: #c8d8c0;
+  --gc-panel: #e5eedf;
+  --gc-panel-hover: #d1e0ca;
+  --gc-control: #edf3e9;
+  --gc-text: #183247;
+  --gc-text-muted: #48677e;
+  --gc-border: #a9bfa2;
+  --gc-accent: #173b63;
+  --gc-primary-foreground: #f8fafc;
+  --gc-node-main: #adc8dc;
+  --gc-node-header: #bed3e3;
+  --gc-node-inner: #d0e0eb;
+  --gc-node-inner-hover: #dce9f1;
+  --gc-node-border: #819fb8;
+  --gc-node-text: #183247;
+  --gc-node-muted: #48677e;
+  --gc-node-accent: #173b63;
+  --gc-handle-highlight: #9db8d3;
+  --gc-handle-mid: #315b87;
+  --gc-handle-dark: #102c4c;
+  --gc-handle-ring: rgba(23, 59, 99, 0.78);
+  --gc-handle-glow: rgba(31, 72, 115, 0.75);
+}
+
+[data-theme] .gc-node-card,
+[data-theme] .gc-node-library-card {
+  background-color: var(--gc-node-main) !important;
+  border-color: var(--gc-node-border) !important;
+  color: var(--gc-node-text) !important;
+  box-shadow: 0 10px 28px rgba(8, 14, 22, 0.2) !important;
+}
+
+[data-theme] body,
+[data-theme] .gc-app-shell {
+  background-color: var(--gc-shell) !important;
+  color: var(--gc-text);
+}
+[data-theme] .react-flow {
+  background-color: var(--gc-canvas) !important;
+}
+[data-theme] .gc-panel {
+  background-color: var(--gc-panel) !important;
+  border-color: var(--gc-border) !important;
+  color: var(--gc-text);
+}
+
+/* 节点悬浮只增强层级与光影，不改变坐标，避免拖拽开始/结束时视觉跳动。 */
+.react-flow__node:not(.dragging):hover {
+  z-index: 8 !important;
+}
+.react-flow__node:not(.dragging):hover .gc-node-card {
+  border-color: var(--gc-node-accent) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--gc-node-accent) 58%, transparent),
+    0 18px 38px rgba(8, 14, 22, 0.34) !important;
+}
+.react-flow__node:not(.dragging):hover .react-flow__handle {
+  box-shadow:
+    0 0 0 2px var(--gc-handle-ring),
+    0 0 16px var(--gc-handle-glow),
+    0 4px 8px rgba(0, 0, 0, 0.38) !important;
+}
+
+[data-theme] .gc-node-card.border-gold,
+[data-theme] .gc-node-library-card:hover {
+  border-color: var(--gc-node-accent) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--gc-node-accent) 48%, transparent),
+    0 10px 28px rgba(8, 14, 22, 0.24) !important;
+}
+
+[data-theme] .gc-node-header {
+  background-color: var(--gc-node-header) !important;
+  border-color: var(--gc-node-border) !important;
+}
+
+[data-theme] .gc-node-body {
+  color: var(--gc-node-text) !important;
+}
+
+[data-theme] .gc-node-card .bg-\[\#0f0f0f\],
+[data-theme] .gc-node-card .bg-\[\#141414\],
+[data-theme] .gc-node-card .bg-\[\#161616\],
+[data-theme] .gc-node-card .bg-\[\#1a1a1a\] {
+  background-color: var(--gc-node-inner) !important;
+}
+
+[data-theme] .gc-node-card .hover\:bg-\[\#222\]:hover {
+  background-color: var(--gc-node-inner-hover) !important;
+}
+
+[data-theme] .gc-node-card .border-\[\#262626\],
+[data-theme] .gc-node-card .border-\[\#2a2a2a\],
+[data-theme] .gc-node-card .border-\[\#333\],
+[data-theme] .gc-node-card .border-\[\#3a3a3a\] {
+  border-color: var(--gc-node-border) !important;
+}
+
+[data-theme] .gc-node-card .text-neutral-200,
+[data-theme] .gc-node-card .text-neutral-300,
+[data-theme] .gc-node-library-card .text-neutral-200,
+[data-theme] .gc-node-library-card .text-neutral-300 {
+  color: var(--gc-node-text) !important;
+}
+
+[data-theme] .gc-node-card .text-neutral-400,
+[data-theme] .gc-node-card .text-neutral-500,
+[data-theme] .gc-node-card .text-neutral-600,
+[data-theme] .gc-node-library-card .text-neutral-400,
+[data-theme] .gc-node-library-card .text-neutral-500,
+[data-theme] .gc-node-library-card .text-neutral-600 {
+  color: var(--gc-node-muted) !important;
+}
+
+[data-theme] .gc-node-card input,
+[data-theme] .gc-node-card textarea,
+[data-theme] .gc-node-card select {
+  background-color: var(--gc-node-inner) !important;
+  border-color: var(--gc-node-border) !important;
+  color: var(--gc-node-text) !important;
+}
+
+[data-theme] .gc-node-card input::placeholder,
+[data-theme] .gc-node-card textarea::placeholder {
+  color: var(--gc-node-muted) !important;
+}
+
+/* 标题栏本身也带旧背景工具类，需在内部控件覆盖后明确恢复标题层级色。 */
+[data-theme] .gc-node-card .gc-node-header {
+  background-color: var(--gc-node-header) !important;
+  border-color: var(--gc-node-border) !important;
+}
+
+.react-flow__handle {
+  background: radial-gradient(
+    circle at 35% 30%,
+    var(--gc-handle-highlight) 0 10%,
+    var(--gc-handle-mid) 24%,
+    var(--gc-node-accent) 56%,
+    var(--gc-handle-dark) 100%
+  );
+  border-color: var(--gc-node-main) !important;
+  box-shadow:
+    0 0 0 1px var(--gc-handle-ring),
+    0 3px 7px rgba(0, 0, 0, 0.42),
+    inset -2px -3px 4px color-mix(in srgb, var(--gc-handle-dark) 55%, transparent),
+    inset 2px 2px 3px color-mix(in srgb, var(--gc-handle-highlight) 62%, transparent) !important;
+}
+
+.react-flow__handle:hover,
+.react-flow__handle.connectingfrom,
+.react-flow__handle.connectingto {
+  box-shadow:
+    0 0 0 2px var(--gc-handle-ring),
+    0 0 16px var(--gc-handle-glow),
+    0 4px 8px rgba(0, 0, 0, 0.38),
+    inset -2px -3px 4px color-mix(in srgb, var(--gc-handle-dark) 48%, transparent),
+    inset 2px 2px 3px color-mix(in srgb, var(--gc-handle-highlight) 72%, transparent) !important;
+}
+
+/* shadcn/Base UI 直接桥接到现有 data-theme 语义，不引入第二套主题状态。 */
+@theme inline {
+  --font-heading: inherit;
+  --color-background: var(--gc-shell);
+  --color-foreground: var(--gc-text);
+  --color-card: var(--gc-panel);
+  --color-card-foreground: var(--gc-text);
+  --color-popover: var(--gc-panel);
+  --color-popover-foreground: var(--gc-text);
+  --color-primary: var(--gc-accent);
+  --color-primary-foreground: var(--gc-primary-foreground);
+  --color-secondary: var(--gc-control);
+  --color-secondary-foreground: var(--gc-text);
+  --color-muted: var(--gc-control);
+  --color-muted-foreground: var(--gc-text-muted);
+  --color-accent: var(--gc-panel-hover);
+  --color-accent-foreground: var(--gc-text);
+  --color-destructive: #dc2626;
+  --color-border: var(--gc-border);
+  --color-input: var(--gc-border);
+  --color-ring: var(--gc-accent);
+  --color-sidebar: var(--gc-panel);
+  --color-sidebar-foreground: var(--gc-text);
+  --color-sidebar-primary: var(--gc-accent);
+  --color-sidebar-primary-foreground: var(--gc-primary-foreground);
+  --color-sidebar-accent: var(--gc-panel-hover);
+  --color-sidebar-accent-foreground: var(--gc-text);
+  --color-sidebar-border: var(--gc-border);
+  --color-sidebar-ring: var(--gc-accent);
+}

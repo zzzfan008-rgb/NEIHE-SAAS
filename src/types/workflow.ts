@@ -1,0 +1,392 @@
+/**
+ * 工作流核心类型契约 —— 团队共用，改动需通知全员
+ * 无限画布 + 节点 DAG + 节点级图片模型选择。
+ */
+import type { GenerationImageModelId, ImageModelOptions } from "./imageModels";
+
+// ---------- 节点类型 ----------
+export type NodeKind =
+  | "image-input"        // 图片上传（草图/款式图/面料参考）
+  | "sketch-to-render"   // 草图→效果图（节点内选择 API易模型）
+  | "ai-modify"          // AI 改款/变体（gpt-image-2）
+  | "fabric-recolor"     // 面料/配色替换（gpt-image-2）
+  | "upscale"            // 高清放大（节点内选择 API易模型，业务侧 2K/4K）
+  | "print-extract"      // 印花提取（gpt-image-2，抠出印花平铺展开）
+  | "print-mutate"       // 印花裂变（gpt-image-2，1~8 张风格一致变体）
+  | "virtual-try-on"     // 虚拟模特换装（GPT Image 2 / Gemini 3.1 Flash Image Preview）
+  | "mask-redraw"        // GPT Image 2 局部修改
+  | "result";            // 结果展示/管理
+
+// ---------- 节点执行状态机 ----------
+export type NodeRunStatus =
+  | "idle"
+  | "queued"
+  | "running"
+  | "retry_wait"
+  | "cancel_requested"
+  | "success"
+  | "error"
+  | "outcome_unknown"
+  | "cancelled";
+
+/** OpenAI Images Edit 最多支持 16 图；产品端为控制成本与上传体积限制为 8 图。 */
+export const MAX_REFERENCE_IMAGES = 8;
+/** 虚拟模特换装统一最多接受 14 张参考图，第一张为模特基准图。 */
+export const MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES = 14;
+/** 局部修改会由服务端追加 1 张区域引导图，因此用户最多提供 7 张参考图。 */
+export const MAX_MASK_USER_REFERENCE_IMAGES = MAX_REFERENCE_IMAGES - 1;
+/** 局部修改提示词、区域引导图和服务端合成策略的可追踪版本。 */
+export const MASK_PIPELINE_VERSION = 3;
+export const BATCH_SIZES = [1, 2, 4, 8] as const;
+export type BatchSize = (typeof BATCH_SIZES)[number];
+
+// ---------- 节点数据（存 React Flow node.data）----------
+export interface BaseNodeData {
+  label: string;
+  status: NodeRunStatus;
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface ModelSelectableNodeData {
+  /** v0/v1 读取期间可缺省；v2/v3/v4 服务端校验后一定存在。 */
+  modelId?: GenerationImageModelId;
+  modelOptions?: ImageModelOptions;
+}
+
+export function isNodeRunActive(status: NodeRunStatus): boolean {
+  return status === "queued" || status === "running" || status === "retry_wait" || status === "cancel_requested";
+}
+
+export function isNodeRunTerminal(status: NodeRunStatus): boolean {
+  return status === "success" || status === "error" || status === "outcome_unknown" || status === "cancelled";
+}
+
+export interface ImageInputNodeData extends BaseNodeData {
+  kind: "image-input";
+  /** dataURL 或 /api/files/xxx 路径 */
+  imageUrl?: string;
+  imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
+}
+
+export interface SketchToRenderNodeData extends BaseNodeData, ModelSelectableNodeData {
+  kind: "sketch-to-render";
+  prompt: string;
+  aspectRatio: string;       // "1:1" | "3:4" | "4:3" | "9:16" | "16:9"
+  batchSize: BatchSize;
+  outputImages: string[];    // 生成结果
+}
+
+export interface AiModifyNodeData extends BaseNodeData, ModelSelectableNodeData {
+  kind: "ai-modify";
+  prompt: string;
+  aspectRatio: string;
+  batchSize: BatchSize;            // 改款指令，如"改成娃娃领、袖长改短"
+  outputImages: string[];
+}
+
+export interface FabricRecolorNodeData extends BaseNodeData, ModelSelectableNodeData {
+  kind: "fabric-recolor";
+  /** 选中的配色（hex 数组，最多 8 个，一色出一张图），prompt 由它自动组装 */
+  colors: string[];
+  prompt: string;            // 由 colors 自动组装的替换指令
+  fabricImageUrl?: string;   // 面料参考图（可来自上游 fabric 节点）
+  outputImages: string[];
+}
+
+export interface UpscaleNodeData extends BaseNodeData, ModelSelectableNodeData {
+  kind: "upscale";
+  /** 最终输出长边：2K=2048px，4K=4096px。 */
+  imageSize: "2K" | "4K";
+  outputImages: string[];
+}
+
+export interface PrintExtractNodeData extends BaseNodeData, ModelSelectableNodeData {
+  kind: "print-extract";
+  /** 补充说明（可选），如"只要胸前那朵花" */
+  prompt: string;
+  /** 提取出的印花图（平铺展开、纯色背景） */
+  outputImages: string[];
+  /** 已存为素材的图片 URL（防止重复保存） */
+  savedAsAssets: string[];
+}
+
+export interface PrintMutateNodeData extends BaseNodeData, ModelSelectableNodeData {
+  kind: "print-mutate";
+  /** 裂变方向补充说明（可选），如"改成水墨风格" */
+  prompt: string;
+  /** 裂变数量（1~8） */
+  count: number;
+  outputImages: string[];
+}
+
+export interface VirtualTryOnNodeData extends BaseNodeData {
+  kind: "virtual-try-on";
+  /** standard=通用换装；scene-stabilize=Gemini 场景定版；garment-refine=GPT 服装精修。 */
+  workflowStage: "standard" | "scene-stabilize" | "garment-refine";
+  /** 只描述最终效果的可选要求；不得重定义服务端固定的参考图角色或编号。 */
+  prompt: string;
+  /** 该节点只允许两种经过验证的图片编辑模型。 */
+  modelId: "gpt-image-2" | "gemini-3.1-flash-image-preview";
+  modelOptions: ImageModelOptions;
+  imageSize: "2K" | "4K";
+  garmentCategory?: "knit" | "woven" | "other";
+  materialSpec?: string;
+  constructionSpec?: string;
+  /** 用户确认的第一轮输出引用；第一轮输出变化时必须重新确认。 */
+  approvedBaselineRef?: string;
+  outputImages: string[];
+}
+
+export interface MaskRedrawNodeData extends BaseNodeData {
+  kind: "mask-redraw";
+  modelId: "gpt-image-2";
+  modelOptions: ImageModelOptions;
+  prompt: string;
+  mask?: string;
+  maskSourceRef?: string;
+  outputImages: string[];
+}
+
+export interface ResultNodeData extends BaseNodeData {
+  kind: "result";
+  images: string[];
+  note?: string;
+}
+
+export type WorkflowNodeData =
+  | ImageInputNodeData
+  | SketchToRenderNodeData
+  | AiModifyNodeData
+  | FabricRecolorNodeData
+  | UpscaleNodeData
+  | PrintExtractNodeData
+  | PrintMutateNodeData
+  | VirtualTryOnNodeData
+  | MaskRedrawNodeData
+  | ResultNodeData;
+
+// ---------- 持久化工作流（项目 / 模板共用）----------
+/**
+ * 版本 4 为虚拟换装增加阶段、工艺与人工确认语义。读取 v0/v1/v2/v3 时服务端会确定性迁移；
+ * 新版本不得静默降级读取。
+ */
+export const WORKFLOW_SCHEMA_VERSION = 4 as const;
+export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
+
+export interface PersistedWorkflowNode {
+  id: string;
+  type: NodeKind;
+  position: { x: number; y: number };
+  data: WorkflowNodeData;
+  [key: string]: unknown;
+}
+
+export interface PersistedWorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+  [key: string]: unknown;
+}
+
+export interface PersistedWorkflow {
+  schemaVersion: WorkflowSchemaVersion;
+  nodes: PersistedWorkflowNode[];
+  edges: PersistedWorkflowEdge[];
+}
+
+// ---------- Provider 抽象层契约 ----------
+/** 所有 AI 调用必须经此接口，禁止业务代码直连第三方 SDK */
+export interface ImageGenRequest {
+  prompt: string;
+  /** 参考图（dataURL 数组，按连线顺序；上限由节点与模型契约共同决定）。 */
+  referenceImages?: string[];
+  aspectRatio?: string;
+  batchSize?: number;
+  /** 业务输出档位：保持比例，2K/4K 分别将最终图片长边处理为 2048/4096 像素。 */
+  imageSize?: string;
+  /** 模型原生参数；由本地知识库契约严格校验。 */
+  modelOptions?: ImageModelOptions;
+  /** 局部编辑蒙版（dataURL），P0 可选 */
+  mask?: string;
+}
+
+export interface ImageGenResult {
+  images: string[];          // dataURL 或可访问 URL
+  model: string;
+  usageNote?: string;
+  /** 上游声明的逐图实际输出尺寸；顺序与 images 一致，未知项为 null。 */
+  providerOutputSizes?: Array<string | null>;
+}
+
+export interface AIProvider {
+  readonly id: string;                 // API易模型 ID；与本地模型知识库一致
+  validate?(req: ImageGenRequest, mode: "generate" | "edit"): void | Promise<void>;
+  generate(req: ImageGenRequest): Promise<ImageGenResult>;
+  edit(req: ImageGenRequest): Promise<ImageGenResult>;
+}
+
+// ---------- 节点执行计划（DAG 引擎与后端之间）----------
+export interface NodeExecution {
+  nodeId: string;
+  kind: NodeKind;
+  /** 上游传入的图片（按边顺序，计划期静态快照） */
+  inputImages: string[];
+  /**
+   * 上游依赖（按边顺序）：运行时优先取本次 Run 中该上游的产出，
+   * 上游不在执行范围（单节点重跑）时回退到 images 快照。
+   */
+  upstream?: { nodeId: string; images: string[]; targetHandle?: string | null }[];
+  params: Record<string, unknown>;
+}
+
+export interface ExecutionPlan {
+  /** 拓扑排序后的执行序列 */
+  steps: NodeExecution[];
+}
+
+// ---------- 工作流模板（P1-a）----------
+export interface WorkflowTemplate {
+  schemaVersion: WorkflowSchemaVersion;
+  id: string;
+  /** 用户模板所有者；内置模板不设置。服务端据此执行账号隔离。 */
+  ownerId?: string;
+  name: string;
+  description: string;
+  /** 内置模板（随部署预置，不可删） */
+  builtIn?: boolean;
+  /** 缩略图（可选，/api/files/xxx） */
+  thumbnail?: string;
+  flow: PersistedWorkflow;
+  createdAt: string;
+}
+
+// ---------- 素材库（印花提取等产出的可复用素材）----------
+export interface Asset {
+  id: string;
+  ownerId?: string | null;
+  ownerName?: string | null;
+  scope?: "global" | "private" | "shared";
+  canManage?: boolean;
+  name: string;
+  /** 素材类型：print=印花 / fabric=面料 / reference=参考图 */
+  category: "print" | "fabric" | "reference";
+  /** 图片 URL（/api/files/xxx） */
+  image: string;
+  /** 列表/画布预览使用的轻量缩略图；执行节点时仍使用 image 原图。 */
+  thumbnail?: string;
+  /** 来源说明（如来自哪个节点/项目） */
+  sourceNote?: string;
+  createdAt: string;
+  deletedAt?: string | null;
+  purgeAfter?: string | null;
+}
+
+// ---------- API 契约（前端 ↔ Express）----------
+// POST /api/generate   { clientRequestId, providerId, request: ImageGenRequest } → 202 { runId, status }
+// POST /api/files      { dataUrl } → { id, url }
+// GET  /api/files/:id  读取图片
+// POST /api/projects   保存项目 { id, name, flow } → { ok }
+// GET  /api/projects/:id → { id, name, flow }
+// GET    /api/templates        → WorkflowTemplate[]（内置 + 用户）
+// POST   /api/templates        { name, description, thumbnail?, flow } → { ok, id }
+// DELETE /api/templates/:id    删除用户模板（内置不可删，403）
+// GET    /api/templates/:id    → WorkflowTemplate
+// GET    /api/assets           ?category=print → Asset[]（按 createdAt 倒序）
+// POST   /api/assets           { name, category, image, sourceNote? } → { ok, id }
+// PATCH  /api/assets/:id       { name? } 重命名
+// DELETE /api/assets/:id       删除素材（不删底层图片文件，允许多素材共图）
+
+// ---------- 节点注册表（前端渲染 + 引擎共用）----------
+export interface NodeSpec {
+  kind: NodeKind;
+  title: string;
+  description: string;
+  providerId?: string;     // AI 节点对应的 provider
+  inputs: number;          // 接受的图片输入数（0 = 无输入）
+  outputs: "images" | "none";
+}
+
+export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
+  "image-input": {
+    kind: "image-input",
+    title: "图片上传",
+    description: "上传草图 / 款式图 / 面料参考",
+    inputs: 0,
+    outputs: "images",
+  },
+  "sketch-to-render": {
+    kind: "sketch-to-render",
+    title: "草图→效果图",
+    description: "选择模型，将线稿渲染为服装效果图",
+    providerId: "apiyi",
+    inputs: MAX_REFERENCE_IMAGES,
+    outputs: "images",
+  },
+  "ai-modify": {
+    kind: "ai-modify",
+    title: "AI 改款",
+    description: "选择模型修改领型、袖型、长度与细节",
+    providerId: "apiyi",
+    inputs: MAX_REFERENCE_IMAGES,
+    outputs: "images",
+  },
+  "fabric-recolor": {
+    kind: "fabric-recolor",
+    title: "面料/配色替换",
+    description: "选择模型替换面料纹理与配色",
+    providerId: "apiyi",
+    inputs: MAX_REFERENCE_IMAGES,
+    outputs: "images",
+  },
+  upscale: {
+    kind: "upscale",
+    title: "高清放大",
+    description: "AI 放大至 2K/4K，精修细节",
+    providerId: "apiyi",
+    inputs: 1,
+    outputs: "images",
+  },
+  "print-extract": {
+    kind: "print-extract",
+    title: "印花提取",
+    description: "选择模型从服装上提取印花并平铺展开",
+    providerId: "apiyi",
+    inputs: MAX_REFERENCE_IMAGES,
+    outputs: "images",
+  },
+  "print-mutate": {
+    kind: "print-mutate",
+    title: "印花裂变",
+    description: "选择模型生成 1~8 张风格一致的印花变体",
+    providerId: "apiyi",
+    inputs: MAX_REFERENCE_IMAGES,
+    outputs: "images",
+  },
+  "virtual-try-on": {
+    kind: "virtual-try-on",
+    title: "虚拟模特换装",
+    description: "以首张模特图为基准，融合服装与细节参考完成换装",
+    providerId: "apiyi",
+    inputs: MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES,
+    outputs: "images",
+  },
+  "mask-redraw": {
+    kind: "mask-redraw",
+    title: "局部修改",
+    description: "涂抹需要修改的区域并描述要添加、替换或调整的内容",
+    providerId: "apiyi",
+    // GPT Image 2 最多接收 8 张图，其中最后一张由服务端保留给区域引导图。
+    inputs: MAX_MASK_USER_REFERENCE_IMAGES,
+    outputs: "images",
+  },
+  result: {
+    kind: "result",
+    title: "结果",
+    description: "汇总展示与导出",
+    inputs: 4,
+    outputs: "none",
+  },
+};
