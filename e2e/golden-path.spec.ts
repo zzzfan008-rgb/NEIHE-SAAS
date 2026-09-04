@@ -100,19 +100,25 @@ test("upload and text starters complete the isolated first-generation golden pat
   expect(initialDraft.draft?.id).toBeTruthy();
   const launcher = page.getByRole("region", { name: "开始第一个创作任务" });
   await expect(launcher).toBeVisible();
-  await expect(launcher.getByRole("button", { name: /使用内置模板：/ })).toHaveCount(6);
+  const starterTemplates = launcher.getByRole("button", { name: /使用内置模板：/ });
+  const starterTemplateCount = await starterTemplates.count();
+  expect(starterTemplateCount).toBeGreaterThanOrEqual(7);
   const coverImages = launcher.locator('img[aria-hidden="true"]');
-  await expect(coverImages).toHaveCount(6);
+  await expect(coverImages).toHaveCount(starterTemplateCount);
   await expect.poll(() => coverImages.evaluateAll((images) => images.filter((image) => {
     if (!(image instanceof HTMLImageElement)) return false;
-    return image.currentSrc.endsWith(".webp") && image.naturalWidth > 0;
-  }).length)).toBe(6);
+    return image.naturalWidth > 0;
+  }).length)).toBe(starterTemplateCount);
+  expect(await coverImages.evaluateAll((images) => images.filter((image) => (
+    image instanceof HTMLImageElement && image.currentSrc.endsWith(".webp")
+  )).length)).toBeGreaterThanOrEqual(6);
 
-  const uploadFileChooser = page.waitForEvent("filechooser");
   await launcher.getByRole("button", { name: "使用内置模板：草图→效果图→高清放大" }).click();
-  const fileChooser = await uploadFileChooser;
   const uploadNode = page.locator(".react-flow__node").filter({ hasText: "图片上传" });
   await expect(uploadNode).toBeVisible();
+  const uploadFileChooser = page.waitForEvent("filechooser");
+  await uploadNode.getByRole("button", { name: "本地上传" }).click();
+  const fileChooser = await uploadFileChooser;
   const fileInput = uploadNode.locator('input[type="file"]');
   await expect(fileInput).toBeFocused();
   await fileChooser.setFiles({ name: "starter.png", mimeType: "image/png", buffer: uploadImage });
@@ -120,25 +126,24 @@ test("upload and text starters complete the isolated first-generation golden pat
 
   const uploadGenerateNode = page.locator(".react-flow__node").filter({ hasText: "草图→效果图" });
   await uploadGenerateNode.getByRole("button", { name: "生成效果图" }).click();
-  await expect(uploadGenerateNode.getByTitle("成功")).toBeVisible();
+  await expect(uploadGenerateNode.getByRole("button", { name: "生成结果 1" })).toBeVisible();
   await expect.poll(() => runs.length).toBe(1);
   await expect.poll(() => saves.length).toBe(1);
   expect(saves[0].id).toBe(initialDraft.draft?.id);
   expect(runs[0].nodes).toEqual(saves[0].flow.nodes);
   expect(runs[0].edges).toEqual(saves[0].flow.edges);
 
-  const contextToggle = page.getByRole("button", { name: "属性 / 结果" });
-  await contextToggle.click();
-  await page.getByRole("tab", { name: "结果 / 记录" }).click();
+  await page.getByRole("button", { name: "结果 / 记录", exact: true }).click();
   const results = page.getByRole("region", { name: "最近生成" });
   await expect(results.getByAltText("草图→效果图")).toBeVisible();
+  await page.getByRole("button", { name: "收起结果与记录" }).click();
 
   await page.getByRole("button", { name: "打开项目中心" }).click();
   const projectCenter = page.getByRole("dialog", { name: "项目中心" });
   await expect(projectCenter).toBeVisible();
   await projectCenter.getByRole("button", { name: /新建项目/ }).click();
   await expect(launcher).toBeVisible();
-  await expect(launcher.getByRole("button", { name: /使用内置模板：/ })).toHaveCount(6);
+  await expect(launcher.getByRole("button", { name: /使用内置模板：/ })).toHaveCount(starterTemplateCount);
   await launcher.getByRole("button", { name: "使用内置模板：文生图（服装设计）" }).click();
   const textNode = page.locator(".react-flow__node").filter({ hasText: "文生图" });
   const prompt = textNode.locator("textarea").first();
@@ -152,13 +157,13 @@ test("upload and text starters complete the isolated first-generation golden pat
   })).toBe(true);
   await prompt.fill("极简黑白通勤女装，写实摄影，浅灰背景");
   await textNode.getByRole("button", { name: "生成效果图" }).click();
-  await expect(textNode.getByTitle("成功")).toBeVisible();
+  await expect(textNode.getByRole("button", { name: "生成结果 1" })).toBeVisible();
   await expect.poll(() => runs.length).toBe(2);
   await expect.poll(() => saves.length).toBe(2);
   expect(runs[1].nodes).toEqual(saves[1].flow.nodes);
   expect(runs[1].edges).toEqual(saves[1].flow.edges);
 
-  await page.getByRole("tab", { name: "结果 / 记录" }).click();
+  await page.getByRole("button", { name: "结果 / 记录", exact: true }).click();
   const textResult = results.getByAltText("文生图");
   const uploadResult = results.getByAltText("草图→效果图");
   await expect(textResult).toBeVisible();
@@ -175,7 +180,6 @@ test("upload and text starters complete the isolated first-generation golden pat
   const textInputNodesBefore = await page.locator(".react-flow__node").filter({ hasText: "文生图" }).count();
   await textResultCard.locator('button[title="设为输入"]').click();
   await expect(page.locator(".react-flow__node").filter({ hasText: "文生图" })).toHaveCount(textInputNodesBefore + 1);
-  await page.getByRole("tab", { name: "结果 / 记录" }).click();
 
   await textResultCard.locator('button[title="查看"]').click();
   await expect(page.getByText(/滚轮缩放 100%/)).toBeVisible();
@@ -190,25 +194,52 @@ test("upload and text starters complete the isolated first-generation golden pat
   await expect(compareDialog).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(compareDialog).toHaveCount(0);
+  const resultsToggle = page.getByRole("button", { name: "结果 / 记录", exact: true });
+  await expect(resultsToggle).toHaveAttribute("aria-expanded", "false");
+  await resultsToggle.click();
 
-  for (const theme of ["white", "eye", "current"] as const) {
-    await page.evaluate((value) => {
-      document.documentElement.setAttribute("data-theme", value);
-    }, theme);
-    await textResultCard.hover();
-    const viewColor = await textResultCard.locator('button[title="查看"]').evaluate((element) => getComputedStyle(element).color);
-    expect(viewColor).toMatch(/rgb\(244, 244, 244\)/);
-    await textResultCard.locator('button[title="查看"]').focus();
-    const inputColor = await textResultCard.locator('button[title="设为输入"]').evaluate((element) => getComputedStyle(element).color);
-    expect(inputColor).toMatch(/rgb\(244, 244, 244\)/);
-  }
+  expect(await page.locator("html").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      selector: element.getAttribute("data-theme"),
+      shell: style.getPropertyValue("--gc-shell").trim(),
+      panel: style.getPropertyValue("--gc-panel").trim(),
+      text: style.getPropertyValue("--gc-text").trim(),
+      accent: style.getPropertyValue("--gc-accent").trim(),
+    };
+  })).toEqual({
+    selector: null,
+    shell: "#101214",
+    panel: "#17191c",
+    text: "#e5e7eb",
+    accent: "#b18745",
+  });
+  await textResultCard.hover();
+  const viewColor = await textResultCard.locator('button[title="查看"]').evaluate((element) => getComputedStyle(element).color);
+  expect(viewColor).toMatch(/rgb\(244, 244, 244\)/);
+  await textResultCard.locator('button[title="查看"]').focus();
+  const inputColor = await textResultCard.locator('button[title="设为输入"]').evaluate((element) => getComputedStyle(element).color);
+  expect(inputColor).toMatch(/rgb\(244, 244, 244\)/);
+  await page.getByRole("button", { name: "收起结果与记录" }).click();
 
   const canvasNodes = page.locator(".react-flow__node");
-  const nodeCountBeforeLibraryClick = await canvasNodes.count();
-  await page.getByRole("button", { name: "节点库" }).click();
-  const library = page.getByRole("region", { name: "节点库" });
-  await library.getByRole("button", { name: /AI 改款/ }).click();
-  await expect(canvasNodes).toHaveCount(nodeCountBeforeLibraryClick + 1);
+  await page.getByRole("navigation", { name: "工作台左侧工具" })
+    .getByRole("button", { name: "服装设计", exact: true }).click();
+  const apparelMenu = page.getByRole("menu", { name: "服装设计" });
+  await apparelMenu.getByRole("menuitem", { name: /AI 改款/ }).click();
+  await expect(canvasNodes).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "AI 改款 - 副本", exact: true })).toBeVisible();
+  expect(await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    const aiNode = tab?.nodes.find((node: { id: string; data: { kind: string } }) => node.data.kind === "ai-modify");
+    return {
+      kinds: tab?.nodes.map((node: { data: { kind: string } }) => node.data.kind).sort(),
+      incomingEdges: aiNode ? tab?.edges.filter((edge: { target: string }) => edge.target === aiNode.id).length : 0,
+    };
+  })).toEqual({ kinds: ["ai-modify", "image-input", "text-input"], incomingEdges: 2 });
   const clickedNode = canvasNodes.filter({ hasText: "AI 改款" });
-  await expect(clickedNode.locator("textarea").first()).toBeFocused();
+  await expect(clickedNode.locator("textarea").first()).toBeVisible();
 });

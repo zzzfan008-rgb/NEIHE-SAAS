@@ -12,6 +12,8 @@ const appSource = source("src/App.tsx");
 const compareSource = source("src/components/CompareOverlay.tsx");
 const assetPickerSource = source("src/components/AssetPickerOverlay.tsx");
 const projectTabsSource = source("src/components/panels/ProjectTabs.tsx");
+const drawingBoardNodeSource = source("src/components/nodes/DrawingBoardNode.tsx");
+const nodeRegistrySource = source("src/components/nodes/index.ts");
 
 assert.match(mainSource, /import \{ AuthGate \} from "\.\/AuthGate"/);
 assert.doesNotMatch(mainSource, /import App from/);
@@ -39,3 +41,15 @@ assert.match(projectTabsSource, /onPointerEnter=\{\(\) => void loadProjectCenter
 assert.match(projectTabsSource, /projectCenterRequested && \(/);
 assert.match(projectTabsSource, /<LazyProjectCenter open=\{projectCenterOpen\}/);
 console.log("  ✓ 项目中心支持 focus\/hover 预取，首次打开后保留组件实例");
+
+assert.match(
+  drawingBoardNodeSource,
+  /lazy\(async \(\) => \{[\s\S]*?import\("@\/components\/drawing\/DrawingEditor"\)[\s\S]*?\}\)/,
+  "绘画编辑器必须从画板节点动态加载",
+);
+assert.doesNotMatch(
+  nodeRegistrySource,
+  /from ["']@\/components\/drawing\/DrawingEditor["']/,
+  "初始节点注册表不得静态拉取 Konva 绘画编辑器",
+);
+console.log("  ✓ Konva 绘画编辑器保留独立动态加载边界");

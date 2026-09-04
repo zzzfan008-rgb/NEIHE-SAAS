@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 6,
+  "id": "builtin-tool-color-replace",
+  "name": "配色替换",
+  "description": "主服装与目标色板已连接。",
+  "builtIn": true,
+  "createdAt": "2026-09-03T08:00:00.000Z",
+  "flow": {
+    "schemaVersion": 6,
+    "nodes": [
+      {
+        "id": "garment",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": -100
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "主服装图",
+          "status": "idle",
+          "imageRole": "garment"
+        }
+      },
+      {
+        "id": "palette",
+        "type": "color-palette",
+        "position": {
+          "x": 0,
+          "y": 180
+        },
+        "data": {
+          "kind": "color-palette",
+          "label": "目标色板",
+          "status": "idle",
+          "paletteVersion": 1,
+          "swatches": [
+            {
+              "id": "black",
+              "value": "#000000",
+              "source": "quick"
+            }
+          ]
+        }
+      },
+      {
+        "id": "generate",
+        "type": "fabric-recolor",
+        "position": {
+          "x": 420,
+          "y": 0
+        },
+        "data": {
+          "kind": "fabric-recolor",
+          "label": "配色替换",
+          "status": "idle",
+          "operationMode": "color",
+          "colors": [
+            "#000000"
+          ],
+          "prompt": "",
+          "outputImages": [],
+          "modelId": "gpt-image-2-vip",
+          "modelOptions": {
+            "size": "2048x2048"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "garment-generate",
+        "source": "garment",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "references"
+      },
+      {
+        "id": "palette-generate",
+        "source": "palette",
+        "sourceHandle": "colors",
+        "target": "generate",
+        "targetHandle": "palette"
+      }
+    ]
+  }
+}

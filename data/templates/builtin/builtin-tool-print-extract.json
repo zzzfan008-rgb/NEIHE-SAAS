@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 6,
+  "id": "builtin-tool-print-extract",
+  "name": "印花提取",
+  "description": "从上传图中提取可复用印花。",
+  "builtIn": true,
+  "createdAt": "2026-09-03T08:00:00.000Z",
+  "flow": {
+    "schemaVersion": 6,
+    "nodes": [
+      {
+        "id": "source",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "印花来源图",
+          "status": "idle",
+          "imageRole": "reference"
+        }
+      },
+      {
+        "id": "generate",
+        "type": "print-extract",
+        "position": {
+          "x": 380,
+          "y": 0
+        },
+        "data": {
+          "kind": "print-extract",
+          "label": "印花提取",
+          "status": "idle",
+          "prompt": "",
+          "outputImages": [],
+          "savedAsAssets": [],
+          "modelId": "gpt-image-2-vip",
+          "modelOptions": {
+            "size": "2048x2048"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "source-generate",
+        "source": "source",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "references"
+      }
+    ]
+  }
+}

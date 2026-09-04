@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { packageManagerCommand, packageManagerInstallArgs, packageManagerRunArgs } from "./package-manager.mjs";
 
 const REQUIRED_NODE_VERSION = "22.20.0";
 
@@ -157,7 +158,7 @@ function reviewSelection(args) {
 }
 
 if (process.argv.includes("--help")) {
-  console.log(`Usage: npm run gate:codex -- [--base REF | --commit SHA | --uncommitted] [--review-only]
+  console.log(`Usage: pnpm run gate:codex -- [--base REF | --commit SHA | --uncommitted] [--review-only]
 
 Runs deterministic local verification, then an exact-diff structured Codex exec review. The review intentionally
 omits --model so Codex uses the user's configured default model. Any P0-P3 finding fails the gate.
@@ -185,11 +186,12 @@ if (selection.finalEvidence) {
 }
 
 if (!process.argv.includes("--review-only")) {
-  run("npm", ["ci"]);
-  run("npm", ["run", "check"]);
-  run("npm", ["run", "test:e2e"]);
-  run("npm", ["run", "build"]);
-  run("npm", ["run", "test:e2e:production"]);
+  const install = packageManagerInstallArgs();
+  run(install.command, install.args);
+  for (const script of ["check", "test:e2e", "build", "test:e2e:production"]) {
+    const manager = packageManagerRunArgs(script);
+    run(manager.command, manager.args);
+  }
   checkSelectedDiff(selection);
   const finalHead = output("git", ["rev-parse", "HEAD"]);
   const finalSnapshot = workspaceSnapshot();

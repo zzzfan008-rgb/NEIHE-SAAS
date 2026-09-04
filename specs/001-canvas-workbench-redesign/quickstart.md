@@ -15,9 +15,9 @@ Before implementation edits, run the required GitNexus upstream impact check for
 ## 2. Install and static gates
 
 ```bash
-npm ci
-npm run lint
-npm run build
+pnpm install --frozen-lockfile
+pnpm run lint
+pnpm run build
 ```
 
 Expected:
@@ -70,8 +70,8 @@ Expected evidence:
 ## 4. Full isolated test suites
 
 ```bash
-npm run test
-npm run test:e2e
+pnpm run test
+pnpm run test:e2e
 ```
 
 The repository runners must provision isolated PostgreSQL and temporary file storage and must use dummy/stub providers. Expected: all existing Results, authorization, run queue, retry, schema, project tab and export regressions pass. No request reaches a real AI service.
@@ -168,8 +168,8 @@ Automated browser timings and geometry support diagnosis but do not replace thes
 ## 8. Final gates
 
 ```bash
-npm run check
-npm run test:e2e:production
+pnpm run check
+pnpm run test:e2e:production
 node .gitnexus/run.cjs detect-changes --scope all --repo .
 git diff --check
 ```

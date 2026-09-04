@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   MiniMap,
@@ -12,6 +12,8 @@ import {
   selectActiveEdges,
   selectActiveNodes,
   selectActiveReadOnly,
+  selectActivePrimarySelectedNodeId,
+  selectActiveDocumentTarget,
   useFlowStore,
   type FlowNode,
   type HistoryTransactionToken,
@@ -19,16 +21,28 @@ import {
 import { DotWaveBackground } from "./DotWaveBackground";
 import { PulseEdge } from "./edges/PulseEdge";
 import { nodeTypes } from "./nodes";
-import { useTheme, type ThemeId } from "@/lib/theme";
 import type { NodeKind } from "@/types/workflow";
 import {
   CANVAS_LANDING_EVENT,
   consumeCanvasLanding,
   peekCanvasLanding,
+  requestCanvasLanding,
   type CanvasLandingIntent,
 } from "@/lib/canvasLanding";
 import { CanvasZoomControls } from "./CanvasZoomControls";
 import { detectDesktopShortcutPlatform } from "@/lib/keyboardShortcuts";
+import {
+  CANVAS_CREATION_EVENT,
+  CANVAS_CREATION_MIME,
+  OPEN_BUILTIN_TEMPLATE_EVENT,
+  documentTargetMatches,
+  findNearestVisibleNodePosition,
+  parseCanvasCreationDragPayload,
+  type CanvasCreationRequest,
+} from "@/lib/canvasCreation";
+import { OPEN_ASSET_PICKER_EVENT, type AssetPickerRequest } from "@/lib/overlayEvents";
+import type { CanvasCreationIntent } from "@/types/workbench";
+import { directedPathNodeIds } from "@/lib/graphLayout";
 
 export const DND_MIME = "application/garment-node";
 
@@ -141,10 +155,8 @@ export function registerDragInterruptionHandlers(
 }
 
 /** 小地图配色随主题 */
-const MINIMAP_COLORS: Record<ThemeId, { bg: string; node: string; mask: string }> = {
-  current: { bg: "#141414", node: "#2a2a2a", mask: "rgba(10,10,10,0.7)" },
-  white: { bg: "#ffffff", node: "#d2d2d7", mask: "rgba(29,29,31,0.08)" },
-  eye: { bg: "#ddeccf", node: "#98b884", mask: "rgba(48,69,43,0.15)" },
+const MINIMAP_COLORS = {
+  current: { bg: "#e2e2e2", node: "#8a8a8a", mask: "rgba(191,191,191,0.58)" },
 };
 
 export function CanvasFlow() {
@@ -158,12 +170,14 @@ export function CanvasFlow() {
   const setSelectedNodeIds = useFlowStore((s) => s.setSelectedNodeIds);
   const activeTabId = useFlowStore((s) => s.activeTabId);
   const readOnly = useFlowStore(selectActiveReadOnly);
+  const primarySelectedNodeId = useFlowStore(selectActivePrimarySelectedNodeId);
   const { fitView, getViewport, screenToFlowPosition, setViewport } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const [landingVersion, setLandingVersion] = useState(0);
   const [compactMinimap, setCompactMinimap] = useState(false);
-  const [theme] = useTheme();
-  const minimap = MINIMAP_COLORS[theme];
+  const minimapWidth = compactMinimap ? 128 : 200;
+  const minimapHeight = compactMinimap ? 96 : 150;
+  const minimap = MINIMAP_COLORS.current;
   const multiSelectionKeyCode = detectDesktopShortcutPlatform() === "macos" ? "Meta" : "Control";
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const canvasSizeRef = useRef<{ width: number; height: number } | null>(null);
@@ -173,6 +187,86 @@ export function CanvasFlow() {
     current: null,
     startedAt: null,
   }).current;
+  const renderedEdges = useMemo(() => {
+    if (!primarySelectedNodeId) {
+      return edges.map((edge) => ({
+        ...edge,
+        type: edge.type ?? "pulse",
+        data: { ...edge.data, pathEmphasis: "quiet" },
+      }));
+    }
+    const paths = directedPathNodeIds(primarySelectedNodeId, nodes, edges);
+    return edges.map((edge) => {
+      const pathEmphasis = paths.upstream.has(edge.source) && paths.upstream.has(edge.target)
+        ? "upstream"
+        : paths.downstream.has(edge.source) && paths.downstream.has(edge.target)
+          ? "downstream"
+          : "unrelated";
+      return { ...edge, type: edge.type ?? "pulse", data: { ...edge.data, pathEmphasis } };
+    });
+  }, [edges, nodes, primarySelectedNodeId]);
+
+  const createFromIntent = useCallback((
+    intent: CanvasCreationIntent,
+    mode: "click" | "drop",
+    position?: { x: number; y: number },
+  ) => {
+    if (readOnly) return;
+    if (intent.type === "workflow-template") {
+      window.dispatchEvent(new CustomEvent(OPEN_BUILTIN_TEMPLATE_EVENT, {
+        detail: { templateId: intent.templateId },
+      }));
+      return;
+    }
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    const box = container.getBoundingClientRect();
+    const dropPosition = position;
+    const preferred = dropPosition ?? screenToFlowPosition({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
+    const topLeft = screenToFlowPosition({ x: box.left, y: box.top });
+    const bottomRight = screenToFlowPosition({ x: box.right, y: box.bottom });
+    const resolved = findNearestVisibleNodePosition({
+      viewport: { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y },
+      preferred,
+      nodeSize: { width: 280, height: 180 },
+      occupied: nodes.map((node) => ({
+        left: node.position.x,
+        top: node.position.y,
+        right: node.position.x + (node.measured?.width ?? node.width ?? 280),
+        bottom: node.position.y + (node.measured?.height ?? node.height ?? 180),
+      })),
+      preservePreferred: mode === "drop",
+    });
+    const normalizedIntent = intent.type === "asset-picker"
+      ? { type: "node", kind: "image-input" as const }
+      : intent.type === "drawing-board"
+        ? { type: "node", kind: "drawing-board" as const }
+        : intent.type === "color-palette"
+          ? { type: "node", kind: "color-palette" as const, preset: { swatches: intent.swatches } }
+          : intent;
+    if (normalizedIntent.type !== "node") return;
+    const nodeId = addNode(normalizedIntent.kind, resolved, normalizedIntent.preset);
+    if (!nodeId) return;
+    const target = selectActiveDocumentTarget(useFlowStore.getState());
+    if (intent.type === "asset-picker") {
+      const detail: AssetPickerRequest = { target, nodeId };
+      window.dispatchEvent(new CustomEvent(OPEN_ASSET_PICKER_EVENT, { detail }));
+    } else if (intent.type === "node" && intent.kind === "image-input" && mode === "click") {
+      requestCanvasLanding({ tabId: target.tabId, nodeId, fitView: false, activateFilePicker: true });
+    }
+  }, [addNode, nodes, readOnly, screenToFlowPosition]);
+
+  useEffect(() => {
+    const onCreation = (event: Event) => {
+      const request = (event as CustomEvent<CanvasCreationRequest>).detail;
+      if (!request?.target || !request.intent) return;
+      const current = selectActiveDocumentTarget(useFlowStore.getState());
+      if (!documentTargetMatches(request.target, current)) return;
+      createFromIntent(request.intent, request.mode, request.position);
+    };
+    window.addEventListener(CANVAS_CREATION_EVENT, onCreation);
+    return () => window.removeEventListener(CANVAS_CREATION_EVENT, onCreation);
+  }, [createFromIntent]);
 
   useEffect(
     () => registerDragInterruptionHandlers(dragTransactionRef, window),
@@ -253,11 +347,16 @@ export function CanvasFlow() {
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
+      const intent = parseCanvasCreationDragPayload(e.dataTransfer.getData(CANVAS_CREATION_MIME));
+      if (intent) {
+        createFromIntent(intent, "drop", screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+        return;
+      }
       const kind = e.dataTransfer.getData(DND_MIME) as NodeKind | "";
       if (!kind || readOnly) return;
       addNode(kind, screenToFlowPosition({ x: e.clientX, y: e.clientY }));
     },
-    [addNode, screenToFlowPosition, readOnly],
+    [addNode, createFromIntent, screenToFlowPosition, readOnly],
   );
 
   const handleNodesChange = useCallback(
@@ -273,7 +372,7 @@ export function CanvasFlow() {
       <ReactFlow
         aria-label="工作流画布"
         nodes={nodes}
-        edges={edges}
+        edges={renderedEdges}
         nodeTypes={nodeTypes}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
@@ -299,6 +398,8 @@ export function CanvasFlow() {
         multiSelectionKeyCode={multiSelectionKeyCode}
         panOnDrag={[1, 2]}
         autoPanOnNodeDrag={false}
+        minZoom={0.2}
+        maxZoom={3}
         defaultViewport={{ x: 100, y: 200, zoom: 1 }}
         proOptions={{ hideAttribution: true }}
         edgeTypes={edgeTypes}
@@ -311,13 +412,14 @@ export function CanvasFlow() {
           nodeColor={minimap.node}
           maskColor={minimap.mask}
           style={{
-            width: compactMinimap ? 128 : 200,
-            height: compactMinimap ? 96 : 150,
+            width: minimapWidth,
+            height: minimapHeight,
+            margin: 12,
           }}
           pannable
           zoomable
         />
-        <CanvasZoomControls />
+        <CanvasZoomControls minimapWidth={minimapWidth} />
       </ReactFlow>
     </div>
   );

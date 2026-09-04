@@ -7,6 +7,12 @@ import type { GenerationImageModelId, ImageModelOptions } from "./imageModels";
 // ---------- 节点类型 ----------
 export type NodeKind =
   | "image-input"        // 图片上传（草图/款式图/面料参考）
+  | "text-input"         // 画布文本说明（typed text 输出）
+  | "drawing-board"      // 可编辑画板（提交后输出预览图）
+  | "color-palette"      // 显式色板（typed colors 输出）
+  | "stage-approval"     // 第一轮基准人工确认门槛
+  | "video-input"       // 本地视频上传
+  | "video-generate"    // VEO 文生/帧生/参考图/视频重制
   | "sketch-to-render"   // 草图→效果图（节点内选择 API易模型）
   | "ai-modify"          // AI 改款/变体（gpt-image-2）
   | "fabric-recolor"     // 面料/配色替换（gpt-image-2）
@@ -28,6 +34,51 @@ export type NodeRunStatus =
   | "error"
   | "outcome_unknown"
   | "cancelled";
+
+export type NodeDisplayState =
+  | "idle"
+  | "missing-input"
+  | "ready"
+  | "queued"
+  | "running"
+  | "retrying"
+  | "success"
+  | "failed"
+  | "unknown-outcome"
+  | "needs-reconfirmation";
+
+export type PortValueKind = "image" | "text" | "colors" | "video" | "none";
+
+export type WorkflowInputRole =
+  | "person"
+  | "scene"
+  | "outfit"
+  | "bag"
+  | "shoes"
+  | "hat"
+  | "ring"
+  | "earrings"
+  | "bracelet"
+  | "detail"
+  | "material"
+  | "baseline-candidate"
+  | "baseline"
+  | "palette"
+  | "prompt"
+  | "references"
+  | "first-frame"
+  | "last-frame"
+  | "source-video";
+
+export interface NodePortSpec {
+  id: string;
+  label: string;
+  direction: "input" | "output";
+  valueKind: PortValueKind;
+  required: boolean;
+  maxSources: number;
+  accepts?: readonly PortValueKind[];
+}
 
 /** OpenAI Images Edit 最多支持 16 图；产品端为控制成本与上传体积限制为 8 图。 */
 export const MAX_REFERENCE_IMAGES = 8;
@@ -69,6 +120,46 @@ export interface ImageInputNodeData extends BaseNodeData {
   imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
 }
 
+export interface TextInputNodeData extends BaseNodeData {
+  kind: "text-input";
+  text: string;
+}
+
+export interface DrawingBoardNodeData extends BaseNodeData {
+  kind: "drawing-board";
+  boardVersion: 1;
+  width: number;
+  height: number;
+  background: string;
+  contentRef?: string;
+  previewImageRef?: string;
+  exportImageRef?: string;
+}
+
+export type ColorSwatchSource = "quick" | "custom" | "recent" | "favorite" | "eyedropper";
+
+export interface ColorSwatch {
+  id: string;
+  value: `#${string}`;
+  name?: string;
+  source: ColorSwatchSource;
+}
+
+export interface ColorPaletteNodeData extends BaseNodeData {
+  kind: "color-palette";
+  paletteVersion: 1;
+  swatches: ColorSwatch[];
+}
+
+export interface StageApprovalNodeData extends BaseNodeData {
+  kind: "stage-approval";
+  approvalKind: "scene-baseline";
+  approvedSourceNodeId?: string;
+  approvedBaselineRef?: string;
+  approvedBasisRevision?: number;
+  approvedAt?: string;
+}
+
 export interface SketchToRenderNodeData extends BaseNodeData, ModelSelectableNodeData {
   kind: "sketch-to-render";
   prompt: string;
@@ -87,6 +178,7 @@ export interface AiModifyNodeData extends BaseNodeData, ModelSelectableNodeData 
 
 export interface FabricRecolorNodeData extends BaseNodeData, ModelSelectableNodeData {
   kind: "fabric-recolor";
+  operationMode: "combined" | "fabric" | "color";
   /** 选中的配色（hex 数组，最多 8 个，一色出一张图），prompt 由它自动组装 */
   colors: string[];
   prompt: string;            // 由 colors 自动组装的替换指令
@@ -130,11 +222,40 @@ export interface VirtualTryOnNodeData extends BaseNodeData {
   modelId: "gpt-image-2" | "gemini-3.1-flash-image-preview";
   modelOptions: ImageModelOptions;
   imageSize: "2K" | "4K";
+  /** 标准一键换装使用服装行业常用画幅；分步换装仍由基准图推导。 */
+  aspectRatio: "1:1" | "4:5" | "3:4" | "2:3" | "9:16" | "16:9";
+  /** 第一轮语义输入、参数、输出或重跑发生变化时递增。 */
+  basisRevision?: number;
   garmentCategory?: "knit" | "woven" | "other";
   materialSpec?: string;
   constructionSpec?: string;
-  /** 用户确认的第一轮输出引用；第一轮输出变化时必须重新确认。 */
-  approvedBaselineRef?: string;
+  outputImages: string[];
+}
+
+export interface VideoInputNodeData extends BaseNodeData {
+  kind: "video-input";
+  /** 受账号 ACL 保护的本地 /api/files/*.mp4|webm|mov 引用。 */
+  videoUrl?: string;
+  mimeType?: "video/mp4" | "video/webm" | "video/quicktime";
+}
+
+export type VideoGenerationMode =
+  | "text-to-video"
+  | "keyframes-to-video"
+  | "multi-image-video"
+  | "video-to-video";
+
+export interface VideoGenerateNodeData extends BaseNodeData {
+  kind: "video-generate";
+  mode: VideoGenerationMode;
+  prompt: string;
+  /** 固定由服务端路由到 VEO 3.1 兼容型号，前端不允许自由填写模型。 */
+  videoModel: "veo-3.1";
+  quality: "fast" | "standard";
+  aspectRatio: "16:9" | "9:16";
+  resolution: "720p" | "1080p" | "4k";
+  seconds: 4 | 6 | 8;
+  /** 为复用既有持久化/运行事件，媒体引用仍沿用 outputImages 字段。 */
   outputImages: string[];
 }
 
@@ -156,6 +277,12 @@ export interface ResultNodeData extends BaseNodeData {
 
 export type WorkflowNodeData =
   | ImageInputNodeData
+  | TextInputNodeData
+  | DrawingBoardNodeData
+  | ColorPaletteNodeData
+  | StageApprovalNodeData
+  | VideoInputNodeData
+  | VideoGenerateNodeData
   | SketchToRenderNodeData
   | AiModifyNodeData
   | FabricRecolorNodeData
@@ -168,10 +295,10 @@ export type WorkflowNodeData =
 
 // ---------- 持久化工作流（项目 / 模板共用）----------
 /**
- * 版本 4 为虚拟换装增加阶段、工艺与人工确认语义。读取 v0/v1/v2/v3 时服务端会确定性迁移；
+ * 版本 6 增加视频输入、VEO 生成节点与媒体结果；读取 v0-v5 时服务端确定性迁移；
  * 新版本不得静默降级读取。
  */
-export const WORKFLOW_SCHEMA_VERSION = 4 as const;
+export const WORKFLOW_SCHEMA_VERSION = 6 as const;
 export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
 
 export interface PersistedWorkflowNode {
@@ -187,7 +314,7 @@ export interface PersistedWorkflowEdge {
   source: string;
   target: string;
   sourceHandle?: string | null;
-  targetHandle?: string | null;
+  targetHandle?: WorkflowInputRole | null;
   [key: string]: unknown;
 }
 
@@ -295,7 +422,7 @@ export interface Asset {
 // DELETE /api/templates/:id    删除用户模板（内置不可删，403）
 // GET    /api/templates/:id    → WorkflowTemplate
 // GET    /api/assets           ?category=print → Asset[]（按 createdAt 倒序）
-// POST   /api/assets           { name, category, image, sourceNote? } → { ok, id }
+// POST   /api/assets           dataURL 输入会先标准化并返回 { ok, id, url, mimeType, width, height, byteLength, normalized }
 // PATCH  /api/assets/:id       { name? } 重命名
 // DELETE /api/assets/:id       删除素材（不删底层图片文件，允许多素材共图）
 
@@ -306,8 +433,32 @@ export interface NodeSpec {
   description: string;
   providerId?: string;     // AI 节点对应的 provider
   inputs: number;          // 接受的图片输入数（0 = 无输入）
-  outputs: "images" | "none";
+  outputs: "images" | "videos" | "none";
+  inputPorts: readonly NodePortSpec[];
+  outputPorts: readonly NodePortSpec[];
 }
+
+const imageInputPort = (maxSources: number): NodePortSpec => ({
+  id: "references",
+  label: "参考图",
+  direction: "input",
+  valueKind: "image",
+  required: false,
+  maxSources,
+});
+const imageOutputPort = (): NodePortSpec => ({
+  id: "image",
+  label: "图片",
+  direction: "output",
+  valueKind: "image",
+  required: false,
+  maxSources: 1,
+});
+const imageAndPromptPorts = (maxSources: number): readonly NodePortSpec[] => [
+  imageInputPort(maxSources),
+  { id: "prompt", label: "提示词", direction: "input", valueKind: "text", required: false, maxSources: 1 },
+];
+const noPorts: readonly NodePortSpec[] = [];
 
 export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
   "image-input": {
@@ -316,6 +467,65 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     description: "上传草图 / 款式图 / 面料参考",
     inputs: 0,
     outputs: "images",
+    inputPorts: noPorts,
+    outputPorts: [imageOutputPort()],
+  },
+  "text-input": {
+    kind: "text-input",
+    title: "文本节点",
+    description: "在画布中记录可编辑的文字说明",
+    inputs: 0,
+    outputs: "none",
+    inputPorts: noPorts,
+    outputPorts: [{ id: "text", label: "文本", direction: "output", valueKind: "text", required: false, maxSources: 1 }],
+  },
+  "drawing-board": {
+    kind: "drawing-board",
+    title: "绘画工具",
+    description: "在独立画板中绘制并提交预览图",
+    inputs: 0,
+    outputs: "images",
+    inputPorts: noPorts,
+    outputPorts: [imageOutputPort()],
+  },
+  "color-palette": {
+    kind: "color-palette",
+    title: "色板",
+    description: "保存并连接一组明确的目标颜色",
+    inputs: 0,
+    outputs: "none",
+    inputPorts: noPorts,
+    outputPorts: [{ id: "colors", label: "颜色", direction: "output", valueKind: "colors", required: false, maxSources: 1 }],
+  },
+  "stage-approval": {
+    kind: "stage-approval",
+    title: "确认第一轮基准",
+    description: "确认当前人物、场景与穿搭基准后解锁精修",
+    inputs: 1,
+    outputs: "images",
+    inputPorts: [{ id: "baseline-candidate", label: "待确认基准", direction: "input", valueKind: "image", required: true, maxSources: 1 }],
+    outputPorts: [imageOutputPort()],
+  },
+  "video-input": {
+    kind: "video-input",
+    title: "视频上传",
+    description: "上传 MP4、WebM 或 MOV 视频素材",
+    inputs: 0,
+    outputs: "videos",
+    inputPorts: noPorts,
+    outputPorts: [{ id: "video", label: "视频", direction: "output", valueKind: "video", required: false, maxSources: 1 }],
+  },
+  "video-generate": {
+    kind: "video-generate",
+    title: "视频生成",
+    description: "使用 VEO 3.1 生成或重制 8 秒服装视频",
+    providerId: "apiyi-video",
+    inputs: 8,
+    outputs: "videos",
+    inputPorts: [
+      { id: "references", label: "参考素材", direction: "input", valueKind: "image", required: false, maxSources: 8, accepts: ["image", "video", "text"] },
+    ],
+    outputPorts: [{ id: "video", label: "视频", direction: "output", valueKind: "video", required: false, maxSources: 1 }],
   },
   "sketch-to-render": {
     kind: "sketch-to-render",
@@ -324,6 +534,8 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     providerId: "apiyi",
     inputs: MAX_REFERENCE_IMAGES,
     outputs: "images",
+    inputPorts: imageAndPromptPorts(MAX_REFERENCE_IMAGES),
+    outputPorts: [imageOutputPort()],
   },
   "ai-modify": {
     kind: "ai-modify",
@@ -332,6 +544,8 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     providerId: "apiyi",
     inputs: MAX_REFERENCE_IMAGES,
     outputs: "images",
+    inputPorts: imageAndPromptPorts(MAX_REFERENCE_IMAGES),
+    outputPorts: [imageOutputPort()],
   },
   "fabric-recolor": {
     kind: "fabric-recolor",
@@ -340,6 +554,11 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     providerId: "apiyi",
     inputs: MAX_REFERENCE_IMAGES,
     outputs: "images",
+    inputPorts: [
+      imageInputPort(MAX_REFERENCE_IMAGES),
+      { id: "palette", label: "目标色板", direction: "input", valueKind: "colors", required: false, maxSources: 1 },
+    ],
+    outputPorts: [imageOutputPort()],
   },
   upscale: {
     kind: "upscale",
@@ -348,6 +567,8 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     providerId: "apiyi",
     inputs: 1,
     outputs: "images",
+    inputPorts: [imageInputPort(1)],
+    outputPorts: [imageOutputPort()],
   },
   "print-extract": {
     kind: "print-extract",
@@ -356,6 +577,8 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     providerId: "apiyi",
     inputs: MAX_REFERENCE_IMAGES,
     outputs: "images",
+    inputPorts: imageAndPromptPorts(MAX_REFERENCE_IMAGES),
+    outputPorts: [imageOutputPort()],
   },
   "print-mutate": {
     kind: "print-mutate",
@@ -364,6 +587,8 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     providerId: "apiyi",
     inputs: MAX_REFERENCE_IMAGES,
     outputs: "images",
+    inputPorts: imageAndPromptPorts(MAX_REFERENCE_IMAGES),
+    outputPorts: [imageOutputPort()],
   },
   "virtual-try-on": {
     kind: "virtual-try-on",
@@ -372,6 +597,8 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     providerId: "apiyi",
     inputs: MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES,
     outputs: "images",
+    inputPorts: [imageInputPort(MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES)],
+    outputPorts: [imageOutputPort()],
   },
   "mask-redraw": {
     kind: "mask-redraw",
@@ -381,12 +608,18 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     // GPT Image 2 最多接收 8 张图，其中最后一张由服务端保留给区域引导图。
     inputs: MAX_MASK_USER_REFERENCE_IMAGES,
     outputs: "images",
+    inputPorts: [imageInputPort(MAX_MASK_USER_REFERENCE_IMAGES)],
+    outputPorts: [imageOutputPort()],
   },
   result: {
     kind: "result",
     title: "结果",
     description: "汇总展示与导出",
     inputs: 4,
-    outputs: "none",
+    outputs: "images",
+    inputPorts: [{ ...imageInputPort(4), accepts: ["image", "video"] }],
+    outputPorts: [
+      { id: "image", label: "媒体", direction: "output", valueKind: "image", required: false, maxSources: 1, accepts: ["image", "video"] },
+    ],
   },
 };

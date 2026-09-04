@@ -3,6 +3,12 @@ import type { NodeKind } from "@/types/workflow";
 /** 节点类型 → 微缩图配色（与画布气质一致的低饱和色） */
 const KIND_COLOR: Record<NodeKind, string> = {
   "image-input": "#4A90D9",
+  "text-input": "#718096",
+  "drawing-board": "#3B9C8C",
+  "color-palette": "#C87A9A",
+  "stage-approval": "#C9953D",
+  "video-input": "#4B7E9B",
+  "video-generate": "#7C6DD0",
   "sketch-to-render": "#C9A66B",
   "ai-modify": "#9B72CF",
   "fabric-recolor": "#D9707E",

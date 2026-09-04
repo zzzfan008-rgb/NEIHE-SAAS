@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 6,
+  "id": "builtin-tool-multi-image-video",
+  "name": "多图参考生视频",
+  "description": "当前真实通道使用两张有序参考图建立连续性。",
+  "builtIn": true,
+  "createdAt": "2026-09-03T08:00:00.000Z",
+  "flow": {
+    "schemaVersion": 6,
+    "nodes": [
+      {
+        "id": "first",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": -220
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "参考图一",
+          "status": "idle",
+          "imageRole": "reference"
+        }
+      },
+      {
+        "id": "last",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": 60
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "参考图二",
+          "status": "idle",
+          "imageRole": "reference"
+        }
+      },
+      {
+        "id": "prompt",
+        "type": "text-input",
+        "position": {
+          "x": 0,
+          "y": 340
+        },
+        "data": {
+          "kind": "text-input",
+          "label": "视频提示词",
+          "status": "idle",
+          "text": ""
+        }
+      },
+      {
+        "id": "generate",
+        "type": "video-generate",
+        "position": {
+          "x": 430,
+          "y": 0
+        },
+        "data": {
+          "kind": "video-generate",
+          "label": "多图参考生视频",
+          "status": "idle",
+          "mode": "multi-image-video",
+          "prompt": "",
+          "videoModel": "veo-3.1",
+          "quality": "fast",
+          "aspectRatio": "16:9",
+          "resolution": "720p",
+          "seconds": 8,
+          "outputImages": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "first-generate",
+        "source": "first",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "first-frame"
+      },
+      {
+        "id": "last-generate",
+        "source": "last",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "last-frame"
+      },
+      {
+        "id": "prompt-generate",
+        "source": "prompt",
+        "sourceHandle": "text",
+        "target": "generate",
+        "targetHandle": "prompt"
+      }
+    ]
+  }
+}

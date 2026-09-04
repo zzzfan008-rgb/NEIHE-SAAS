@@ -33,34 +33,34 @@ SQLite 文件会保留，便于回退核对。
 
 ```bash
 docker compose up -d postgres --wait
-npm ci
-npm run dev
+pnpm install --frozen-lockfile
+pnpm run dev
 ```
 
-`npm run dev` 会先自动执行 `npm run dev:check`：核对 Node.js 版本、5173/后端端口
+`pnpm run dev` 会先自动执行 `pnpm run dev:check`：核对 Node.js 版本、5173/后端端口
 占用、PostgreSQL 认证与只读 `SELECT 1`、Docker Engine 和 Vite API 代理目标。预检只读取连接状态，
 不会停止进程、启动容器、修改数据库或调用 AI。若提示旧 Vite/API 端口冲突，应先停止
 旧开发进程；若 PostgreSQL 不可达，按提示重新执行
-`docker compose up -d postgres --wait`。也可单独运行 `npm run dev:check` 排查环境。
+`docker compose up -d postgres --wait`。也可单独运行 `pnpm run dev:check` 排查环境。
 
 前端开发服务器默认为 `http://localhost:5173`，API 默认为
 `http://localhost:3001`，本机 Node 通过 `POSTGRES_HOST_PORT`（默认 54329）连接容器。
-Vite 的 `/api` 代理会跟随同一个 `PORT`；例如 `PORT=3002 npm run dev`
+Vite 的 `/api` 代理会跟随同一个 `PORT`；例如 `PORT=3002 pnpm run dev`
 会同时将后端与前端代理切换到 3002。如需转发到独立地址，可在私有
 `.env` 中显式设置 `API_PROXY_TARGET=http://localhost:3002`，该值优先于 `PORT`。
 
-`npm run test` 会自动启动隔离的临时 PostgreSQL 容器，运行全部回归后删除测试容器和卷；
+`pnpm run test` 会自动启动隔离的临时 PostgreSQL 容器，运行全部回归后删除测试容器和卷；
 测试数据不会污染正式数据。
 
 未提交改动先运行只读预审；固定候选提交并保持干净工作树后，再运行完整本地门禁替代
 GitHub Actions：
 
 ```bash
-npm run gate:codex -- --uncommitted --review-only
+pnpm run gate:codex -- --uncommitted --review-only
 
 # 候选提交后
 nvm use
-npm run gate:codex -- --base origin/main
+pnpm run gate:codex -- --base origin/main
 ```
 
 门禁先运行完整确定性检查、桌面 E2E、生产构建和 production smoke，再调用
@@ -72,8 +72,8 @@ npm run gate:codex -- --base origin/main
 请求。首次运行先安装 Chromium，然后执行：
 
 ```bash
-npx playwright install chromium
-npm run test:e2e
+pnpm exec playwright install chromium
+pnpm run test:e2e
 ```
 
 该套件覆盖项目支持下限 1024×768，以及主要视觉宽度 1280×720 与 1440×900；
@@ -82,13 +82,13 @@ npm run test:e2e
 ## 非 Docker 构建与启动
 
 ```bash
-npm ci
-npm run check
-npm run build
-npm start
+pnpm install --frozen-lockfile
+pnpm run check
+pnpm run build
+pnpm start
 ```
 
-`npm run build` 会同时生成：
+`pnpm run build` 会同时生成：
 
 - `dist/`：Vite 前端静态文件；
 - `dist-server/index.js`：可由 Node.js 直接运行的服务端产物。
@@ -96,8 +96,8 @@ npm start
 部署机器只需要生产依赖和两个构建目录：
 
 ```bash
-npm ci --omit=dev
-npm start
+pnpm install --prod --frozen-lockfile
+pnpm start
 ```
 
 完整生产模式缺少 `dist/index.html` 时会直接退出，避免 API 看似启动成功但前端不可用。

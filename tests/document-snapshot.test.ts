@@ -249,6 +249,7 @@ assert.deepEqual(snapshot, {
       data: {
         kind: "fabric-recolor",
         label: "面料配色",
+        operationMode: "combined",
         colors: ["#112233", "#AABBCC"],
         prompt: "替换为冷色系",
         fabricImageUrl: "/api/files/fabric.png",
@@ -331,7 +332,7 @@ assert.deepEqual(snapshot, {
       source: "upload",
       target: "sketch",
       sourceHandle: null,
-      targetHandle: "image-input",
+      targetHandle: null,
     },
     {
       id: "edge-without-handles",
@@ -361,7 +362,7 @@ assert.notStrictEqual(
 );
 
 const wire = documentSnapshotToPersistedWorkflow(snapshot);
-assert.equal(wire.schemaVersion, 4);
+assert.equal(wire.schemaVersion, 6);
 assert.deepEqual(wire.nodes, snapshot.nodes.map((node) => ({
   ...node,
   data: { ...node.data, status: "idle" },
@@ -379,5 +380,34 @@ assert.notStrictEqual(
   wire.nodes[1].data.kind === "sketch-to-render" && wire.nodes[1].data.modelOptions,
   snapshot.nodes[1].data.kind === "sketch-to-render" && snapshot.nodes[1].data.modelOptions,
 );
+
+const v5Snapshot = createDocumentSnapshot({
+  projectName: "v5 文档白名单",
+  nodes: [
+    { id: "text-v5", type: "text-input", position: { x: 0, y: 0 }, selected: true, data: { kind: "text-input", label: "说明", status: "running", text: "面料说明", editorSelection: [0, 2] } },
+    { id: "board-v5", type: "drawing-board", position: { x: 100, y: 0 }, data: { kind: "drawing-board", label: "画板", status: "idle", boardVersion: 1, width: 1200, height: 900, background: "#FFFFFF", contentRef: "/api/drawings/content-1", previewImageRef: "/api/files/preview.png", exportImageRef: "/api/files/export.png", drawingRecoveryDraft: { private: true } } },
+    { id: "palette-v5", type: "color-palette", position: { x: 200, y: 0 }, data: { kind: "color-palette", label: "色板", status: "idle", paletteVersion: 1, swatches: [{ id: "red", value: "#FF0000", name: "红色", source: "custom" }], recentColors: ["#000000"] } },
+    { id: "approval-v5", type: "stage-approval", position: { x: 300, y: 0 }, data: { kind: "stage-approval", label: "确认基准", status: "success", approvalKind: "scene-baseline", approvedSourceNodeId: "stabilize-v5", approvedBaselineRef: "/api/files/baseline.png", approvedBasisRevision: 3, approvedAt: "2026-09-03T00:00:00.000Z", approvalDialogOpen: true } },
+    { id: "stabilize-v5", type: "virtual-try-on", position: { x: 400, y: 0 }, data: { kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize", prompt: "", modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, imageSize: "2K", basisRevision: 3, outputImages: ["/api/files/baseline.png"], displayState: "ready" } },
+    { id: "fabric-v5", type: "fabric-recolor", position: { x: 500, y: 0 }, data: { kind: "fabric-recolor", label: "配色替换", status: "idle", operationMode: "color", colors: ["#FF0000"], prompt: "", outputImages: [], modelId: "gpt-image-2-vip", modelOptions: { size: "2048x2048" } } },
+  ],
+  edges: [
+    { id: "board-approval-v5", source: "board-v5", sourceHandle: "image", target: "approval-v5", targetHandle: "baseline-candidate", connectionDraft: true },
+    { id: "palette-fabric-v5", source: "palette-v5", sourceHandle: "colors", target: "fabric-v5", targetHandle: "palette" },
+  ],
+} as unknown as Parameters<typeof createDocumentSnapshot>[0]);
+
+const v5Wire = documentSnapshotToPersistedWorkflow(v5Snapshot);
+assert.equal(v5Wire.schemaVersion, 6);
+assert.deepEqual(v5Snapshot.nodes.map((node) => node.data.kind), ["text-input", "drawing-board", "color-palette", "stage-approval", "virtual-try-on", "fabric-recolor"]);
+assert.equal((v5Snapshot.nodes[0].data as Record<string, unknown>).editorSelection, undefined);
+assert.equal((v5Snapshot.nodes[1].data as Record<string, unknown>).drawingRecoveryDraft, undefined);
+assert.equal((v5Snapshot.nodes[2].data as Record<string, unknown>).recentColors, undefined);
+assert.equal((v5Snapshot.nodes[3].data as Record<string, unknown>).approvalDialogOpen, undefined);
+assert.equal((v5Snapshot.nodes[4].data as Record<string, unknown>).displayState, undefined);
+assert.deepEqual(v5Wire.edges, [
+  { id: "board-approval-v5", source: "board-v5", target: "approval-v5", sourceHandle: "image", targetHandle: "baseline-candidate" },
+  { id: "palette-fabric-v5", source: "palette-v5", target: "fabric-v5", sourceHandle: "colors", targetHandle: "palette" },
+]);
 
 console.log("通过 1 项纯文档快照边界测试（覆盖 9 种节点）");

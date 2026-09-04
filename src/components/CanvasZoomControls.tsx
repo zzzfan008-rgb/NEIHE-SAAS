@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Maximize2Icon, MinusIcon, PlusIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Maximize2Icon, MinusIcon, NetworkIcon, PlusIcon } from "lucide-react";
 import { Panel, useReactFlow, useViewport } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,18 +14,28 @@ import {
   CANVAS_ZOOM_COMMAND_EVENT,
   type CanvasZoomCommand,
 } from "@/lib/keyboardShortcuts";
+import {
+  selectActivePrimarySelectedNodeId,
+  selectActiveReadOnly,
+  useFlowStore,
+} from "@/store/flowStore";
 
-const MIN_ZOOM_PERCENT = 50;
-const MAX_ZOOM_PERCENT = 200;
+const MIN_ZOOM_PERCENT = 20;
+const MAX_ZOOM_PERCENT = 300;
+const FIT_CANVAS_ZOOM = 0.68;
+const MINIMAP_EDGE_MARGIN = 12;
+const MINIMAP_CONTROL_GAP = 28;
 
 function ZoomButton({
   label,
   onClick,
   children,
+  disabled,
 }: {
   label: string;
   onClick: () => void;
   children: React.ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <Tooltip>
@@ -37,6 +47,7 @@ function ZoomButton({
             size="icon-sm"
             aria-label={label}
             onClick={onClick}
+            disabled={disabled}
             className="text-[var(--gc-text-muted)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-text)]"
           />
         )}
@@ -48,9 +59,13 @@ function ZoomButton({
   );
 }
 
-export function CanvasZoomControls() {
+export function CanvasZoomControls({ minimapWidth }: { minimapWidth: number }) {
   const { fitView, zoomIn, zoomOut, zoomTo } = useReactFlow();
   const { zoom } = useViewport();
+  const selectedNodeId = useFlowStore(selectActivePrimarySelectedNodeId);
+  const readOnly = useFlowStore(selectActiveReadOnly);
+  const autoLayoutSelectedWorkflow = useFlowStore((state) => state.autoLayoutSelectedWorkflow);
+  const [layoutMessage, setLayoutMessage] = useState("");
   const zoomPercent = Math.round(zoom * 100);
   const sliderValue = Math.min(MAX_ZOOM_PERCENT, Math.max(MIN_ZOOM_PERCENT, zoomPercent));
 
@@ -65,11 +80,20 @@ export function CanvasZoomControls() {
   }, [zoomIn, zoomOut]);
 
   return (
-    <Panel position="bottom-left" className="m-3">
+    <Panel
+      position="bottom-right"
+      className="nodrag nopan m-0 z-50"
+      style={{
+        margin: 0,
+        right: minimapWidth + MINIMAP_EDGE_MARGIN + MINIMAP_CONTROL_GAP,
+        bottom: MINIMAP_EDGE_MARGIN,
+      }}
+    >
       <TooltipProvider delay={250}>
         <Card
           size="sm"
           data-testid="canvas-zoom-controls"
+          role="group"
           aria-label="画布缩放控制"
           className="gc-panel flex-row items-center gap-1 rounded-xl bg-[var(--gc-panel)] p-1 py-1 text-[var(--gc-text)] shadow-lg ring-1 ring-[var(--gc-border)]"
         >
@@ -79,13 +103,12 @@ export function CanvasZoomControls() {
 
           <Slider
             aria-label="画布缩放比例"
-            value={[sliderValue]}
+            value={sliderValue}
             min={MIN_ZOOM_PERCENT}
             max={MAX_ZOOM_PERCENT}
-            step={5}
-            onValueChange={(value) => {
-              const nextZoom = value[0];
-              if (typeof nextZoom === "number") void zoomTo(nextZoom / 100, { duration: 0 });
+            step={1}
+            onValueChange={(nextZoom) => {
+              if (Number.isFinite(nextZoom)) void zoomTo(nextZoom / 100, { duration: 0 });
             }}
             className="w-28"
           />
@@ -106,10 +129,27 @@ export function CanvasZoomControls() {
 
           <ZoomButton
             label="适应画布"
-            onClick={() => void fitView({ padding: 0.16, duration: 180 })}
+            onClick={() => void fitView({
+              padding: 0.16,
+              minZoom: FIT_CANVAS_ZOOM,
+              maxZoom: FIT_CANVAS_ZOOM,
+              duration: 180,
+            })}
           >
             <Maximize2Icon aria-hidden="true" />
           </ZoomButton>
+
+          <ZoomButton
+            label={selectedNodeId ? "整理所选工作流" : "请先选择工作流节点"}
+            disabled={!selectedNodeId || readOnly}
+            onClick={() => {
+              const error = autoLayoutSelectedWorkflow();
+              setLayoutMessage(error ?? "已整理所选工作流");
+            }}
+          >
+            <NetworkIcon aria-hidden="true" />
+          </ZoomButton>
+          <span className="sr-only" role="status" aria-live="polite">{layoutMessage}</span>
         </Card>
       </TooltipProvider>
     </Panel>

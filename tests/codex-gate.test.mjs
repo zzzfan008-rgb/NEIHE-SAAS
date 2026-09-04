@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const source = new URL("../scripts/codex-gate.mjs", import.meta.url);
+const packageManagerSource = new URL("../scripts/package-manager.mjs", import.meta.url);
 const fixtureRoots = new Set();
 
 function cleanupFixtures() {
@@ -45,6 +46,10 @@ function fixture({ requiredNodeVersion = process.versions.node } = {}) {
     `const REQUIRED_NODE_VERSION = ${JSON.stringify(requiredNodeVersion)};`,
   );
   writeFileSync(join(root, "scripts/codex-gate.mjs"), gateSource);
+  writeFileSync(
+    join(root, "scripts/package-manager.mjs"),
+    readFileSync(packageManagerSource, "utf8"),
+  );
   writeFileSync(
     join(root, ".gitignore"),
     ".gate-npm-log\n.gate-gitnexus-log\n.gate-codex-log\n",
@@ -102,7 +107,17 @@ fi
   git(root, "commit", "-qm", "initial");
   const base = git(root, "rev-parse", "HEAD");
   const initialBranch = git(root, "branch", "--show-current");
-  return { root, base, initialBranch, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } };
+  return {
+    root,
+    base,
+    initialBranch,
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      npm_execpath: "",
+      npm_config_user_agent: "npm/10.0.0 node/v22.20.0 darwin arm64 workspaces/false",
+    },
+  };
 }
 
 function gateTempDirs() {

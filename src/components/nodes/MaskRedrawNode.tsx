@@ -60,7 +60,7 @@ export function MaskRedrawNode({ id, data, selected }: NodeProps<Node<MaskRedraw
 
   return (
     <>
-      <Handle type="target" position={Position.Left} />
+      <Handle id="references" type="target" position={Position.Left} title="待重绘图片" />
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
         <div className="flex items-center justify-between text-[10px]">
           <span className="text-neutral-500">图片模型</span>
@@ -121,7 +121,7 @@ export function MaskRedrawNode({ id, data, selected }: NodeProps<Node<MaskRedraw
         {running && <Developing />}
         <ImageGrid images={data.outputImages} />
       </NodeFrame>
-      <Handle type="source" position={Position.Right} />
+      <Handle id="image" type="source" position={Position.Right} title="生成图片" />
       {editing && source && (
         <MaskEditor
           source={source}

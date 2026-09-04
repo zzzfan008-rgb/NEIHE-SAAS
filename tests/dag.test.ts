@@ -346,6 +346,7 @@ async function main() {
       { source: ring.id, target: stabilize.id, targetHandle: "ring" },
       { source: scene.id, target: stabilize.id, targetHandle: "scene" },
       { source: earrings.id, target: stabilize.id, targetHandle: "earrings" },
+      { source: detail.id, target: stabilize.id, targetHandle: "detail" },
     ];
     const stageOneNodes = [person, scene, outfit, shoes, bag, hat, ring, earrings, bracelet, detail, stabilize];
     const stageOne = buildExecutionPlan(stageOneNodes, stageOneEdges, {
@@ -355,18 +356,33 @@ async function main() {
       "/api/files/scene.png", "/api/files/person.png", "/api/files/outfit.png",
       "/api/files/bag.png", "/api/files/shoes.png", "/api/files/hat.png",
       "/api/files/ring.png", "/api/files/earrings.png", "/api/files/bracelet.png",
+      "/api/files/detail.png",
     ]);
     assert.doesNotThrow(() => assertPlanInputs(stageOne, stageOneEdges));
-    const invalidStageOneEdges: FlowEdge[] = [
-      ...stageOneEdges,
-      { source: detail.id, target: stabilize.id, targetHandle: "detail" },
-    ];
-    const invalidStageOne = buildExecutionPlan(stageOneNodes, invalidStageOneEdges, {
-      onlyNodeId: stabilize.id, includeDownstream: false,
-    });
-    assert.throws(() => assertPlanInputs(invalidStageOne, invalidStageOneEdges), /未指定角色的输入连线/);
 
-    const baseline = imgNode("baseline", "/api/files/baseline.png");
+    const baselineRef = "/api/files/baseline.png";
+    const approvedStage: FlowNode = {
+      ...stabilize,
+      data: {
+        ...stabilize.data,
+        basisRevision: 3,
+        outputImages: [baselineRef],
+      },
+    };
+    const approval: FlowNode = {
+      id: "approval",
+      type: "stage-approval",
+      data: {
+        kind: "stage-approval",
+        label: "确认第一轮基准",
+        status: "idle",
+        approvalKind: "scene-baseline",
+        approvedSourceNodeId: approvedStage.id,
+        approvedBaselineRef: baselineRef,
+        approvedBasisRevision: 3,
+        approvedAt: "2026-09-03T06:00:00.000Z",
+      },
+    };
     const material = imgNode("material", "/api/files/material.png");
     const refine: FlowNode = {
       id: "refine",
@@ -376,24 +392,46 @@ async function main() {
         prompt: "", imageSize: "2K", modelId: "gpt-image-2", modelOptions: { quality: "medium" },
         garmentCategory: "knit", materialSpec: "羊毛双股纱，中等厚度",
         constructionSpec: "12GG，平针衣身，1×1罗纹领口",
-        approvedBaselineRef: "/api/files/baseline.png", outputImages: [],
+        outputImages: [],
       },
     };
     const stageTwoEdges: FlowEdge[] = [
+      { source: approvedStage.id, target: approval.id, targetHandle: "baseline-candidate" },
       { source: detail.id, target: refine.id, targetHandle: "detail" },
       { source: material.id, target: refine.id, targetHandle: "material" },
       { source: outfit.id, target: refine.id, targetHandle: "outfit" },
-      { source: baseline.id, target: refine.id, targetHandle: "baseline" },
+      { source: approval.id, target: refine.id, targetHandle: "baseline" },
     ];
-    const stageTwo = buildExecutionPlan([baseline, outfit, material, detail, refine], stageTwoEdges, {
+    const stageTwoNodes = [approvedStage, approval, outfit, material, detail, refine];
+    const stageTwo = buildExecutionPlan(stageTwoNodes, stageTwoEdges, {
       onlyNodeId: refine.id, includeDownstream: false,
     });
     assert.deepStrictEqual(stageTwo.steps[0].inputImages, [
       "/api/files/baseline.png", "/api/files/outfit.png", "/api/files/material.png", "/api/files/detail.png",
     ]);
     assert.doesNotThrow(() => assertPlanInputs(stageTwo, stageTwoEdges));
-    stageTwo.steps[0].params.approvedBaselineRef = "/api/files/stale.png";
-    assert.throws(() => assertPlanInputs(stageTwo, stageTwoEdges), /尚未确认或确认已失效/);
+
+    const staleApproval: FlowNode = {
+      ...approval,
+      data: { ...approval.data, approvedBasisRevision: 2 },
+    };
+    const stalePlan = buildExecutionPlan(
+      [approvedStage, staleApproval, outfit, material, detail, refine],
+      stageTwoEdges,
+      { onlyNodeId: refine.id, includeDownstream: false },
+    );
+    assert.throws(() => assertPlanInputs(stalePlan, stageTwoEdges), /重新确认|确认已失效/);
+
+    const missingMaterial: FlowNode = {
+      ...refine,
+      data: { ...refine.data, materialSpec: "" },
+    };
+    const missingMaterialPlan = buildExecutionPlan(
+      [approvedStage, approval, outfit, material, detail, missingMaterial],
+      stageTwoEdges,
+      { onlyNodeId: refine.id, includeDownstream: false },
+    );
+    assert.throws(() => assertPlanInputs(missingMaterialPlan, stageTwoEdges), /面料|material/i);
   });
 
   await ok("局部修改在入队前拒绝会占满引导图名额的 8 张用户参考图", () => {

@@ -18,10 +18,13 @@ import {
   selectNodeInputImages,
   useFlowStore,
   type DocumentTarget,
+  type FlowState,
   type FlowNode,
   type RecentResult,
 } from "../src/store/flowStore";
 import { setGenerationSafetyBlockReason } from "../src/store/generationSafety";
+import type { ConnectionDraft } from "../src/types/workbench";
+import type { WorkflowInputRole } from "../src/types/workflow";
 
 let passed = 0;
 
@@ -132,12 +135,136 @@ await test("第一轮只接受六类配饰角色且每类最多一条连线", ()
   }), false);
   assert.equal(isDocumentConnectionValid(document, {
     id: "stage-detail", source: second.id, target: stage.id, targetHandle: "detail",
-  }), false);
+  }), true);
+});
+
+type ConnectionDraftState = FlowState & {
+  pendingConnectionDraft: ConnectionDraft | null;
+  connectionDraftError: string | null;
+  confirmPendingConnection: (targetHandle: WorkflowInputRole) => boolean;
+  cancelPendingConnection: () => void;
+};
+
+function connectionDraftState(): ConnectionDraftState {
+  return useFlowStore.getState() as ConnectionDraftState;
+}
+
+function stagedConnectionNode(id = "role-stage"): FlowNode {
+  return {
+    id,
+    type: "virtual-try-on",
+    position: { x: 420, y: 0 },
+    data: {
+      kind: "virtual-try-on",
+      label: "第一轮 · Gemini 场景化定版",
+      status: "idle",
+      workflowStage: "scene-stabilize",
+      prompt: "",
+      imageSize: "2K",
+      modelId: "gemini-3.1-flash-image-preview",
+      modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
+      basisRevision: 0,
+      outputImages: [],
+    },
+  };
+}
+
+setGenerationSafetyBlockReason(null);
+
+await test("分步连线先形成未持久化角色草稿，确认后只写一条边和一次历史", () => {
+  const source = imageNode("role-draft-source", "通用参考图");
+  const stage = stagedConnectionNode("role-draft-stage");
+  useFlowStore.getState().loadFlow({
+    projectId: "role-draft-project",
+    projectName: "角色确认项目",
+    nodes: [source, stage],
+    edges: [],
+  });
+  useFlowStore.temporal.getState().clear();
+
+  connectionDraftState().onConnect({
+    source: source.id,
+    target: stage.id,
+    sourceHandle: null,
+    targetHandle: null,
+  });
+  assert.equal(activeDocument().edges.length, 0, "确认角色前不得把边写入项目");
+  assert.deepEqual(connectionDraftState().pendingConnectionDraft, {
+    target: selectActiveDocumentTarget(useFlowStore.getState()),
+    sourceNodeId: source.id,
+    targetNodeId: stage.id,
+    sourceHandle: null,
+    proposedTargetHandle: null,
+  });
+
+  assert.equal(connectionDraftState().confirmPendingConnection("person"), true);
+  assert.equal(connectionDraftState().pendingConnectionDraft, null);
+  assert.deepEqual(activeDocument().edges.map((edge) => ({
+    source: edge.source,
+    target: edge.target,
+    targetHandle: edge.targetHandle,
+  })), [{ source: source.id, target: stage.id, targetHandle: "person" }]);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 1);
+  useFlowStore.getState().undo();
+  assert.equal(activeDocument().edges.length, 0, "一次撤销必须完整移除已确认连线");
+});
+
+await test("显式角色不允许在确认时改名，重复角色与 14 张总上限使用业务名拒绝", () => {
+  const stage = stagedConnectionNode("role-guard-stage");
+  const sources = Array.from({ length: 15 }, (_, index) => imageNode(`role-guard-${index + 1}`, `参考 ${index + 1}`));
+  const occupiedRoles = [
+    "person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet",
+    "detail", "detail", "detail", "detail", "detail",
+  ] as const;
+  useFlowStore.getState().loadFlow({
+    projectId: "role-guard-project",
+    projectName: "角色门禁项目",
+    nodes: [...sources, stage],
+    edges: occupiedRoles.map((targetHandle, index) => ({
+      id: `occupied-${index}`,
+      source: sources[index].id,
+      target: stage.id,
+      targetHandle,
+    })),
+  });
+
+  connectionDraftState().onConnect({
+    source: sources[14].id,
+    target: stage.id,
+    sourceHandle: null,
+    targetHandle: "bag",
+  });
+  assert.equal(activeDocument().edges.length, 14, "显式角色仍需确认后才落边");
+  assert.equal(connectionDraftState().confirmPendingConnection("shoes"), false);
+  assert.match(connectionDraftState().connectionDraftError ?? "", /包袋.*鞋履|鞋履.*包袋/);
+  assert.equal(connectionDraftState().confirmPendingConnection("bag"), false);
+  assert.match(connectionDraftState().connectionDraftError ?? "", /最多 14 张/);
+  assert.equal(activeDocument().edges.length, 14);
+});
+
+await test("切换或替换文档会立即使未确认角色草稿失效", () => {
+  const source = imageNode("role-stale-source", "待确认参考");
+  const stage = stagedConnectionNode("role-stale-stage");
+  useFlowStore.getState().loadFlow({
+    projectId: "role-stale-project",
+    projectName: "草稿来源页",
+    nodes: [source, stage],
+    edges: [],
+  });
+  const sourceTabId = useFlowStore.getState().activeTabId;
+  connectionDraftState().onConnect({ source: source.id, target: stage.id, targetHandle: "outfit" });
+  assert.ok(connectionDraftState().pendingConnectionDraft);
+
+  useFlowStore.getState().createBlankTab();
+  const disposableTabId = useFlowStore.getState().activeTabId;
+  assert.equal(connectionDraftState().pendingConnectionDraft, null);
+  useFlowStore.getState().switchTab(sourceTabId);
+  assert.equal(connectionDraftState().confirmPendingConnection("outfit"), false);
+  assert.equal(activeDocument().edges.length, 0);
+  useFlowStore.getState().closeTab(disposableTabId);
 });
 
 // 此文件验证已完成历史对账后的运行路径；冷启动 fail-closed 由 generation-safety.test 覆盖。
-setGenerationSafetyBlockReason(null);
-
 const initial = useFlowStore.getState();
 const tabA = initial.activeTabId;
 initial.setProjectName("项目 A");
@@ -1185,7 +1312,7 @@ await test("节点与 Inspector 共用画幅补丁并同步 provider 参数", ()
   );
   assert.match(
     inspectorSource,
-    /imageModelAspectRatioPatch\(selectedModelId, selectedModelOptions, e\.target\.value\)/,
+    /imageModelAspectRatioPatch\(selectedModelId, selectedModelOptions, value\)/,
     "Inspector 修改画幅时必须同步业务比例与 provider modelOptions",
   );
   for (const source of [aiModifySource, sketchSource]) {
@@ -1532,7 +1659,7 @@ await test("蒙版异步保存接线冻结编辑、校验最新原图并保持�
   assert.match(topBarSource, /onClick=\{retryTabSessionPersistence\}/);
 });
 
-await test("桌面工作台使用稳定 Dock，主题通过三列网格严格居中", () => {
+await test("桌面工作台使用五组工具栏与稳定右侧 Dock，快捷键入口通过三列网格严格居中", () => {
   const appSource = fs.readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   const topBarSource = fs.readFileSync(
     new URL("../src/components/panels/TopBar.tsx", import.meta.url),
@@ -1551,24 +1678,26 @@ await test("桌面工作台使用稳定 Dock，主题通过三列网格严格居
     "utf8",
   );
 
-  assert.match(appSource, /<WorkbenchShell[\s\S]*library=\{<NodeLibraryPanel/);
+  assert.match(appSource, /<WorkbenchShell[\s\S]*inspector=\{\(/);
+  assert.doesNotMatch(appSource, /NodeLibraryPanel/);
   assert.equal((shellSource.match(/\{children\}/g) ?? []).length, 1);
-  assert.equal((shellSource.match(/\{library\}/g) ?? []).length, 1);
   assert.equal((shellSource.match(/\{inspector\}/g) ?? []).length, 1);
   assert.doesNotMatch(shellSource, /MobileSheet|useMediaQuery|mobilePanel/);
-  assert.match(shellSource, /aria-controls=\{controls\}/);
-  assert.match(shellSource, /controls=\{LIBRARY_PANEL_ID\}/);
-  assert.match(shellSource, /controls=\{INSPECTOR_PANEL_ID\}/);
+  assert.match(shellSource, /<ToolRail state=\{state\} dispatch=\{dispatch\}/);
+  assert.match(shellSource, /aria-controls=\{INSPECTOR_PANEL_ID\}/);
+  assert.match(shellSource, /border-l border-\[var\(--gc-border\)\]/);
   assert.match(shellSource, /transition-\[width,visibility\]/);
   assert.match(topBarSource, /grid-cols-\[1fr_auto_1fr\]/);
   assert.match(topBarSource, /Coin AI - Canvas/);
-  assert.match(topBarSource, /<ThemeSwitcher \/>/);
-  assert.match(topBarSource, /absolute left-full ml-2/);
-  assert.match(topBarSource, /<DropdownMenu>/);
+  assert.doesNotMatch(topBarSource, /ThemeSwitcher|useTheme|THEMES/);
+  assert.match(topBarSource, /<DropdownMenu open=\{open\} onOpenChange=\{setOpen\}>/);
   assert.match(topBarSource, /aria-label="查看快捷键"/);
   assert.match(topBarSource, /className="w-56 min-w-56/);
   assert.match(topBarSource, /<DropdownMenuShortcut/);
-  assert.doesNotMatch(topBarSource, /onPointerEnter|点击图标可固定|setTimeout\(/);
+  assert.match(topBarSource, /onPointerEnter=\{openMenu\}/);
+  assert.match(topBarSource, /onPointerLeave=\{scheduleClose\}/);
+  assert.match(topBarSource, /onFocus=\{openMenu\}/);
+  assert.match(topBarSource, /setTimeout\(\(\) => setOpen\(false\), 100\)/);
   assert.doesNotMatch(topBarSource, /GARMENT CANVAS|ProjectPicker/);
   assert.doesNotMatch(appSource, /TemplatesDock/);
   assert.match(projectTabsSource, /<LazyProjectCenter open=\{projectCenterOpen\}/);

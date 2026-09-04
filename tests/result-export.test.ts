@@ -77,4 +77,11 @@ await test("Node 环境下不支持文件夹选择器（前端会回退为逐张
   assert.equal(supportsDirectoryPicker(), false);
 });
 
+await test("下载文件名不会把查询参数或路径片段带入本地文件名", () => {
+  assert.equal(
+    resultExportFilename("/api/files/look-final.webp?download=1#preview"),
+    "garment-look-final.webp",
+  );
+});
+
 console.log(`\n通过 ${passed} 项`);

@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { isLocalImageReference } from "./imageValidation";
+import { isLocalMediaReference } from "./fileStore";
 import { query } from "./database";
 
 export class ImageReferenceAccessError extends Error {
@@ -11,7 +11,7 @@ export class ImageReferenceAccessError extends Error {
 
 function collectLocalImageIds(value: unknown, output = new Set<string>()): Set<string> {
   if (typeof value === "string" && value.startsWith("/api/files/")) {
-    if (!isLocalImageReference(value)) throw new ImageReferenceAccessError("本地图片引用格式无效");
+    if (!isLocalMediaReference(value)) throw new ImageReferenceAccessError("本地媒体引用格式无效");
     output.add(value.slice("/api/files/".length));
   } else if (Array.isArray(value)) {
     value.forEach((item) => collectLocalImageIds(item, output));

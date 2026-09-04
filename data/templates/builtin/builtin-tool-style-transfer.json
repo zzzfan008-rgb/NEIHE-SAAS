@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 6,
+  "id": "builtin-tool-style-transfer",
+  "name": "风格迁移",
+  "description": "主体、风格参考和可选要求已连接。",
+  "builtIn": true,
+  "createdAt": "2026-09-03T08:00:00.000Z",
+  "flow": {
+    "schemaVersion": 6,
+    "nodes": [
+      {
+        "id": "source",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": -180
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "目标主体图",
+          "status": "idle",
+          "imageRole": "reference"
+        }
+      },
+      {
+        "id": "style",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": 80
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "风格参考图",
+          "status": "idle",
+          "imageRole": "reference"
+        }
+      },
+      {
+        "id": "prompt",
+        "type": "text-input",
+        "position": {
+          "x": 0,
+          "y": 340
+        },
+        "data": {
+          "kind": "text-input",
+          "label": "补充要求",
+          "status": "idle",
+          "text": ""
+        }
+      },
+      {
+        "id": "generate",
+        "type": "ai-modify",
+        "position": {
+          "x": 430,
+          "y": 0
+        },
+        "data": {
+          "kind": "ai-modify",
+          "label": "风格迁移",
+          "status": "idle",
+          "prompt": "只迁移参考图的视觉语言、材质、色彩与光影；保持目标主体的身份、结构和构图，不复制风格图中的人物、服装或配饰。",
+          "aspectRatio": "3:4",
+          "batchSize": 1,
+          "outputImages": [],
+          "modelId": "gpt-image-2-vip",
+          "modelOptions": {
+            "size": "1536x2048"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "source-generate",
+        "source": "source",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "references"
+      },
+      {
+        "id": "style-generate",
+        "source": "style",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "references"
+      },
+      {
+        "id": "prompt-generate",
+        "source": "prompt",
+        "sourceHandle": "text",
+        "target": "generate",
+        "targetHandle": "prompt"
+      }
+    ]
+  }
+}

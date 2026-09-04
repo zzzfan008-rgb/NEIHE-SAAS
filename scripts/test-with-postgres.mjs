@@ -5,6 +5,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { packageManagerRunArgs } from "./package-manager.mjs";
 
 export function createComposeProjectName({ cwd = process.cwd() } = {}) {
   const worktreeId = createHash("sha256").update(resolve(cwd)).digest("hex").slice(0, 10);
@@ -104,11 +105,8 @@ function run(command, args, options = {}) {
 }
 
 function runNpmScript(script, env) {
-  if (process.env.npm_execpath) {
-    run(process.execPath, [process.env.npm_execpath, "run", script], { env });
-    return;
-  }
-  run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", script], { env });
+  const manager = packageManagerRunArgs(script, env);
+  run(manager.command, manager.args, { env });
 }
 
 async function main() {

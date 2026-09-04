@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { verifyBundleBudget } from "../scripts/verify-bundle-budget.mjs";
+import {
+  DEFAULT_INITIAL_GZIP_BUDGET,
+  DEFAULT_SINGLE_CHUNK_BUDGET,
+  verifyBundleBudget,
+} from "../scripts/verify-bundle-budget.mjs";
+
+assert.equal(DEFAULT_INITIAL_GZIP_BUDGET, 210_000);
+assert.equal(DEFAULT_SINGLE_CHUNK_BUDGET, 500_000);
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "garment-bundle-budget-"));
@@ -37,13 +44,17 @@ try {
     "assets/vendor.js",
   ]);
   assert.ok(!report.initialChunks.some((chunk) => chunk.file.endsWith("lazy.js")));
+  assert.deepEqual(report.budgets, {
+    initialGzipBytes: 10_000,
+    singleChunkBytes: 10_000,
+  });
   assert.throws(() => verifyBundleBudget({
     distRoot: root,
     initialGzipBudget: 1,
     singleChunkBudget: 10_000,
     writeReport: false,
   }), /初始必需 JS gzip/);
-  console.log("  ✓ 包体预算只统计入口静态依赖，排除动态 chunk，并阻断超预算构建");
+  console.log("  ✓ 包体预算固定为初始 gzip 210KB / 单 chunk 500KB，只统计入口静态依赖并阻断超预算构建");
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

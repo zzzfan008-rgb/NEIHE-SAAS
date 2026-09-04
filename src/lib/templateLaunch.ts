@@ -64,7 +64,31 @@ export function templateLandingNodeId(
 }
 
 function cloneNodes(nodes: WorkflowTemplate["flow"]["nodes"]): FlowNode[] {
-  return structuredClone(nodes) as FlowNode[];
+  return structuredClone(nodes).map((node) => {
+    const data = { ...node.data } as Record<string, unknown>;
+    delete data.error;
+    if (node.data.kind === "image-input") delete data.imageUrl;
+    if (node.data.kind === "drawing-board") {
+      delete data.contentRef;
+      delete data.previewImageRef;
+      delete data.exportImageRef;
+    }
+    if (node.data.kind === "stage-approval") {
+      delete data.approvedSourceNodeId;
+      delete data.approvedBaselineRef;
+      delete data.approvedBasisRevision;
+      delete data.approvedAt;
+    }
+    if ("outputImages" in data) data.outputImages = [];
+    if (node.data.kind === "result") data.images = [];
+    if (node.data.kind === "fabric-recolor") delete data.fabricImageUrl;
+    if (node.data.kind === "mask-redraw") {
+      delete data.mask;
+      delete data.maskSourceRef;
+    }
+    if (node.data.kind === "print-extract") data.savedAsAssets = [];
+    return { ...node, data };
+  }) as FlowNode[];
 }
 
 function cloneEdges(edges: WorkflowTemplate["flow"]["edges"]): Edge[] {

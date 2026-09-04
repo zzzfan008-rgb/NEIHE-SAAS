@@ -8,8 +8,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import {
-  deleteStoredImage, ensureThumbnail, isSupportedImageFile, mimeOfFile,
-  normalizeImageRef, resolveToDataUrl, saveDataUrl, saveNormalizedUploadDataUrl, uploadsDir,
+  deleteStoredImage, ensureThumbnail, isSupportedImageFile, isSupportedMediaFile, mimeOfFile,
+  normalizeImageRef, resolveToDataUrl, saveDataUrl, saveNormalizedUploadDataUrl, saveVideoUploadDataUrl, uploadsDir,
 } from "../lib/fileStore";
 import { ProviderError } from "../providers/base";
 import { ImageValidationError } from "../lib/imageValidation";
@@ -93,6 +93,33 @@ filesRouter.post("/", asyncHandler(async (req, res) => {
     } else {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  }
+}));
+
+filesRouter.post("/video", asyncHandler(async (req, res) => {
+  const user = requestUser(req);
+  const dataUrl = typeof req.body?.dataUrl === "string" ? req.body.dataUrl : "";
+  if (!dataUrl) return res.status(400).json({ error: "dataUrl is required" });
+  let saved: ReturnType<typeof saveVideoUploadDataUrl> | undefined;
+  try {
+    saved = saveVideoUploadDataUrl(dataUrl);
+    const registered = await transaction(async (client) => {
+      if (!await lockActiveOwner(client, user.id)) return false;
+      await client.query(`
+        INSERT INTO files (
+          id, owner_id, source_type, mime_type, byte_length, normalized, created_at
+        ) VALUES ($1, $2, 'video-upload', $3, $4, FALSE, $5)
+      `, [saved!.id, user.id, saved!.mimeType, saved!.byteLength, new Date().toISOString()]);
+      return true;
+    });
+    if (!registered) {
+      deleteStoredImage(saved.id);
+      return res.status(409).json({ error: "账号已停用或删除，不能继续上传视频" });
+    }
+    return res.json(saved);
+  } catch (error) {
+    if (saved) deleteStoredImage(saved.id);
+    return res.status(400).json({ error: error instanceof Error ? error.message : "视频上传失败" });
   }
 }));
 
@@ -359,7 +386,7 @@ filesRouter.get("/:id/thumbnail", asyncHandler(async (req, res) => {
 
 filesRouter.get("/:id", asyncHandler(async (req, res) => {
   const id = path.basename(req.params.id); // 防路径穿越
-  if (id !== req.params.id || !isSupportedImageFile(id)) {
+  if (id !== req.params.id || !isSupportedMediaFile(id)) {
     res.status(400).json({ error: "invalid file id" });
     return;
   }

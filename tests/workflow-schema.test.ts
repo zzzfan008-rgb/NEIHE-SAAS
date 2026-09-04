@@ -117,10 +117,129 @@ const legacyAiFlow = () => ({
 async function main() {
   console.log("工作流 Schema / 图片 / SSRF 回归测试");
 
-  await test("无版本 v0 确定性迁移到 v4，并补模型默认字段", () => {
+  await test("v4 分步换装与配色节点确定性迁移到 v5 typed-port 文档", () => {
+    const legacy = {
+      schemaVersion: 4,
+      nodes: [
+        {
+          id: "palette-source", type: "fabric-recolor", position: { x: 0, y: 0 },
+          data: {
+            kind: "fabric-recolor", label: "旧配色", status: "idle", colors: ["#112233"],
+            prompt: "", outputImages: [], modelId: "gpt-image-2-vip",
+            modelOptions: { size: "2048x2048" },
+          },
+        },
+        {
+          id: "stabilize", type: "virtual-try-on", position: { x: 300, y: 0 },
+          data: {
+            kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize",
+            prompt: "", imageSize: "2K", modelId: "gemini-3.1-flash-image-preview",
+            modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, outputImages: [PNG_DATA_URL],
+          },
+        },
+        {
+          id: "refine", type: "virtual-try-on", position: { x: 700, y: 0 },
+          data: {
+            kind: "virtual-try-on", label: "第二轮", status: "idle", workflowStage: "garment-refine",
+            prompt: "", imageSize: "2K", modelId: "gpt-image-2", modelOptions: { quality: "medium" },
+            garmentCategory: "knit", materialSpec: "羊毛", constructionSpec: "12GG",
+            approvedBaselineRef: PNG_DATA_URL,
+            approvedAt: "2026-09-03T06:00:00.000Z",
+            outputImages: [],
+          },
+        },
+      ],
+      edges: [{ id: "legacy-baseline", source: "stabilize", target: "refine", targetHandle: "baseline" }],
+    };
+
+    const migrated = validateAndMigrateFlow(legacy);
+    assert.equal(migrated.schemaVersion, 6);
+    const fabric = migrated.nodes.find((node) => node.id === "palette-source")?.data;
+    assert.equal(fabric?.kind === "fabric-recolor" && fabric.operationMode, "combined");
+    const stabilize = migrated.nodes.find((node) => node.id === "stabilize")?.data;
+    assert.equal(stabilize?.kind === "virtual-try-on" && stabilize.basisRevision, 0);
+    const approval = migrated.nodes.find((node) => node.data.kind === "stage-approval");
+    assert.ok(approval, "已确认的 v4 第二轮必须插入独立确认节点");
+    assert.equal(approval.data.kind === "stage-approval" && approval.data.approvedSourceNodeId, "stabilize");
+    assert.equal(approval.data.kind === "stage-approval" && approval.data.approvedBaselineRef, PNG_DATA_URL);
+    assert.equal(approval.data.kind === "stage-approval" && approval.data.approvedBasisRevision, 0);
+    assert.equal(
+      approval.data.kind === "stage-approval" && approval.data.approvedAt,
+      "2026-09-03T06:00:00.000Z",
+      "迁移必须把完整确认事实转移到独立节点",
+    );
+    const migratedRefine = migrated.nodes.find((node) => node.id === "refine")?.data;
+    assert.equal(migratedRefine?.kind === "virtual-try-on" && "approvedBaselineRef" in migratedRefine, false);
+    assert.equal(migratedRefine?.kind === "virtual-try-on" && "approvedAt" in migratedRefine, false);
+    assert.ok(migrated.edges.some((edge) => (
+      edge.source === "stabilize" && edge.target === approval.id && edge.targetHandle === "baseline-candidate"
+    )));
+    assert.ok(migrated.edges.some((edge) => (
+      edge.source === approval.id && edge.target === "refine" && edge.targetHandle === "baseline"
+    )));
+    assert.deepEqual(validateAndMigrateFlow(migrated), migrated, "重复读取不得重复插入确认节点");
+  });
+
+  await test("v6 接受新节点及合法 typed ports，并拒绝非法角色与类型组合", () => {
+    const nodes = [
+      {
+        id: "text", type: "text-input", position: { x: 0, y: 0 },
+        data: { kind: "text-input", label: "文本", status: "idle", text: "说明" },
+      },
+      {
+        id: "board", type: "drawing-board", position: { x: 0, y: 100 },
+        data: {
+          kind: "drawing-board", label: "画板", status: "idle", boardVersion: 1,
+          width: 1024, height: 1024, background: "#FFFFFF", previewImageRef: PNG_DATA_URL,
+        },
+      },
+      {
+        id: "palette", type: "color-palette", position: { x: 0, y: 200 },
+        data: {
+          kind: "color-palette", label: "色板", status: "idle", paletteVersion: 1,
+          swatches: [{ id: "black", value: "#000000", source: "quick" }],
+        },
+      },
+      {
+        id: "approval", type: "stage-approval", position: { x: 400, y: 0 },
+        data: { kind: "stage-approval", label: "确认", status: "idle", approvalKind: "scene-baseline" },
+      },
+      {
+        id: "fabric", type: "fabric-recolor", position: { x: 400, y: 200 },
+        data: {
+          kind: "fabric-recolor", label: "配色替换", status: "idle", operationMode: "color",
+          colors: [], prompt: "", outputImages: [], modelId: "gpt-image-2-vip",
+          modelOptions: { size: "2048x2048" },
+        },
+      },
+    ];
+    const valid = validateAndMigrateFlow({
+      schemaVersion: 6,
+      nodes,
+      edges: [
+        { id: "board-approval", source: "board", sourceHandle: "image", target: "approval", targetHandle: "baseline-candidate" },
+        { id: "palette-fabric", source: "palette", sourceHandle: "colors", target: "fabric", targetHandle: "palette" },
+      ],
+    });
+    assert.equal(valid.nodes.length, 5);
+    assert.equal(valid.edges.length, 2);
+
+    assert.throws(() => validateAndMigrateFlow({
+      schemaVersion: 6,
+      nodes,
+      edges: [{ id: "wrong-kind", source: "text", sourceHandle: "text", target: "fabric", targetHandle: "palette" }],
+    }), /配色|palette|colors|类型/);
+    assert.throws(() => validateAndMigrateFlow({
+      schemaVersion: 6,
+      nodes,
+      edges: [{ id: "unknown-role", source: "board", target: "approval", targetHandle: "not-a-role" }],
+    }), /角色|role|targetHandle/);
+  });
+
+  await test("无版本 v0 确定性迁移到 v6，并补模型默认字段", () => {
     const first = validateAndMigrateFlow(legacyAiFlow());
     const second = validateAndMigrateFlow(first);
-    assert.equal(first.schemaVersion, 4);
+    assert.equal(first.schemaVersion, 6);
     assert.equal(first.nodes[0].data.kind, "ai-modify");
     if (first.nodes[0].data.kind !== "ai-modify") throw new Error("unexpected node kind");
     assert.equal(first.nodes[0].data.aspectRatio, "1:1");
@@ -195,7 +314,10 @@ async function main() {
       },
     } as never);
     flow.edges.push({ id: "try-on-edge-14", source: "try-on-ref-14", target: "try-on" });
-    assert.throws(() => validateAndMigrateFlow(flow), /accepts at most 14 incoming image connections/);
+    assert.throws(
+      () => validateAndMigrateFlow(flow),
+      /参考图最多连接 14 个来源|accepts at most 14 incoming image connections/,
+    );
 
     flow.edges.pop();
     flow.nodes.pop();
@@ -316,7 +438,7 @@ async function main() {
     };
     legacyMaskFlow.nodes[0].data.maskMode = "preserve";
     const normalized = validateAndMigrateFlow(legacyMaskFlow);
-    assert.equal(normalized.schemaVersion, 4);
+    assert.equal(normalized.schemaVersion, 6);
     assert.equal((normalized.nodes[0].data as Record<string, unknown>).maskMode, undefined);
   });
 
@@ -343,7 +465,7 @@ async function main() {
     }
 
     const migrated = validateAndMigrateFlow(legacyMaskFlow);
-    assert.equal(migrated.schemaVersion, 4);
+    assert.equal(migrated.schemaVersion, 6);
     assert.equal(migrated.edges.length, 8);
     assert.deepEqual(validateAndMigrateFlow(migrated), migrated);
   });
@@ -404,7 +526,7 @@ async function main() {
     });
 
     assert.deepEqual(normalized, {
-      schemaVersion: 4,
+      schemaVersion: 6,
       nodes: [
         {
           id: "n1",
@@ -439,7 +561,7 @@ async function main() {
           id: "e1",
           source: "n1",
           target: "n2",
-          sourceHandle: "images",
+          sourceHandle: null,
           targetHandle: null,
         },
       ],
@@ -498,7 +620,10 @@ async function main() {
       } as never);
       flow.edges.push({ id: `e${index}`, source: `ref${index}`, target: "n1" } as never);
     }
-    assert.throws(() => validateAndMigrateFlow(flow), /accepts at most 8 incoming image connections/);
+    assert.throws(
+      () => validateAndMigrateFlow(flow),
+      /参考图最多连接 8 个来源|accepts at most 8 incoming image connections/,
+    );
   });
 
   await test("图片上传节点只接受单个 imageUrl 字段", () => {
@@ -580,14 +705,14 @@ async function main() {
       updatedAt: "2026-01-01T00:00:00.000Z",
       flow: legacyAiFlow(),
     };
-    assert.equal(validateAndMigrateFlow(legacyProject.flow).schemaVersion, 4);
+    assert.equal(validateAndMigrateFlow(legacyProject.flow).schemaVersion, 6);
 
     const builtinRoot = "data/templates/builtin";
     const builtinFiles = fs.readdirSync(builtinRoot).filter((name) => name.endsWith(".json"));
-    assert.equal(builtinFiles.length, 6, "仓库应包含六份内置模板");
+    assert.ok(builtinFiles.length >= 7, "仓库应包含基础内置模板");
     for (const file of builtinFiles) {
       const value = JSON.parse(fs.readFileSync(path.join(builtinRoot, file), "utf-8")) as { flow: unknown };
-      assert.equal(validateAndMigrateFlow(value.flow).schemaVersion, 4, `${builtinRoot}/${file}`);
+      assert.equal(validateAndMigrateFlow(value.flow).schemaVersion, 6, `${builtinRoot}/${file}`);
     }
     for (const [file, expected] of [
       ["builtin-person-scene-transfer.json", ["subject", "scene"]],
@@ -608,6 +733,52 @@ async function main() {
     const generateNode = textToImage.flow.nodes.find((node) => node.id === "generate");
     assert.ok(generateNode?.data.prompt?.trim(), "文生图模板必须提供可编辑的示例提示词");
     assert.equal(textToImage.flow.edges.length, 1, "文生图结果应自动汇总到结果节点");
+
+    const stagedTryOn = JSON.parse(
+      fs.readFileSync(path.join(builtinRoot, "builtin-dual-model-staged-try-on.json"), "utf-8"),
+    ) as {
+      schemaVersion: number;
+      id: string;
+      builtIn: boolean;
+      ownerId?: string;
+      flow: {
+        schemaVersion: number;
+        nodes: Array<{ id: string; type: string; data: Record<string, unknown> }>;
+        edges: Array<{ source: string; target: string; sourceHandle?: string; targetHandle?: string }>;
+      };
+    };
+    assert.equal(stagedTryOn.schemaVersion, 6);
+    assert.equal(stagedTryOn.id, "builtin-dual-model-staged-try-on");
+    assert.equal(stagedTryOn.builtIn, true);
+    assert.equal(stagedTryOn.ownerId, undefined);
+    assert.equal(stagedTryOn.flow.schemaVersion, 6);
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3.1-flash-image-preview");
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.modelId, "gpt-image-2");
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
+    assert.deepEqual(
+      stagedTryOn.flow.edges
+        .filter((edge) => edge.target === "stabilize")
+        .map((edge) => edge.targetHandle),
+      ["person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet"],
+    );
+    assert.ok(stagedTryOn.flow.edges.some((edge) => (
+      edge.source === "stabilize" && edge.target === "approval" &&
+      edge.sourceHandle === "image" && edge.targetHandle === "baseline-candidate"
+    )));
+    assert.ok(stagedTryOn.flow.edges.some((edge) => (
+      edge.source === "approval" && edge.target === "refine" &&
+      edge.sourceHandle === "image" && edge.targetHandle === "baseline"
+    )));
+    assert.deepEqual(
+      stagedTryOn.flow.edges
+        .filter((edge) => edge.target === "refine")
+        .map((edge) => edge.targetHandle),
+      ["baseline", "outfit", "material", "detail"],
+    );
+    for (const node of stagedTryOn.flow.nodes) {
+      assert.equal("imageUrl" in node.data, false, `${node.id} 不得保存真实输入图`);
+      assert.equal("approvedBaselineRef" in node.data, false, `${node.id} 不得保存审批事实`);
+    }
   });
 
   await test("已有数据目录保留可迁移的 v1 内置模板并增量补齐缺失模板", () => {
@@ -644,17 +815,15 @@ async function main() {
 
       assert.equal(fs.readFileSync(existingPath, "utf-8"), existingJson);
       assert.equal(fs.existsSync(path.join(builtinDir, "builtin-style-transfer.json")), false);
-      assert.deepEqual(
-        fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort(),
-        [
-          "builtin-pattern-style-transfer.json",
-          "builtin-person-scene-transfer.json",
-          "builtin-sketch-recolor.json",
-          "builtin-sketch-upscale.json",
-          "builtin-text-recolor.json",
-          "builtin-text-to-image.json",
-        ],
-      );
+      const refreshedFiles = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
+      assert.equal(refreshedFiles.length, 20);
+      for (const required of [
+        "builtin-dual-model-staged-try-on.json",
+        "builtin-sketch-recolor.json",
+        "builtin-tool-one-click-try-on.json",
+        "builtin-tool-text-to-video.json",
+        "builtin-tool-video-to-video.json",
+      ]) assert.ok(refreshedFiles.includes(required), required);
     } finally {
       if (originalDataDir === undefined) delete process.env.DATA_DIR;
       else process.env.DATA_DIR = originalDataDir;
@@ -684,8 +853,8 @@ async function main() {
         schemaVersion: unknown;
         flow: { nodes: Array<{ type: string; data: Record<string, unknown> }> };
       };
-      assert.equal(repaired.schemaVersion, 4);
-      assert.equal(validateAndMigrateFlow(repaired.flow).schemaVersion, 4);
+      assert.equal(repaired.schemaVersion, 6);
+      assert.equal(validateAndMigrateFlow(repaired.flow).schemaVersion, 6);
       for (const node of repaired.flow.nodes.filter((candidate) => candidate.type !== "image-input")) {
         assert.equal(typeof node.data.modelId, "string", `${node.type} 应补 modelId`);
         assert.equal(typeof node.data.modelOptions, "object", `${node.type} 应补 modelOptions`);
@@ -697,7 +866,7 @@ async function main() {
     }
   });
 
-  await test("全新空数据目录生成的六份 v4 内置模板均可读取和校验", () => {
+  await test("全新空数据目录生成的 v6 内置模板均可读取和校验", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "garment-canvas-fresh-templates-"));
     const originalDataDir = process.env.DATA_DIR;
     try {
@@ -706,14 +875,14 @@ async function main() {
 
       const builtinDir = path.join(dir, "templates", "builtin");
       const files = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(files.length, 6);
+      assert.equal(files.length, 20);
       for (const file of files) {
         const template = JSON.parse(fs.readFileSync(path.join(builtinDir, file), "utf-8")) as {
           schemaVersion: unknown;
           flow: unknown;
         };
-        assert.equal(template.schemaVersion, 4, file);
-        assert.equal(validateAndMigrateFlow(template.flow).schemaVersion, 4, file);
+        assert.equal(template.schemaVersion, 6, file);
+        assert.equal(validateAndMigrateFlow(template.flow).schemaVersion, 6, file);
       }
     } finally {
       if (originalDataDir === undefined) delete process.env.DATA_DIR;

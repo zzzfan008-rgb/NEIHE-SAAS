@@ -2,6 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useFlowStore,
 } from "@/store/flowStore";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import type { Asset } from "@/types/workflow";
 import { thumbnailImageUrl } from "@/lib/images";
 import type { AssetPickerRequest } from "@/lib/overlayEvents";
@@ -87,69 +96,72 @@ export function AssetPickerOverlay({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs"
-      onClick={() => onRequestChange(null)}
-    >
-      <div
-        className="flex max-h-[80vh] w-[min(680px,90vw)] flex-col rounded-lg border border-[#262626] bg-[#141414]"
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open onOpenChange={(open) => { if (!open) onRequestChange(null); }}>
+      <DialogContent
+        showCloseButton={false}
+        overlayClassName="z-50 bg-[color-mix(in_srgb,var(--gc-shell)_82%,transparent)] backdrop-blur-xs"
+        className="z-[51] flex max-h-[80vh] w-[min(680px,calc(100vw-3rem))] max-w-none flex-col gap-0 overflow-hidden rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] p-0 text-[var(--gc-text)] ring-0"
       >
-        <div className="flex items-center justify-between border-b border-[#262626] px-4 py-3">
-          <span className="text-xs font-medium tracking-widest text-neutral-400">从素材库选择</span>
-          <button
-            type="button"
-            onClick={() => onRequestChange(null)}
-            className="rounded-sm border border-[#262626] px-2 py-1 text-[10px] text-neutral-500 hover:border-gold/50 hover:text-gold"
-          >
+        <div className="flex items-center justify-between border-b border-[var(--gc-border)] px-4 py-3">
+          <div>
+            <DialogTitle className="text-xs font-medium tracking-widest text-[var(--gc-text)]">从素材库选择</DialogTitle>
+            <DialogDescription className="mt-1 text-[10px] text-[var(--gc-text-muted)]">
+              按分类筛选素材，选择后写入当前图片节点
+            </DialogDescription>
+          </div>
+          <DialogClose render={<Button type="button" variant="outline" size="xs" />}>
             关闭
-          </button>
+          </DialogClose>
         </div>
 
-        <div className="flex items-center gap-2 border-b border-[#262626] px-4 py-2.5">
+        <div className="flex items-center gap-2 border-b border-[var(--gc-border)] px-4 py-2.5">
           <div className="flex gap-1">
             {CATEGORY_TABS.map(([key, label]) => (
-              <button
+              <Button
                 key={key}
                 type="button"
+                variant={category === key ? "default" : "outline"}
+                size="xs"
+                aria-pressed={category === key}
                 onClick={() => setCategory(key)}
-                className={`rounded-sm border px-2 py-1 text-[10px] transition-colors ${
-                  category === key
-                    ? "border-gold/60 text-gold"
-                    : "border-[#262626] text-neutral-500 hover:text-neutral-300"
-                }`}
+                className="text-[10px]"
               >
                 {label}
-              </button>
+              </Button>
             ))}
           </div>
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索素材名称"
-            className="ml-auto w-44 rounded-sm border border-[#262626] bg-[#0f0f0f] px-2 py-1 text-[10px] text-neutral-200 placeholder:text-neutral-600 focus:border-gold/60 focus:outline-hidden"
-          />
+          <label className="ml-auto w-44">
+            <span className="sr-only">搜索素材名称</span>
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索素材名称"
+              className="h-7 rounded-md bg-[var(--gc-control)] text-xs"
+            />
+          </label>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
           {error && (
             <div className="py-6 text-center">
-              <p className="text-[10px] text-neutral-600">素材服务暂不可用（{error}）</p>
-              <button
+              <p className="text-[10px] text-[var(--gc-text-muted)]">素材服务暂不可用（{error}）</p>
+              <Button
                 type="button"
+                variant="outline"
+                size="xs"
                 onClick={() => void load(0)}
-                className="mt-2 rounded-sm border border-[#262626] px-2 py-1 text-[10px] text-neutral-400 hover:border-gold/50 hover:text-gold"
+                className="mt-2"
               >
                 重试
-              </button>
+              </Button>
             </div>
           )}
           {!error && loading && assets.length === 0 && (
-            <p className="py-6 text-center text-[10px] text-neutral-600">加载中…</p>
+            <p className="py-6 text-center text-[10px] text-[var(--gc-text-muted)]">加载中…</p>
           )}
           {!error && !loading && assets.length === 0 && (
-            <p className="py-6 text-center text-[10px] text-neutral-600">
+            <p className="py-6 text-center text-[10px] text-[var(--gc-text-muted)]">
               {debouncedSearch ? "没有匹配的素材" : "暂无素材，可在印花提取节点中「存为素材」"}
             </p>
           )}
@@ -161,32 +173,33 @@ export function AssetPickerOverlay({
                   type="button"
                   onClick={() => pick(asset)}
                   title={asset.name}
-                  className="overflow-hidden rounded-md border border-[#262626] bg-[#1a1a1a] text-left transition-colors hover:border-gold/60"
+                  className="overflow-hidden rounded-md border border-[var(--gc-border)] bg-[var(--gc-control)] text-left transition-colors hover:border-[var(--gc-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gc-accent)]"
                 >
                   <img
                     src={asset.thumbnail ?? thumbnailImageUrl(asset.image)}
                     alt={asset.name}
                     loading="lazy"
                     decoding="async"
-                    className="aspect-square w-full bg-[#0f0f0f] object-cover"
+                    className="aspect-square w-full bg-[var(--gc-control)] object-cover"
                   />
-                  <div className="truncate px-1.5 py-1 text-[10px] text-neutral-300">{asset.name}</div>
+                  <div className="truncate px-1.5 py-1 text-[10px] text-[var(--gc-text)]">{asset.name}</div>
                 </button>
               ))}
             </div>
           )}
           {hasMore && (
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={() => void load(assets.length)}
               disabled={loading}
-              className="mt-2.5 w-full rounded-md border border-dashed border-[#262626] px-3 py-2 text-[10px] text-neutral-500 hover:border-gold/60 hover:text-gold disabled:opacity-50"
+              className="mt-2.5 w-full border-dashed text-[10px]"
             >
               {loading ? "加载中…" : "加载更多素材"}
-            </button>
+            </Button>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

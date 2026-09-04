@@ -567,6 +567,46 @@ async function migrate(): Promise<void> {
       );
     }
 
+    if (!applied.has(13)) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS drawing_document_versions (
+          id TEXT PRIMARY KEY,
+          owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          node_id TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          content_json TEXT NOT NULL,
+          sha256 TEXT NOT NULL,
+          base_content_ref TEXT REFERENCES drawing_document_versions(id) ON DELETE RESTRICT,
+          created_at TEXT NOT NULL,
+          CONSTRAINT drawing_document_versions_version_check CHECK (version = 1),
+          CONSTRAINT drawing_document_versions_sha256_check CHECK (
+            length(sha256) = 64 AND sha256 ~ '^[0-9a-f]{64}$'
+          )
+        );
+        CREATE INDEX IF NOT EXISTS drawing_document_versions_owner_project_node_idx
+          ON drawing_document_versions(owner_id, project_id, node_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS drawing_board_idempotency (
+          owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          client_request_id TEXT NOT NULL,
+          request_sha256 TEXT NOT NULL,
+          content_ref TEXT NOT NULL REFERENCES drawing_document_versions(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (owner_id, client_request_id),
+          CONSTRAINT drawing_board_idempotency_request_sha256_check CHECK (
+            length(request_sha256) = 64 AND request_sha256 ~ '^[0-9a-f]{64}$'
+          )
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS drawing_board_idempotency_content_ref_unique
+          ON drawing_board_idempotency(content_ref);
+      `);
+      await client.query(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (13, $1, $2)",
+        ["drawing_document_versions", new Date().toISOString()],
+      );
+    }
+
     return imported;
   });
   if (importedRows !== undefined) {

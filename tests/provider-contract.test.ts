@@ -10,6 +10,7 @@ import { config } from "../server/config";
 import { compositeMaskedEdit, validateMaskForSource } from "../server/lib/maskProcessing";
 import { createRateLimitMiddleware } from "../server/lib/rateLimit";
 import { apiyiProviders } from "../server/providers/apiyi";
+import { generateApiYiVideo } from "../server/providers/apiyiVideo";
 import { fetchWithRetry, ProviderError } from "../server/providers/base";
 import { createAiDiagnosticsRouter } from "../server/routes/aiDiagnostics";
 import {
@@ -116,6 +117,37 @@ async function main(): Promise<void> {
   const mask = await halfEditableMask(4, 2);
 
   try {
+    await test("视频双帧模式在付费调用前拒绝非两张参考图", async () => {
+      let calls = 0;
+      const restoreFetch = installFetchMock(() => {
+        calls += 1;
+        return Response.json({ task_id: "must-not-submit" });
+      });
+      try {
+        for (const mode of ["keyframes-to-video", "multi-image-video"] as const) {
+          for (const references of [[white], [white, blue, red]]) {
+            await assert.rejects(
+              () => generateApiYiVideo({
+                mode,
+                prompt: "服装动态展示",
+                quality: "standard",
+                aspectRatio: "16:9",
+                resolution: "720p",
+                seconds: 8,
+                references,
+              }),
+              (error: unknown) => error instanceof ProviderError &&
+                error.status === 400 && error.category === "invalid_request" &&
+                error.message === "首尾帧或多图参考必须使用 2 张图片",
+            );
+          }
+        }
+        assert.equal(calls, 0);
+      } finally {
+        restoreFetch();
+      }
+    });
+
     await test("本地知识库与 Provider 注册表严格覆盖全部模型", () => {
       assert.deepEqual(Object.keys(apiyiProviders).sort(), [...IMAGE_MODEL_IDS].sort());
       for (const modelId of IMAGE_MODEL_IDS) {

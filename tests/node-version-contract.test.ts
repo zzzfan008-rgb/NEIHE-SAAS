@@ -44,8 +44,21 @@ assert.match(
   /const REQUIRED_NODE_VERSION = "22\.20\.0";/,
   "Codex 门禁必须在最低支持的 Node.js 22.20.0 上运行完整套件",
 );
-assert.match(codexGate, /run\("npm", \["run", "check"\]\)/);
-assert.match(codexGate, /run\("npm", \["run", "test:e2e"\]\)/);
+assert.match(
+  codexGate,
+  /packageManagerInstallArgs\(\)/,
+  "Codex 门禁必须通过包管理器解析器执行锁定安装",
+);
+assert.match(
+  codexGate,
+  /packageManagerRunArgs\(script\)/,
+  "Codex 门禁必须通过包管理器解析器执行验证脚本",
+);
+assert.match(
+  codexGate,
+  /for \(const script of \["check", "test:e2e", "build", "test:e2e:production"\]\)/,
+  "Codex 门禁必须保持固定验证顺序",
+);
 assert.match(
   codexGate,
   /"codex", \[[\s\S]*?"exec",\s*"--ephemeral"/,

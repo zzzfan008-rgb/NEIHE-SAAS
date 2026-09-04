@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -66,6 +69,30 @@ function apply(event: RunEvent): RecentResult[] {
 }
 
 console.log("生成记录生命周期测试");
+
+const testRoot = path.dirname(fileURLToPath(import.meta.url));
+const contextPanelSource = fs.readFileSync(
+  path.resolve(testRoot, "../src/components/panels/ContextPanel.tsx"),
+  "utf8",
+);
+const resultsPanelSource = fs.readFileSync(
+  path.resolve(testRoot, "../src/components/panels/ResultsPanel.tsx"),
+  "utf8",
+);
+assert.equal(
+  (contextPanelSource.match(/<TabsContent[\s\S]*?keepMounted/g) ?? []).length,
+  2,
+  "属性与结果必须始终保持挂载",
+);
+assert.match(resultsPanelSource, /selectedResultId/);
+assert.match(resultsPanelSource, /switchTab/);
+assert.match(resultsPanelSource, /recentResults/);
+assert.match(resultsPanelSource, /viewResult/);
+assert.match(resultsPanelSource, /toggleCompareId/);
+assert.match(resultsPanelSource, /href=\{r\.image\}[\s\S]*?download/);
+assert.match(resultsPanelSource, /continueWithResult/);
+assert.match(resultsPanelSource, /addAssetNode/);
+console.log("  ✓ Results 保持挂载、恢复全局记录，并保留查看、对比、下载、设为输入和跨项目跳转");
 
 test("排队卡收到运行事件后原地更新，不重复新建", () => {
   const result = apply({

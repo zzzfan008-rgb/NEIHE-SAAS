@@ -157,7 +157,18 @@ assetsRouter.post("/", asyncHandler(async (req, res) => {
       return;
     }
     committed = true;
-    res.status(201).json({ ok: true, id });
+    res.status(201).json({
+      ok: true,
+      id,
+      url: imageUrl,
+      ...(saved ? {
+        mimeType: saved.mimeType,
+        width: saved.width,
+        height: saved.height,
+        byteLength: saved.byteLength,
+        normalized: true,
+      } : {}),
+    });
   } catch (error) {
     if (saved && !committed) deleteStoredImage(saved.id);
     res.status(error instanceof ImageValidationError ? 400 : 500)

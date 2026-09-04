@@ -1,4 +1,5 @@
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+import axe from "axe-core";
 import {
   WORKFLOW_SCHEMA_VERSION,
   type WorkflowTemplate,
@@ -187,10 +188,335 @@ async function expectFlowCenter(
   }).toBeLessThanOrEqual(1);
 }
 
+async function openFreshBlankProject(page: Page) {
+  await page.getByRole("button", { name: "打开项目中心" }).click();
+  const center = page.getByRole("dialog", { name: "项目中心" });
+  await expect(center).toBeVisible();
+  await center.getByRole("button", { name: "新建项目" }).click();
+  await expect(page.getByRole("region", { name: "开始第一个创作任务" })).toBeVisible();
+}
+
+async function addTextNode(page: Page): Promise<Locator> {
+  const nodes = page.locator(".react-flow__node");
+  const before = await nodes.count();
+  const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  await rail.getByRole("button", { name: "添加节点", exact: true }).click();
+  await page.getByRole("menu", { name: "添加节点" }).getByRole("menuitem", { name: /文本节点/ }).click();
+  await expect(nodes).toHaveCount(before + 1);
+  return nodes.filter({ hasText: "文本节点" }).last();
+}
+
+async function expectCurrentThemeContract(page: Page) {
+  const theme = await page.locator("html").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      selector: element.getAttribute("data-theme"),
+      shell: style.getPropertyValue("--gc-shell").trim(),
+      panel: style.getPropertyValue("--gc-panel").trim(),
+      text: style.getPropertyValue("--gc-text").trim(),
+      border: style.getPropertyValue("--gc-border").trim(),
+      accent: style.getPropertyValue("--gc-accent").trim(),
+    };
+  });
+  expect(theme).toEqual({
+    selector: null,
+    shell: "#101214",
+    panel: "#17191c",
+    text: "#e5e7eb",
+    border: "#2b2e32",
+    accent: "#b18745",
+  });
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("application", { name: "工作流画布" })).toBeVisible();
   await expect(page.getByText(/正在确认运行历史|运行历史同步失败/)).toHaveCount(0);
+});
+
+test("five tool groups support hover keyboard click drag and disabled no-op", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const canvas = page.getByRole("application", { name: "工作流画布" });
+  const toolRail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  const groupNames = ["添加节点", "服装设计", "模特换装", "视频制作", "创作工具"];
+  for (const name of groupNames) await expect(toolRail.getByRole("button", { name, exact: true })).toBeVisible();
+
+  for (const name of groupNames) {
+    const trigger = toolRail.getByRole("button", { name, exact: true });
+    await trigger.hover();
+    const menu = page.getByRole("menu", { name });
+    await expect(menu).toBeVisible();
+    const menuRect = await rect(menu);
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("Desktop viewport is required");
+    expectInside(menuRect, {
+      left: 0,
+      top: 0,
+      right: viewport.width,
+      bottom: viewport.height,
+      width: viewport.width,
+      height: viewport.height,
+    });
+  }
+
+  const addTrigger = toolRail.getByRole("button", { name: "添加节点", exact: true });
+  await addTrigger.hover();
+  const addMenu = page.getByRole("menu", { name: "添加节点" });
+  await expect(addMenu).toBeVisible();
+  await addMenu.hover();
+  await expect(addMenu).toBeVisible();
+
+  const beforeClick = await page.locator(".react-flow__node").count();
+  await addMenu.getByRole("menuitem", { name: /文本节点/ }).click();
+  await expect(page.locator(".react-flow__node")).toHaveCount(beforeClick + 1);
+
+  const apparelTrigger = toolRail.getByRole("button", { name: "服装设计", exact: true });
+  await apparelTrigger.focus();
+  await apparelTrigger.press("Enter");
+  const apparelMenu = page.getByRole("menu", { name: "服装设计" });
+  await expect(apparelMenu).toBeVisible();
+  await expect(apparelMenu.getByRole("menuitem").first()).toBeFocused();
+  await apparelMenu.press("Escape");
+  await expect(apparelMenu).toBeHidden();
+  await expect(apparelTrigger).toBeFocused();
+
+  await toolRail.getByRole("button", { name: "视频制作", exact: true }).click();
+  const videoMenu = page.getByRole("menu", { name: "视频制作" });
+  const videoItem = videoMenu.getByRole("menuitem", { name: /文生视频/ });
+  await expect(videoItem).toHaveAttribute("aria-disabled", "false");
+  await expect(videoItem).toHaveAttribute("data-approval-state", "approved");
+  await videoItem.click();
+  await expect(page.locator(".react-flow__node")).toHaveCount(2);
+  await expect(page.locator(".react-flow__node").filter({ hasText: "文生视频" })).toBeVisible();
+
+  await addTrigger.click();
+  const uploadItem = page.getByRole("menu", { name: "添加节点" }).getByRole("menuitem", { name: /本地上传图片/ });
+  const transfer = await page.evaluateHandle(() => new DataTransfer());
+  await uploadItem.dispatchEvent("dragstart", { dataTransfer: transfer });
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas box missing");
+  await canvas.dispatchEvent("drop", {
+    dataTransfer: transfer,
+    clientX: box.x + box.width * 0.72,
+    clientY: box.y + box.height * 0.42,
+  });
+  await expect(page.locator(".react-flow__node")).toHaveCount(3);
+});
+
+test("staged try-on confirms a semantic role before connecting and invalidates stale approval", async ({ page }, testInfo) => {
+  const templateName = `双模型分步换装 E2E ${testInfo.project.name}`;
+  const createResponse = await page.request.post("/api/templates", {
+    data: {
+      name: templateName,
+      description: "验证分步换装角色确认与独立审批失效",
+      flow: {
+        schemaVersion: WORKFLOW_SCHEMA_VERSION,
+        nodes: [
+          {
+            id: "e2e-role-source",
+            type: "image-input",
+            position: { x: 0, y: 0 },
+            data: { kind: "image-input", label: "待分配参考图", status: "idle", imageRole: "reference" },
+          },
+          {
+            id: "e2e-stabilize",
+            type: "virtual-try-on",
+            position: { x: 380, y: 0 },
+            data: {
+              kind: "virtual-try-on",
+              label: "第一轮 · Gemini 场景化定版",
+              status: "idle",
+              workflowStage: "scene-stabilize",
+              prompt: "",
+              modelId: "gemini-3.1-flash-image-preview",
+              modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
+              imageSize: "2K",
+              aspectRatio: "1:1",
+              basisRevision: 0,
+              outputImages: [],
+            },
+          },
+          {
+            id: "e2e-approval",
+            type: "stage-approval",
+            position: { x: 760, y: 0 },
+            data: {
+              kind: "stage-approval",
+              label: "确认第一轮基准",
+              status: "idle",
+              approvalKind: "scene-baseline",
+            },
+          },
+          {
+            id: "e2e-refine",
+            type: "virtual-try-on",
+            position: { x: 1120, y: 0 },
+            data: {
+              kind: "virtual-try-on",
+              label: "第二轮 · GPT 服装精修",
+              status: "idle",
+              workflowStage: "garment-refine",
+              prompt: "",
+              modelId: "gpt-image-2",
+              modelOptions: { quality: "medium" },
+              imageSize: "2K",
+              aspectRatio: "1:1",
+              garmentCategory: "knit",
+              materialSpec: "羊毛混纺，双股纱，中等厚度",
+              constructionSpec: "12GG 平针，1×1 罗纹领口",
+              outputImages: [],
+            },
+          },
+        ],
+        edges: [
+          {
+            id: "e2e-stage-candidate",
+            source: "e2e-stabilize",
+            target: "e2e-approval",
+            sourceHandle: "image",
+            targetHandle: "baseline-candidate",
+          },
+        ],
+      },
+    },
+  });
+  expect(createResponse.ok(), await createResponse.text()).toBeTruthy();
+
+  await page.getByRole("button", { name: "打开项目中心" }).click();
+  const projectCenter = page.getByRole("dialog", { name: "项目中心" });
+  await expect(projectCenter).toBeVisible();
+  await projectCenter.getByRole("tab", { name: "我的模板" }).click();
+  const openTemplate = projectCenter.getByRole("button", { name: `打开我的模板：${templateName}` });
+  await expect(openTemplate).toBeVisible();
+  await openTemplate.click();
+  await expect(projectCenter).toBeHidden();
+  const stabilizeNode = page.locator('.react-flow__node[data-id="e2e-stabilize"]');
+  const approvalNode = page.locator('.react-flow__node[data-id="e2e-approval"]');
+  const refineNode = page.locator('.react-flow__node[data-id="e2e-refine"]');
+  await expect(stabilizeNode).toBeVisible();
+  expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(420.875);
+  expect((await rect(refineNode)).height).toBeLessThanOrEqual(637.4375);
+
+  await expectCurrentThemeContract(page);
+  expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(420.875);
+  expect((await rect(refineNode)).height).toBeLessThanOrEqual(637.4375);
+
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().setSelectedNodeIds([]);
+  });
+  await expect(page.locator(".gc-workflow-edge--quiet")).toHaveCount(1);
+  await stabilizeNode.locator(".gc-node-floating-title").click();
+  await expect(page.locator(".gc-workflow-edge--downstream")).toHaveCount(1);
+
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().setNodeStatus("e2e-stabilize", "running");
+  });
+  const flowDots = page.locator(".gc-edge-flow-dots");
+  await expect(flowDots).toHaveCount(1);
+  await expect.poll(() => flowDots.evaluate((element) => getComputedStyle(element).display)).toBe("none");
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().setNodeStatus("e2e-stabilize", "idle");
+    useFlowStore.getState().onNodesChange([
+      { id: "e2e-stabilize", type: "position", position: { x: 380, y: 0 } },
+      { id: "e2e-approval", type: "position", position: { x: 400, y: 10 } },
+    ]);
+  });
+  await expect.poll(async () => {
+    const a = await rect(stabilizeNode);
+    const b = await rect(approvalNode);
+    return a.right > b.left && b.right > a.left && a.bottom > b.top && b.bottom > a.top;
+  }).toBe(true);
+  const componentCenterBefore = await Promise.all([rect(stabilizeNode), rect(approvalNode)]).then(([a, b]) => ({
+    x: (Math.min(a.left, b.left) + Math.max(a.right, b.right)) / 2,
+    y: (Math.min(a.top, b.top) + Math.max(a.bottom, b.bottom)) / 2,
+  }));
+  const refinePositionBefore = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    return tab?.nodes.find((node: { id: string }) => node.id === "e2e-refine")?.position;
+  });
+  const canvasCenterBefore = await flowCenter(page.getByRole("application", { name: "工作流画布" }));
+  await page.getByRole("button", { name: "整理所选工作流" }).click();
+  await expect.poll(async () => {
+    const a = await rect(stabilizeNode);
+    const b = await rect(approvalNode);
+    return a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+  }).toBe(true);
+  const componentCenterAfter = await Promise.all([rect(stabilizeNode), rect(approvalNode)]).then(([a, b]) => ({
+    x: (Math.min(a.left, b.left) + Math.max(a.right, b.right)) / 2,
+    y: (Math.min(a.top, b.top) + Math.max(a.bottom, b.bottom)) / 2,
+  }));
+  expect(Math.abs(componentCenterAfter.x - componentCenterBefore.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(componentCenterAfter.y - componentCenterBefore.y)).toBeLessThanOrEqual(1);
+  await expectFlowCenter(page.getByRole("application", { name: "工作流画布" }), canvasCenterBefore);
+  expect(await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    return tab?.nodes.find((node: { id: string }) => node.id === "e2e-refine")?.position;
+  })).toEqual(refinePositionBefore);
+
+  // 自动整理刻意只移动所选连通分量；把未连接的测试素材放回第一轮左侧，
+  // 避免它与保持中心后的节点重叠，随后再验证真实拖线交互。
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    const stage = tab?.nodes.find((node: { id: string }) => node.id === "e2e-stabilize");
+    if (!stage) throw new Error("missing staged node");
+    state.onNodesChange([{
+      id: "e2e-role-source",
+      type: "position",
+      position: { x: stage.position.x - 420, y: stage.position.y },
+    }]);
+  });
+
+  const sourceHandle = page.locator('.react-flow__node[data-id="e2e-role-source"] .react-flow__handle.source');
+  const detailHandle = page.locator('.react-flow__node[data-id="e2e-stabilize"] [data-handleid="detail"]');
+  await sourceHandle.dragTo(detailHandle);
+  const roleDialog = page.getByRole("dialog", { name: "确认连接角色" });
+  await expect(roleDialog).toBeVisible();
+  await roleDialog.getByRole("radio", { name: /服装局部结构参考/ }).check();
+  await roleDialog.getByRole("button", { name: "确认连接" }).click();
+  await expect(roleDialog).toBeHidden();
+  await expect.poll(async () => page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    return tab?.edges.some((edge: { source: string; target: string; targetHandle?: string | null }) => (
+      edge.source === "e2e-role-source" && edge.target === "e2e-stabilize" && edge.targetHandle === "detail"
+    ));
+  })).toBe(true);
+
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().updateNodeData("e2e-stabilize", {
+      outputImages: ["data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="],
+    });
+  });
+  const approval = page.locator('.react-flow__node[data-id="e2e-approval"]');
+  await expect(approval.getByText("待确认", { exact: true })).toBeVisible();
+  await approval.getByRole("button", { name: "确认当前第一轮基准" }).click();
+  await expect(approval.getByText("基准已确认")).toBeVisible();
+
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().updateNodeData("e2e-stabilize", { prompt: "改变第一轮生成依据" });
+  });
+  await expect(approval.locator('.gc-node-card[data-display-state="needs-reconfirmation"]')).toBeVisible();
 });
 
 test("project center separates built-in and user templates and keeps template actions reachable", async ({ page }, testInfo) => {
@@ -293,9 +619,7 @@ test("results and project center follow desktop density for cards", async ({ pag
   await page.reload();
   await expect(page.getByRole("application", { name: "工作流画布" })).toBeVisible();
 
-  const contextToggle = page.getByRole("button", { name: "属性 / 结果" });
-  await contextToggle.click();
-  await page.getByRole("tab", { name: "结果 / 记录" }).click();
+  await page.getByRole("button", { name: "结果 / 记录", exact: true }).click();
   const resultsRegion = page.getByRole("region", { name: "最近生成" });
   await expect(resultsRegion).toBeVisible();
 
@@ -322,6 +646,21 @@ test("results and project center follow desktop density for cards", async ({ pag
   await expect(downloadButton).toBeVisible();
   await expect(applyButton).toBeVisible();
 
+  await page.addScriptTag({ content: axe.source });
+  const resultStateViolations = await page.evaluate(async () => {
+    const axeRuntime = (window as unknown as Window & { axe: typeof axe }).axe;
+    const result = await axeRuntime.run(document, {
+      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa"] },
+    });
+    return result.violations.map(({ id, impact, help, nodes }) => ({
+      id,
+      impact,
+      help,
+      nodes: nodes.map(({ html, target }) => ({ html, target })),
+    }));
+  });
+  expect(resultStateViolations).toEqual([]);
+
   const resultsRect = await rect(resultsScroller);
   await expectInside(await rect(firstSuccessCard), resultsRect);
 
@@ -341,108 +680,93 @@ test("results and project center follow desktop density for cards", async ({ pag
   const nodeCountBeforeApply = await page.locator(".react-flow__node").count();
   await applyButton.click();
   await expect(page.locator(".react-flow__node")).toHaveCount(nodeCountBeforeApply + 1);
-  await page.getByRole("tab", { name: "结果 / 记录" }).click();
   await expect(resultsRegion).toBeVisible();
 
-  const themes = [
-    { label: "简白", id: "white" },
-    { label: "护眼绿", id: "eye" },
-    { label: "经典暗金", id: "current" },
-  ];
-  for (const theme of themes) {
-    const themeTrigger = page.getByRole("button", { name: /^切换主题，当前为/ });
-    await themeTrigger.click();
-    await page.getByRole("menuitemradio", { name: new RegExp(`^${theme.label}`) }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", theme.id);
-    await expectGridColumns(resultsGrid, 2);
+  await expectCurrentThemeContract(page);
+  await expectGridColumns(resultsGrid, 2);
 
-    await page.getByRole("button", { name: "打开项目中心" }).click();
-    const center = page.getByRole("dialog", { name: "项目中心" });
-    await expect(center).toBeVisible();
-    const sectionGrid = (name: string) => (
-      center.getByRole("tabpanel", { name }).locator(":scope > .grid").first()
-    );
+  await page.getByRole("button", { name: "打开项目中心" }).click();
+  const center = page.getByRole("dialog", { name: "项目中心" });
+  await expect(center).toBeVisible();
+  const sectionGrid = (name: string) => (
+    center.getByRole("tabpanel", { name }).locator(":scope > .grid").first()
+  );
 
-    await center.getByRole("tab", { name: "最近项目" }).click();
-    const recentGrid = sectionGrid("最近项目");
-    await expectGridColumns(recentGrid, expectedProjectColumns);
-    if (theme.id === "white") {
-      await expectTwoLineTitle(center.getByText(PROJECT_CENTER_PROJECT_FIXTURES[0].name, { exact: true }));
-      const projectCardHeights = await center.getByRole("button", { name: /^超长项目名称/ }).evaluateAll(
-        (elements) => elements.map((element) => element.getBoundingClientRect().height),
-      );
-      expect(projectCardHeights).toHaveLength(PROJECT_CENTER_PROJECT_FIXTURES.length);
-      expect(Math.max(...projectCardHeights) - Math.min(...projectCardHeights)).toBeLessThanOrEqual(1);
-    }
+  await center.getByRole("tab", { name: "最近项目" }).click();
+  const recentGrid = sectionGrid("最近项目");
+  await expectGridColumns(recentGrid, expectedProjectColumns);
+  await expectTwoLineTitle(center.getByText(PROJECT_CENTER_PROJECT_FIXTURES[0].name, { exact: true }));
+  const projectCardHeights = await center.getByRole("button", { name: /^超长项目名称/ }).evaluateAll(
+    (elements) => elements.map((element) => element.getBoundingClientRect().height),
+  );
+  expect(projectCardHeights).toHaveLength(PROJECT_CENTER_PROJECT_FIXTURES.length);
+  expect(Math.max(...projectCardHeights) - Math.min(...projectCardHeights)).toBeLessThanOrEqual(1);
 
-    await center.getByRole("tab", { name: "内置模板" }).click();
-    const builtinTemplatesGrid = sectionGrid("内置模板");
-    await expectGridColumns(builtinTemplatesGrid, expectedProjectColumns);
-    if (theme.id === "white") {
-      await expectTwoLineTitle(center.getByText(PROJECT_CENTER_TEMPLATE_FIXTURES[0].name, { exact: true }));
-    }
+  await center.getByRole("tab", { name: "内置模板" }).click();
+  const builtinTemplatesGrid = sectionGrid("内置模板");
+  await expectGridColumns(builtinTemplatesGrid, expectedProjectColumns);
+  await expectTwoLineTitle(center.getByText(PROJECT_CENTER_TEMPLATE_FIXTURES[0].name, { exact: true }));
 
-    await center.getByRole("tab", { name: "我的模板" }).click();
-    const myTemplatesGrid = sectionGrid("我的模板");
-    await expectGridColumns(myTemplatesGrid, expectedProjectColumns);
-    if (theme.id === "white") {
-      await expectTwoLineTitle(center.getByText(PROJECT_CENTER_TEMPLATE_FIXTURES[2].name, { exact: true }));
-    }
+  await center.getByRole("tab", { name: "我的模板" }).click();
+  const myTemplatesGrid = sectionGrid("我的模板");
+  await expectGridColumns(myTemplatesGrid, expectedProjectColumns);
+  await expectTwoLineTitle(center.getByText(PROJECT_CENTER_TEMPLATE_FIXTURES[2].name, { exact: true }));
 
-    // Read the named panel's grid and children atomically: during a Base UI tab
-    // transition a generic "first tabpanel" locator can re-resolve to the outgoing
-    // panel between separate visibility and geometry reads.
-    await expect.poll(async () => myTemplatesGrid.evaluate((grid) => {
-      const gridRect = grid.getBoundingClientRect();
-      const cards = Array.from(grid.children).slice(0, 8);
-      return cards.length > 0 && cards.every((card) => {
-        const cardRect = card.getBoundingClientRect();
-        return cardRect.left >= gridRect.left - 1 && cardRect.right <= gridRect.right + 1;
-      });
-    })).toBe(true);
-    await center.getByRole("button", { name: "关闭项目中心" }).click();
-  }
+  // Read the named panel's grid and children atomically: during a Base UI tab
+  // transition a generic "first tabpanel" locator can re-resolve to the outgoing
+  // panel between separate visibility and geometry reads.
+  await expect.poll(async () => myTemplatesGrid.evaluate((grid) => {
+    const gridRect = grid.getBoundingClientRect();
+    const cards = Array.from(grid.children).slice(0, 8);
+    return cards.length > 0 && cards.every((card) => {
+      const cardRect = card.getBoundingClientRect();
+      return cardRect.left >= gridRect.left - 1 && cardRect.right <= gridRect.right + 1;
+    });
+  })).toBe(true);
+  await center.getByRole("button", { name: "关闭项目中心" }).click();
 });
 
-test("adding a local edit node keeps the canvas mounted and exposes one clear workflow", async ({ page }) => {
+test("adding an AI redesign node keeps the canvas mounted and exposes one clear workflow", async ({ page }) => {
+  await openFreshBlankProject(page);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   const nodes = page.locator(".react-flow__node");
-  const initialNodeCount = await nodes.count();
 
-  await page.getByRole("button", { name: "节点库" }).click();
-  await page.getByTitle("点击添加局部修改，或拖拽到画布指定位置").click();
+  await page.getByRole("navigation", { name: "工作台左侧工具" })
+    .getByRole("button", { name: "服装设计", exact: true }).click();
+  await page.getByRole("menu", { name: "服装设计" }).getByRole("menuitem", { name: /AI 改款/ }).click();
 
-  await expect(nodes).toHaveCount(initialNodeCount + 1);
+  await expect(nodes).toHaveCount(3);
   await expect(page.getByRole("application", { name: "工作流画布" })).toBeVisible();
-  await expect(page.getByText(/涂抹区不是裁切框/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "生成局部修改" })).toBeVisible();
-  await expect(page.getByRole("group", { name: "蒙版处理方式" })).toHaveCount(0);
+  const redesignNode = nodes.filter({ hasText: "AI 改款" });
+  await expect(redesignNode.getByText("编辑指令", { exact: true })).toBeVisible();
+  await expect(redesignNode.getByRole("button", { name: "AI 改款", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "取消" })).toHaveCount(0);
   await expect(page.getByText("页面出现异常")).toHaveCount(0);
   expect(pageErrors).toEqual([]);
 });
 
 test("node drag is one undo transaction and selection stays canonical", async ({ page }) => {
+  await openFreshBlankProject(page);
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   const nodes = page.locator(".react-flow__node");
   const selectedNodes = page.locator(".react-flow__node.selected");
-  const node = nodes.first();
+  const node = await addTextNode(page);
   const initialNodeCount = await nodes.count();
-  const nodeHeader = node.locator(".gc-node-header");
+  const nodeDragTarget = node.locator(".gc-node-floating-title");
   const pane = page.locator(".react-flow__pane");
 
   await expect(node).toBeVisible();
-  await expect(nodeHeader).toBeVisible();
+  await expect(nodeDragTarget).toBeVisible();
 
   // 悬停反馈不得移动节点；否则 React Flow 加上 dragging 类时会瞬间跳回原位。
-  await nodeHeader.hover();
+  await nodeDragTarget.hover();
   await expect.poll(
     () => node.evaluate((element) => getComputedStyle(element).translate),
   ).toBe("none");
 
   // React Flow 的 .selected 投影必须与 store 的 canonical selection 同步。
-  await nodeHeader.click();
+  await nodeDragTarget.click();
   await expect(node).toHaveClass(/\bselected\b/);
   await expect(selectedNodes).toHaveCount(1);
 
@@ -465,7 +789,7 @@ test("node drag is one undo transaction and selection stays canonical", async ({
   await page.keyboard.press(`${modifier}+z`);
   await expect(nodes).toHaveCount(initialNodeCount);
   await expect(selectedNodes).toHaveCount(0);
-  await nodeHeader.click();
+  await nodeDragTarget.click();
   await expect(selectedNodes).toHaveCount(1);
 
   const paneBox = await pane.boundingBox();
@@ -475,7 +799,7 @@ test("node drag is one undo transaction and selection stays canonical", async ({
 
   const start = await node.boundingBox();
   const startTransform = await node.evaluate((element) => (element as HTMLElement).style.transform);
-  const handle = await nodeHeader.boundingBox();
+  const handle = await nodeDragTarget.boundingBox();
   if (!start || !handle) throw new Error("Initial workflow node is missing");
   const dragDelta = { x: 160, y: 90 };
   const pointer = {
@@ -533,13 +857,61 @@ test("node drag is one undo transaction and selection stays canonical", async ({
   ).toBe(endTransform);
 });
 
+test("node title and media actions keep stable keyboard-accessible controls", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const textNode = await addTextNode(page);
+  const textNodeId = await textNode.getAttribute("data-id");
+  if (!textNodeId) throw new Error("Text node id is missing");
+  const stableTextNode = page.locator(`.react-flow__node[data-id="${textNodeId}"]`);
+  const textTitle = stableTextNode.locator(".gc-node-floating-title span");
+  await textTitle.click();
+  const textToolbar = stableTextNode.getByRole("toolbar", { name: "文本节点操作" });
+  await expect(textToolbar).toBeVisible();
+  const toolbarWidth = await textToolbar.evaluate((element) => element.getBoundingClientRect().width);
+  const copyButton = textToolbar.getByRole("button", { name: "复制" });
+  await copyButton.hover();
+  await expect.poll(() => textToolbar.evaluate((element) => element.getBoundingClientRect().width)).toBe(toolbarWidth);
+
+  await textTitle.dblclick();
+  const titleInput = stableTextNode.getByRole("textbox", { name: "节点名称" });
+  await expect(titleInput).toBeFocused();
+  await expect(titleInput).toHaveAttribute("data-slot", "input");
+  await page.keyboard.press("Escape");
+  await expect(titleInput).toHaveCount(0);
+
+  const nodes = page.locator(".react-flow__node");
+  const nodeCount = await nodes.count();
+  const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  await rail.getByRole("button", { name: "添加节点", exact: true }).click();
+  await page.getByRole("menu", { name: "添加节点" }).getByRole("menuitem", { name: /本地上传图片/ }).click();
+  await expect(nodes).toHaveCount(nodeCount + 1);
+  const imageNode = nodes.filter({ hasText: "图片上传" }).last();
+  await imageNode.locator(".gc-node-floating-title").click();
+  const mediaToolbar = imageNode.getByRole("toolbar", { name: "媒体节点操作" });
+  await expect(mediaToolbar).toBeVisible();
+  const upscaleTrigger = mediaToolbar.getByRole("button", { name: "高清放大" });
+  await upscaleTrigger.focus();
+  await upscaleTrigger.press("Enter");
+  const twoK = page.getByRole("menuitem", { name: "2K", exact: true });
+  const fourK = page.getByRole("menuitem", { name: "4K", exact: true });
+  await expect(twoK).toBeVisible();
+  await expect(fourK).toBeVisible();
+  await expect(twoK).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(twoK).toBeHidden();
+  await expect(upscaleTrigger).toBeFocused();
+  await expect(nodes).toHaveCount(nodeCount + 1);
+});
+
 test("dragging a node near the canvas edge never auto-pans the viewport", async ({ page }) => {
-  const nodeHeader = page.locator(".react-flow__node").first().locator(".gc-node-header");
+  await openFreshBlankProject(page);
+  const node = await addTextNode(page);
+  const nodeDragTarget = node.locator(".gc-node-floating-title");
   const pane = page.locator(".react-flow__pane");
   const viewport = page.locator(".react-flow__viewport");
 
-  await expect(nodeHeader).toBeVisible();
-  const handle = await nodeHeader.boundingBox();
+  await expect(nodeDragTarget).toBeVisible();
+  const handle = await nodeDragTarget.boundingBox();
   const paneBox = await pane.boundingBox();
   if (!handle || !paneBox) throw new Error("Workflow node or React Flow pane is missing");
 
@@ -561,32 +933,33 @@ test("dragging a node near the canvas edge never auto-pans the viewport", async 
   expect(viewportAfterRelease).toBe(initialViewport);
 });
 
-test("left dock and horizontal zoom controls preserve canvas identity, geometry, focus, and results", async ({ page }, testInfo) => {
+test("tool rail, right dock and horizontal zoom controls preserve canvas identity, geometry, focus, and results", async ({ page }, testInfo) => {
+  await openFreshBlankProject(page);
+  await addTextNode(page);
   const viewport = page.viewportSize();
   if (!viewport) throw new Error("Desktop viewport is required");
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  const expectedDockWidth = viewport.width <= 1100 ? 288 : 320;
 
-  const libraryToggle = page.getByRole("button", { name: "节点库" });
-  const contextToggle = page.getByRole("button", { name: "属性 / 结果" });
+  const contextToggle = page.getByRole("button", { name: "属性", exact: true });
+  const resultsToggle = page.getByRole("button", { name: "结果 / 记录", exact: true });
   const floatingRail = page.getByRole("navigation", { name: "工作台左侧工具" });
-  const dock = page.locator('aside[aria-label="工作台左侧面板"]');
-  const libraryPanel = page.locator("#workbench-library-panel");
-  const contextPanel = page.locator("#workbench-inspector-panel");
+  const dock = page.locator("#workbench-inspector-panel");
+  const resultsFlyout = page.locator("#workbench-results-flyout");
+  const contextPanel = dock;
   const canvas = page.getByRole("application", { name: "工作流画布" });
   const zoomControls = page.getByTestId("canvas-zoom-controls");
   const zoomSlider = page.getByRole("slider", { name: "画布缩放比例" });
+  const zoomSliderRoot = zoomControls.locator('[data-slot="slider"]');
   const zoomOutput = zoomControls.locator("output");
   const originalCanvas = await canvas.elementHandle();
   if (!originalCanvas) throw new Error("Canvas element is missing");
-  const originalTransform = await page.locator(".react-flow__viewport").evaluate(
-    (element) => getComputedStyle(element).transform,
-  );
-  const originalFlowCenter = await flowCenter(canvas);
-  await expect(libraryToggle).toHaveAttribute("aria-expanded", "false");
   await expect(contextToggle).toHaveAttribute("aria-expanded", "false");
   await expect(dock).toHaveAttribute("aria-hidden", "true");
   await expectInert(dock, true);
   await expectWidth(dock, 0);
+  await expect(resultsFlyout).toHaveAttribute("aria-hidden", "true");
+  await expectInert(resultsFlyout, true);
   await expect(floatingRail).toBeVisible();
   await expectWidth(canvas, viewport.width);
 
@@ -594,9 +967,31 @@ test("left dock and horizontal zoom controls preserve canvas identity, geometry,
   const zoomControlsRect = await rect(zoomControls);
   expectInside(zoomControlsRect, closedCanvasRect);
   expect(zoomControlsRect.width).toBeGreaterThan(zoomControlsRect.height * 3);
+  const closedMinimapRect = await rect(page.locator(".react-flow__minimap"));
+  expect(closedMinimapRect.left - zoomControlsRect.right).toBeGreaterThanOrEqual(27);
+  expect(closedMinimapRect.left - zoomControlsRect.right).toBeLessThanOrEqual(29);
   await expect(zoomOutput).toHaveText("100%");
+
+  const sliderThumbBox = await zoomSlider.boundingBox();
+  const sliderRootBox = await zoomSliderRoot.boundingBox();
+  if (!sliderThumbBox || !sliderRootBox) throw new Error("Zoom slider geometry is missing");
+  await page.mouse.move(sliderThumbBox.x + sliderThumbBox.width / 2, sliderThumbBox.y + sliderThumbBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sliderRootBox.x + sliderRootBox.width * 0.75, sliderRootBox.y + sliderRootBox.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => Number.parseInt((await zoomOutput.textContent()) ?? "0", 10)).toBeGreaterThan(180);
+
+  await zoomSlider.fill("300");
+  await expect(zoomOutput).toHaveText("300%");
+  await zoomSlider.fill("20");
+  await expect(zoomOutput).toHaveText("20%");
   await zoomSlider.fill("125");
   await expect(zoomOutput).toHaveText("125%");
+  await zoomSlider.fill("100");
+  await expect(zoomOutput).toHaveText("100%");
+
+  await zoomControls.getByRole("button", { name: "适应画布" }).click();
+  await expect(zoomOutput).toHaveText("68%");
   await zoomSlider.fill("100");
   await expect(zoomOutput).toHaveText("100%");
 
@@ -609,7 +1004,7 @@ test("left dock and horizontal zoom controls preserve canvas identity, geometry,
   const shortcutMenu = page.locator("#workbench-shortcuts");
   await shortcutTrigger.click();
   await expect(shortcutMenu).toBeVisible();
-  await expectWidth(shortcutMenu, 224);
+  await expect.poll(() => shortcutMenu.evaluate((element) => (element as HTMLElement).offsetWidth)).toBe(224);
   await expect(shortcutMenu).toContainText(process.platform === "darwin" ? "macOS" : "Windows");
   await expect(shortcutMenu).toContainText("移动画布");
   await expect(shortcutMenu).toContainText(process.platform === "darwin" ? "⌘ +" : "Ctrl +");
@@ -618,7 +1013,15 @@ test("left dock and horizontal zoom controls preserve canvas identity, geometry,
   await expect(shortcutMenu).toBeHidden();
   await expect(shortcutTrigger).toBeFocused();
 
-  // 属性与结果迁移到唯一左侧 Dock，不能覆盖横向缩放条或 MiniMap。
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  const flowCenterBeforeDock = await flowCenter(canvas);
+  const transformBeforeDock = await page.locator(".react-flow__viewport").evaluate(
+    (element) => getComputedStyle(element).transform,
+  );
+
+  // 属性使用固定右侧 Dock，不能覆盖横向缩放条或 MiniMap。
   await contextToggle.click();
   await expect(contextToggle).toBeFocused();
   await expect(contextToggle).toHaveAttribute("aria-expanded", "true");
@@ -626,41 +1029,25 @@ test("left dock and horizontal zoom controls preserve canvas identity, geometry,
   await expectInert(dock, false);
   await expect(contextPanel).toHaveAttribute("aria-hidden", "false");
   await expectInert(contextPanel, false);
-  await expectWidth(dock, 320);
-  await expectWidth(canvas, viewport.width - 320);
+  await expectWidth(dock, expectedDockWidth);
+  await expectWidth(canvas, viewport.width - expectedDockWidth);
 
   const contextCanvasRect = await rect(canvas);
-  expect(Math.abs((await rect(dock)).right - contextCanvasRect.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs((await rect(dock)).left - contextCanvasRect.right)).toBeLessThanOrEqual(1);
   expectInside(await rect(zoomControls), contextCanvasRect);
   const contextMinimapRect = await rect(page.locator(".react-flow__minimap"));
   expectInside(contextMinimapRect, contextCanvasRect);
   expect(contextMinimapRect.width).toBe(contextCanvasRect.width < 760 ? 128 : 200);
-  await expectFlowCenter(canvas, originalFlowCenter);
+  const contextZoomRect = await rect(zoomControls);
+  expect(contextMinimapRect.left - contextZoomRect.right).toBeGreaterThanOrEqual(27);
+  expect(contextMinimapRect.left - contextZoomRect.right).toBeLessThanOrEqual(29);
+  await expectFlowCenter(canvas, flowCenterBeforeDock);
 
-  // 两个 Tab Panel 必须保持挂载；切换与 Dock 关闭不能丢失 Results DOM/滚动状态。
-  const propertiesTab = page.getByRole("tab", { name: "属性" });
-  const resultsTab = page.getByRole("tab", { name: "结果 / 记录" });
-  const propertiesPanelId = await propertiesTab.getAttribute("aria-controls");
-  const resultsPanelId = await resultsTab.getAttribute("aria-controls");
-  if (!propertiesPanelId || !resultsPanelId) throw new Error("Context tabs are missing aria-controls");
-  const propertiesPanel = page.locator(`[id="${propertiesPanelId}"]`);
-  const resultsPanel = page.locator(`[id="${resultsPanelId}"]`);
-  await expect(propertiesPanel).toHaveCount(1);
-  await expect(resultsPanel).toHaveCount(1);
-  await expect(propertiesPanel).toBeVisible();
-  await expect(resultsPanel).toBeHidden();
-  await expect(propertiesTab).toHaveAttribute("aria-selected", "true");
-
-  await propertiesTab.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(resultsTab).toBeFocused();
-  await expect(resultsTab).toHaveAttribute("aria-selected", "false");
-  await page.keyboard.press("Enter");
-  await expect(resultsTab).toHaveAttribute("aria-selected", "true");
-  await expect(propertiesTab).toHaveAttribute("aria-selected", "false");
-  await expect(resultsPanel).toBeVisible();
-  await expect(propertiesPanel).toBeHidden();
-
+  // 结果使用独立左侧覆盖浮层；开合不能丢失 Results DOM 或滚动状态。
+  await resultsToggle.click();
+  await expect(resultsToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(resultsFlyout).toHaveAttribute("aria-hidden", "false");
+  await expectInert(resultsFlyout, false);
   const resultsRegion = page.getByRole("region", { name: "最近生成" });
   await expect(resultsRegion).toContainText("运行 AI 节点后，生成结果与运行记录会汇总在这里");
   const originalResultsRegion = await resultsRegion.elementHandle();
@@ -675,13 +1062,14 @@ test("left dock and horizontal zoom controls preserve canvas identity, geometry,
   });
   await expect.poll(async () => resultsScroller.evaluate((element) => element.scrollTop)).toBe(37);
 
-  await propertiesTab.click();
-  await expect(propertiesPanel).toBeVisible();
-  await expect(resultsPanel).toBeHidden();
-  await resultsTab.click();
-  await expect(resultsPanel).toBeVisible();
+  await page.getByRole("button", { name: "收起结果与记录" }).click();
+  await expect(resultsFlyout).toHaveAttribute("aria-hidden", "true");
+  await expectInert(resultsFlyout, true);
+  await resultsToggle.click();
+  await expect(resultsFlyout).toHaveAttribute("aria-hidden", "false");
   expect(await resultsRegion.evaluate((current, original) => current === original, originalResultsRegion)).toBe(true);
   await expect.poll(async () => resultsScroller.evaluate((element) => element.scrollTop)).toBe(37);
+  await page.getByRole("button", { name: "收起结果与记录" }).click();
 
   await contextToggle.click();
   await expect(dock).toHaveAttribute("aria-hidden", "true");
@@ -697,48 +1085,44 @@ test("left dock and horizontal zoom controls preserve canvas identity, geometry,
   expect(contextClosedFocus.tag).not.toBe("BODY");
 
   await contextToggle.click();
-  await expect(resultsPanel).toBeVisible();
+  await resultsToggle.click();
+  await expect(resultsFlyout).toHaveAttribute("aria-hidden", "false");
   expect(await resultsRegion.evaluate((current, original) => current === original, originalResultsRegion)).toBe(true);
   await expect.poll(async () => resultsScroller.evaluate((element) => element.scrollTop)).toBe(37);
+  await page.getByRole("button", { name: "收起结果与记录" }).click();
 
-  // 节点库使用独立浮动按钮，并与上下文面板复用同一个左侧 Dock。
-  await libraryToggle.click();
-  await expect(libraryToggle).toBeFocused();
-  await expect(libraryToggle).toHaveAttribute("aria-expanded", "true");
-  await expect(contextToggle).toHaveAttribute("aria-expanded", "false");
-  await expect(libraryPanel).toHaveAttribute("aria-hidden", "false");
-  await expectInert(libraryPanel, false);
-  await expect(contextPanel).toHaveAttribute("aria-hidden", "true");
-  await expectInert(contextPanel, true);
-  await expectWidth(dock, 320);
-  await expectWidth(canvas, viewport.width - 320);
-  await expect(libraryPanel.getByRole("button", { name: "素材库" })).toHaveCount(0);
-  const libraryButtons = libraryPanel.getByRole("button");
-  await libraryButtons.first().focus();
-  await expect(libraryButtons.first()).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(libraryButtons.nth(1)).toBeFocused();
+  // 五组工具使用锚定浮层；打开或关闭工具组不卸载右侧上下文，也不改变画布宽度。
+  const apparelToggle = floatingRail.getByRole("button", { name: "服装设计", exact: true });
+  await apparelToggle.focus();
+  await apparelToggle.press("Enter");
+  const apparelMenu = page.getByRole("menu", { name: "服装设计" });
+  await expect(apparelToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(apparelMenu).toBeVisible();
+  await expect(apparelMenu.getByRole("menuitem").first()).toBeFocused();
+  await expect(contextToggle).toHaveAttribute("aria-expanded", "true");
+  await expectInert(contextPanel, false);
+  await expectWidth(dock, expectedDockWidth);
+  await expectWidth(canvas, viewport.width - expectedDockWidth);
   const sessionBeforeDomFocus = await page.evaluate(() => (
     window.sessionStorage.getItem("garment-canvas-project-tabs")
   ));
-  await libraryToggle.focus();
+  await apparelMenu.press("Escape");
+  await expect(apparelMenu).toBeHidden();
+  await expect(apparelToggle).toBeFocused();
   await expect.poll(() => page.evaluate(() => (
     window.sessionStorage.getItem("garment-canvas-project-tabs")
   ))).toBe(sessionBeforeDomFocus);
 
-  await contextToggle.click();
-  await expectInert(contextPanel, false);
-  await expectInert(libraryPanel, true);
-  await expectWidth(dock, 320);
-  await expectWidth(canvas, viewport.width - 320);
+  await expectWidth(dock, expectedDockWidth);
+  await expectWidth(canvas, viewport.width - expectedDockWidth);
 
   const canvasRect = await rect(canvas);
-  expect(Math.abs((await rect(dock)).right - canvasRect.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs((await rect(dock)).left - canvasRect.right)).toBeLessThanOrEqual(1);
   expectInside(await rect(zoomControls), canvasRect);
   const minimapRect = await rect(page.locator(".react-flow__minimap"));
   expectInside(minimapRect, canvasRect);
   expect(minimapRect.width).toBe(canvasRect.width < 760 ? 128 : 200);
-  await expectFlowCenter(canvas, originalFlowCenter);
+  await expectFlowCenter(canvas, flowCenterBeforeDock);
 
   // 模板浮层必须按当前 Dock 后的中心宽度收缩，不能被画布容器裁切。
   const releaseTemplateSaves: Array<() => void> = [];
@@ -853,7 +1237,9 @@ test("left dock and horizontal zoom controls preserve canvas identity, geometry,
   await expect(projectCenter).toHaveCount(0);
   await expect(projectCenterToggle).toBeFocused();
 
-  await resultsScroller.locator("[data-e2e-scroll-filler='true']").evaluate((element) => element.remove());
+  await resultsScroller.locator("[data-e2e-scroll-filler='true']").evaluateAll((elements) => {
+    for (const element of elements) element.remove();
+  });
   await page.mouse.move(canvasRect.left + canvasRect.width / 2, canvasRect.top + 20);
   await page.waitForTimeout(300);
 
@@ -869,39 +1255,99 @@ test("left dock and horizontal zoom controls preserve canvas identity, geometry,
   await expectWidth(dock, 0);
   await expectWidth(canvas, viewport.width);
   await page.keyboard.press("Tab");
-  expect(await libraryPanel.evaluate((panel) => panel.contains(document.activeElement))).toBe(false);
   expect(await contextPanel.evaluate((panel) => panel.contains(document.activeElement))).toBe(false);
 
   expect(await canvas.evaluate((current, original) => current === original, originalCanvas)).toBe(true);
   await expect.poll(async () => page.locator(".react-flow__viewport").evaluate(
     (element) => getComputedStyle(element).transform,
-  )).toBe(originalTransform);
+  )).toBe(transformBeforeDock);
 });
 
-test("theme picker reports state and restores focus", async ({ page }) => {
-  const choices = [
-    { label: "简白", id: "white" },
-    { label: "护眼绿", id: "eye" },
-    { label: "经典暗金", id: "current" },
-  ];
+test("single current theme remains applied without a picker", async ({ page }) => {
+  await expectCurrentThemeContract(page);
+  await expect(page.getByRole("button", { name: /^切换主题，当前为/ })).toHaveCount(0);
+  await expect(page.getByRole("menuitemradio")).toHaveCount(0);
+});
 
-  for (const choice of choices) {
-    const trigger = page.getByRole("button", { name: /^切换主题，当前为/ });
+test("creation tools open an editable board and create a new typed palette without AI", async ({ page }) => {
+  const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  const canvasNodes = page.locator(".react-flow__node");
+  const before = await canvasNodes.count();
+
+  const createTrigger = rail.getByRole("button", { name: "创作工具", exact: true });
+  await createTrigger.focus();
+  await createTrigger.press("Enter");
+  const menu = page.getByRole("menu", { name: "创作工具" });
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: /绘画工具/ }).click();
+  await expect(canvasNodes).toHaveCount(before + 1);
+  const board = canvasNodes.filter({ hasText: "绘画工具" }).last();
+  await board.getByRole("button", { name: "打开画板" }).click();
+  const boardDialog = page.getByRole("dialog", { name: "绘画工具" });
+  await expect(boardDialog).toBeVisible();
+  await expect(boardDialog.getByRole("toolbar", { name: "绘画工具" })).toBeVisible();
+  await boardDialog.getByRole("button", { name: "文字" }).click();
+  await boardDialog.getByRole("textbox", { name: "文字内容" }).fill("服装草图备注");
+  await boardDialog.getByRole("button", { name: "添加文字" }).click();
+  await boardDialog.getByRole("button", { name: "新建" }).click();
+  await page.waitForTimeout(650);
+  await page.keyboard.press("Escape");
+  await expect(boardDialog).toHaveCount(0);
+
+  page.once("dialog", async (dialog) => dialog.accept());
+  await board.getByRole("button", { name: "打开画板" }).click();
+  await expect(boardDialog).toBeVisible();
+  await expect(boardDialog.getByText("图层 2", { exact: true })).toBeVisible();
+  await boardDialog.getByRole("button", { name: "保存画板" }).click();
+  await expect(boardDialog).toHaveCount(0);
+  await expect(board.getByAltText("画板已保存预览")).toBeVisible();
+  await board.getByRole("button", { name: "导出为图片节点" }).click();
+  await expect(canvasNodes).toHaveCount(before + 2);
+
+  await createTrigger.focus();
+  await createTrigger.press("Enter");
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: /色彩工具/ }).click();
+  const colorDialog = page.getByRole("dialog", { name: "色彩工具" });
+  await expect(colorDialog).toBeVisible();
+  await colorDialog.getByRole("button", { name: /选择 #[0-9A-F]{6}/ }).first().click();
+  await colorDialog.getByRole("button", { name: "创建新色板节点" }).click();
+  await expect(colorDialog).toHaveCount(0);
+  await expect(canvasNodes).toHaveCount(before + 3);
+  await expect(canvasNodes.filter({ hasText: "色板" }).last()).toContainText(/#[0-9A-F]{6}/);
+});
+
+test("approved video capabilities open complete workflows without triggering generation", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const generationPosts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && /\/api\/(?:generate|run-plan)(?:\/|\?|$)/.test(request.url())) {
+      generationPosts.push(request.url());
+    }
+  });
+  const nodes = page.locator(".react-flow__node");
+  const capabilities = [
+    { name: "文生视频", nodeCount: 2 },
+    { name: "首尾帧生视频", nodeCount: 4 },
+    { name: "多图参考生视频", nodeCount: 4 },
+    { name: "视频生视频", nodeCount: 3 },
+  ];
+  for (const capability of capabilities) {
+    const trigger = page.getByRole("navigation", { name: "工作台左侧工具" })
+      .getByRole("button", { name: "视频制作", exact: true });
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await trigger.click();
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
-    await page.getByRole("menuitemradio", { name: new RegExp(`^${choice.label}`) }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", choice.id);
-    const updatedTrigger = page.getByRole("button", { name: `切换主题，当前为${choice.label}` });
-    await expect(updatedTrigger).toHaveAttribute("aria-expanded", "false");
-    await expect(page.locator("#theme-picker-options")).toHaveCount(0);
-    await expect(updatedTrigger).toBeFocused();
+    const menu = page.getByRole("menu", { name: "视频制作" });
+    await expect(menu).toBeVisible();
+    const { name, nodeCount } = capability;
+    const item = menu.getByRole("menuitem", { name: new RegExp(name) });
+    await expect(item).toHaveAttribute("aria-disabled", "false");
+    await expect(item).toHaveAttribute("data-video-capability-id");
+    await expect(item).toHaveAttribute("data-approval-state", "approved");
+    await item.click();
+    await expect(nodes).toHaveCount(nodeCount);
+    await expect(nodes.filter({ hasText: name })).toBeVisible();
   }
-
-  const trigger = page.getByRole("button", { name: /^切换主题，当前为/ });
-  await trigger.click();
-  await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  await page.getByRole("menuitemradio", { name: /^简白/ }).focus();
-  await page.keyboard.press("Escape");
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await expect(trigger).toBeFocused();
+  expect(generationPosts).toEqual([]);
 });

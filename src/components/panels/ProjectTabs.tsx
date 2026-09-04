@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { PlusIcon, SaveIcon } from "lucide-react";
+import { LoaderCircleIcon, PlusIcon, SaveIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
 import {
@@ -142,7 +142,7 @@ export function ProjectTabs() {
               className={`group flex h-9 min-w-[172px] max-w-[280px] items-center rounded-t-lg border border-b-0 px-2 transition-colors ${
                 active
                   ? "border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]"
-                  : "border-transparent bg-[var(--gc-panel-soft)] text-[var(--gc-text-muted)] hover:bg-[var(--gc-panel)] hover:text-[var(--gc-text)]"
+                  : "border-transparent bg-[var(--gc-control)] text-[var(--gc-text-muted)] hover:bg-[var(--gc-panel)] hover:text-[var(--gc-text)]"
               }`}
             >
               <span
@@ -248,7 +248,16 @@ export function ProjectTabs() {
         </Button>
       </nav>
       {projectCenterRequested && (
-        <Suspense fallback={null}>
+        <Suspense fallback={(
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed left-1/2 top-24 z-[62] flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] px-3 py-2 text-xs text-[var(--gc-text-muted)] shadow-lg"
+          >
+            <LoaderCircleIcon aria-hidden="true" className="size-3.5 animate-spin text-[var(--gc-accent)]" />
+            正在打开项目中心…
+          </div>
+        )}>
           <LazyProjectCenter open={projectCenterOpen} onOpenChange={setProjectCenterOpen} />
         </Suspense>
       )}

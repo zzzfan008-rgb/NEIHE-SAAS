@@ -6,6 +6,7 @@ import {
   type PersistedWorkflow,
   type PersistedWorkflowEdge,
   type PersistedWorkflowNode,
+  type WorkflowInputRole,
   type WorkflowNodeData,
   BATCH_SIZES,
 } from "../../src/types/workflow";
@@ -14,6 +15,7 @@ import {
   documentSnapshotToPersistedWorkflow,
 } from "../../src/lib/documentSnapshot";
 import { isLocalImageReference, validateImageDataUrl } from "./imageValidation";
+import { isLocalMediaReference } from "./fileStore";
 import {
   DEFAULT_GENERATION_MODEL_ID,
   MASK_REDRAW_MODEL_ID,
@@ -24,9 +26,19 @@ import {
   isModelAllowedForNode,
   normalizeImageModelOptions,
 } from "../../src/types/imageModels";
+import {
+  connectionCompatibilityError,
+  inputPortFor,
+} from "../../src/lib/workflowPorts";
 
 const NODE_KINDS: readonly NodeKind[] = [
   "image-input",
+  "text-input",
+  "drawing-board",
+  "color-palette",
+  "stage-approval",
+  "video-input",
+  "video-generate",
   "sketch-to-render",
   "ai-modify",
   "fabric-recolor",
@@ -42,10 +54,19 @@ const STATUSES = [
   "success", "error", "outcome_unknown", "cancelled",
 ] as const;
 const IMAGE_ROLES = ["default", "sketch", "garment", "fabric", "reference"] as const;
-const ASPECT_RATIOS = ["1:1", "3:4", "4:3", "9:16", "16:9"] as const;
+const ASPECT_RATIOS = ["1:1", "4:5", "3:4", "4:3", "2:3", "9:16", "16:9"] as const;
 const IMAGE_SIZES = ["2K", "4K"] as const;
 const VIRTUAL_TRY_ON_STAGES = ["standard", "scene-stabilize", "garment-refine"] as const;
 const GARMENT_CATEGORIES = ["knit", "woven", "other"] as const;
+const FABRIC_OPERATION_MODES = ["combined", "fabric", "color"] as const;
+const COLOR_SWATCH_SOURCES = ["quick", "custom", "recent", "favorite", "eyedropper"] as const;
+const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
+  "person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet",
+  "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
+  "first-frame", "last-frame", "source-video",
+];
+const BOARD_MIN_SIDE = 256;
+const BOARD_MAX_SIDE = 4096;
 export const MAX_WORKFLOW_NODES = 500;
 const MAX_EDGES = 2_000;
 const MAX_TEXT_LENGTH = 20_000;
@@ -142,6 +163,18 @@ function finiteNumber(value: unknown, path: string): number {
   return value;
 }
 
+function boundedInteger(value: unknown, path: string, min: number, max: number): number {
+  if (!Number.isSafeInteger(value) || (value as number) < min || (value as number) > max) {
+    fail(path, `must be an integer from ${min} to ${max}`);
+  }
+  return value as number;
+}
+
+function optionalNonNegativeInteger(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  return boundedInteger(value, path, 0, Number.MAX_SAFE_INTEGER);
+}
+
 function oneOf<T extends string | number>(value: unknown, allowed: readonly T[], path: string): T {
   if (!allowed.includes(value as T)) fail(path, `must be one of: ${allowed.join(", ")}`);
   return value as T;
@@ -159,19 +192,36 @@ function imageReferenceArray(value: unknown, path: string, max = MAX_IMAGE_REFS)
   return value.map((item, index) => imageReference(item, `${path}[${index}]`));
 }
 
+function mediaReference(value: unknown, path: string): string {
+  if (typeof value === "string" && isLocalMediaReference(value)) return value;
+  return imageReference(value, path);
+}
+
+function mediaReferenceArray(value: unknown, path: string, max = MAX_IMAGE_REFS): string[] {
+  if (!Array.isArray(value)) fail(path, "must be an array");
+  if (value.length > max) fail(path, `must contain at most ${max} items`);
+  return value.map((item, index) => mediaReference(item, `${path}[${index}]`));
+}
+
 function migratedModelFields(
   kind: NodeKind,
   raw: Record<string, unknown>,
   preferredAspectRatio = "1:1",
 ): Record<string, unknown> {
-  const requested = isImageModelId(raw.modelId) && isModelAllowedForNode(raw.modelId, kind)
-    ? raw.modelId
-    : kind === "mask-redraw" || kind === "virtual-try-on"
-      ? MASK_REDRAW_MODEL_ID
-      : DEFAULT_GENERATION_MODEL_ID;
+  const fallback = kind === "mask-redraw" || kind === "virtual-try-on"
+    ? MASK_REDRAW_MODEL_ID
+    : DEFAULT_GENERATION_MODEL_ID;
+  if (raw.modelId !== undefined) {
+    return {
+      modelId: raw.modelId,
+      modelOptions: raw.modelOptions === undefined && isImageModelId(raw.modelId)
+        ? defaultImageModelOptions(raw.modelId, preferredAspectRatio)
+        : raw.modelOptions,
+    };
+  }
   return {
-    modelId: requested,
-    modelOptions: normalizeImageModelOptions(requested, raw.modelOptions, preferredAspectRatio),
+    modelId: fallback,
+    modelOptions: defaultImageModelOptions(fallback, preferredAspectRatio),
   };
 }
 
@@ -180,6 +230,18 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
   switch (kind) {
     case "image-input":
       return { imageRole: "default", ...raw };
+    case "text-input":
+      return { text: "", ...raw };
+    case "drawing-board":
+      return { boardVersion: 1, width: 1024, height: 1024, background: "#FFFFFF", ...raw };
+    case "color-palette":
+      return { paletteVersion: 1, swatches: [], ...raw };
+    case "stage-approval":
+      return { approvalKind: "scene-baseline", ...raw };
+    case "video-input":
+      return { ...raw };
+    case "video-generate":
+      return { mode: "text-to-video", prompt: "", videoModel: "veo-3.1", quality: "fast", aspectRatio: "16:9", resolution: "720p", seconds: 8, outputImages: [], ...raw };
     case "sketch-to-render":
       return {
         prompt: "", aspectRatio: "3:4", batchSize: 1, outputImages: [],
@@ -191,7 +253,7 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
         ...raw, ...migratedModelFields(kind, raw, typeof raw.aspectRatio === "string" ? raw.aspectRatio : "1:1"),
       };
     case "fabric-recolor":
-      return { colors: [], prompt: "", outputImages: [], ...raw, ...migratedModelFields(kind, raw) };
+      return { operationMode: "combined", colors: [], prompt: "", outputImages: [], ...raw, ...migratedModelFields(kind, raw) };
     case "upscale":
       return { imageSize: "2K", outputImages: [], ...raw, ...migratedModelFields(kind, raw) };
     case "print-extract":
@@ -200,7 +262,8 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
       return { prompt: "", count: 4, outputImages: [], ...raw, ...migratedModelFields(kind, raw) };
     case "virtual-try-on":
       return {
-        workflowStage: "standard", prompt: "", imageSize: "2K", outputImages: [],
+        workflowStage: "standard", prompt: "", imageSize: "2K", aspectRatio: "3:4", outputImages: [],
+        ...(raw.workflowStage === "scene-stabilize" ? { basisRevision: 0 } : {}),
         ...raw, ...migratedModelFields(kind, raw),
       };
     case "mask-redraw": {
@@ -217,7 +280,7 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
 }
 
 function validateModelSelection(kind: NodeKind, raw: Record<string, unknown>, path: string): void {
-  if (!NODE_SPECS[kind].providerId) return;
+  if (!NODE_SPECS[kind].providerId || kind === "video-generate") return;
   if (!isImageModelId(raw.modelId)) fail(`${path}.modelId`, "must be a supported API易 image model");
   if (!isModelAllowedForNode(raw.modelId, kind)) {
     fail(`${path}.modelId`, `${raw.modelId} is not allowed for ${kind}`);
@@ -255,6 +318,58 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       oneOf(raw.imageRole, IMAGE_ROLES, `${path}.imageRole`);
       optionalImageReference(raw.imageUrl, `${path}.imageUrl`);
       break;
+    case "text-input":
+      stringValue(raw.text, `${path}.text`);
+      break;
+    case "drawing-board":
+      oneOf(raw.boardVersion, [1] as const, `${path}.boardVersion`);
+      boundedInteger(raw.width, `${path}.width`, BOARD_MIN_SIDE, BOARD_MAX_SIDE);
+      boundedInteger(raw.height, `${path}.height`, BOARD_MIN_SIDE, BOARD_MAX_SIDE);
+      stringValue(raw.background, `${path}.background`, { nonEmpty: true });
+      optionalString(raw.contentRef, `${path}.contentRef`);
+      optionalImageReference(raw.previewImageRef, `${path}.previewImageRef`);
+      optionalImageReference(raw.exportImageRef, `${path}.exportImageRef`);
+      break;
+    case "color-palette": {
+      oneOf(raw.paletteVersion, [1] as const, `${path}.paletteVersion`);
+      if (!Array.isArray(raw.swatches) || raw.swatches.length < 1 || raw.swatches.length > 32) {
+        fail(`${path}.swatches`, "must contain from 1 to 32 colors");
+      }
+      const values = new Set<string>();
+      raw.swatches.forEach((value, index) => {
+        const swatch = record(value, `${path}.swatches[${index}]`);
+        stringValue(swatch.id, `${path}.swatches[${index}].id`, { nonEmpty: true });
+        const color = stringValue(swatch.value, `${path}.swatches[${index}].value`, { nonEmpty: true });
+        if (!/^#[0-9A-F]{6}$/.test(color)) fail(`${path}.swatches[${index}].value`, "must be canonical uppercase #RRGGBB");
+        if (values.has(color)) fail(`${path}.swatches[${index}].value`, "must be unique");
+        values.add(color);
+        optionalString(swatch.name, `${path}.swatches[${index}].name`);
+        oneOf(swatch.source, COLOR_SWATCH_SOURCES, `${path}.swatches[${index}].source`);
+      });
+      break;
+    }
+    case "stage-approval":
+      oneOf(raw.approvalKind, ["scene-baseline"] as const, `${path}.approvalKind`);
+      optionalString(raw.approvedSourceNodeId, `${path}.approvedSourceNodeId`);
+      optionalImageReference(raw.approvedBaselineRef, `${path}.approvedBaselineRef`);
+      optionalNonNegativeInteger(raw.approvedBasisRevision, `${path}.approvedBasisRevision`);
+      optionalString(raw.approvedAt, `${path}.approvedAt`);
+      break;
+    case "video-input":
+      if (raw.videoUrl !== undefined) mediaReference(raw.videoUrl, `${path}.videoUrl`);
+      if (raw.mimeType !== undefined) oneOf(raw.mimeType, ["video/mp4", "video/webm", "video/quicktime"] as const, `${path}.mimeType`);
+      break;
+    case "video-generate":
+      oneOf(raw.mode, ["text-to-video", "keyframes-to-video", "multi-image-video", "video-to-video"] as const, `${path}.mode`);
+      stringValue(raw.prompt, `${path}.prompt`);
+      oneOf(raw.videoModel, ["veo-3.1"] as const, `${path}.videoModel`);
+      oneOf(raw.quality, ["fast", "standard"] as const, `${path}.quality`);
+      oneOf(raw.aspectRatio, ["16:9", "9:16"] as const, `${path}.aspectRatio`);
+      oneOf(raw.resolution, ["720p", "1080p", "4k"] as const, `${path}.resolution`);
+      oneOf(raw.seconds, [4, 6, 8] as const, `${path}.seconds`);
+      if (raw.resolution !== "720p" && raw.seconds !== 8) fail(`${path}.seconds`, "must be 8 for 1080p or 4k");
+      mediaReferenceArray(raw.outputImages, `${path}.outputImages`);
+      break;
     case "sketch-to-render":
     case "ai-modify":
       stringValue(raw.prompt, `${path}.prompt`);
@@ -263,6 +378,7 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       imageReferenceArray(raw.outputImages, `${path}.outputImages`);
       break;
     case "fabric-recolor": {
+      oneOf(raw.operationMode, FABRIC_OPERATION_MODES, `${path}.operationMode`);
       const colors = stringArray(raw.colors, `${path}.colors`, 8);
       for (let i = 0; i < colors.length; i++) {
         if (!/^#[0-9a-fA-F]{6}$/.test(colors[i])) fail(`${path}.colors[${i}]`, "must be #RRGGBB");
@@ -292,12 +408,16 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       oneOf(raw.workflowStage, VIRTUAL_TRY_ON_STAGES, `${path}.workflowStage`);
       stringValue(raw.prompt, `${path}.prompt`);
       oneOf(raw.imageSize, IMAGE_SIZES, `${path}.imageSize`);
+      oneOf(raw.aspectRatio, ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"] as const, `${path}.aspectRatio`);
       if (raw.garmentCategory !== undefined) {
         oneOf(raw.garmentCategory, GARMENT_CATEGORIES, `${path}.garmentCategory`);
       }
       optionalString(raw.materialSpec, `${path}.materialSpec`);
       optionalString(raw.constructionSpec, `${path}.constructionSpec`);
-      optionalImageReference(raw.approvedBaselineRef, `${path}.approvedBaselineRef`);
+      optionalNonNegativeInteger(raw.basisRevision, `${path}.basisRevision`);
+      if (raw.workflowStage === "scene-stabilize" && raw.basisRevision === undefined) {
+        fail(`${path}.basisRevision`, "is required for scene-stabilize");
+      }
       if (raw.workflowStage === "scene-stabilize" && raw.modelId !== "gemini-3.1-flash-image-preview") {
         fail(`${path}.modelId`, "scene-stabilize must use gemini-3.1-flash-image-preview");
       }
@@ -313,7 +433,7 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       imageReferenceArray(raw.outputImages, `${path}.outputImages`);
       break;
     case "result":
-      imageReferenceArray(raw.images, `${path}.images`);
+      mediaReferenceArray(raw.images, `${path}.images`);
       optionalString(raw.note, `${path}.note`);
       break;
   }
@@ -351,8 +471,11 @@ function validateEdge(value: unknown, index: number): PersistedWorkflowEdge {
   if (!SAFE_ID.test(id)) fail(`${path}.id`, "must contain only letters, digits, underscore or hyphen");
   if (!SAFE_ID.test(source)) fail(`${path}.source`, "must be a valid node id");
   if (!SAFE_ID.test(target)) fail(`${path}.target`, "must be a valid node id");
+  if (source === target) fail(path, "source and target must be different nodes");
   if (raw.sourceHandle !== undefined && raw.sourceHandle !== null) stringValue(raw.sourceHandle, `${path}.sourceHandle`);
-  if (raw.targetHandle !== undefined && raw.targetHandle !== null) stringValue(raw.targetHandle, `${path}.targetHandle`);
+  if (raw.targetHandle !== undefined && raw.targetHandle !== null) {
+    oneOf(raw.targetHandle, WORKFLOW_INPUT_ROLES, `${path}.targetHandle`);
+  }
   return { ...raw, id, source, target } as PersistedWorkflowEdge;
 }
 
@@ -495,37 +618,171 @@ function migrateLegacyDualModelAccessorySlot(
   return { nodes, edges };
 }
 
-/** Validate untrusted JSON and migrate legacy unversioned/v0/v1/v2/v3 formats to v4. */
+function normalizeLegacyEdgeHandles(edgeValues: unknown[]): unknown[] {
+  return edgeValues.map((value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+    const edge = value as Record<string, unknown>;
+    const targetHandle = typeof edge.targetHandle === "string" && WORKFLOW_INPUT_ROLES.includes(edge.targetHandle as WorkflowInputRole)
+      ? edge.targetHandle
+      : null;
+    const sourceHandle = typeof edge.sourceHandle === "string" && ["image", "text", "colors", "video"].includes(edge.sourceHandle)
+      ? edge.sourceHandle
+      : null;
+    return { ...edge, sourceHandle, targetHandle };
+  });
+}
+
+function stableMigrationId(prefix: string, seed: string): string {
+  let hash = 2_166_136_261;
+  for (const character of seed) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16_777_619);
+  }
+  const safeSeed = seed.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 72);
+  return `${prefix}_${safeSeed}_${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function migrateV4StageApprovals(
+  nodeValues: unknown[],
+  edgeValues: unknown[],
+): { nodes: unknown[]; edges: unknown[] } {
+  const nodes = nodeValues.map((value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+    const node = value as Record<string, unknown>;
+    if (typeof node.data !== "object" || node.data === null || Array.isArray(node.data)) return value;
+    const data = node.data as Record<string, unknown>;
+    if (node.type === "fabric-recolor") return { ...node, data: { operationMode: "combined", ...data } };
+    if (node.type === "virtual-try-on" && data.workflowStage === "scene-stabilize") {
+      return { ...node, data: { basisRevision: 0, ...data } };
+    }
+    return value;
+  });
+  const byId = new Map(nodes.flatMap((value) => (
+    typeof value === "object" && value !== null && !Array.isArray(value) && typeof (value as Record<string, unknown>).id === "string"
+      ? [[(value as Record<string, unknown>).id as string, value as Record<string, unknown>] as const]
+      : []
+  )));
+  const edges = [...edgeValues];
+  const insertedNodes: unknown[] = [];
+
+  for (const [refineId, refineNode] of byId) {
+    if (refineNode.type !== "virtual-try-on") continue;
+    if (typeof refineNode.data !== "object" || refineNode.data === null || Array.isArray(refineNode.data)) continue;
+    const refineData = refineNode.data as Record<string, unknown>;
+    if (refineData.workflowStage !== "garment-refine") continue;
+    const baselineIndexes = edges.flatMap((edge, index) => (
+      typeof edge === "object" && edge !== null && !Array.isArray(edge)
+      && (edge as Record<string, unknown>).target === refineId
+      && (edge as Record<string, unknown>).targetHandle === "baseline"
+        ? [index]
+        : []
+    ));
+    const {
+      approvedBaselineRef: legacyApprovedRef,
+      approvedAt: legacyApprovedAt,
+      ...nextRefineData
+    } = refineData;
+    refineNode.data = nextRefineData;
+    if (baselineIndexes.length !== 1) continue;
+
+    const edgeIndex = baselineIndexes[0];
+    const legacyEdge = edges[edgeIndex] as Record<string, unknown>;
+    if (typeof legacyEdge.source !== "string" || typeof legacyEdge.id !== "string") continue;
+    const sourceNode = byId.get(legacyEdge.source);
+    if (!sourceNode || sourceNode.type === "stage-approval") continue;
+    const approvalId = stableMigrationId("stage_approval", refineId);
+    const candidateEdgeId = stableMigrationId("baseline_candidate", legacyEdge.id);
+    if (byId.has(approvalId)) fail("flow.nodes", `migration id collision: ${approvalId}`);
+    const sourcePosition = typeof sourceNode.position === "object" && sourceNode.position !== null
+      ? sourceNode.position as Record<string, unknown>
+      : {};
+    const refinePosition = typeof refineNode.position === "object" && refineNode.position !== null
+      ? refineNode.position as Record<string, unknown>
+      : {};
+    const sourceData = typeof sourceNode.data === "object" && sourceNode.data !== null
+      ? sourceNode.data as Record<string, unknown>
+      : {};
+    const sourceOutputs = Array.isArray(sourceData.outputImages) ? sourceData.outputImages : [];
+    const validApprovedRef = typeof legacyApprovedRef === "string" && sourceOutputs.includes(legacyApprovedRef)
+      ? legacyApprovedRef
+      : undefined;
+    const approvalNode = {
+      id: approvalId,
+      type: "stage-approval",
+      position: {
+        x: ((typeof sourcePosition.x === "number" ? sourcePosition.x : 0) + (typeof refinePosition.x === "number" ? refinePosition.x : 0)) / 2,
+        y: ((typeof sourcePosition.y === "number" ? sourcePosition.y : 0) + (typeof refinePosition.y === "number" ? refinePosition.y : 0)) / 2,
+      },
+      data: {
+        kind: "stage-approval",
+        label: "确认第一轮基准",
+        status: "idle",
+        approvalKind: "scene-baseline",
+        ...(validApprovedRef ? {
+          approvedSourceNodeId: legacyEdge.source,
+          approvedBaselineRef: validApprovedRef,
+          approvedBasisRevision: typeof sourceData.basisRevision === "number" ? sourceData.basisRevision : 0,
+          ...(typeof legacyApprovedAt === "string" ? { approvedAt: legacyApprovedAt } : {}),
+        } : {}),
+      },
+    };
+    insertedNodes.push(approvalNode);
+    byId.set(approvalId, approvalNode);
+    edges[edgeIndex] = {
+      ...legacyEdge,
+      source: approvalId,
+      sourceHandle: "image",
+      targetHandle: "baseline",
+    };
+    edges.push({
+      id: candidateEdgeId,
+      source: legacyEdge.source,
+      sourceHandle: legacyEdge.sourceHandle ?? null,
+      target: approvalId,
+      targetHandle: "baseline-candidate",
+    });
+  }
+  return { nodes: [...nodes, ...insertedNodes], edges };
+}
+
+/** Validate untrusted JSON and migrate supported unversioned/v0-v5 formats to v6. */
 export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
   const raw = record(value, "flow");
   const version = raw.schemaVersion;
-  const migrateLegacy = version === undefined || version === 0 || version === 1 || version === 2 || version === 3;
+  const migrateLegacy = version === undefined || version === 0 || version === 1 || version === 2 || version === 3 || version === 4 || version === 5;
   if (!migrateLegacy && version !== WORKFLOW_SCHEMA_VERSION) {
     fail("flow.schemaVersion", `unsupported version ${String(version)}; current version is ${WORKFLOW_SCHEMA_VERSION}`);
   }
   if (!Array.isArray(raw.nodes)) fail("flow.nodes", "must be an array");
   if (!Array.isArray(raw.edges)) fail("flow.edges", "must be an array");
-  const upgraded = migrateLegacyDualModelAccessorySlot(raw.nodes, raw.edges);
+  const legacyAccessories = migrateLegacy
+    ? migrateLegacyDualModelAccessorySlot(raw.nodes, raw.edges)
+    : { nodes: raw.nodes, edges: raw.edges };
+  const normalizedLegacy = migrateLegacy
+    ? { nodes: legacyAccessories.nodes, edges: normalizeLegacyEdgeHandles(legacyAccessories.edges) }
+    : legacyAccessories;
+
+  const legacyIncomingRoles = new Map<string, Set<string>>();
+  for (const edgeValue of normalizedLegacy.edges) {
+    if (typeof edgeValue !== "object" || edgeValue === null || Array.isArray(edgeValue)) continue;
+    const edge = edgeValue as Record<string, unknown>;
+    if (typeof edge.target !== "string" || typeof edge.targetHandle !== "string") continue;
+    const roles = legacyIncomingRoles.get(edge.target) ?? new Set<string>();
+    roles.add(edge.targetHandle);
+    legacyIncomingRoles.set(edge.target, roles);
+  }
+  const recoveredLegacyNodes = normalizedLegacy.nodes.map((node) => (
+    migrateLegacy ? recoverStagedTryOnNode(node, legacyIncomingRoles) : node
+  ));
+  const upgraded = migrateLegacy
+    ? migrateV4StageApprovals(recoveredLegacyNodes, normalizedLegacy.edges)
+    : { nodes: recoveredLegacyNodes, edges: normalizedLegacy.edges };
   if (upgraded.nodes.length > MAX_WORKFLOW_NODES) {
     fail("flow.nodes", `must contain at most ${MAX_WORKFLOW_NODES} nodes`);
   }
   if (upgraded.edges.length > MAX_EDGES) fail("flow.edges", `must contain at most ${MAX_EDGES} edges`);
 
-  const incomingRoles = new Map<string, Set<string>>();
-  for (const edgeValue of upgraded.edges) {
-    if (typeof edgeValue !== "object" || edgeValue === null || Array.isArray(edgeValue)) continue;
-    const edge = edgeValue as Record<string, unknown>;
-    if (typeof edge.target !== "string" || typeof edge.targetHandle !== "string") continue;
-    const roles = incomingRoles.get(edge.target) ?? new Set<string>();
-    roles.add(edge.targetHandle);
-    incomingRoles.set(edge.target, roles);
-  }
-
-  const nodes = upgraded.nodes.map((node, index) => validateNode(
-    recoverStagedTryOnNode(node, incomingRoles),
-    index,
-    migrateLegacy,
-  ));
+  const nodes = upgraded.nodes.map((node, index) => validateNode(node, index, migrateLegacy));
   const validatedEdges = upgraded.edges.map(validateEdge);
   const stagedNodeIds = new Set(nodes.flatMap((node) => (
     node.data.kind === "virtual-try-on" && node.data.workflowStage !== "standard" ? [node.id] : []
@@ -544,25 +801,53 @@ export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
     && typedStagedPairs.has(`${edge.source}\u0000${edge.target}`)
   ));
   const nodeIds = new Set<string>();
+  const nodesById = new Map<string, PersistedWorkflowNode>();
   for (const node of nodes) {
     if (nodeIds.has(node.id)) fail("flow.nodes", `duplicate node id: ${node.id}`);
     nodeIds.add(node.id);
+    nodesById.set(node.id, node);
   }
   const edgeIds = new Set<string>();
+  const acceptedEdges: PersistedWorkflowEdge[] = [];
   for (const edge of edges) {
     if (edgeIds.has(edge.id)) fail("flow.edges", `duplicate edge id: ${edge.id}`);
     edgeIds.add(edge.id);
     if (!nodeIds.has(edge.source)) fail("flow.edges", `edge ${edge.id} source not found: ${edge.source}`);
     if (!nodeIds.has(edge.target)) fail("flow.edges", `edge ${edge.id} target not found: ${edge.target}`);
+    const sourceNode = nodesById.get(edge.source)!;
+    const targetNode = nodesById.get(edge.target)!;
+    const compatibilityError = connectionCompatibilityError({
+      source: sourceNode,
+      target: targetNode,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+      existingEdges: acceptedEdges,
+      // The persisted contract keeps the historical eighth mask reference
+      // readable. Interactive connection validation and execution still use 7.
+      maxSources: targetNode.data.kind === "mask-redraw" ? MAX_REFERENCE_IMAGES : undefined,
+    });
+    if (compatibilityError) fail("flow.edges", `edge ${edge.id}: ${compatibilityError}`);
+    if (
+      targetNode.data.kind === "virtual-try-on"
+      && targetNode.data.workflowStage === "garment-refine"
+      && edge.targetHandle === "baseline"
+      && sourceNode.data.kind !== "stage-approval"
+    ) {
+      fail("flow.edges", `edge ${edge.id}: 已确认第一轮基准必须来自独立确认节点`);
+    }
+    acceptedEdges.push(edge);
   }
   for (const node of nodes) {
-    const incomingCount = edges.filter((edge) => edge.target === node.id).length;
+    const incomingEdges = edges.filter((edge) => edge.target === node.id);
+    const incomingImageCount = incomingEdges.filter((edge) => (
+      inputPortFor(node.data, edge.targetHandle)?.valueKind === "image"
+    )).length;
     // v2 曾允许蒙版节点保存 8 路输入。持久化层继续容忍这类历史文档，
     // 但新建连线和运行前检查仍按 7 张用户参考图限制，提示用户移除一张后再运行。
     const persistedInputLimit = node.type === "mask-redraw"
       ? MAX_REFERENCE_IMAGES
       : NODE_SPECS[node.type].inputs;
-    if (incomingCount > persistedInputLimit) {
+    if (incomingImageCount > persistedInputLimit) {
       fail(
         "flow.edges",
         `node ${node.id} accepts at most ${persistedInputLimit} incoming image connections`,
@@ -571,7 +856,7 @@ export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
     if (
       NODE_SPECS[node.type].providerId
       && node.type !== "virtual-try-on"
-      && incomingCount > MAX_REFERENCE_IMAGES
+      && incomingImageCount > MAX_REFERENCE_IMAGES
     ) {
       fail("flow.edges", `node ${node.id} accepts at most ${MAX_REFERENCE_IMAGES} reference images`);
     }

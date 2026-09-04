@@ -53,6 +53,23 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
   for (const step of plan.steps) {
     const spec = NODE_SPECS[step.kind];
     if (!spec.providerId) continue;
+    if (step.kind === "video-generate") {
+      const prompt = typeof step.params.prompt === "string" ? step.params.prompt.trim() : "";
+      if (!prompt) throw new DagError(`Node ${step.nodeId} requires a video prompt`);
+      const mode = String(step.params.mode);
+      const mediaInputs = (step.upstream ?? []).filter((source) => source.targetHandle !== "prompt");
+      if (mode === "text-to-video" && mediaInputs.length !== 0) throw new DagError(`Node ${step.nodeId} text-to-video does not accept media inputs`);
+      if ((mode === "keyframes-to-video" || mode === "multi-image-video") && mediaInputs.length !== 2) {
+        throw new DagError(`Node ${step.nodeId} requires exactly two ordered reference frames`);
+      }
+      if (mode === "video-to-video" && (mediaInputs.length !== 1 || mediaInputs[0].targetHandle !== "source-video")) {
+        throw new DagError(`Node ${step.nodeId} requires exactly one source video`);
+      }
+      if ((step.params.resolution === "1080p" || step.params.resolution === "4k") && step.params.seconds !== 8) {
+        throw new DagError(`Node ${step.nodeId} requires 8 seconds for 1080p or 4K`);
+      }
+      continue;
+    }
     const modelId = isImageModelId(step.params.modelId)
       ? step.params.modelId
       : step.kind === "mask-redraw" ? MASK_REDRAW_MODEL_ID : DEFAULT_GENERATION_MODEL_ID;
@@ -99,7 +116,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     if (step.kind === "virtual-try-on") {
       const stage = step.params.workflowStage;
       const allowedRoles = stage === "scene-stabilize"
-        ? new Set(["person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet"])
+        ? new Set(["person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet", "detail"])
         : stage === "garment-refine"
           ? new Set(["baseline", "outfit", "material", "detail"])
           : undefined;
@@ -130,6 +147,9 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
             throw new DagError(`节点 ${step.nodeId} 的${label}参考图最多只能连接 1 张`);
           }
         }
+        if (roleSources("detail").length > 5 || roleImages("detail").length > 5) {
+          throw new DagError(`节点 ${step.nodeId} 的服装局部结构参考图最多只能连接 5 张`);
+        }
         continue;
       }
       if (stage === "garment-refine") {
@@ -144,7 +164,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
         if (roleSources("material").length > 1 || roleImages("material").length > 1) {
           throw new DagError(`Node ${step.nodeId} accepts at most one material image`);
         }
-        if (step.params.approvedBaselineRef !== roleImages("baseline")[0]) {
+        if (step.params.baselineApprovalValid !== true || step.params.approvedBaselineRef !== roleImages("baseline")[0]) {
           throw new DagError(`节点 ${step.nodeId} 的第一轮基准尚未确认或确认已失效`);
         }
         if (!["knit", "woven", "other"].includes(String(step.params.garmentCategory))) {
@@ -260,12 +280,14 @@ export function buildExecutionPlan(
       upstream.push({
         nodeId: e.source,
         images: extractOutputImages(srcData),
-        ...(e.targetHandle !== undefined ? { targetHandle: e.targetHandle } : {}),
+        // Persisted v4/v5 edges normalize an omitted handle to null. Canonicalize
+        // both forms by omitting the field, while retaining explicit typed roles.
+        ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
       });
     }
     if (data.kind === "virtual-try-on" && data.workflowStage !== "standard") {
       const order = data.workflowStage === "scene-stabilize"
-        ? ["scene", "person", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet"]
+        ? ["scene", "person", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet", "detail"]
         : ["baseline", "outfit", "material", "detail"];
       const rank = (handle: string | null | undefined) => {
         const index = order.indexOf(handle ?? "");
@@ -274,12 +296,55 @@ export function buildExecutionPlan(
       upstream.sort((a, b) => rank(a.targetHandle) - rank(b.targetHandle));
     }
 
+    const params = extractParams(data);
+    const upstreamText = edges
+      .filter((edge) => edge.target === id && edge.targetHandle === "prompt")
+      .map((edge) => nodeMap.get(edge.source)?.data)
+      .filter((source): source is Extract<WorkflowNodeData, { kind: "text-input" }> => source?.kind === "text-input")
+      .map((source) => source.text.trim())
+      .filter(Boolean);
+    if (upstreamText.length > 0) {
+      const ownPrompt = typeof params.prompt === "string" ? params.prompt.trim() : "";
+      params.prompt = [...upstreamText, ownPrompt].filter(Boolean).join("\n\n");
+    }
+    if (data.kind === "fabric-recolor") {
+      const paletteEdge = edges.find((edge) => edge.target === id && edge.targetHandle === "palette");
+      const paletteNode = paletteEdge ? nodeMap.get(paletteEdge.source) : undefined;
+      if (paletteNode?.data.kind === "color-palette") {
+        params.colors = paletteNode.data.swatches.map((swatch) => swatch.value);
+        params.paletteSourceNodeId = paletteNode.id;
+      }
+    }
+    if (data.kind === "virtual-try-on" && data.workflowStage === "garment-refine") {
+      const baselineEdge = edges.find((edge) => edge.target === id && edge.targetHandle === "baseline");
+      const approvalNode = baselineEdge ? nodeMap.get(baselineEdge.source) : undefined;
+      const candidateEdge = approvalNode?.data.kind === "stage-approval"
+        ? edges.find((edge) => edge.target === approvalNode.id && edge.targetHandle === "baseline-candidate")
+        : undefined;
+      const candidateNode = candidateEdge ? nodeMap.get(candidateEdge.source) : undefined;
+      const currentRef = candidateNode ? extractOutputImages(candidateNode.data)[0] : undefined;
+      const currentRevision = candidateNode?.data.kind === "virtual-try-on"
+        && candidateNode.data.workflowStage === "scene-stabilize"
+        ? candidateNode.data.basisRevision ?? 0
+        : undefined;
+      const approved = approvalNode?.data.kind === "stage-approval"
+        && candidateNode
+        && currentRef
+        && approvalNode.data.approvedSourceNodeId === candidateNode.id
+        && approvalNode.data.approvedBaselineRef === currentRef
+        && approvalNode.data.approvedBasisRevision === currentRevision;
+      params.baselineApprovalValid = Boolean(approved);
+      params.approvedBaselineRef = approved ? currentRef : approvalNode?.data.kind === "stage-approval"
+        ? approvalNode.data.approvedBaselineRef
+        : undefined;
+    }
+
     return {
       nodeId: id,
       kind: data.kind,
       inputImages: upstream.flatMap((u) => u.images),
       upstream,
-      params: extractParams(data),
+      params,
     };
   });
 
@@ -291,6 +356,15 @@ function extractOutputImages(data: WorkflowNodeData): string[] {
   switch (data.kind) {
     case "image-input":
       return data.imageUrl ? [data.imageUrl] : [];
+    case "drawing-board":
+      return data.previewImageRef ? [data.previewImageRef] : [];
+    case "stage-approval":
+      return data.approvedBaselineRef ? [data.approvedBaselineRef] : [];
+    case "video-input":
+      return data.videoUrl ? [data.videoUrl] : [];
+    case "text-input":
+    case "color-palette":
+      return [];
     case "sketch-to-render":
     case "ai-modify":
     case "fabric-recolor":
@@ -299,6 +373,7 @@ function extractOutputImages(data: WorkflowNodeData): string[] {
     case "print-mutate":
     case "virtual-try-on":
     case "mask-redraw":
+    case "video-generate":
       return data.outputImages ?? [];
     case "result":
       return data.images ?? [];
@@ -324,6 +399,36 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
   switch (data.kind) {
     case "image-input":
       return { imageUrl: data.imageUrl, imageRole: data.imageRole };
+    case "text-input":
+      return { text: data.text };
+    case "drawing-board":
+      return {
+        boardVersion: data.boardVersion,
+        contentRef: data.contentRef,
+        previewImageRef: data.previewImageRef,
+      };
+    case "color-palette":
+      return { colors: data.swatches.map((swatch) => swatch.value) };
+    case "stage-approval":
+      return {
+        approvalKind: data.approvalKind,
+        approvedSourceNodeId: data.approvedSourceNodeId,
+        approvedBaselineRef: data.approvedBaselineRef,
+        approvedBasisRevision: data.approvedBasisRevision,
+        approvedAt: data.approvedAt,
+      };
+    case "video-input":
+      return { videoUrl: data.videoUrl, mimeType: data.mimeType };
+    case "video-generate":
+      return {
+        mode: data.mode,
+        prompt: data.prompt,
+        videoModel: data.videoModel,
+        quality: data.quality,
+        aspectRatio: data.aspectRatio,
+        resolution: data.resolution,
+        seconds: data.seconds,
+      };
     case "sketch-to-render":
       return {
         prompt: data.prompt, aspectRatio: data.aspectRatio, batchSize: data.batchSize,
@@ -336,6 +441,7 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
       };
     case "fabric-recolor":
       return {
+        operationMode: data.operationMode,
         prompt: data.prompt,
         colors: data.colors,
         fabricImageUrl: data.fabricImageUrl,
@@ -352,10 +458,11 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
         workflowStage: data.workflowStage,
         prompt: data.prompt,
         imageSize: data.imageSize,
+        aspectRatio: data.aspectRatio,
         garmentCategory: data.garmentCategory,
         materialSpec: data.materialSpec,
         constructionSpec: data.constructionSpec,
-        approvedBaselineRef: data.approvedBaselineRef,
+        basisRevision: data.basisRevision,
         ...modelFields(),
       };
     case "mask-redraw":

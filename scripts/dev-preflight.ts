@@ -123,7 +123,7 @@ async function main(): Promise<void> {
   for (const blocker of result.blockers) console.error(`  ✗ ${blocker}`);
 
   if (result.blockers.length > 0) {
-    console.error("\n预检未通过；以上问题处理后再执行 npm run dev。");
+    console.error("\n预检未通过；以上问题处理后再执行 pnpm run dev。");
     process.exitCode = 1;
     return;
   }

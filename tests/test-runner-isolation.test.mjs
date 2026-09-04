@@ -10,6 +10,7 @@ import {
   rmSync,
   symlinkSync,
   writeFileSync,
+  readdirSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -19,6 +20,18 @@ import { acquireTestLock, createComposeProjectName } from "../scripts/test-with-
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const runnerPath = join(repoRoot, "scripts/test-with-postgres.mjs");
+
+const packageManifest = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+const registeredSuite = packageManifest.scripts?.["test:suite"] ?? "";
+const unregisteredTypeScriptTests = readdirSync(join(repoRoot, "tests"))
+  .filter((name) => name.endsWith(".test.ts"))
+  .filter((name) => !registeredSuite.includes(`tests/${name}`))
+  .sort();
+assert.deepEqual(
+  unregisteredTypeScriptTests,
+  [],
+  `every TypeScript contract test must be registered in test:suite; missing: ${unregisteredTypeScriptTests.join(", ")}`,
+);
 
 function readComposeConfig(projectName) {
   const args = ["compose"];

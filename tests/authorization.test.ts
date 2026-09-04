@@ -24,6 +24,7 @@ const { runPlanRouter } = await import("../server/routes/runPlan");
 const { generateRouter } = await import("../server/routes/generate");
 const { assetsRouter } = await import("../server/routes/assets");
 const { filesRouter } = await import("../server/routes/files");
+const { drawingBoardsRouter } = await import("../server/routes/drawingBoards");
 const {
   initialDraftProjectName,
   projectsRouter,
@@ -199,6 +200,7 @@ app.use("/generate", generateRouter);
 app.use("/assets", assetsRouter);
 app.use("/files", filesRouter);
 app.use("/projects", projectsRouter);
+app.use("/drawing-boards", drawingBoardsRouter);
 app.use("/usage", usageRouter);
 app.use("/history", historyRouter);
 app.use("/templates", templatesRouter);
@@ -534,6 +536,53 @@ await test("管理员创建通用素材时解除底层文件的个人归属", as
       [uploaded.id],
     ),
     { owner_id: null, deleted_at: null, purge_after: null },
+  );
+});
+
+await test("图片上传可在一次请求中标准化并创建私有素材", async () => {
+  const create = await request("/assets", "owner", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "节点本地上传",
+      category: "reference",
+      scope: "private",
+      image: PNG_DATA_URL,
+      sourceNote: "来自图片上传节点",
+    }),
+  });
+  const body = await create.json() as {
+    ok?: boolean;
+    id?: string;
+    url?: string;
+    mimeType?: string;
+    width?: number;
+    height?: number;
+    byteLength?: number;
+    normalized?: boolean;
+    error?: string;
+  };
+  assert.equal(create.status, 201, body.error);
+  assert.equal(body.ok, true);
+  assert.ok(body.id);
+  assert.match(body.url ?? "", /^\/api\/files\/[A-Za-z0-9_-]+\.(?:jpg|png)$/);
+  assert.match(body.mimeType ?? "", /^image\/(?:jpeg|png)$/);
+  assert.equal(body.width, 1);
+  assert.equal(body.height, 1);
+  assert.ok((body.byteLength ?? 0) > 0);
+  assert.equal(body.normalized, true);
+  assert.deepEqual(
+    await queryOne<{ owner_id: string; scope: string; image: string }>(
+      "SELECT owner_id, scope, image FROM assets WHERE id = $1",
+      [body.id],
+    ),
+    { owner_id: users.owner.id, scope: "private", image: body.url },
+  );
+  assert.deepEqual(
+    await queryOne<{ owner_id: string; source_type: string; normalized: boolean }>(
+      "SELECT owner_id, source_type, normalized FROM files WHERE id = $1",
+      [path.basename(body.url ?? "")],
+    ),
+    { owner_id: users.owner.id, source_type: "asset", normalized: true },
   );
 });
 
@@ -1837,6 +1886,76 @@ await test("活动任务超过安全恢复上限时接口 fail-closed", async ()
   } finally {
     await query("DELETE FROM generation_runs WHERE id LIKE 'active-overflow-%'");
   }
+});
+
+await test("画板版本按 owner/project/node/base 授权并以请求号幂等", async () => {
+  const projectId = "drawing-owner-project";
+  const nodeId = "drawing-node";
+  const boardFlow = {
+    schemaVersion: 5,
+    nodes: [{
+      id: nodeId,
+      type: "drawing-board",
+      position: { x: 0, y: 0 },
+      data: {
+        kind: "drawing-board", label: "画板", status: "idle", boardVersion: 1,
+        width: 1024, height: 1024, background: "#FFFFFF",
+      },
+    }],
+    edges: [],
+  };
+  const project = await request("/projects", "owner", {
+    method: "POST",
+    body: JSON.stringify({ id: projectId, name: "画板项目", flow: boardFlow }),
+  });
+  assert.equal(project.status, 200, await project.text());
+
+  const document = {
+    version: 1,
+    canvas: { width: 1024, height: 1024, background: "#FFFFFF" },
+    layers: [{ id: "layer-1", name: "图层 1", visible: true, locked: false, opacity: 1, objects: [] }],
+  };
+  const body = {
+    clientRequestId: "drawing-request-0001", projectId, nodeId, baseContentRef: null, document,
+  };
+  const created = await request("/drawing-boards/versions", "owner", {
+    method: "POST", body: JSON.stringify(body),
+  });
+  const createdText = await created.text();
+  assert.equal(created.status, 201, createdText);
+  const createdBody = JSON.parse(createdText) as { contentRef: string; sha256: string };
+  assert.match(createdBody.contentRef, /^draw_/);
+  assert.match(createdBody.sha256, /^[0-9a-f]{64}$/);
+
+  const replay = await request("/drawing-boards/versions", "owner", {
+    method: "POST", body: JSON.stringify(body),
+  });
+  const replayText = await replay.text();
+  assert.equal(replay.status, 200, replayText);
+  assert.equal((JSON.parse(replayText) as { contentRef: string }).contentRef, createdBody.contentRef);
+  assert.equal((await request(`/drawing-boards/versions/${createdBody.contentRef}`, "owner")).status, 200);
+  assert.equal((await request(`/drawing-boards/versions/${createdBody.contentRef}`, "other")).status, 404);
+  assert.equal((await request(`/drawing-boards/versions/${createdBody.contentRef}`, "admin")).status, 404);
+
+  const wrongOwner = await request("/drawing-boards/versions", "other", {
+    method: "POST", body: JSON.stringify({ ...body, clientRequestId: "drawing-request-other" }),
+  });
+  assert.equal(wrongOwner.status, 404);
+  const wrongNode = await request("/drawing-boards/versions", "owner", {
+    method: "POST", body: JSON.stringify({ ...body, nodeId: "other-node", clientRequestId: "drawing-request-node" }),
+  });
+  assert.equal(wrongNode.status, 404);
+  const conflictingReplay = await request("/drawing-boards/versions", "owner", {
+    method: "POST",
+    body: JSON.stringify({
+      ...body,
+      document: { ...document, canvas: { ...document.canvas, background: "#000000" } },
+    }),
+  });
+  assert.equal(conflictingReplay.status, 409);
+  assert.equal((await queryOne<{ count: number }>(`
+    SELECT COUNT(*)::int AS count FROM drawing_document_versions WHERE project_id = $1
+  `, [projectId]))?.count, 1);
 });
 
 await test("历史分页固定在首次快照，期间新增记录不会推移游标造成缺口", async () => {

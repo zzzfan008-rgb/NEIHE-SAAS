@@ -8,6 +8,7 @@ import { imageExtensionFromReference, type ImageFileExtension } from "@/lib/imag
 import { NodeFrame, inputClass } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
+import { MediaNodeActionToolbar } from "./NodeActionToolbar";
 
 function downloadImage(url: string, index: number, extension?: ImageFileExtension) {
   const a = document.createElement("a");
@@ -135,6 +136,8 @@ function ResultSaveControls({ images }: { images: string[] }) {
 
 export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData>>) {
   const images = useFlowStore(useShallow((s) => selectResultImages(s, id)));
+  const videos = images.filter((ref) => /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(ref) || ref.startsWith("data:video/"));
+  const stillImages = images.filter((ref) => !videos.includes(ref));
   const noteEdit = useCoalescedTextEdit(
     { kind: "node-data", nodeId: id, field: "note" },
     { multiline: true },
@@ -142,12 +145,13 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
 
   return (
     <>
-      <Handle type="target" position={Position.Left} />
-      <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
-        <ImageGrid images={images} empty="连接上游节点后自动汇总图片" />
-        {images.length > 0 && (
+      <Handle id="references" type="target" position={Position.Left} title="媒体输入" />
+      <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={<MediaNodeActionToolbar nodeId={id} imageActions={videos.length === 0} />}>
+        <ImageGrid images={stillImages} empty={videos.length ? "" : "连接上游节点后自动汇总媒体"} />
+        {videos.map((video) => <video key={video} src={video} controls preload="metadata" className="nodrag max-h-52 w-full rounded-md bg-black" />)}
+        {stillImages.length > 0 && (
           <>
-            <ResultSaveControls images={images} />
+            <ResultSaveControls images={stillImages} />
             <div className="grid grid-cols-2 gap-1.5">
               {images.map((url, i) => {
                 const extension = imageExtensionFromReference(url);
@@ -165,6 +169,7 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
             </div>
           </>
         )}
+        {videos.map((video, index) => <a key={`download-${video}`} href={video} download={`garment-video-${index + 1}.mp4`} className="nodrag block rounded-md border border-[#262626] py-1 text-center text-[10px] text-neutral-400 hover:border-gold hover:text-gold">下载视频 {index + 1}</a>)}
         <label className="block space-y-1">
           <span className="text-[10px] text-neutral-500">备注</span>
           <textarea

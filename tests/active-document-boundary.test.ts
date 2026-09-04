@@ -43,6 +43,12 @@ const ACTIVE_DOCUMENT_FIELDS = new Set([
   "savedRevision",
   "dirty",
   "documentEpoch",
+  "connectionDraft",
+  "hoveredToolGroupId",
+  "openToolGroupId",
+  "pinnedToolGroupId",
+  "rightDockOpen",
+  "drawingRecoveryState",
 ]);
 
 const testRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -63,6 +69,12 @@ const flowStateDeclaration = flowStoreFile.statements.find(
     ts.isInterfaceDeclaration(statement) && statement.name.text === "FlowState",
 );
 assert.ok(flowStateDeclaration, "flowStore.ts 缺少 FlowState interface");
+const workbenchTypesPath = path.join(sourceRoot, "types/workbench.ts");
+assert.ok(fs.existsSync(workbenchTypesPath), "缺少 story-neutral 的 src/types/workbench.ts");
+const workbenchTypesSource = fs.readFileSync(workbenchTypesPath, "utf8");
+for (const contractName of ["ConnectionDraft", "WorkbenchUiState", "CanvasCreationIntent", "ToolGroup", "ToolItem"]) {
+  assert.match(workbenchTypesSource, new RegExp(`(?:interface|type)\\s+${contractName}\\b`), `${contractName} 必须集中定义`);
+}
 
 function sourceFiles(root: string): string[] {
   const files: string[] = [];

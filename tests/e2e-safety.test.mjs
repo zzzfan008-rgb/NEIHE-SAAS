@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const playwrightCli = resolve(root, "node_modules/playwright/cli.js");
+const playwrightCli = resolve(root, "node_modules/@playwright/test/cli.js");
 const dataDir = mkdtempSync(join(tmpdir(), "garment-canvas-e2e-safety-"));
 const safeEnv = {
   ...process.env,
@@ -35,7 +35,7 @@ function listTests(overrides = {}, omitted = []) {
 try {
   const baseline = listTests();
   assert.equal(baseline.status, 0, `${baseline.stdout}\n${baseline.stderr}`);
-  assert.match(baseline.stdout, /Total: \d+ tests in 5 files/);
+  assert.match(baseline.stdout, /Total: \d+ tests in \d+ files/);
   assert.match(
     baseline.stdout,
     /\[golden-path\].*upload and text starters complete the isolated first-generation golden path/,
@@ -54,13 +54,33 @@ try {
     );
     assert.match(
       baseline.stdout,
-      new RegExp(`\\[desktop-${width}\\].*left dock and horizontal zoom controls preserve canvas identity`),
+      new RegExp(`\\[desktop-${width}\\].*node title and media actions keep stable keyboard-accessible controls`),
+      `desktop-${width} must include node action focus and keyboard coverage`,
+    );
+    assert.match(
+      baseline.stdout,
+      new RegExp(`\\[desktop-${width}\\].*tool rail, right dock and horizontal zoom controls preserve canvas identity`),
       `desktop-${width} must include the stable workbench regression`,
     );
     assert.match(
       baseline.stdout,
-      new RegExp(`\\[desktop-${width}\\].*theme picker reports state`),
-      `desktop-${width} must include the theme and focus regression`,
+      new RegExp(`\\[desktop-${width}\\].*single current theme remains applied without a picker`),
+      `desktop-${width} must include the single-theme contract regression`,
+    );
+    assert.match(
+      baseline.stdout,
+      new RegExp(`\\[desktop-${width}\\].*results and project center follow desktop density`),
+      `desktop-${width} must include Results actions, long-label and three-theme geometry`,
+    );
+    assert.match(
+      baseline.stdout,
+      new RegExp(`\\[desktop-${width}\\].*five tool groups support hover keyboard click drag and disabled no-op`),
+      `desktop-${width} must include tool-flyout interaction and collision geometry`,
+    );
+    assert.match(
+      baseline.stdout,
+      new RegExp(`\\[desktop-${width}\\].*approved video capabilities open complete workflows without triggering generation`),
+      `desktop-${width} must include approved video workflows without paid generation`,
     );
   }
 
@@ -68,7 +88,7 @@ try {
     {
       name: "missing runner marker",
       result: listTests({}, ["E2E_ISOLATED_RUN"]),
-      message: /use npm run test:e2e/,
+      message: /use pnpm run test:e2e/,
     },
     {
       name: "real AI key",

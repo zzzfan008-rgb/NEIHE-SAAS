@@ -360,7 +360,7 @@ export function SaveTemplateForm({
           />
         </label>
         {error && <p role="alert" className="text-[10px] text-red-400">{error}</p>}
-        <DialogFooter className="border-[var(--gc-border)] bg-[var(--gc-panel-soft)]">
+        <DialogFooter className="border-[var(--gc-border)] bg-[var(--gc-control)]">
           <DialogClose render={<Button type="button" variant="outline" />}>
             取消
           </DialogClose>

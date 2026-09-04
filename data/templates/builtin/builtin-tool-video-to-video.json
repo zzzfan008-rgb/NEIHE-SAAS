@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 6,
+  "id": "builtin-tool-video-to-video",
+  "name": "视频生视频",
+  "description": "上传源视频并通过首帧重制生成新镜头。",
+  "builtIn": true,
+  "createdAt": "2026-09-03T08:00:00.000Z",
+  "flow": {
+    "schemaVersion": 6,
+    "nodes": [
+      {
+        "id": "source",
+        "type": "video-input",
+        "position": {
+          "x": 0,
+          "y": -100
+        },
+        "data": {
+          "kind": "video-input",
+          "label": "源视频",
+          "status": "idle"
+        }
+      },
+      {
+        "id": "prompt",
+        "type": "text-input",
+        "position": {
+          "x": 0,
+          "y": 220
+        },
+        "data": {
+          "kind": "text-input",
+          "label": "重制要求",
+          "status": "idle",
+          "text": ""
+        }
+      },
+      {
+        "id": "generate",
+        "type": "video-generate",
+        "position": {
+          "x": 430,
+          "y": 0
+        },
+        "data": {
+          "kind": "video-generate",
+          "label": "视频生视频",
+          "status": "idle",
+          "mode": "video-to-video",
+          "prompt": "",
+          "videoModel": "veo-3.1",
+          "quality": "fast",
+          "aspectRatio": "16:9",
+          "resolution": "720p",
+          "seconds": 8,
+          "outputImages": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "source-generate",
+        "source": "source",
+        "sourceHandle": "video",
+        "target": "generate",
+        "targetHandle": "source-video"
+      },
+      {
+        "id": "prompt-generate",
+        "source": "prompt",
+        "sourceHandle": "text",
+        "target": "generate",
+        "targetHandle": "prompt"
+      }
+    ]
+  }
+}

@@ -153,6 +153,41 @@ await test("一次节点拖拽只形成一条记录并一次撤销到起点", ()
   assert.deepEqual(activeDocument().nodes[0].position, { x: 96, y: 16 });
 });
 
+await test("自动整理只移动主选连通工作流并形成一条可撤销历史", () => {
+  const make = (id: string, x: number, y: number): FlowNode => ({
+    ...aiNode(id),
+    position: { x, y },
+    measured: { width: 280, height: 180 },
+  });
+  useFlowStore.getState().loadFlow({
+    projectId: "layout-history-project",
+    projectName: "自动整理历史测试",
+    nodes: [make("layout-a", 0, 0), make("layout-b", 20, 10), make("layout-c", 40, 20), make("layout-other", 900, 700)],
+    edges: [
+      { id: "layout-ab", source: "layout-a", target: "layout-b" },
+      { id: "layout-bc", source: "layout-b", target: "layout-c" },
+    ],
+  });
+  useFlowStore.temporal.getState().clear();
+  useFlowStore.getState().setSelectedNodeId("layout-b");
+  const before = activeDocument().nodes.map((node) => ({ id: node.id, position: { ...node.position } }));
+
+  assert.equal(useFlowStore.getState().autoLayoutSelectedWorkflow(), null);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 1);
+  assert.deepEqual(activeDocument().nodes.find((node) => node.id === "layout-other")?.position, { x: 900, y: 700 });
+
+  useFlowStore.getState().undo();
+  assert.deepEqual(
+    activeDocument().nodes.map((node) => ({ id: node.id, position: node.position })),
+    before,
+  );
+
+  useFlowStore.getState().setSelectedNodeIds([]);
+  const historyCount = useFlowStore.temporal.getState().pastStates.length;
+  assert.match(useFlowStore.getState().autoLayoutSelectedWorkflow() ?? "", /选择/);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, historyCount);
+});
+
 await test("拖拽中的 undo 与 redo 会在自然结束后真正执行", async () => {
   const { nodeId } = resetDocument(aiNode("deferred-history-commands"));
   const transaction = beginHistoryTransaction("deferred-undo-redo");
@@ -550,11 +585,15 @@ await test("成功生成输出作为一次提交，撤销输出时保留最新�
       : [],
     ["/api/files/final-a.png", "/api/files/final-b.png"],
   );
+  const generatedResultId = activeDocument().nodes.find((node) => node.data.kind === "result")?.id;
+  assert.ok(generatedResultId, "成功生成必须自动创建结果节点");
+  assert.ok(activeDocument().edges.some((edge) => edge.source === nodeId && edge.target === generatedResultId));
 
   useFlowStore.getState().undo();
   const undone = activeDocument().nodes[0].data;
   assert.equal(undone.status, "success", "undo 只撤销文档输出，不倒退服务端运行态");
   assert.deepEqual(undone.kind === "ai-modify" ? undone.outputImages : [], ["/api/files/previous.png"]);
+  assert.ok(activeDocument().nodes.some((node) => node.id === generatedResultId), "自动结果节点不得进入撤销历史");
 
   useFlowStore.getState().redo();
   const redone = activeDocument().nodes[0].data;
@@ -755,6 +794,38 @@ await test("撤销文档不回退 React Flow 测量瞬态与服务端运行态",
   assert.equal(restored.height, 320);
   assert.equal(restored.data.status, "success");
   assert.equal(restored.data.kind === "ai-modify" ? restored.data.prompt : "", "保留衣身，修改领型");
+});
+
+await test("画板保存与导出各只形成一次全局历史且拒绝过期 DocumentTarget", () => {
+  const board: FlowNode = {
+    id: "atomic-board",
+    type: "drawing-board",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "drawing-board", label: "画板", status: "idle", boardVersion: 1,
+      width: 1024, height: 1024, background: "#FFFFFF",
+    },
+  };
+  const { tabId, nodeId } = resetDocument(board);
+  const target = documentTargetForTab(tabId);
+  assert.equal(useFlowStore.getState().commitDrawingBoard(target, nodeId, {
+    contentRef: "draw_atomic_v1",
+    previewImageRef: "/api/files/draw-atomic.png",
+  }), true);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 1);
+  assert.equal(activeDocument().nodes[0].data.kind === "drawing-board" && activeDocument().nodes[0].data.contentRef, "draw_atomic_v1");
+
+  const exportedId = useFlowStore.getState().exportDrawingBoardImageNode(target, nodeId);
+  assert.ok(exportedId);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 2);
+  assert.equal(activeDocument().nodes.find((node) => node.id === exportedId)?.data.kind, "image-input");
+  assert.equal(activeDocument().nodes[0].data.kind === "drawing-board" && activeDocument().nodes[0].data.exportImageRef, "/api/files/draw-atomic.png");
+
+  assert.equal(useFlowStore.getState().commitDrawingBoard({ ...target, documentEpoch: target.documentEpoch + 1 }, nodeId, {
+    contentRef: "draw_stale",
+    previewImageRef: "/api/files/stale.png",
+  }), false);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 2);
 });
 
 console.log(`\n通过 ${passed} 项`);

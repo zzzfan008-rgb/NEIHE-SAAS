@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 6,
+  "id": "builtin-tool-fabric-replace",
+  "name": "面料替换",
+  "description": "主服装与面料参考同时连接到替换节点。",
+  "builtIn": true,
+  "createdAt": "2026-09-03T08:00:00.000Z",
+  "flow": {
+    "schemaVersion": 6,
+    "nodes": [
+      {
+        "id": "garment",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": -120
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "主服装图",
+          "status": "idle",
+          "imageRole": "garment"
+        }
+      },
+      {
+        "id": "fabric",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": 180
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "目标面料图",
+          "status": "idle",
+          "imageRole": "fabric"
+        }
+      },
+      {
+        "id": "generate",
+        "type": "fabric-recolor",
+        "position": {
+          "x": 420,
+          "y": 0
+        },
+        "data": {
+          "kind": "fabric-recolor",
+          "label": "面料替换",
+          "status": "idle",
+          "operationMode": "fabric",
+          "colors": [],
+          "prompt": "保持服装版型、结构、配饰和构图，仅替换为目标面料的纹理、光泽、厚薄与垂感。",
+          "outputImages": [],
+          "modelId": "gpt-image-2-vip",
+          "modelOptions": {
+            "size": "2048x2048"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "garment-generate",
+        "source": "garment",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "references"
+      },
+      {
+        "id": "fabric-generate",
+        "source": "fabric",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "references"
+      }
+    ]
+  }
+}

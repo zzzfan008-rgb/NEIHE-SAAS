@@ -30,9 +30,11 @@ requirePattern("shadcn 弹层背景工具类", /\.bg-popover(?:[,{:]|\s*\{)/);
 requirePattern("shadcn 弹层文字工具类", /\.text-popover-foreground(?:[,{:]|\s*\{)/);
 requirePattern("画布节点主题样式", /\.gc-node-card/);
 requirePattern("经典暗金主题", /\[data-theme=["']?current["']?\]/);
-requirePattern("简白主题", /\[data-theme=["']?white["']?\]/);
-requirePattern("护眼绿主题", /\[data-theme=["']?eye["']?\]/);
 requirePattern("运行时主题变量", /--gc-shell\s*:/);
+
+if (/\[data-theme=["']?(?:white|eye)["']?\]/.test(css)) {
+  throw new Error("构建产物不得包含已删除的简白或护眼主题");
+}
 
 if (/@tailwind\s+(?:base|components|utilities)/.test(css)) {
   throw new Error("构建产物仍包含未展开的 @tailwind 指令");

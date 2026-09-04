@@ -69,42 +69,48 @@ function declaration(source: string, property: string, expectedValue: string): v
   );
 }
 
-console.log("三主题与 Tailwind CSS 契约测试");
+console.log("单一暗金主题与 Tailwind CSS 契约测试");
 
 try {
-  assert.deepEqual(THEMES.map((theme) => theme.id), ["current", "white", "eye"]);
+  assert.deepEqual(THEMES.map((theme) => theme.id), ["current"]);
 
   installBrowser("?theme=eye", "white");
-  assert.equal(getTheme(), "eye", "URL 主题必须优先于本地偏好");
+  assert.equal(getTheme(), "current", "已删除主题必须回退到暗金主题");
 
   installBrowser("", "white");
-  assert.equal(getTheme(), "white");
+  assert.equal(getTheme(), "current");
 
   installBrowser("", "black");
-  assert.equal(getTheme(), "white", "旧版 black 必须迁移为 white");
+  assert.equal(getTheme(), "current", "旧主题值必须迁移为暗金主题");
 
   installBrowser("?theme=unknown", "unknown");
   assert.equal(getTheme(), "current", "无效主题必须安全回退");
 
   const browser = installBrowser("", null);
-  applyTheme("eye");
-  assert.equal(browser.dataset.theme, "eye");
-  assert.equal(browser.values.get("garment-canvas-theme"), "eye");
+  applyTheme("current");
+  assert.equal(browser.dataset.theme, "current");
+  assert.equal(browser.values.get("garment-canvas-theme"), undefined, "单主题无需持久化用户偏好");
 
   const observedThemes: string[] = [];
   const unsubscribe = subscribeTheme(() => observedThemes.push(getAppliedTheme()));
-  applyTheme("white");
-  applyTheme("white");
+  applyTheme("current");
+  applyTheme("current");
   unsubscribe();
-  assert.deepEqual(observedThemes, ["white"], "所有 useTheme 消费者应共享同一订阅状态且重复写入幂等");
+  assert.deepEqual(observedThemes, [], "单主题无需派发主题切换事件");
 
-  console.log("  ✓ URL、本地偏好、旧值迁移、data-theme 写入与跨消费者同步保持一致");
+  console.log("  ✓ 旧主题值安全回退，data-theme 固定为暗金主题且不再保存切换偏好");
 } finally {
   restoreGlobal("window", originalWindow);
   restoreGlobal("document", originalDocument);
 }
 
 const css = fs.readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+
+const reducedMotionBlock = cssBlock(css, "@media (prefers-reduced-motion: reduce)");
+assert.match(reducedMotionBlock, /\.gc-workflow-edge\s*\{[\s\S]*?transition:\s*none/);
+assert.match(reducedMotionBlock, /\.gc-edge-flow-dots\s*\{[\s\S]*?display:\s*none/);
+assert.match(reducedMotionBlock, /\.gc-node-card[\s\S]*?animation-duration:\s*0\.001ms\s*!important/);
+console.log("  ✓ 减少动态效果模式禁用路径动画并压缩节点动画时长");
 
 assert.match(css, /@import\s+["']tailwindcss["'](?:\s+source\(none\))?\s*;/);
 assert.doesNotMatch(css, /@tailwind\s+(?:base|components|utilities)\s*;/);
@@ -144,13 +150,14 @@ const coreThemeTokens = [
   "--gc-handle-glow",
 ];
 
-for (const theme of ["current", "white", "eye"] as const) {
+for (const theme of ["current"] as const) {
   const block = cssBlock(css, `[data-theme="${theme}"]`);
   for (const token of coreThemeTokens) {
     assert.match(block, new RegExp(`${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:`), `${theme} 缺少 ${token}`);
   }
 }
-console.log("  ✓ current / white / eye 三套主题拥有完整核心 token");
+assert.doesNotMatch(css, /\[data-theme=["'](?:white|eye)["']\]/);
+console.log("  ✓ 仅 current 暗金主题保留完整核心 token");
 
 for (const [semanticToken, garmentToken] of [
   ["--color-background", "--gc-shell"],
@@ -176,4 +183,4 @@ assert.doesNotMatch(css, /@custom-variant\s+dark\s+\([^;]*\.dark\s+\*[^;]*\)\s*;
 assert.match(css, /@custom-variant\s+dark\s+\([^;]*\[data-theme=["']?current["']?\][^;]*\)\s*;/);
 assert.doesNotMatch(css, /(?:^|\n)\.dark\s*\{/);
 assert.doesNotMatch(cssBlock(css, "@theme inline"), /--radius-(?:sm|md|lg|xl|2xl|3xl|4xl)\s*:/);
-console.log("  ✓ shadcn 语义 token 桥接三主题，未引入 .dark 或全局圆角双轨");
+console.log("  ✓ shadcn 语义 token 桥接暗金主题，未引入 .dark 或全局圆角双轨");

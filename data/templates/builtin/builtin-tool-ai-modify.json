@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 6,
+  "id": "builtin-tool-ai-modify",
+  "name": "AI 改款",
+  "description": "款式图与改款要求已连接；成功后自动创建结果节点。",
+  "builtIn": true,
+  "createdAt": "2026-09-03T08:00:00.000Z",
+  "flow": {
+    "schemaVersion": 6,
+    "nodes": [
+      {
+        "id": "garment",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": -120
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "原款式图",
+          "status": "idle",
+          "imageRole": "garment"
+        }
+      },
+      {
+        "id": "prompt",
+        "type": "text-input",
+        "position": {
+          "x": 0,
+          "y": 180
+        },
+        "data": {
+          "kind": "text-input",
+          "label": "改款要求",
+          "status": "idle",
+          "text": ""
+        }
+      },
+      {
+        "id": "generate",
+        "type": "ai-modify",
+        "position": {
+          "x": 420,
+          "y": 0
+        },
+        "data": {
+          "kind": "ai-modify",
+          "label": "AI 改款",
+          "status": "idle",
+          "prompt": "",
+          "aspectRatio": "3:4",
+          "batchSize": 1,
+          "outputImages": [],
+          "modelId": "gpt-image-2-vip",
+          "modelOptions": {
+            "size": "1536x2048"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "garment-generate",
+        "source": "garment",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "references"
+      },
+      {
+        "id": "prompt-generate",
+        "source": "prompt",
+        "sourceHandle": "text",
+        "target": "generate",
+        "targetHandle": "prompt"
+      }
+    ]
+  }
+}

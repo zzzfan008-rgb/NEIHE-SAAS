@@ -137,7 +137,7 @@ export function assessPreflight(
   } else if (!targetUsesLocalApi(config)) {
     warnings.push(`API_PROXY_TARGET ${config.apiProxyTarget} 当前不可达`);
   } else {
-    notes.push("API 将由本次 npm run dev 启动，启动前不可达属于预期状态");
+    notes.push("API 将由本次 pnpm run dev 启动，启动前不可达属于预期状态");
   }
 
   if (observations.proxyReadyStatus !== undefined && observations.proxyReadyStatus !== 200) {

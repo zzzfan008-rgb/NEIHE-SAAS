@@ -29,6 +29,9 @@ const MIME_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/webp": "webp",
   "image/gif": "gif",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
 };
 
 const EXT_MIME: Record<string, string> = {
@@ -37,7 +40,24 @@ const EXT_MIME: Record<string, string> = {
   jpeg: "image/jpeg",
   webp: "image/webp",
   gif: "image/gif",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
 };
+
+const VIDEO_MIMES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const MAX_VIDEO_BYTES = 32 * 1024 * 1024;
+
+function validateVideoDataUrl(dataUrl: string): { mime: string; buffer: Buffer } {
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!match || !VIDEO_MIMES.has(match[1])) throw new Error("仅支持 MP4、WebM 或 MOV 视频");
+  const buffer = Buffer.from(match[2], "base64");
+  if (buffer.byteLength === 0 || buffer.byteLength > MAX_VIDEO_BYTES) throw new Error("视频为空或超过 32MB");
+  const isWebm = buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+  const isIsoMedia = buffer.byteLength >= 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp";
+  if (match[1] === "video/webm" ? !isWebm : !isIsoMedia) throw new Error("视频扩展类型与文件内容不匹配");
+  return { mime: match[1], buffer };
+}
 
 export function uploadsDir(): string {
   const dir = path.join(config.dataDir(), "uploads");
@@ -94,7 +114,7 @@ export function thumbnailUrlForImage(ref: string): string {
 
 /** 删除仅由失败 run 产生的原图和可重建缩略图缓存。 */
 export function deleteStoredImage(id: string): void {
-  if (!isSupportedImageFile(id) || path.basename(id) !== id) return;
+  if (!isSupportedMediaFile(id) || path.basename(id) !== id) return;
   for (const filePath of [path.join(uploadsDir(), id), path.join(thumbnailsDir(), `${id}.webp`)]) {
     try { fs.rmSync(filePath, { force: true }); } catch { /* best-effort cleanup */ }
   }
@@ -187,7 +207,36 @@ export function mimeOfFile(id: string): string {
 }
 
 export function isSupportedImageFile(id: string): boolean {
+  const mime = EXT_MIME[path.extname(id).slice(1).toLowerCase()];
+  return Boolean(mime?.startsWith("image/"));
+}
+
+export function isSupportedMediaFile(id: string): boolean {
   return Object.prototype.hasOwnProperty.call(EXT_MIME, path.extname(id).slice(1).toLowerCase());
+}
+
+export function isLocalMediaReference(ref: string): boolean {
+  const match = /^\/api\/files\/([^/?#]+)$/.exec(ref);
+  return Boolean(match && path.basename(match[1]) === match[1] && isSupportedMediaFile(match[1]));
+}
+
+export function storedMediaPath(ref: string, allowedMimes?: readonly string[]): string {
+  if (!isLocalMediaReference(ref)) throw new Error("invalid local media reference");
+  const id = path.basename(ref);
+  const mime = mimeOfFile(id);
+  if (allowedMimes && !allowedMimes.includes(mime)) throw new Error(`unsupported media type: ${mime}`);
+  const filePath = path.join(uploadsDir(), id);
+  if (!fs.existsSync(filePath)) throw new Error("media file not found");
+  return filePath;
+}
+
+export function saveVideoUploadDataUrl(dataUrl: string): {
+  id: string; url: string; mimeType: string; byteLength: number;
+} {
+  const { mime, buffer } = validateVideoDataUrl(dataUrl);
+  const id = `${nanoid(12)}.${MIME_EXT[mime]}`;
+  if (!createStoredImage(id, buffer)) throw new Error("视频文件名冲突，请重试");
+  return { id, url: `/api/files/${id}`, mimeType: mime, byteLength: buffer.byteLength };
 }
 
 // ---------- 图片来源归一化（Provider URL 结果 / 链式编辑输入统一为 dataURL）----------
@@ -446,6 +495,8 @@ export interface PersistedImageReceipt {
   created: boolean;
 }
 
+export type PersistedMediaReceipt = PersistedImageReceipt;
+
 function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -503,6 +554,27 @@ export async function persistImageRefWithReceipt(
     if (storedImageMatches(id, buffer)) return { id, url: `/api/files/${id}`, created: false };
   }
 
+  for (;;) {
+    const id = `${base}-${contentDigest}-${nanoid(6)}.${ext}`;
+    if (createStoredImage(id, buffer)) return { id, url: `/api/files/${id}`, created: true };
+  }
+}
+
+export async function persistMediaRefWithReceipt(
+  ref: string,
+  idempotencyKey: string,
+): Promise<PersistedMediaReceipt> {
+  if (!ref.startsWith("data:video/")) return persistImageRefWithReceipt(ref, idempotencyKey);
+  if (!idempotencyKey.trim()) throw new Error("media persistence idempotency key is required");
+  const { mime, buffer } = validateVideoDataUrl(ref);
+  const ext = MIME_EXT[mime];
+  const keyDigest = sha256(idempotencyKey).slice(0, 24);
+  const contentDigest = sha256(buffer).slice(0, 16);
+  const base = `generated-${keyDigest}`;
+  for (const id of [`${base}.${ext}`, `${base}-${contentDigest}.${ext}`]) {
+    if (createStoredImage(id, buffer)) return { id, url: `/api/files/${id}`, created: true };
+    if (storedImageMatches(id, buffer)) return { id, url: `/api/files/${id}`, created: false };
+  }
   for (;;) {
     const id = `${base}-${contentDigest}-${nanoid(6)}.${ext}`;
     if (createStoredImage(id, buffer)) return { id, url: `/api/files/${id}`, created: true };

@@ -9,6 +9,7 @@ import { isNodeRunActive } from "@/types/workflow";
 export function PulseEdge({
   id,
   source,
+  data,
   sourceX,
   sourceY,
   targetX,
@@ -32,39 +33,38 @@ export function PulseEdge({
     },
   );
 
+  const pathEmphasis = (data as {
+    pathEmphasis?: "quiet" | "upstream" | "downstream" | "unrelated";
+  } | undefined)?.pathEmphasis ?? "quiet";
+  const emphasized = pathEmphasis === "upstream" || pathEmphasis === "downstream";
   const baseStroke = selected
-    ? "#C9A66B"
+    ? "var(--gc-edge-selected)"
     : running
-      ? "rgba(201,166,107,0.45)"
-      : "#3a3a3a";
+      ? "var(--gc-edge-active)"
+      : emphasized
+        ? "var(--gc-edge-emphasis)"
+        : "var(--gc-edge-muted)";
   const dur = running ? "1.2s" : "2.8s";
+  const opacity = pathEmphasis === "unrelated" ? 0.22 : pathEmphasis === "quiet" ? 0.62 : 1;
 
   return (
     <>
       <BaseEdge
         id={id}
         path={path}
-        style={{ stroke: baseStroke, strokeWidth: selected ? 2.2 : 1.8 }}
+        className={`gc-workflow-edge gc-workflow-edge--${pathEmphasis}`}
+        style={{ stroke: baseStroke, strokeWidth: selected || emphasized ? 2.2 : 1.6, opacity }}
       />
-      {/* 三颗追尾光珠（SMIL 沿路径运动，零 JS 开销） */}
-      <circle
-        r={4}
-        fill="#C9A66B"
-        opacity={running ? 1 : 0.5}
-        style={
-          running
-            ? { filter: "drop-shadow(0 0 4px #C9A66B) drop-shadow(0 0 8px rgba(201,166,107,.6))" }
-            : undefined
-        }
-      >
-        <animateMotion dur={dur} repeatCount="indefinite" path={path} />
-      </circle>
-      <circle r={3} fill="#C9A66B" opacity={running ? 0.7 : 0.35}>
-        <animateMotion dur={dur} begin="0.4s" repeatCount="indefinite" path={path} />
-      </circle>
-      <circle r={2.4} fill="#C9A66B" opacity={running ? 0.5 : 0.25}>
-        <animateMotion dur={dur} begin="0.8s" repeatCount="indefinite" path={path} />
-      </circle>
+      {running && (
+        <g className="gc-edge-flow-dots" aria-hidden="true">
+          <circle r={4} fill="var(--gc-edge-active)" className="gc-edge-flow-dot">
+            <animateMotion dur={dur} repeatCount="indefinite" path={path} />
+          </circle>
+          <circle r={3} fill="var(--gc-edge-active)" opacity={0.7} className="gc-edge-flow-dot">
+            <animateMotion dur={dur} begin="0.4s" repeatCount="indefinite" path={path} />
+          </circle>
+        </g>
+      )}
     </>
   );
 }

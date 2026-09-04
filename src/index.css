@@ -140,7 +140,7 @@ body {
 }
 
 .react-flow__minimap {
-  border: 1px solid #262626;
+  border: 0.8px solid #8a8a8a;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -219,177 +219,136 @@ body {
   animation: develop-breathe 1.6s ease-in-out infinite;
 }
 
-/* ---- 主题：简白（白色为主） ---- */
-[data-theme="white"] body {
-  background-color: #ffffff !important;
-  color: #1d1d1f;
-}
-[data-theme="white"] .bg-ink,
-[data-theme="white"] .react-flow { background-color: #ffffff !important; }
-[data-theme="white"] .bg-\[\#141414\] { background-color: #ffffff !important; }
-[data-theme="white"] .bg-\[\#1a1a1a\] { background-color: #f5f5f7 !important; }
-[data-theme="white"] .bg-\[\#1d1d1f\] { background-color: #f5f5f7 !important; }
-[data-theme="white"] .bg-\[\#0f0f0f\] { background-color: #fbfbfd !important; }
-[data-theme="white"] .bg-\[\#3a3226\] { background-color: #e8e8ed !important; }
-[data-theme="white"] .border-\[\#262626\] { border-color: #d2d2d7 !important; }
-[data-theme="white"] .border-\[\#333\] { border-color: #c7c7cc !important; }
-[data-theme="white"] .text-neutral-200 { color: #1d1d1f !important; }
-[data-theme="white"] .text-neutral-300 { color: #3a3a3c !important; }
-[data-theme="white"] .text-neutral-400 { color: #48484a !important; }
-[data-theme="white"] .text-neutral-500 { color: #6e6e73 !important; }
-[data-theme="white"] .text-neutral-600 { color: #86868b !important; }
-[data-theme="white"] .text-neutral-700 { color: #98989d !important; }
-[data-theme="white"] .text-gold { color: #896932 !important; }
-[data-theme="white"] .placeholder\:text-neutral-600::placeholder { color: #98989d !important; }
-[data-theme="white"] .shadow-xl { box-shadow: 0 12px 28px rgba(26, 26, 26, 0.08) !important; }
-[data-theme="white"] .react-flow__minimap { border-color: #d2d2d7 !important; }
-[data-theme="white"] .react-flow__handle {
-  border-color: #ffffff;
-  box-shadow:
-    0 0 0 1px rgba(137, 105, 50, 0.62),
-    0 3px 7px rgba(29, 29, 31, 0.2),
-    inset -2px -3px 4px rgba(99, 72, 31, 0.28),
-    inset 2px 2px 3px rgba(255, 255, 255, 0.75);
-}
-[data-theme="white"] ::-webkit-scrollbar-thumb { background: #c7c7cc; }
-[data-theme="white"] ::-webkit-scrollbar-thumb:hover { background: #aeaeb2; }
-[data-theme="white"] .bg-\[\#141414\]\/90 { background-color: rgba(255,255,255,0.92) !important; }
-[data-theme="white"] .bg-\[\#161616\] { background-color: #ffffff !important; }
-[data-theme="white"] .hover\:bg-\[\#222\]:hover { background-color: #f5f5f7 !important; }
-
-/* ---- 主题：护眼绿（绿色为主） ---- */
-[data-theme="eye"] body {
-  background-color: #cfe3c2 !important;
-  color: #22331f;
-}
-[data-theme="eye"] .bg-ink,
-[data-theme="eye"] .react-flow { background-color: #cfe3c2 !important; }
-[data-theme="eye"] .bg-\[\#141414\] { background-color: #ddeccf !important; }
-[data-theme="eye"] .bg-\[\#1a1a1a\] { background-color: #d2e4c3 !important; }
-[data-theme="eye"] .bg-\[\#0f0f0f\] { background-color: #eaf4de !important; }
-[data-theme="eye"] .bg-\[\#3a3226\] { background-color: #bcd6a8 !important; }
-[data-theme="eye"] .border-\[\#262626\] { border-color: #aec99a !important; }
-[data-theme="eye"] .border-\[\#333\] { border-color: #98b884 !important; }
-[data-theme="eye"] .text-neutral-200 { color: #22331f !important; }
-[data-theme="eye"] .text-neutral-300 { color: #30452b !important; }
-[data-theme="eye"] .text-neutral-400 { color: #47623f !important; }
-[data-theme="eye"] .text-neutral-500 { color: #5c7a52 !important; }
-[data-theme="eye"] .text-neutral-600 { color: #729066 !important; }
-[data-theme="eye"] .text-neutral-700 { color: #86a279 !important; }
-[data-theme="eye"] .text-gold { color: #6e5320 !important; }
-[data-theme="eye"] .placeholder\:text-neutral-600::placeholder { color: #86a279 !important; }
-[data-theme="eye"] .react-flow__minimap { border-color: #aec99a !important; }
-[data-theme="eye"] .react-flow__handle {
-  border-color: #ddeccf;
-  box-shadow:
-    0 0 0 1px rgba(110, 83, 32, 0.58),
-    0 3px 7px rgba(48, 69, 43, 0.25),
-    inset -2px -3px 4px rgba(67, 45, 17, 0.3),
-    inset 2px 2px 3px rgba(255, 248, 226, 0.65);
-}
-[data-theme="eye"] ::-webkit-scrollbar-thumb { background: #98b884; }
-[data-theme="eye"] ::-webkit-scrollbar-thumb:hover { background: #7ea368; }
-[data-theme="eye"] .bg-\[\#141414\]\/90 { background-color: rgba(221,236,207,0.92) !important; }
-[data-theme="eye"] .bg-\[\#161616\] { background-color: #ddeccf !important; }
-[data-theme="eye"] .hover\:bg-\[\#222\]:hover { background-color: #d2e4c3 !important; }
-
 /* ---- 节点语义主题：画布节点与节点库共用，和周边面板颜色解耦 ---- */
 :root,
 [data-theme="current"] {
   --gc-shell: #101214;
-  --gc-canvas: #0d0f11;
+  --gc-canvas: #bfbfbf;
   --gc-panel: #17191c;
   --gc-panel-hover: #222529;
   --gc-control: #0f1113;
   --gc-text: #e5e7eb;
   --gc-text-muted: #8b9198;
   --gc-border: #2b2e32;
-  --gc-accent: #9a7333;
+  --gc-accent: #b18745;
   --gc-primary-foreground: #0a0a0a;
-  --gc-node-main: #f1f2f4;
+  --gc-node-main: #ffffff;
   --gc-node-header: #ffffff;
-  --gc-node-inner: #f8f9fa;
+  --gc-node-inner: #ffffff;
   --gc-node-inner-hover: #ffffff;
-  --gc-node-border: #ccd0d5;
+  --gc-node-border: #8a8a8a;
   --gc-node-text: #25282c;
   --gc-node-muted: #676c73;
-  --gc-node-accent: #9a7333;
+  --gc-node-accent: #b18745;
   --gc-handle-highlight: #f2ddb2;
   --gc-handle-mid: #b18745;
   --gc-handle-dark: #61451f;
   --gc-handle-ring: rgba(154, 115, 51, 0.75);
   --gc-handle-glow: rgba(176, 138, 74, 0.78);
+  --gc-edge-muted: #4d5157;
+  --gc-edge-emphasis: #8f6d38;
+  --gc-edge-selected: #b18745;
+  --gc-edge-active: #c9a66b;
+  --gc-font-compact: 0.625rem;
+  --gc-font-meta: 0.6875rem;
 }
 
-[data-theme="white"] {
-  --gc-shell: #f6f5f2;
-  --gc-canvas: #eceae6;
-  --gc-panel: #fffefb;
-  --gc-panel-hover: #eceae6;
-  --gc-control: #f2f0ec;
-  --gc-text: #26282c;
-  --gc-text-muted: #696d73;
-  --gc-border: #d5d2cc;
-  --gc-accent: #dc7397;
-  --gc-primary-foreground: #1d1d1f;
-  --gc-node-main: #34373b;
-  --gc-node-header: #3f4247;
-  --gc-node-inner: #4b4f55;
-  --gc-node-inner-hover: #575c63;
-  --gc-node-border: #656a72;
-  --gc-node-text: #f4f4f5;
-  --gc-node-muted: #c0c2c6;
-  --gc-node-accent: #dc7397;
-  --gc-handle-highlight: #ffd7e3;
-  --gc-handle-mid: #e98faa;
-  --gc-handle-dark: #9e365d;
-  --gc-handle-ring: rgba(220, 115, 151, 0.78);
-  --gc-handle-glow: rgba(233, 125, 163, 0.8);
+/* Keep panel metadata readable without introducing a second typography system. */
+.gc-panel .text-\[9px\] {
+  font-size: var(--gc-font-compact);
+  line-height: 1.35;
 }
 
-[data-theme="eye"] {
-  --gc-shell: #d9e4d2;
-  --gc-canvas: #c8d8c0;
-  --gc-panel: #e5eedf;
-  --gc-panel-hover: #d1e0ca;
-  --gc-control: #edf3e9;
-  --gc-text: #183247;
-  --gc-text-muted: #48677e;
-  --gc-border: #a9bfa2;
-  --gc-accent: #173b63;
-  --gc-primary-foreground: #f8fafc;
-  --gc-node-main: #adc8dc;
-  --gc-node-header: #bed3e3;
-  --gc-node-inner: #d0e0eb;
-  --gc-node-inner-hover: #dce9f1;
-  --gc-node-border: #819fb8;
-  --gc-node-text: #183247;
-  --gc-node-muted: #48677e;
-  --gc-node-accent: #173b63;
-  --gc-handle-highlight: #9db8d3;
-  --gc-handle-mid: #315b87;
-  --gc-handle-dark: #102c4c;
-  --gc-handle-ring: rgba(23, 59, 99, 0.78);
-  --gc-handle-glow: rgba(31, 72, 115, 0.75);
+.gc-panel .text-\[10px\] {
+  font-size: var(--gc-font-meta);
+  line-height: 1.4;
 }
 
-[data-theme] .gc-node-card,
-[data-theme] .gc-node-library-card {
+@media (max-width: 1100px) {
+  .gc-context-dock.visible {
+    width: 18rem !important;
+  }
+
+  .gc-context-dock-content {
+    width: 18rem !important;
+  }
+}
+
+.gc-workflow-edge {
+  transition: opacity 140ms ease, stroke 140ms ease, stroke-width 140ms ease;
+}
+
+.gc-edge-flow-dot {
+  filter: drop-shadow(0 0 5px var(--gc-edge-active));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gc-workflow-edge {
+    transition: none;
+  }
+
+  .gc-edge-flow-dots {
+    display: none;
+  }
+
+  .gc-node-card *,
+  .gc-node-card {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+.gc-node-card,
+.gc-node-library-card {
   background-color: var(--gc-node-main) !important;
   border-color: var(--gc-node-border) !important;
+  border-width: 0.8px !important;
+  border-radius: 10px !important;
   color: var(--gc-node-text) !important;
-  box-shadow: 0 10px 28px rgba(8, 14, 22, 0.2) !important;
+  box-shadow: 0 5px 14px rgba(35, 35, 35, 0.16) !important;
 }
 
-[data-theme] body,
-[data-theme] .gc-app-shell {
+/* 外框始终保持 0.8px 中性灰；选中和运行状态只显示在框外。 */
+.gc-node-border-state { border-color: var(--gc-node-border) !important; }
+.gc-node-border-state.is-selected,
+.gc-node-border-state[data-display-state="ready"] {
+  border-color: var(--gc-node-border) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gc-node-accent) 42%, transparent), 0 5px 14px rgba(35, 35, 35, 0.16) !important;
+}
+.gc-node-border-state[data-display-state="missing-input"],
+.gc-node-border-state[data-display-state="needs-reconfirmation"] {
+  border-color: var(--gc-node-border) !important;
+  box-shadow: 0 0 0 2px rgba(214, 155, 56, 0.46), 0 5px 14px rgba(35, 35, 35, 0.16) !important;
+}
+.gc-node-border-state[data-display-state="success"] {
+  border-color: var(--gc-node-border) !important;
+  box-shadow: 0 0 0 2px rgba(63, 159, 105, 0.42), 0 5px 14px rgba(35, 35, 35, 0.16) !important;
+}
+.gc-node-border-state[data-display-state="failed"],
+.gc-node-border-state[data-display-state="unknown-outcome"] {
+  border-color: var(--gc-node-border) !important;
+  box-shadow: 0 0 0 2px rgba(200, 92, 92, 0.46), 0 5px 14px rgba(35, 35, 35, 0.16) !important;
+}
+.gc-node-border-state[data-display-state="queued"],
+.gc-node-border-state[data-display-state="running"],
+.gc-node-border-state[data-display-state="retrying"] {
+  border-color: var(--gc-node-border) !important;
+  animation: gc-node-border-pulse 1.4s ease-in-out infinite;
+}
+@keyframes gc-node-border-pulse {
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gc-node-accent) 46%, transparent), 0 7px 18px rgba(35, 35, 35, 0.2); }
+}
+
+body,
+.gc-app-shell {
   background-color: var(--gc-shell) !important;
   color: var(--gc-text);
 }
-[data-theme] .react-flow {
+.react-flow {
   background-color: var(--gc-canvas) !important;
 }
-[data-theme] .gc-panel {
+.gc-panel {
   background-color: var(--gc-panel) !important;
   border-color: var(--gc-border) !important;
   color: var(--gc-text);
@@ -400,10 +359,10 @@ body {
   z-index: 8 !important;
 }
 .react-flow__node:not(.dragging):hover .gc-node-card {
-  border-color: var(--gc-node-accent) !important;
+  border-color: var(--gc-node-border) !important;
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--gc-node-accent) 58%, transparent),
-    0 18px 38px rgba(8, 14, 22, 0.34) !important;
+    0 0 0 2px color-mix(in srgb, var(--gc-node-accent) 34%, transparent),
+    0 10px 24px rgba(35, 35, 35, 0.2) !important;
 }
 .react-flow__node:not(.dragging):hover .react-flow__handle {
   box-shadow:
@@ -412,72 +371,88 @@ body {
     0 4px 8px rgba(0, 0, 0, 0.38) !important;
 }
 
-[data-theme] .gc-node-card.border-gold,
-[data-theme] .gc-node-library-card:hover {
-  border-color: var(--gc-node-accent) !important;
+.gc-node-card.border-gold,
+.gc-node-library-card:hover {
+  border-color: var(--gc-node-border) !important;
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--gc-node-accent) 48%, transparent),
     0 10px 28px rgba(8, 14, 22, 0.24) !important;
 }
 
-[data-theme] .gc-node-header {
+.gc-image-node > .gc-node-frame {
+  width: 100%;
+}
+
+.gc-node-card:has(.gc-image-input-media) {
+  overflow: hidden;
+}
+
+.gc-node-card:has(.gc-image-input-media) .gc-node-body {
+  padding: 0;
+}
+
+.gc-image-input-media--dragging {
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--gc-node-accent) 62%, transparent);
+}
+
+.gc-node-header {
   background-color: var(--gc-node-header) !important;
   border-color: var(--gc-node-border) !important;
 }
 
-[data-theme] .gc-node-body {
+.gc-node-body {
   color: var(--gc-node-text) !important;
 }
 
-[data-theme] .gc-node-card .bg-\[\#0f0f0f\],
-[data-theme] .gc-node-card .bg-\[\#141414\],
-[data-theme] .gc-node-card .bg-\[\#161616\],
-[data-theme] .gc-node-card .bg-\[\#1a1a1a\] {
+.gc-node-card .bg-\[\#0f0f0f\],
+.gc-node-card .bg-\[\#141414\],
+.gc-node-card .bg-\[\#161616\],
+.gc-node-card .bg-\[\#1a1a1a\] {
   background-color: var(--gc-node-inner) !important;
 }
 
-[data-theme] .gc-node-card .hover\:bg-\[\#222\]:hover {
+.gc-node-card .hover\:bg-\[\#222\]:hover {
   background-color: var(--gc-node-inner-hover) !important;
 }
 
-[data-theme] .gc-node-card .border-\[\#262626\],
-[data-theme] .gc-node-card .border-\[\#2a2a2a\],
-[data-theme] .gc-node-card .border-\[\#333\],
-[data-theme] .gc-node-card .border-\[\#3a3a3a\] {
+.gc-node-card .border-\[\#262626\],
+.gc-node-card .border-\[\#2a2a2a\],
+.gc-node-card .border-\[\#333\],
+.gc-node-card .border-\[\#3a3a3a\] {
   border-color: var(--gc-node-border) !important;
 }
 
-[data-theme] .gc-node-card .text-neutral-200,
-[data-theme] .gc-node-card .text-neutral-300,
-[data-theme] .gc-node-library-card .text-neutral-200,
-[data-theme] .gc-node-library-card .text-neutral-300 {
+.gc-node-card .text-neutral-200,
+.gc-node-card .text-neutral-300,
+.gc-node-library-card .text-neutral-200,
+.gc-node-library-card .text-neutral-300 {
   color: var(--gc-node-text) !important;
 }
 
-[data-theme] .gc-node-card .text-neutral-400,
-[data-theme] .gc-node-card .text-neutral-500,
-[data-theme] .gc-node-card .text-neutral-600,
-[data-theme] .gc-node-library-card .text-neutral-400,
-[data-theme] .gc-node-library-card .text-neutral-500,
-[data-theme] .gc-node-library-card .text-neutral-600 {
+.gc-node-card .text-neutral-400,
+.gc-node-card .text-neutral-500,
+.gc-node-card .text-neutral-600,
+.gc-node-library-card .text-neutral-400,
+.gc-node-library-card .text-neutral-500,
+.gc-node-library-card .text-neutral-600 {
   color: var(--gc-node-muted) !important;
 }
 
-[data-theme] .gc-node-card input,
-[data-theme] .gc-node-card textarea,
-[data-theme] .gc-node-card select {
+.gc-node-card input,
+.gc-node-card textarea,
+.gc-node-card select {
   background-color: var(--gc-node-inner) !important;
   border-color: var(--gc-node-border) !important;
   color: var(--gc-node-text) !important;
 }
 
-[data-theme] .gc-node-card input::placeholder,
-[data-theme] .gc-node-card textarea::placeholder {
+.gc-node-card input::placeholder,
+.gc-node-card textarea::placeholder {
   color: var(--gc-node-muted) !important;
 }
 
 /* 标题栏本身也带旧背景工具类，需在内部控件覆盖后明确恢复标题层级色。 */
-[data-theme] .gc-node-card .gc-node-header {
+.gc-node-card .gc-node-header {
   background-color: var(--gc-node-header) !important;
   border-color: var(--gc-node-border) !important;
 }

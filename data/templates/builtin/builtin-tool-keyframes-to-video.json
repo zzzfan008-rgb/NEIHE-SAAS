@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 6,
+  "id": "builtin-tool-keyframes-to-video",
+  "name": "首尾帧生视频",
+  "description": "首帧、尾帧和提示词按角色连接。",
+  "builtIn": true,
+  "createdAt": "2026-09-03T08:00:00.000Z",
+  "flow": {
+    "schemaVersion": 6,
+    "nodes": [
+      {
+        "id": "first",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": -220
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "首帧",
+          "status": "idle",
+          "imageRole": "reference"
+        }
+      },
+      {
+        "id": "last",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": 60
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "尾帧",
+          "status": "idle",
+          "imageRole": "reference"
+        }
+      },
+      {
+        "id": "prompt",
+        "type": "text-input",
+        "position": {
+          "x": 0,
+          "y": 340
+        },
+        "data": {
+          "kind": "text-input",
+          "label": "视频提示词",
+          "status": "idle",
+          "text": ""
+        }
+      },
+      {
+        "id": "generate",
+        "type": "video-generate",
+        "position": {
+          "x": 430,
+          "y": 0
+        },
+        "data": {
+          "kind": "video-generate",
+          "label": "首尾帧生视频",
+          "status": "idle",
+          "mode": "keyframes-to-video",
+          "prompt": "",
+          "videoModel": "veo-3.1",
+          "quality": "fast",
+          "aspectRatio": "16:9",
+          "resolution": "720p",
+          "seconds": 8,
+          "outputImages": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "first-generate",
+        "source": "first",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "first-frame"
+      },
+      {
+        "id": "last-generate",
+        "source": "last",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "last-frame"
+      },
+      {
+        "id": "prompt-generate",
+        "source": "prompt",
+        "sourceHandle": "text",
+        "target": "generate",
+        "targetHandle": "prompt"
+      }
+    ]
+  }
+}

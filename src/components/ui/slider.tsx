@@ -3,13 +3,7 @@ import { Slider as SliderPrimitive } from "@base-ui/react/slider"
 
 import { cn } from "@/lib/utils"
 
-type SliderProps = Omit<
-  SliderPrimitive.Root.Props<number[]>,
-  "defaultValue" | "value"
-> & {
-  defaultValue?: number[]
-  value?: number[]
-}
+type SliderProps = SliderPrimitive.Root.Props<number>
 
 function Slider({
   className,
@@ -21,7 +15,7 @@ function Slider({
   ...props
 }: SliderProps) {
   const values = React.useMemo(
-    () => value ?? defaultValue ?? [min],
+    () => [value ?? defaultValue ?? min],
     [defaultValue, min, value],
   )
 

@@ -1,19 +1,10 @@
 import { useRef, useState, type ReactNode } from "react";
-import { isNodeRunActive, type NodeRunStatus } from "@/types/workflow";
+import { isNodeRunActive, type NodeDisplayState, type NodeRunStatus } from "@/types/workflow";
 import { useGenerationSafetyBlockReason } from "@/store/generationSafety";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
-
-const STATUS_STYLE: Record<NodeRunStatus, string> = {
-  idle: "bg-neutral-500",
-  queued: "bg-yellow-400",
-  running: "bg-blue-400 animate-pulse",
-  retry_wait: "bg-amber-400 animate-pulse",
-  cancel_requested: "bg-orange-400 animate-pulse",
-  success: "bg-emerald-400",
-  error: "bg-red-500",
-  outcome_unknown: "bg-orange-500",
-  cancelled: "bg-neutral-600",
-};
+import { deriveNodeDisplayState } from "@/lib/nodeDisplayState";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export const STATUS_TEXT: Record<NodeRunStatus, string> = {
   idle: "空闲",
@@ -27,54 +18,79 @@ export const STATUS_TEXT: Record<NodeRunStatus, string> = {
   cancelled: "已取消",
 };
 
-export function StatusDot({ status }: { status: NodeRunStatus }) {
-  return (
-    <span
-      className={`inline-block h-2 w-2 shrink-0 rounded-full ${STATUS_STYLE[status]}`}
-      title={STATUS_TEXT[status]}
-    />
-  );
-}
-
 interface NodeFrameProps {
   title: string;
   status: NodeRunStatus;
   error?: string;
   selected?: boolean;
+  displayState?: NodeDisplayState;
+  missingInput?: boolean;
+  executable?: boolean;
+  approvalStale?: boolean;
+  terminalMatchesBasis?: boolean;
+  summary?: ReactNode;
+  primaryAction?: ReactNode;
+  latestOutput?: ReactNode;
+  toolbar?: ReactNode;
   /** 传入 nodeId 后标题支持双击改名（回车/失焦确认，Esc 取消） */
   nodeId?: string;
-  children: ReactNode;
+  children?: ReactNode;
 }
 
-/** 节点通用卡片框架：标题栏（双击改名） + 状态点 + 内容区 */
-export function NodeFrame({ title, status, error, selected, nodeId, children }: NodeFrameProps) {
+/**
+ * 单框节点：标题悬浮在边框上方 2px，执行状态仅通过边框颜色/动画表达。
+ * 不再设置独立标题栏、状态点或状态文字，避免视觉层级重复。
+ */
+export function NodeFrame({
+  title,
+  status,
+  error,
+  selected,
+  nodeId,
+  displayState,
+  missingInput,
+  executable,
+  approvalStale,
+  terminalMatchesBasis,
+  summary,
+  primaryAction,
+  latestOutput,
+  toolbar,
+  children,
+}: NodeFrameProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
   const cancelledRef = useRef(false);
-  const labelEdit = useCoalescedTextEdit(
-    nodeId ? { kind: "node-data", nodeId, field: "label" } : null,
-  );
+  const labelEdit = useCoalescedTextEdit(nodeId ? { kind: "node-data", nodeId, field: "label" } : null);
+  const derivedState = displayState ?? deriveNodeDisplayState({
+    runStatus: status,
+    missingInput,
+    executable,
+    approvalStale,
+    terminalMatchesBasis,
+  });
 
   const commit = () => {
-    const v = draft.trim();
-    if (!v) labelEdit.cancel();
+    const value = draft.trim();
+    if (!value) labelEdit.cancel();
     else {
-      labelEdit.updateValue(v);
+      labelEdit.updateValue(value);
       labelEdit.flush();
     }
     setEditing(false);
   };
 
   return (
-    <div
-      className={`gc-node-card w-[280px] rounded-xl border bg-[#141414] shadow-xl shadow-black/40 transition-colors ${
-        selected ? "border-gold" : "border-[#262626]"
-      }`}
-    >
-      <div className="gc-node-header flex items-center gap-2 rounded-t-xl border-b border-[#262626] bg-[#1a1a1a] px-3 py-2">
-        <StatusDot status={status} />
+    <div className="gc-node-frame relative w-[280px]">
+      {selected && toolbar && (
+        <div className="gc-node-floating-toolbar nodrag nopan absolute bottom-[calc(100%+27px)] left-1/2 z-20 -translate-x-1/2">
+          {toolbar}
+        </div>
+      )}
+      <div className="gc-node-floating-title absolute bottom-[calc(100%+2px)] left-1/2 z-10 w-[calc(100%-18px)] -translate-x-1/2 text-center">
         {editing ? (
-          <input
+          <Input
+            aria-label="节点名称"
             value={draft}
             autoFocus
             {...labelEdit.bind}
@@ -83,46 +99,49 @@ export function NodeFrame({ title, status, error, selected, nodeId, children }: 
               labelEdit.updateValue(event.target.value);
             }}
             onBlur={() => {
-              if (cancelledRef.current) {
-                cancelledRef.current = false;
-                return;
-              }
-              commit();
+              if (cancelledRef.current) cancelledRef.current = false;
+              else commit();
             }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.nativeEvent.isComposing) commit();
-              if (e.key === "Escape") {
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) commit();
+              if (event.key === "Escape") {
                 cancelledRef.current = true;
                 labelEdit.cancel();
                 setEditing(false);
               }
             }}
-            className="nodrag min-w-0 flex-1 rounded-sm border border-gold bg-[#0f0f0f] px-1.5 py-0.5 text-xs text-neutral-200 focus:outline-hidden"
+            className="nodrag h-6 w-full rounded-sm border-[var(--gc-node-accent)] bg-[var(--gc-node-main)] px-1.5 text-center text-xs text-[var(--gc-node-text)] focus-visible:border-[var(--gc-node-accent)] focus-visible:ring-2 focus-visible:ring-[var(--gc-node-accent)]/45"
           />
         ) : (
           <span
-            className={`truncate text-xs font-medium tracking-wide text-neutral-200 ${nodeId ? "cursor-text" : ""}`}
+            className={`inline-block max-w-full truncate rounded-t-md bg-[var(--gc-canvas)] px-2 text-xs font-medium tracking-wide text-[var(--gc-node-text)] ${nodeId ? "cursor-text" : ""}`}
             title={nodeId ? "双击改名" : undefined}
-            onDoubleClick={
-              nodeId
-                ? () => {
-                    cancelledRef.current = false;
-                    setDraft(title);
-                    setEditing(true);
-                  }
-                : undefined
-            }
+            onDoubleClick={nodeId ? () => {
+              cancelledRef.current = false;
+              setDraft(title);
+              setEditing(true);
+            } : undefined}
           >
             {title}
           </span>
         )}
       </div>
-      <div className="gc-node-body space-y-3 p-3">{children}</div>
-      {error && (
-        <div className="mx-3 mb-3 rounded-md border border-red-900/50 bg-red-950/40 px-2 py-1.5 text-[10px] leading-relaxed text-red-400">
-          {error}
+      <div
+        data-display-state={derivedState}
+        className={`gc-node-card gc-node-border-state rounded-xl border bg-[var(--gc-node-main)] shadow-xl shadow-black/25 transition-[border-color,box-shadow] ${selected ? "is-selected" : ""}`}
+      >
+        <div className="gc-node-body space-y-2 p-2.5">
+          {summary && <div className="gc-node-summary">{summary}</div>}
+          {children}
+          {primaryAction && <div className="gc-node-primary-action">{primaryAction}</div>}
+          {latestOutput && <div className="gc-node-latest-output">{latestOutput}</div>}
         </div>
-      )}
+        {error && (
+          <div className="gc-node-error mx-2.5 mb-2.5 rounded-md border border-red-900/50 bg-red-950/40 px-2 py-1 text-[10px] leading-relaxed text-red-500">
+            {error}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -139,21 +158,23 @@ export function RunButton({ status, onClick, label = "运行", disabled }: RunBu
   const safetyBlockReason = useGenerationSafetyBlockReason();
   const newGenerationBlocked = !active && Boolean(safetyBlockReason);
   return (
-    <button
+    <Button
       type="button"
+      size="sm"
       onClick={onClick}
       disabled={active || disabled || newGenerationBlocked}
       title={newGenerationBlocked ? safetyBlockReason ?? undefined : undefined}
-      className={`nodrag w-full rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 disabled:cursor-not-allowed ${
-        active ? "btn-running-breathe bg-[#3a3226] text-gold" : "bg-gold text-ink disabled:opacity-40"
+      className={`nodrag h-8 w-full rounded-md px-3 text-xs font-medium ${
+        active
+          ? "btn-running-breathe bg-[var(--gc-control)] text-[var(--gc-accent)]"
+          : "bg-[var(--gc-accent)] text-[var(--gc-primary-foreground)] hover:bg-[var(--gc-accent)]/80"
       }`}
     >
       {active ? STATUS_TEXT[status] : newGenerationBlocked ? "生成暂不可用" : label}
-    </button>
+    </Button>
   );
 }
 
-/** 方案 E「暗房显影」占位动画：节点运行期间展示在结果图片区 */
 export function Developing() {
   return (
     <div className="develop-overlay nodrag h-28 w-full">
@@ -165,4 +186,4 @@ export function Developing() {
 }
 
 export const inputClass =
-  "nodrag w-full rounded-md border border-[#262626] bg-[#0f0f0f] px-2 py-1.5 text-xs text-neutral-200 placeholder:text-neutral-600 focus:border-gold focus:outline-hidden";
+  "nodrag w-full rounded-md border border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-2 py-1.5 text-xs text-[var(--gc-node-text)] placeholder:text-[var(--gc-node-muted)] outline-none focus-visible:border-[var(--gc-node-accent)] focus-visible:ring-2 focus-visible:ring-[var(--gc-node-accent)]/40";

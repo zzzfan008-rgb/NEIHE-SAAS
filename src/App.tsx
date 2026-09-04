@@ -19,8 +19,8 @@ import {
 import { CanvasFlow } from "@/components/CanvasFlow";
 import { TopBar } from "@/components/panels/TopBar";
 import { ProjectTabs } from "@/components/panels/ProjectTabs";
-import { NodeLibraryPanel } from "@/components/panels/NodeLibraryPanel";
-import { ContextPanel } from "@/components/panels/ContextPanel";
+import { InspectorPanel } from "@/components/panels/InspectorPanel";
+import { ResultsPanel } from "@/components/panels/ResultsPanel";
 import { WorkbenchShell } from "@/components/workbench/WorkbenchShell";
 import { TaskLauncher } from "@/components/TaskLauncher";
 import { TutorialOverlay } from "@/components/tutorial/TutorialOverlay";
@@ -41,6 +41,9 @@ import {
   type AssetPickerRequest,
 } from "@/lib/overlayEvents";
 import { requestCanvasZoom } from "@/lib/keyboardShortcuts";
+import { OPEN_BUILTIN_TEMPLATE_EVENT } from "@/lib/canvasCreation";
+import { launchTemplateInNewTab } from "@/lib/templateLaunch";
+import type { WorkflowTemplate } from "@/types/workflow";
 
 const LazyCompareOverlay = lazy(() => import("@/components/CompareOverlay").then((module) => ({
   default: module.CompareOverlay,
@@ -218,6 +221,7 @@ function Workspace() {
   const clearCompare = useFlowStore((state) => state.clearCompare);
   const [compareOpen, setCompareOpen] = useState(false);
   const [assetPickerRequest, setAssetPickerRequest] = useState<AssetPickerRequest | null>(null);
+  const [toolLaunchError, setToolLaunchError] = useState<string | null>(null);
 
   useEffect(() => {
     const openCompare = () => setCompareOpen(true);
@@ -231,6 +235,27 @@ function Workspace() {
       window.removeEventListener(OPEN_COMPARE_EVENT, openCompare);
       window.removeEventListener(OPEN_ASSET_PICKER_EVENT, openAssetPicker);
     };
+  }, []);
+
+  useEffect(() => {
+    const openBuiltinTemplate = (event: Event) => {
+      const templateId = (event as CustomEvent<{ templateId?: string }>).detail?.templateId;
+      if (!templateId) return;
+      setToolLaunchError(null);
+      void fetch("/api/templates")
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`模板加载失败 HTTP ${response.status}`);
+          return await response.json() as WorkflowTemplate[];
+        })
+        .then((templates) => {
+          const template = templates.find((candidate) => candidate.id === templateId);
+          if (!template) throw new Error("未找到对应的内置工作流模板");
+          launchTemplateInNewTab(template, "upload");
+        })
+        .catch((error) => setToolLaunchError(error instanceof Error ? error.message : "工作流模板打开失败"));
+    };
+    window.addEventListener(OPEN_BUILTIN_TEMPLATE_EVENT, openBuiltinTemplate);
+    return () => window.removeEventListener(OPEN_BUILTIN_TEMPLATE_EVENT, openBuiltinTemplate);
   }, []);
 
   useEffect(() => {
@@ -358,6 +383,11 @@ function Workspace() {
       <TopBar />
       <ProjectTabs />
       <InitialDraftSyncNotice />
+      {toolLaunchError && (
+        <div role="alert" className="border-b border-[var(--gc-border)] bg-[var(--gc-panel)] px-3 py-1.5 text-center text-[10px] text-amber-500">
+          {toolLaunchError}
+        </div>
+      )}
       {initialHistoryState !== "ready" && (
         <div
           role={initialHistoryState === "error" ? "alert" : "status"}
@@ -380,13 +410,19 @@ function Workspace() {
         </div>
       )}
       <WorkbenchShell
-        library={<NodeLibraryPanel className="h-full w-full border-r-0" />}
         inspector={(
-          <ContextPanel
+          <InspectorPanel view="properties" className="h-full w-full border-0" />
+        )}
+        results={(
+          <div className="flex h-full min-h-0 flex-col">
+            <ResultsPanel
             hasMore={historyHasMore}
             loadingMore={historyLoading}
             onLoadMore={() => void loadMoreHistory()}
+              className="min-h-48 flex-1"
           />
+            <InspectorPanel view="result" className="max-h-[44%] min-h-48 w-full shrink-0 border-t border-[var(--gc-border)]" />
+          </div>
         )}
       >
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

@@ -32,15 +32,41 @@ const files = sourceFiles(workbenchRoot);
 assert.ok(files.length > 0, "缺少 src/components/workbench 外壳源码");
 
 let state: WorkbenchUiState = INITIAL_WORKBENCH_UI_STATE;
-assert.deepEqual(state, { activePanel: null });
+assert.deepEqual(state, {
+  hoveredToolGroupId: null,
+  openToolGroupId: null,
+  pinnedToolGroupId: null,
+  rightDockOpen: false,
+  resultsFlyoutOpen: false,
+  focusReturnGroupId: null,
+});
 
-state = workbenchUiReducer(state, { type: "toggle-panel", panel: "library" });
-assert.deepEqual(state, { activePanel: "library" });
-state = workbenchUiReducer(state, { type: "toggle-panel", panel: "inspector" });
-assert.deepEqual(state, { activePanel: "inspector" });
-state = workbenchUiReducer(state, { type: "toggle-panel", panel: "inspector" });
-assert.deepEqual(state, { activePanel: null });
-console.log("  ✓ 外壳 reducer 仅允许一个左侧 Dock 面板打开，并支持再次点击收起");
+state = workbenchUiReducer(state, { type: "hover-group", groupId: "add" });
+assert.equal(state.openToolGroupId, "add");
+assert.equal(state.hoveredToolGroupId, "add");
+state = workbenchUiReducer(state, { type: "leave-group", groupId: "add" });
+assert.equal(state.openToolGroupId, "add", "pointer leave 只排队关闭，reducer 不得立即闪退");
+state = workbenchUiReducer(state, { type: "close-hover", groupId: "add" });
+assert.equal(state.openToolGroupId, null);
+
+state = workbenchUiReducer(state, { type: "toggle-pin", groupId: "apparel" });
+assert.equal(state.pinnedToolGroupId, "apparel");
+assert.equal(state.openToolGroupId, "apparel");
+state = workbenchUiReducer(state, { type: "hover-group", groupId: "video" });
+assert.equal(state.openToolGroupId, "apparel", "固定窗口不能被快速悬停替换");
+state = workbenchUiReducer(state, { type: "escape" });
+assert.equal(state.openToolGroupId, null);
+assert.equal(state.pinnedToolGroupId, null);
+assert.equal(state.focusReturnGroupId, "apparel");
+state = workbenchUiReducer(state, { type: "consume-focus-return" });
+assert.equal(state.focusReturnGroupId, null);
+state = workbenchUiReducer(state, { type: "toggle-right-dock" });
+assert.equal(state.rightDockOpen, true);
+state = workbenchUiReducer(state, { type: "toggle-results-flyout" });
+assert.equal(state.resultsFlyoutOpen, true);
+state = workbenchUiReducer(state, { type: "close-results-flyout" });
+assert.equal(state.resultsFlyoutOpen, false);
+console.log("  ✓ 外壳 reducer 覆盖悬停延迟关闭、点击固定、Escape 与焦点恢复元数据");
 
 assert.equal(desktopShortcutPlatformFromValues("MacIntel"), "macos");
 assert.equal(desktopShortcutPlatformFromValues("Win32"), "windows");
@@ -72,10 +98,6 @@ const canvasZoomControlsSource = fs.readFileSync(
   path.resolve(testRoot, "../src/components/CanvasZoomControls.tsx"),
   "utf8",
 );
-const contextPanelSource = fs.readFileSync(
-  path.resolve(testRoot, "../src/components/panels/ContextPanel.tsx"),
-  "utf8",
-);
 const topBarSource = fs.readFileSync(
   path.resolve(testRoot, "../src/components/panels/TopBar.tsx"),
   "utf8",
@@ -91,6 +113,10 @@ const nodeFrameSource = fs.readFileSync(
 );
 const flowStoreSource = fs.readFileSync(path.resolve(testRoot, "../src/store/flowStore.ts"), "utf8");
 const runPlanRouteSource = fs.readFileSync(path.resolve(testRoot, "../server/routes/runPlan.ts"), "utf8");
+const popoverSource = fs.readFileSync(
+  path.resolve(testRoot, "../src/components/ui/popover.tsx"),
+  "utf8",
+);
 const nodeLibrarySource = fs.readFileSync(
   path.resolve(testRoot, "../src/components/panels/NodeLibraryPanel.tsx"),
   "utf8",
@@ -100,8 +126,14 @@ const workbenchShellRenderSource = shellSource.slice(shellSource.indexOf("export
 assert.match(combined, /@\/components\/ui\//, "新外壳必须复用已安装的 shadcn 基础组件");
 assert.match(combined, /aria-(?:label|labelledby|expanded|controls)/, "新外壳的交互入口必须提供可感知名称或状态");
 assert.match(combined, /transition-\[width,visibility\]/, "桌面 Dock 应通过占位宽度开合，避免遮挡画布控件与结果");
-assert.doesNotMatch(shellSource, /工作台右侧工具|border-l border-\[var\(--gc-border\)\]/, "工作台不得保留右侧工具栏或右侧 Dock");
-assert.match(shellSource, /absolute top-3 z-40/, "节点与上下文入口应为画布左侧悬浮按钮");
+assert.match(shellSource, /<ToolRail state=\{state\} dispatch=\{dispatch\}/, "左侧入口必须替换为五组 ToolRail");
+assert.doesNotMatch(shellSource, /LIBRARY_PANEL_ID|workbench-library-panel/, "旧节点库 Dock 不得继续出现在工作台外壳");
+assert.match(shellSource, /border-l border-\[var\(--gc-border\)\]/, "属性必须使用固定右侧 Dock");
+assert.match(shellSource, /RESULTS_FLYOUT_PANEL_ID[\s\S]*?absolute inset-y-0 left-0 z-\[60\]/, "结果与记录必须从最左侧覆盖展开");
+assert.match(shellSource, /absolute left-2 top-2 z-40/, "五组工具入口应为画布左侧悬浮工具栏");
+assert.match(popoverSource, /PopoverPrimitive\.Positioner/, "工具浮层必须使用具备碰撞定位能力的 Positioner");
+assert.match(popoverSource, /max-h-\(--available-height\)/, "工具浮层高度必须受可用视口边界约束");
+assert.match(popoverSource, /motion-reduce:animate-none/, "工具浮层必须尊重减少动态效果偏好");
 assert.match(canvasFlowSource, /new ResizeObserver/, "Dock 改变画布尺寸时必须监听容器几何变化");
 assert.match(
   canvasFlowSource,
@@ -109,11 +141,16 @@ assert.match(
   "Dock 开合必须维持画布中心对应的世界坐标",
 );
 assert.match(canvasFlowSource, /compactMinimap \? 128 : 200/, "窄画布必须缩小 MiniMap");
-assert.match(canvasFlowSource, /<CanvasZoomControls \/>/, "画布必须使用自定义横向缩放控制器");
+assert.match(canvasFlowSource, /minZoom=\{0\.2\}/, "React Flow 必须真实开放到 20% 缩放");
+assert.match(canvasFlowSource, /maxZoom=\{3\}/, "React Flow 必须真实开放到 300% 缩放");
+assert.match(canvasFlowSource, /<CanvasZoomControls minimapWidth=\{minimapWidth\} \/>/, "缩放控制器必须按 MiniMap 宽度动态避让");
 assert.doesNotMatch(canvasFlowSource, /<Controls\b/, "画布不得继续使用 React Flow 竖向 Controls");
 assert.match(canvasZoomControlsSource, /@\/components\/ui\/slider/, "缩放拖动条必须使用本地 shadcn Slider");
 assert.match(canvasZoomControlsSource, /flex-row/, "缩放控制器必须横向排列");
 assert.match(canvasZoomControlsSource, /zoomPercent/, "缩放控制器必须显示实时百分比");
+assert.match(canvasZoomControlsSource, /FIT_CANVAS_ZOOM = 0\.68/, "适应画布必须固定为 68%");
+assert.match(canvasZoomControlsSource, /step=\{1\}/, "缩放拖动条必须能精确回显 68% 等整数比例");
+assert.match(canvasZoomControlsSource, /MINIMAP_CONTROL_GAP = 28/, "缩放控制器与 MiniMap 必须保留约 28px 间距");
 assert.match(canvasZoomControlsSource, /CANVAS_ZOOM_COMMAND_EVENT/, "键盘缩放必须复用画布缩放控制器");
 assert.match(canvasFlowSource, /multiSelectionKeyCode=\{multiSelectionKeyCode\}/, "多选修饰键必须按桌面系统显式配置");
 assert.match(
@@ -139,49 +176,29 @@ assert.match(
 assert.match(topBarSource, /from "@\/components\/ui\/dropdown-menu"/, "快捷键浮层必须使用本地 shadcn DropdownMenu");
 assert.match(topBarSource, /DropdownMenuShortcut/, "快捷键标签必须使用 shadcn Shortcut 对齐槽位");
 assert.match(topBarSource, /w-56 min-w-56/, "快捷键浮层宽度必须收敛到 224px");
-assert.doesNotMatch(topBarSource, /ShortcutKey|pinned|openTimer|closeTimer/, "快捷键浮层不得保留手写键帽与悬停固定状态");
+assert.doesNotMatch(topBarSource, /ShortcutKey|pinned|openTimer/, "快捷键浮层不得保留手写键帽与点击固定状态");
+assert.match(topBarSource, /onPointerEnter=\{openMenu\}[\s\S]*?onPointerLeave=\{scheduleClose\}/, "快捷键浮层必须悬停打开并在移开后关闭");
 assert.match(appSource, /requestCanvasZoom\("in"\)/, "主修饰键加号必须缩放画布而不是浏览器页面");
 assert.match(appSource, /copySelectedNodesToClipboard\(\)/, "复制快捷键必须读取 canonical 多选节点");
 assert.match(appSource, /addExistingNodes\(additions\)/, "多节点粘贴必须通过原子批量 action 落入文档");
-assert.doesNotMatch(combined, /absolute inset-y-0 (?:left|right)-0/, "桌面业务面板不得覆盖画布控件与结果");
 assert.equal(
   (workbenchShellRenderSource.match(/\{children\}/g) ?? []).length,
   1,
   "中心画布子树必须只挂载一次，Dock 开合不得重建 React Flow",
 );
 assert.equal(
-  (workbenchShellRenderSource.match(/\{library\}/g) ?? []).length,
-  1,
-  "节点与素材 Dock 必须保持单实例挂载",
-);
-assert.equal(
   (workbenchShellRenderSource.match(/\{inspector\}/g) ?? []).length,
   1,
-  "属性与结果 Dock 必须保持单实例挂载",
+  "属性 Dock 必须保持单实例挂载",
 );
-assert.match(shellSource, /id=\{LIBRARY_PANEL_ID\}[\s\S]*?inert=\{!libraryOpen\}/);
-assert.match(shellSource, /id=\{INSPECTOR_PANEL_ID\}[\s\S]*?inert=\{!inspectorOpen\}/);
+assert.equal((workbenchShellRenderSource.match(/\{results\}/g) ?? []).length, 1, "结果与记录面板必须保持单实例挂载");
+assert.match(shellSource, /id=\{INSPECTOR_PANEL_ID\}[\s\S]*?inert=\{!state\.rightDockOpen\}/);
 assert.doesNotMatch(shellSource, /MobileSheet|useMediaQuery|DESKTOP_QUERY|mobilePanel/);
 assert.doesNotMatch(appSource, /workspaceKey=\{activeTabId\}/);
-assert.match(
-  contextPanelSource,
-  /from "@\/components\/ui\/tabs"/,
-  "属性与结果上下文必须复用本地 shadcn Tabs",
-);
-assert.equal(
-  (contextPanelSource.match(/<TabsContent[\s\S]*?keepMounted/g) ?? []).length,
-  2,
-  "属性与结果 Tab 都必须 keepMounted",
-);
-assert.match(appSource, /inspector=\{\([\s\S]*?<ContextPanel/);
-assert.doesNotMatch(
-  appSource,
-  /<ReactFlowProvider[\s\S]*?<ResultsPanel/,
-  "Results 不应再占用中心画布底部",
-);
-assert.doesNotMatch(nodeLibrarySource, /AssetList|素材库|\/api\/assets/, "左侧节点库不得继续包含素材库页签或素材请求");
-assert.match(nodeLibrarySource, /@\/components\/ui\/button/, "节点库操作必须使用本地 shadcn Button");
-assert.match(nodeLibrarySource, /@\/components\/ui\/card/, "节点库卡片必须使用本地 shadcn Card");
+assert.match(appSource, /inspector=\{\([\s\S]*?<InspectorPanel view="properties"/);
+assert.match(appSource, /results=\{\([\s\S]*?<ResultsPanel[\s\S]*?<InspectorPanel view="result"/);
+assert.doesNotMatch(appSource, /NodeLibraryPanel/, "旧节点库不得继续挂载；工具发现统一由 ToolRail 提供");
+assert.ok(nodeLibrarySource.length > 0, "旧节点库源码暂保留以支持回滚，但不得挂载");
 assert.match(appSource, /LazyAssetPickerOverlay/, "节点内的素材选择浮层必须继续保留");
 assert.doesNotMatch(nodeFrameSource, /onCancel|>\s*取消\s*</, "生成按钮不得再暴露取消入口");
 assert.doesNotMatch(flowStoreSource, /cancelNodeRun|\/api\/run-plan\/.*\/cancel/, "客户端不得保留任务取消模块");

@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import { ImagesIcon, UploadIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { selectActiveDocumentTarget, useFlowStore } from "@/store/flowStore";
 import type { ImageInputNodeData } from "@/types/workflow";
 import { thumbnailImageUrl } from "@/lib/images";
 import { OPEN_ASSET_PICKER_EVENT, type AssetPickerRequest } from "@/lib/overlayEvents";
-import { NodeFrame, inputClass } from "./NodeFrame";
+import { NodeFrame } from "./NodeFrame";
+import { MediaNodeActionToolbar } from "./NodeActionToolbar";
 
 interface NormalizedUploadResponse {
   id: string;
@@ -18,10 +21,17 @@ interface NormalizedUploadResponse {
 
 async function uploadFile(file: File): Promise<NormalizedUploadResponse> {
   const dataUrl = await readAsDataURL(file);
-  const res = await fetch("/api/files", {
+  const assetName = file.name.replace(/\.[^.]+$/, "").trim().slice(0, 180) || "上传图片";
+  const res = await fetch("/api/assets", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ dataUrl }),
+    body: JSON.stringify({
+      name: assetName,
+      category: "reference",
+      scope: "private",
+      image: dataUrl,
+      sourceNote: "来自图片上传节点",
+    }),
   });
   const data = await res.json().catch(() => ({})) as Partial<NormalizedUploadResponse> & { error?: string };
   if (!res.ok) throw new Error(data.error || `上传失败 HTTP ${res.status}`);
@@ -47,9 +57,11 @@ function readAsDataURL(file: File): Promise<string> {
 export function ImageFileInput({
   label,
   onFile,
+  className = "nodrag nopan absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0",
 }: {
   label: string;
   onFile: (file: File | undefined) => void;
+  className?: string;
 }) {
   return (
     <input
@@ -57,12 +69,52 @@ export function ImageFileInput({
       accept="image/*"
       multiple={false}
       aria-label={label}
-      className="nodrag nopan absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+      className={className}
       onChange={(event) => {
         onFile(event.target.files?.[0]);
         event.target.value = "";
       }}
     />
+  );
+}
+
+const IMAGE_NODE_LONG_EDGE = 280;
+
+export function fitImageNodeDimensions(width: number, height: number) {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return { width: IMAGE_NODE_LONG_EDGE, height: 180 };
+  }
+  const scale = IMAGE_NODE_LONG_EDGE / Math.max(width, height);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+function FilePickerButton({
+  label,
+  onFile,
+  compact = false,
+}: {
+  label: string;
+  onFile: (file: File | undefined) => void;
+  compact?: boolean;
+}) {
+  return (
+    <div className="nodrag nopan relative rounded-lg focus-within:ring-1 focus-within:ring-[var(--gc-node-accent)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--gc-node-main)]">
+      <Button
+        type="button"
+        variant="outline"
+        size={compact ? "xs" : "sm"}
+        tabIndex={-1}
+        aria-hidden="true"
+        className="border-[var(--gc-node-border)] bg-white text-[var(--gc-node-text)] hover:bg-neutral-100"
+      >
+        <UploadIcon aria-hidden="true" />
+        {label}
+      </Button>
+      <ImageFileInput label={label} onFile={onFile} />
+    </div>
   );
 }
 
@@ -72,6 +124,11 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
   const uploadRequestRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [imageDimensions, setImageDimensions] = useState<{
+    url: string;
+    width: number;
+    height: number;
+  } | null>(null);
 
   const openAssetPicker = useCallback(() => {
     const detail: AssetPickerRequest = {
@@ -90,6 +147,7 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
       try {
         const upload = await uploadFile(file);
         if (requestId !== uploadRequestRef.current) return;
+        setImageDimensions({ url: upload.url, width: upload.width, height: upload.height });
         updateNodeDataInTab(target, id, { imageUrl: upload.url, status: "success", error: undefined });
       } catch (err) {
         if (requestId !== uploadRequestRef.current) return;
@@ -121,21 +179,38 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
     return () => document.removeEventListener("paste", onPaste);
   }, [selected, handleFile]);
 
-  const fileInput = (
-    <ImageFileInput
-      label={data.imageUrl ? "重新上传图片" : "上传图片"}
-      onFile={(file) => void handleFile(file)}
-    />
-  );
+  const fittedImage = imageDimensions && imageDimensions.url === data.imageUrl
+    ? fitImageNodeDimensions(imageDimensions.width, imageDimensions.height)
+    : fitImageNodeDimensions(280, 180);
+  const imageNodeStyle = {
+    width: data.imageUrl ? fittedImage.width : IMAGE_NODE_LONG_EDGE,
+  } satisfies CSSProperties;
+
+  const dropHandlers = {
+    onDragOver: (event: React.DragEvent) => {
+      event.preventDefault();
+      setDragOver(true);
+    },
+    onDragLeave: () => setDragOver(false),
+    onDrop: (event: React.DragEvent) => {
+      event.preventDefault();
+      setDragOver(false);
+      void handleFile(event.dataTransfer.files?.[0]);
+    },
+  };
 
   return (
-    <>
-      <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
+    <div className="gc-image-node relative" style={imageNodeStyle}>
+      <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={<MediaNodeActionToolbar nodeId={id} />}>
         {data.imageUrl ? (
-          <div className="nodrag overflow-hidden rounded-md border border-[#262626]">
+          <div
+            {...dropHandlers}
+            className={`gc-image-input-media nodrag nopan relative overflow-hidden bg-white ${dragOver ? "gc-image-input-media--dragging" : ""}`}
+          >
             <button
               type="button"
-              className="block w-full cursor-zoom-in"
+              className="block w-full cursor-zoom-in overflow-hidden"
+              style={{ height: fittedImage.height }}
               title="单击查看大图"
               onClick={() => openViewer({ url: data.imageUrl!, title: data.label })}
             >
@@ -144,60 +219,61 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
                 loading="lazy"
                 decoding="async"
                 alt="已上传图片"
-                className="max-h-40 w-full object-contain bg-[#0f0f0f]"
+                className="block h-full w-full object-cover"
+                onLoad={(event) => {
+                  const image = event.currentTarget;
+                  setImageDimensions({
+                    url: data.imageUrl!,
+                    width: image.naturalWidth,
+                    height: image.naturalHeight,
+                  });
+                }}
               />
             </button>
+            {uploading && (
+              <div role="status" className="absolute inset-0 grid place-items-center bg-white/80 text-[10px] text-[var(--gc-node-muted)]">
+                素材处理中…
+              </div>
+            )}
           </div>
         ) : (
           <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              void handleFile(e.dataTransfer.files?.[0]);
-            }}
-            className={`nodrag nopan relative cursor-pointer rounded-md border border-dashed bg-[#0f0f0f] py-6 text-center text-[10px] leading-relaxed transition-colors focus-within:ring-1 focus-within:ring-gold/60 ${
+            {...dropHandlers}
+            className={`gc-image-input-empty nodrag nopan rounded-lg border border-dashed px-4 py-5 text-center transition-colors ${
               dragOver
-                ? "border-gold bg-gold/5 text-gold"
-                : "border-[#2a2a2a] text-neutral-500 hover:border-neutral-500"
+                ? "border-[var(--gc-node-accent)] bg-amber-50"
+                : "border-[var(--gc-node-border)] bg-white"
             }`}
           >
-            {fileInput}
-            <span className="pointer-events-none whitespace-pre-line">
-              {uploading ? "素材处理中…" : "每个上传节点仅支持 1 张图\n点击 / 拖拽 / 选中后 Ctrl+V"}
-            </span>
-          </div>
-        )}
-        {!data.imageUrl && (
-          <button
-            type="button"
-            onClick={openAssetPicker}
-            className="nodrag w-full rounded-md border border-[#262626] py-1 text-[10px] text-neutral-400 hover:border-gold/60 hover:text-gold"
-          >
-            从素材库选择
-          </button>
-        )}
-        {data.imageUrl && (
-          <div className="nodrag flex gap-1.5">
-            <div className="nodrag nopan relative flex-1 cursor-pointer rounded-md border border-[#262626] py-1 text-center text-[10px] text-neutral-400 hover:border-neutral-500 hover:text-neutral-200 focus-within:border-gold focus-within:ring-1 focus-within:ring-gold/60">
-              {fileInput}
-              <span className="pointer-events-none">重新上传</span>
+            <div className="flex items-center justify-center gap-2">
+              <FilePickerButton label={uploading ? "处理中…" : "本地上传"} onFile={(file) => void handleFile(file)} />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={openAssetPicker}
+                className="nodrag border-[var(--gc-node-border)] bg-white text-[var(--gc-node-text)] hover:bg-neutral-100"
+              >
+                <ImagesIcon aria-hidden="true" />
+                从素材库选择
+              </Button>
             </div>
-            <button
-              type="button"
-              onClick={openAssetPicker}
-              className="flex-1 rounded-md border border-[#262626] py-1 text-[10px] text-neutral-400 hover:border-gold/60 hover:text-gold"
-            >
-              素材库
-            </button>
+            <p className="mt-3 text-[9px] leading-4 text-[var(--gc-node-muted)]">
+              支持拖拽图片到节点，或选中节点后粘贴
+            </p>
           </div>
         )}
       </NodeFrame>
-      <Handle type="source" position={Position.Right} />
-    </>
+      {data.imageUrl && selected && (
+        <div className="gc-image-node-actions nodrag nopan absolute left-1/2 top-[calc(100%+8px)] z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] p-1 shadow-xl">
+          <FilePickerButton label="重新上传" compact onFile={(file) => void handleFile(file)} />
+          <Button type="button" variant="ghost" size="xs" onClick={openAssetPicker} className="text-[var(--gc-text-muted)] hover:text-[var(--gc-text)]">
+            <ImagesIcon aria-hidden="true" />
+            素材库
+          </Button>
+        </div>
+      )}
+      <Handle id="image" type="source" position={Position.Right} title="图片输出" />
+    </div>
   );
 }

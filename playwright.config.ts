@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
-  if (!value) throw new Error(`E2E safety check failed: missing ${name}; use npm run test:e2e`);
+  if (!value) throw new Error(`E2E safety check failed: missing ${name}; use pnpm run test:e2e`);
   return value;
 }
 
@@ -16,7 +16,7 @@ function loopbackUrl(name: string, expectedProtocol: "http:" | "https:" | "postg
 }
 
 if (process.env.E2E_ISOLATED_RUN !== "1") {
-  throw new Error("E2E safety check failed: use npm run test:e2e so data and AI calls stay isolated");
+  throw new Error("E2E safety check failed: use pnpm run test:e2e so data and AI calls stay isolated");
 }
 if (process.env.NODE_ENV !== "test" || process.env.COOKIE_SECURE !== "false") {
   throw new Error("E2E safety check failed: NODE_ENV=test and COOKIE_SECURE=false are required");
@@ -94,7 +94,7 @@ export default defineConfig({
     },
     {
       name: "desktop-1024",
-      testMatch: /workbench\.spec\.ts/,
+      testMatch: /(workbench|ui-audit)\.spec\.ts/,
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
@@ -104,7 +104,7 @@ export default defineConfig({
     },
     {
       name: "desktop-1280",
-      testMatch: /workbench\.spec\.ts/,
+      testMatch: /(workbench|ui-audit)\.spec\.ts/,
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
@@ -114,7 +114,7 @@ export default defineConfig({
     },
     {
       name: "desktop-1440",
-      testMatch: /workbench\.spec\.ts/,
+      testMatch: /(workbench|ui-audit)\.spec\.ts/,
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],

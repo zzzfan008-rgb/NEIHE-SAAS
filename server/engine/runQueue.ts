@@ -8,7 +8,7 @@ import { config } from "../config";
 import { db, query, queryOne, transaction } from "../lib/database";
 import {
   deleteStoredImage,
-  persistImageRefWithReceipt,
+  persistMediaRefWithReceipt,
   type PersistedImageReceipt,
 } from "../lib/fileStore";
 import type { GenerationRecordContext } from "../lib/generationRecords";
@@ -443,7 +443,7 @@ async function persistStepImages(
   const persisted: PersistedImageReceipt[] = [];
   try {
     for (const [index, image] of images.entries()) {
-      persisted.push(await persistImageRefWithReceipt(image, `${job.runId}:${job.stepId}:${index}`));
+      persisted.push(await persistMediaRefWithReceipt(image, `${job.runId}:${job.stepId}:${index}`));
     }
     return persisted;
   } catch (error) {

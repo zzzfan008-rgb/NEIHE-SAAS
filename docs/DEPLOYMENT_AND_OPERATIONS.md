@@ -73,11 +73,11 @@ curl --fail http://localhost:3001/api/ready
 适用于已经独立管理 PostgreSQL 18 的单机环境。要求 Node.js 22.20.0 或更高版本。
 
 ```bash
-npm ci
-npm run check
-npm run build
-npm ci --omit=dev
-NODE_ENV=production npm start
+pnpm install --frozen-lockfile
+pnpm run check
+pnpm run build
+pnpm install --prod --frozen-lockfile
+NODE_ENV=production pnpm start
 ```
 
 服务端会读取项目根目录的私有 `.env`。完整模式缺少 `dist/index.html` 时会直接退出；只有明确的 API 独立部署才设置 `API_ONLY=true`。
@@ -194,7 +194,7 @@ PostgreSQL 18 镜像挂载点为 `/var/lib/postgresql`，不能直接复用 17 �
 | --- | --- | --- |
 | `GET /api/health` 200 | Node 进程存活 | 仍需检查 `/api/ready` |
 | `dataDirWritable: false` | `DATA_DIR` 不可创建、写入或清理探针 | 检查目录、磁盘空间、所有者和挂载权限 |
-| `frontend: false` | 完整生产模式缺少 `dist/index.html` | 重新执行 `npm run build`；不要用 `API_ONLY` 掩盖完整部署错误 |
+| `frontend: false` | 完整生产模式缺少 `dist/index.html` | 重新执行 `pnpm run build`；不要用 `API_ONLY` 掩盖完整部署错误 |
 | `aiConfigured: false` | 密钥为空或网关 URL 不是 HTTPS | 检查私有 `.env`，不要输出密钥 |
 | `database: false` | PostgreSQL 不可达或迁移失败 | 检查 `docker compose logs postgres`、连接变量和磁盘 |
 | `usersConfigured: false` | 数据库没有用户且管理员初始化失败 | 检查初始管理员变量和密码规则 |
@@ -217,7 +217,7 @@ curl --fail http://localhost:3001/api/ready
 - 首次管理员必须改密；临时凭据完成初始化后从 `.env` 删除或轮换。
 - 每个账号只保留一个有效设备会话，会话最长 30 天；管理员操作使用独立账号并遵循最小权限。
 - AI 网关 URL 必须 HTTPS；生成、工作流入队和 AI 诊断探测共用按 IP 每分钟 100 次的限流，登录单独限制为每分钟 10 次。限流是单进程内存状态，多实例部署需额外的集中式限流。
-- 定期运行 `npm audit`、依赖更新审查、恢复演练和权限抽查；高危漏洞未处置时不得发布。
+- 定期运行 `pnpm audit`、依赖更新审查、恢复演练和权限抽查；高危漏洞未处置时不得发布。
 - 备份包含敏感业务数据，应加密存储、限制访问并设置保留/销毁策略。
 
 ## 11. 桌面验收矩阵

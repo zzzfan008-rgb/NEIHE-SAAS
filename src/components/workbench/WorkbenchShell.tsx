@@ -1,155 +1,142 @@
-import { useReducer, type ReactNode } from "react";
-import { LibraryBigIcon, SlidersHorizontalIcon } from "lucide-react";
+import { useEffect, useReducer, type ReactNode } from "react";
+import { HistoryIcon, PanelRightCloseIcon, PanelRightOpenIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  INITIAL_WORKBENCH_UI_STATE,
-  workbenchUiReducer,
-} from "./workbenchState";
+import { ToolRail } from "./ToolRail";
+import { ColorToolPanel } from "./ColorToolPanel";
+import { ConnectionRoleDialog } from "./ConnectionRoleDialog";
+import { INITIAL_WORKBENCH_UI_STATE, workbenchUiReducer } from "./workbenchState";
 
-const LIBRARY_PANEL_ID = "workbench-library-panel";
 const INSPECTOR_PANEL_ID = "workbench-inspector-panel";
+const RESULTS_FLYOUT_PANEL_ID = "workbench-results-flyout";
 
 interface WorkbenchShellProps {
-  library: ReactNode;
   inspector: ReactNode;
+  results: ReactNode;
   children: ReactNode;
 }
 
-interface RailButtonProps {
-  label: string;
-  controls: string;
-  active: boolean;
-  onClick: () => void;
-  icon: ReactNode;
-}
-
-function RailButton({ label, controls, active, onClick, icon }: RailButtonProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={(
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-lg"
-            aria-label={label}
-            aria-controls={controls}
-            aria-expanded={active}
-            aria-pressed={active}
-            onClick={onClick}
-            className={cn(
-              "text-[var(--gc-text-muted)] shadow-sm hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-text)]",
-              active && "bg-[var(--gc-panel-hover)] text-[var(--gc-accent)]",
-            )}
-          />
-        )}
-      >
-        {icon}
-      </TooltipTrigger>
-      <TooltipContent side="right">{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
 /**
- * 桌面工作台始终保持同一棵中心内容树。左侧浮动入口控制唯一占位 Dock，
- * 面板开合不覆盖画布，也不重建 React Flow、节点库或 Results 业务子树。
+ * Single-mounted canvas and context trees with a five-group floating tool rail.
+ * The retired node library has been replaced by the discoverable tool flyouts.
  */
-export function WorkbenchShell({ library, inspector, children }: WorkbenchShellProps) {
+export function WorkbenchShell({ inspector, results, children }: WorkbenchShellProps) {
   const [state, dispatch] = useReducer(workbenchUiReducer, INITIAL_WORKBENCH_UI_STATE);
-  const libraryOpen = state.activePanel === "library";
-  const inspectorOpen = state.activePanel === "inspector";
-  const panelOpen = state.activePanel !== null;
+
+  useEffect(() => {
+    if (!state.resultsFlyoutOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      dispatch({ type: "close-results-flyout" });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [state.resultsFlyoutOpen]);
 
   return (
     <TooltipProvider delay={250}>
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <nav
-          aria-label="工作台左侧工具"
+        <ConnectionRoleDialog />
+        <ColorToolPanel />
+        <Card
+          size="sm"
+          className="gc-panel absolute left-2 top-2 z-40 gap-0 rounded-xl bg-[var(--gc-panel)] p-0 shadow-lg ring-1 ring-[var(--gc-border)]"
+        >
+          <ToolRail state={state} dispatch={dispatch} />
+        </Card>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={(
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-lg"
+                aria-label="结果 / 记录"
+                aria-controls={RESULTS_FLYOUT_PANEL_ID}
+                aria-expanded={state.resultsFlyoutOpen}
+                onClick={() => {
+                  dispatch({ type: "escape" });
+                  dispatch({ type: "toggle-results-flyout" });
+                }}
+                className="gc-panel absolute bottom-2 left-2 z-40 bg-[var(--gc-panel)] text-[var(--gc-text-muted)] shadow-lg ring-1 ring-[var(--gc-border)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-accent)]"
+              >
+                <HistoryIcon aria-hidden="true" />
+              </Button>
+            )}
+          />
+          <TooltipContent side="right">结果 / 记录</TooltipContent>
+        </Tooltip>
+
+        <section
+          id={RESULTS_FLYOUT_PANEL_ID}
+          aria-label="结果 / 记录"
+          aria-hidden={!state.resultsFlyoutOpen}
+          inert={!state.resultsFlyoutOpen}
           className={cn(
-            "absolute top-3 z-40 flex flex-col items-start gap-2 transition-[left] duration-200 motion-reduce:transition-none",
-            panelOpen ? "left-[20.75rem]" : "left-3",
+            "gc-panel absolute inset-y-0 left-0 z-[60] flex w-[23rem] flex-col overflow-hidden border-r border-[var(--gc-border)] bg-[var(--gc-panel)] shadow-2xl transition-transform duration-200 motion-reduce:transition-none",
+            state.resultsFlyoutOpen ? "translate-x-0" : "-translate-x-full",
           )}
         >
-          <Card
-            size="sm"
-            className="gc-panel gap-0 rounded-xl bg-[var(--gc-panel)] p-1 py-1 shadow-lg ring-1 ring-[var(--gc-border)]"
-          >
-            <RailButton
-              label="节点库"
-              controls={LIBRARY_PANEL_ID}
-              active={libraryOpen}
-              onClick={() => dispatch({ type: "toggle-panel", panel: "library" })}
-              icon={<LibraryBigIcon aria-hidden="true" />}
-            />
-          </Card>
-
-          <Card
-            size="sm"
-            className="gc-panel gap-0 rounded-xl bg-[var(--gc-panel)] p-1 py-1 shadow-lg ring-1 ring-[var(--gc-border)]"
-          >
-            <RailButton
-              label="属性 / 结果"
-              controls={INSPECTOR_PANEL_ID}
-              active={inspectorOpen}
-              onClick={() => dispatch({ type: "toggle-panel", panel: "inspector" })}
-              icon={<SlidersHorizontalIcon aria-hidden="true" />}
-            />
-          </Card>
-        </nav>
-
-        <aside
-          aria-label="工作台左侧面板"
-          aria-hidden={!panelOpen}
-          inert={!panelOpen}
-          className={cn(
-            "gc-panel relative z-30 flex w-0 shrink-0 overflow-hidden bg-[var(--gc-panel)] transition-[width,visibility] duration-200 motion-reduce:transition-none",
-            panelOpen
-              ? "visible w-80 border-r border-[var(--gc-border)]"
-              : "invisible w-0 border-r-0",
-          )}
-        >
-          <div className="relative h-full min-h-0 w-80 shrink-0">
-            <section
-              id={LIBRARY_PANEL_ID}
-              aria-label="节点库"
-              aria-hidden={!libraryOpen}
-              inert={!libraryOpen}
-              className={cn(
-                "absolute inset-0 flex min-h-0 transition-[opacity,visibility] duration-150 motion-reduce:transition-none",
-                libraryOpen ? "visible opacity-100" : "invisible opacity-0",
-              )}
+          <div className="flex h-11 shrink-0 items-center border-b border-[var(--gc-border)] px-3">
+            <HistoryIcon aria-hidden="true" className="mr-2 size-4 text-[var(--gc-accent)]" />
+            <h2 className="text-xs font-semibold text-[var(--gc-text)]">结果 / 记录</h2>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="收起结果与记录"
+              onClick={() => dispatch({ type: "close-results-flyout" })}
+              className="ml-auto text-[var(--gc-text-muted)] hover:text-[var(--gc-text)]"
             >
-              {library}
-            </section>
-            <section
-              id={INSPECTOR_PANEL_ID}
-              aria-label="属性 / 结果"
-              aria-hidden={!inspectorOpen}
-              inert={!inspectorOpen}
-              className={cn(
-                "absolute inset-0 flex min-h-0 transition-[opacity,visibility] duration-150 motion-reduce:transition-none",
-                inspectorOpen ? "visible opacity-100" : "invisible opacity-0",
-              )}
-            >
-              {inspector}
-            </section>
+              <XIcon aria-hidden="true" />
+            </Button>
           </div>
-        </aside>
+          <div className="min-h-0 flex-1">{results}</div>
+        </section>
 
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            {children}
-          </div>
+          <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
         </div>
+
+        <aside
+          id={INSPECTOR_PANEL_ID}
+          aria-label="属性"
+          aria-hidden={!state.rightDockOpen}
+          inert={!state.rightDockOpen}
+          className={cn(
+            "gc-panel gc-context-dock relative z-30 flex shrink-0 overflow-hidden bg-[var(--gc-panel)] transition-[width,visibility] duration-200 motion-reduce:transition-none",
+            state.rightDockOpen
+              ? "visible w-80 border-l border-[var(--gc-border)]"
+              : "invisible w-0 border-l-0",
+          )}
+        >
+          <div className="gc-context-dock-content h-full min-h-0 w-full shrink-0">{inspector}</div>
+        </aside>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={(
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="属性"
+                aria-controls={INSPECTOR_PANEL_ID}
+                aria-expanded={state.rightDockOpen}
+                onClick={() => dispatch({ type: "toggle-right-dock" })}
+                className="gc-panel absolute right-2 top-2 z-40 bg-[var(--gc-panel)] text-[var(--gc-text-muted)] shadow-lg ring-1 ring-[var(--gc-border)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-text)]"
+              >
+                {state.rightDockOpen
+                  ? <PanelRightCloseIcon aria-hidden="true" />
+                  : <PanelRightOpenIcon aria-hidden="true" />}
+              </Button>
+            )}
+          />
+          <TooltipContent side="left">{state.rightDockOpen ? "收起属性" : "展开属性"}</TooltipContent>
+        </Tooltip>
       </div>
     </TooltipProvider>
   );

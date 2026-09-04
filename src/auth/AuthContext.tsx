@@ -14,6 +14,8 @@ import {
 import { suppressWorkspaceUnloadWarning } from "@/lib/workspaceUnload";
 import { suspendProjectTabSessionPersistence } from "@/lib/tabSessionStorage";
 import { didRestoreProjectTabSessionWorkspace } from "@/lib/workspaceRestoreState";
+import { browserDrawingDraftStore } from "@/lib/drawingDraftStore";
+import { useCustomColors } from "@/store/customColors";
 
 export interface CurrentUser {
   id: string;
@@ -60,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             broadcastAuthChange(window.localStorage, "auth-changed");
             setSessionEndReason("replaced");
             setUser(null);
+            useCustomColors.getState().bindOwner(null);
             // 整页重载会立即终止工作区和运行中的连接；不删除未保存草稿。
             suppressWorkspaceUnloadWarning();
             window.location.reload();
@@ -67,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             sessionEnded.current = true;
             authenticatedUserId.current = null;
             setUser(null);
+            useCustomColors.getState().bindOwner(null);
           }
         }
         return;
@@ -96,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         authenticatedUserId.current = body.user.id;
+        useCustomColors.getState().bindOwner(body.user.id);
         setUser(body.user);
       }
     } catch {
@@ -119,11 +124,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (!authChangeFromStorageEvent(event.key, event.newValue)) return;
+      const change = authChangeFromStorageEvent(event.key, event.newValue);
+      if (!change) return;
       // Cookie 在同源页签间共享：先使当前工作区进入终态，再立即重载并重新绑定 owner。
       refreshSequence.current += 1;
       sessionEnded.current = true;
       authenticatedUserId.current = null;
+      useCustomColors.getState().bindOwner(null);
+      if (change.type === "logout" && user?.id) {
+        void browserDrawingDraftStore().clearOwner(user.id).catch(() => undefined);
+      }
       clearSessionEndNotice(window.sessionStorage);
       setUser(null);
       setSessionEndReason(null);
@@ -133,13 +143,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [user?.id]);
 
   const logout = useCallback(async () => {
+    const ownerId = authenticatedUserId.current;
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    if (ownerId) await browserDrawingDraftStore().clearOwner(ownerId).catch(() => undefined);
     refreshSequence.current += 1;
     sessionEnded.current = true;
     authenticatedUserId.current = null;
+    useCustomColors.getState().bindOwner(null);
     clearSessionEndNotice(window.sessionStorage);
     broadcastAuthChange(window.localStorage, "logout");
     // 保留按账号绑定的本机草稿；下次登录不同账号时再安全清理。

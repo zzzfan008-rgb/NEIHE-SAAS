@@ -9,9 +9,21 @@ import { PrintMutateNode } from "./PrintMutateNode";
 import { ResultNode } from "./ResultNode";
 import { MaskRedrawNode } from "./MaskRedrawNode";
 import { VirtualTryOnNode } from "./VirtualTryOnNode";
+import { TextInputNode } from "./TextInputNode";
+import { VideoInputNode } from "./VideoInputNode";
+import { VideoGenerateNode } from "./VideoGenerateNode";
+import { StageApprovalNode } from "./StageApprovalNode";
+import { DrawingBoardNode } from "./DrawingBoardNode";
+import { ColorPaletteNode } from "./ColorPaletteNode";
 
 export const nodeTypes: NodeTypes = {
   "image-input": ImageInputNode,
+  "text-input": TextInputNode,
+  "video-input": VideoInputNode,
+  "video-generate": VideoGenerateNode,
+  "stage-approval": StageApprovalNode,
+  "drawing-board": DrawingBoardNode,
+  "color-palette": ColorPaletteNode,
   "sketch-to-render": SketchToRenderNode,
   "ai-modify": AiModifyNode,
   "fabric-recolor": FabricRecolorNode,
@@ -32,3 +44,7 @@ export { PrintExtractNode } from "./PrintExtractNode";
 export { ResultNode } from "./ResultNode";
 export { MaskRedrawNode } from "./MaskRedrawNode";
 export { VirtualTryOnNode } from "./VirtualTryOnNode";
+export { TextInputNode } from "./TextInputNode";
+export { StageApprovalNode } from "./StageApprovalNode";
+export { DrawingBoardNode } from "./DrawingBoardNode";
+export { ColorPaletteNode } from "./ColorPaletteNode";

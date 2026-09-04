@@ -26,7 +26,16 @@ import {
   type NodeRunStatus,
   type ImageInputNodeData,
   type PersistedWorkflow,
+  type WorkflowInputRole,
+  type ColorSwatch,
 } from "@/types/workflow";
+import type { ConnectionDraft } from "@/types/workbench";
+import {
+  compatibleUnusedInputRoles,
+  connectionCompatibilityError,
+  isStagedTryOnData,
+  STAGED_ROLE_LABELS,
+} from "@/lib/workflowPorts";
 import {
   DEFAULT_GENERATION_MODEL_ID,
   MASK_REDRAW_MODEL_ID,
@@ -50,6 +59,8 @@ import {
   type ProjectTabsStorageManifest,
 } from "@/lib/tabSessionStorage";
 import { waitForInitialDraftSyncBeforeFormalSave } from "@/initialDraft/initialDraftRuntime";
+import { layoutConnectedComponent } from "@/lib/graphLayout";
+import { normalizeColorSwatches } from "@/lib/colorPalette";
 
 export type FlowNode = Node<WorkflowNodeData>;
 export type ConnectedNodeDirection = "upstream" | "downstream";
@@ -147,6 +158,9 @@ export interface FlowState {
   tabSessionPersistenceError: string | null;
   /** 仅内存：打开的蒙版编辑器与尚未结束的蒙版上传总数。 */
   pendingMaskWorkCount: number;
+  /** 仅内存：分步节点拖线后、用户确认业务角色前的连接草稿。 */
+  pendingConnectionDraft: ConnectionDraft | null;
+  connectionDraftError: string | null;
 
   switchTab: (tabId: string) => void;
   closeTab: (tabId: string) => void;
@@ -162,6 +176,8 @@ export interface FlowState {
   setProjectName: (name: string) => void;
   setSelectedNodeIds: (ids: string[]) => void;
   setSelectedNodeId: (id: string | null) => void;
+  /** 只整理主选节点所在连通工作流；返回 null 表示成功，否则返回拒绝原因。 */
+  autoLayoutSelectedWorkflow: () => string | null;
   setSelectedResultId: (id: string | null) => void;
   toggleCompareId: (id: string) => void;
   clearCompare: () => void;
@@ -171,8 +187,10 @@ export interface FlowState {
   onNodesChange: (changes: NodeChange<FlowNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<Edge>[]) => void;
   onConnect: (conn: Connection) => void;
+  confirmPendingConnection: (targetHandle: WorkflowInputRole) => boolean;
+  cancelPendingConnection: () => void;
   isValidConnection: (conn: Connection | Edge) => boolean;
-  addNode: (kind: NodeKind, position: { x: number; y: number }) => string | null;
+  addNode: (kind: NodeKind, position: { x: number; y: number }, preset?: Record<string, unknown>) => string | null;
   /** 在选中节点的上游或下游原子新增节点并连线；一次撤销移除节点和边。 */
   addConnectedNode: (
     anchorId: string,
@@ -186,6 +204,14 @@ export interface FlowState {
   ) => string | null;
   /** 复制/粘贴等调用方已有完整节点时，仍通过此入口维护 revision/dirty。 */
   addExistingNode: (node: FlowNode) => void;
+  /** 画板会话完成时只提交一次项目历史；异步结果必须仍匹配原 DocumentTarget。 */
+  commitDrawingBoard: (
+    target: DocumentTarget,
+    nodeId: string,
+    refs: { contentRef: string; previewImageRef: string; exportImageRef?: string },
+  ) => boolean;
+  /** 将已提交画板预览导出为独立图片节点；画板自身保持可编辑。 */
+  exportDrawingBoardImageNode: (target: DocumentTarget, nodeId: string) => string | null;
   updateNodeData: (id: string, patch: Record<string, unknown>) => void;
   updateNodeDataInTab: (target: DocumentTarget, id: string, patch: Record<string, unknown>) => void;
   setNodeStatus: (id: string, status: NodeRunStatus, error?: string) => void;
@@ -940,6 +966,34 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
   switch (kind) {
     case "image-input":
       return { ...base, kind, imageRole: "default" };
+    case "text-input":
+      return { ...base, kind, text: "" };
+    case "drawing-board":
+      return { ...base, kind, boardVersion: 1, width: 1024, height: 1024, background: "#FFFFFF" };
+    case "color-palette":
+      return {
+        ...base,
+        kind,
+        paletteVersion: 1,
+        swatches: [{ id: "black", value: "#000000", source: "quick" }],
+      };
+    case "stage-approval":
+      return { ...base, kind, approvalKind: "scene-baseline" };
+    case "video-input":
+      return { ...base, kind };
+    case "video-generate":
+      return {
+        ...base,
+        kind,
+        mode: "text-to-video",
+        prompt: "",
+        videoModel: "veo-3.1",
+        quality: "fast",
+        aspectRatio: "16:9",
+        resolution: "720p",
+        seconds: 8,
+        outputImages: [],
+      };
     case "sketch-to-render":
       return {
         ...base, kind, prompt: "", aspectRatio: "3:4", batchSize: 1, outputImages: [],
@@ -954,7 +1008,7 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
       };
     case "fabric-recolor":
       return {
-        ...base, kind, colors: [], prompt: "", outputImages: [],
+        ...base, kind, operationMode: "combined", colors: [], prompt: "", outputImages: [],
         modelId: DEFAULT_GENERATION_MODEL_ID,
         modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID),
       };
@@ -978,7 +1032,7 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
       };
     case "virtual-try-on":
       return {
-        ...base, kind, workflowStage: "standard", prompt: "", imageSize: "2K", outputImages: [],
+        ...base, kind, workflowStage: "standard", prompt: "", imageSize: "2K", aspectRatio: "3:4", basisRevision: 0, outputImages: [],
         modelId: MASK_REDRAW_MODEL_ID, modelOptions: {},
       };
     case "mask-redraw":
@@ -991,10 +1045,38 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
   }
 }
 
+function defaultNodeDataWithPreset(kind: NodeKind, preset?: Record<string, unknown>): WorkflowNodeData {
+  const data = defaultNodeData(kind);
+  if (!preset) return data;
+  if (data.kind === "fabric-recolor" && (preset.operationMode === "fabric" || preset.operationMode === "color")) {
+    return { ...data, operationMode: preset.operationMode };
+  }
+  if (data.kind === "color-palette" && Array.isArray(preset.swatches)) {
+    try {
+      return {
+        ...data,
+        swatches: normalizeColorSwatches(preset.swatches as Array<{
+          id?: string; value: string; name?: string; source: ColorSwatch["source"];
+        }>),
+      };
+    } catch {
+      return data;
+    }
+  }
+  if ((data.kind === "ai-modify" || data.kind === "sketch-to-render") && typeof preset.prompt === "string") {
+    return { ...data, prompt: preset.prompt };
+  }
+  return data;
+}
+
 /** 从节点 data 中取它对外输出的图片 */
 function nodeOutputImages(data: WorkflowNodeData): string[] {
   if (data.kind === "image-input") return data.imageUrl ? [data.imageUrl] : [];
-  if (data.kind === "result") return [];
+  if (data.kind === "drawing-board") return data.previewImageRef ? [data.previewImageRef] : [];
+  if (data.kind === "stage-approval") return data.approvedBaselineRef ? [data.approvedBaselineRef] : [];
+  if (data.kind === "video-input") return data.videoUrl ? [data.videoUrl] : [];
+  if (data.kind === "result") return data.images ?? [];
+  if (data.kind === "text-input" || data.kind === "color-palette") return [];
   return data.outputImages ?? [];
 }
 
@@ -1027,8 +1109,23 @@ function virtualTryOnRunBlockReason(node: FlowNode, document: ProjectTab): strin
   const outfitError = requireSingle("outfit", "主穿搭图");
   if (outfitError) return outfitError;
   if (edgesFor("material").length > 1) return "面料参考图最多连接 1 张";
-  const baseline = imageFor("baseline");
-  if (!baseline || node.data.approvedBaselineRef !== baseline) return "请先检查并确认当前第一轮基准图";
+  const baselineEdge = edgesFor("baseline")[0];
+  const approval = baselineEdge ? document.nodes.find((candidate) => candidate.id === baselineEdge.source) : undefined;
+  const candidateEdge = approval?.data.kind === "stage-approval"
+    ? document.edges.find((edge) => edge.target === approval.id && edge.targetHandle === "baseline-candidate")
+    : undefined;
+  const candidate = candidateEdge ? document.nodes.find((source) => source.id === candidateEdge.source) : undefined;
+  const currentBaseline = candidate ? nodeOutputImages(candidate.data)[0] : undefined;
+  const currentBasis = candidate?.data.kind === "virtual-try-on" && candidate.data.workflowStage === "scene-stabilize"
+    ? candidate.data.basisRevision ?? 0
+    : undefined;
+  if (
+    approval?.data.kind !== "stage-approval"
+    || !currentBaseline
+    || approval.data.approvedSourceNodeId !== candidate?.id
+    || approval.data.approvedBaselineRef !== currentBaseline
+    || approval.data.approvedBasisRevision !== currentBasis
+  ) return "请先在独立确认节点检查并确认当前第一轮基准图";
   if (!node.data.garmentCategory) return "请选择服装品类";
   if (!node.data.materialSpec?.trim()) return "请填写面料或材料说明";
   if (!node.data.constructionSpec?.trim()) return "请填写针织、织造或加工工艺";
@@ -1256,24 +1353,52 @@ export function isDocumentConnectionValid(
   ) return false;
   const target = document.nodes.find((node) => node.id === connection.target);
   if (!target) return false;
+  const source = document.nodes.find((node) => node.id === connection.source);
+  if (!source) return false;
+  if (
+    source.data.kind === "drawing-board"
+    && (!source.data.contentRef || !source.data.previewImageRef)
+  ) return false;
   const spec = NODE_SPECS[target.data.kind];
   const incoming = document.edges.filter((edge) => edge.target === connection.target);
   if (incoming.length >= spec.inputs) return false;
-  if (target.data.kind === "virtual-try-on" && target.data.workflowStage !== "standard") {
-    const handle = connection.targetHandle ?? null;
-    const allowed = target.data.workflowStage === "scene-stabilize"
-      ? new Set(["person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet"])
-      : new Set(["baseline", "outfit", "material", "detail"]);
-    if (!handle || !allowed.has(handle)) return false;
-    const singleRoles = target.data.workflowStage === "scene-stabilize"
-      ? new Set(["person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet"])
-      : new Set(["baseline", "outfit", "material"]);
-    if (singleRoles.has(handle) && incoming.some((edge) => edge.targetHandle === handle)) return false;
+  if (isStagedTryOnData(target.data) && !connection.targetHandle) {
+    return compatibleUnusedInputRoles({
+      source,
+      target,
+      sourceHandle: connection.sourceHandle,
+      existingEdges: document.edges,
+    }).length > 0;
   }
-  return !incoming.some(
-    (edge) => edge.source === connection.source &&
-      (edge.targetHandle ?? null) === (connection.targetHandle ?? null),
-  );
+  return connectionCompatibilityError({
+    source,
+    target,
+    sourceHandle: connection.sourceHandle,
+    targetHandle: connection.targetHandle,
+    existingEdges: document.edges,
+  }) === undefined;
+}
+
+function incrementSceneBasis(nodes: FlowNode[], targetIds: ReadonlySet<string>): FlowNode[] {
+  if (targetIds.size === 0) return nodes;
+  return nodes.map((node) => node.data.kind === "virtual-try-on"
+    && node.data.workflowStage === "scene-stabilize"
+    && targetIds.has(node.id)
+    ? {
+        ...node,
+        data: {
+          ...node.data,
+          basisRevision: (node.data.basisRevision ?? 0) + 1,
+        },
+      }
+    : node);
+}
+
+function sceneBasisTargetsForSource(tab: Pick<ProjectTab, "nodes" | "edges">, sourceId: string): Set<string> {
+  const stageIds = new Set(tab.nodes.flatMap((node) => (
+    node.data.kind === "virtual-try-on" && node.data.workflowStage === "scene-stabilize" ? [node.id] : []
+  )));
+  return new Set(tab.edges.flatMap((edge) => edge.source === sourceId && stageIds.has(edge.target) ? [edge.target] : []));
 }
 
 function replaceTab(tabs: ProjectTab[], tab: ProjectTab): ProjectTab[] {
@@ -1671,8 +1796,12 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     label: typeof input.label === "string" && input.label.trim() ? input.label : defaults.label,
     status,
   };
+  for (const transientKey of [
+    "selectionRange", "editorSelection", "drawingRecoveryDraft", "recentColors",
+    "confirmPopoverOpen", "approvalDialogOpen", "displayState",
+  ]) delete data[transientKey];
   if (typeof input.error !== "string") delete data.error;
-  if (NODE_SPECS[kind].providerId) {
+  if (NODE_SPECS[kind].providerId && kind !== "video-generate") {
     const modelId = isImageModelId(input.modelId) && isModelAllowedForNode(input.modelId, kind)
       ? input.modelId
       : kind === "mask-redraw" || kind === "virtual-try-on"
@@ -1690,6 +1819,66 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
         : "default";
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
       break;
+    case "text-input":
+      data.text = typeof input.text === "string" ? input.text : "";
+      break;
+    case "drawing-board":
+      data.boardVersion = 1;
+      data.width = Number.isSafeInteger(input.width) && Number(input.width) >= 256 && Number(input.width) <= 4096
+        ? input.width : 1024;
+      data.height = Number.isSafeInteger(input.height) && Number(input.height) >= 256 && Number(input.height) <= 4096
+        ? input.height : 1024;
+      data.background = typeof input.background === "string" && input.background ? input.background : "#FFFFFF";
+      if (typeof input.contentRef !== "string") delete data.contentRef;
+      if (typeof input.previewImageRef !== "string") delete data.previewImageRef;
+      if (typeof input.exportImageRef !== "string") delete data.exportImageRef;
+      break;
+    case "color-palette": {
+      data.paletteVersion = 1;
+      const seen = new Set<string>();
+      data.swatches = Array.isArray(input.swatches)
+        ? input.swatches.flatMap((value) => {
+            if (!value || typeof value !== "object") return [];
+            const swatch = value as Record<string, unknown>;
+            if (typeof swatch.id !== "string" || typeof swatch.value !== "string") return [];
+            const color = swatch.value.toUpperCase();
+            if (!/^#[0-9A-F]{6}$/.test(color) || seen.has(color)) return [];
+            const source = ["quick", "custom", "recent", "favorite", "eyedropper"].includes(String(swatch.source))
+              ? swatch.source : "custom";
+            seen.add(color);
+            return [{ id: swatch.id, value: color, source, ...(typeof swatch.name === "string" ? { name: swatch.name } : {}) }];
+          }).slice(0, 32)
+        : defaults.swatches;
+      if ((data.swatches as unknown[]).length === 0) data.swatches = defaults.swatches;
+      break;
+    }
+    case "stage-approval":
+      data.approvalKind = "scene-baseline";
+      if (typeof input.approvedSourceNodeId !== "string") delete data.approvedSourceNodeId;
+      if (typeof input.approvedBaselineRef !== "string") delete data.approvedBaselineRef;
+      if (!Number.isSafeInteger(input.approvedBasisRevision) || Number(input.approvedBasisRevision) < 0) delete data.approvedBasisRevision;
+      if (typeof input.approvedAt !== "string") delete data.approvedAt;
+      break;
+    case "video-input":
+      if (typeof input.videoUrl !== "string") delete data.videoUrl;
+      if (input.mimeType === "video/mp4" || input.mimeType === "video/webm" || input.mimeType === "video/quicktime") {
+        data.mimeType = input.mimeType;
+      } else {
+        delete data.mimeType;
+      }
+      break;
+    case "video-generate":
+      data.mode = input.mode === "keyframes-to-video" || input.mode === "multi-image-video" || input.mode === "video-to-video"
+        ? input.mode : "text-to-video";
+      data.prompt = typeof input.prompt === "string" ? input.prompt : "";
+      data.videoModel = "veo-3.1";
+      data.quality = input.quality === "standard" ? "standard" : "fast";
+      data.aspectRatio = input.aspectRatio === "9:16" ? "9:16" : "16:9";
+      data.resolution = input.resolution === "1080p" || input.resolution === "4k" ? input.resolution : "720p";
+      data.seconds = input.seconds === 4 || input.seconds === 6 ? input.seconds : 8;
+      if (data.resolution !== "720p") data.seconds = 8;
+      data.outputImages = stringList(input.outputImages);
+      break;
     case "sketch-to-render":
     case "ai-modify":
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
@@ -1700,6 +1889,8 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       data.outputImages = stringList(input.outputImages);
       break;
     case "fabric-recolor":
+      data.operationMode = input.operationMode === "fabric" || input.operationMode === "color"
+        ? input.operationMode : "combined";
       data.colors = stringList(input.colors, 8).filter((color) => /^#[0-9a-fA-F]{6}$/.test(color));
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
       data.outputImages = stringList(input.outputImages);
@@ -1727,7 +1918,11 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
         : "standard";
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
       data.imageSize = input.imageSize === "4K" ? "4K" : "2K";
+      data.aspectRatio = typeof input.aspectRatio === "string" && ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"].includes(input.aspectRatio)
+        ? input.aspectRatio : "3:4";
       data.outputImages = stringList(input.outputImages);
+      data.basisRevision = Number.isSafeInteger(input.basisRevision) && Number(input.basisRevision) >= 0
+        ? input.basisRevision : 0;
       if (input.garmentCategory === "knit" || input.garmentCategory === "woven" || input.garmentCategory === "other") {
         data.garmentCategory = input.garmentCategory;
       } else {
@@ -1737,8 +1932,6 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       else delete data.materialSpec;
       if (typeof input.constructionSpec === "string") data.constructionSpec = input.constructionSpec;
       else delete data.constructionSpec;
-      if (typeof input.approvedBaselineRef === "string") data.approvedBaselineRef = input.approvedBaselineRef;
-      else delete data.approvedBaselineRef;
       if (data.workflowStage === "scene-stabilize") data.modelId = "gemini-3.1-flash-image-preview";
       if (data.workflowStage === "garment-refine") data.modelId = MASK_REDRAW_MODEL_ID;
       if (data.modelId === "gemini-3.1-flash-image-preview") {
@@ -2836,16 +3029,55 @@ function updateTabFromRunEvent(
 ): void {
   const commitsOutput = event.status === "success" && event.images.length > 0;
   const updateNodes = (nodes: FlowNode[]) => nodes.map((node) =>
-    node.id === nodeId ? { ...node, data: applyRunEventToNode(node.data, event) } : node,
+    node.id === nodeId
+      ? {
+          ...node,
+          data: (() => {
+            const updated = applyRunEventToNode(node.data, event);
+            return event.status === "success"
+              && node.data.kind === "virtual-try-on"
+              && node.data.workflowStage === "scene-stabilize"
+              ? { ...updated, basisRevision: (node.data.basisRevision ?? 0) + 1 }
+              : updated;
+          })(),
+        }
+      : node,
   );
   const currentState = useFlowStore.getState();
   // A tab container can be reused for another project. Reject its old run
   // before any durable branch can flush the replacement document's editor.
   if (!documentForTarget(currentState, target)) return;
-  if (commitsOutput && currentState.activeTabId === target.tabId) {
-    commitDocumentMutationWithSet(set, (tab) => (
-      matchesDocumentTarget(tab, target) ? { nodes: updateNodes(tab.nodes) } : {}
-    ));
+  if (commitsOutput) {
+    // 先把自动结果节点放入当前文档但不写撤销历史。随后单独提交生成
+    // 输出，使用户仍可撤销/重做生成内容，而结果节点本身不会被误删。
+    runWithoutHistory(() => {
+      patchDocumentTarget(set, target, (tab) => {
+        const generated = ensureGeneratedResultNode(
+          tab.nodes,
+          tab.edges,
+          nodeId,
+          event.images,
+        );
+        return {
+          nodes: generated.nodes,
+          edges: generated.edges,
+        };
+      });
+    });
+    // A system result may arrive while a drag transaction is still live. Keep
+    // that result outside undo history, but rebase the transaction snapshot so
+    // cancelling the drag cannot roll the generated output/result node back.
+    const transaction = activeHistoryTransaction;
+    if (transaction?.tabId === target.tabId) {
+      const updatedTab = documentForTab(useFlowStore.getState(), target.tabId);
+      if (updatedTab && matchesDocumentTarget(updatedTab, target)) {
+        transaction.before = rebaseDocumentOutsideTransaction(
+          temporalDocument(updatedTab),
+          transaction,
+        );
+      }
+    }
+    updateTabNodes(set, target, updateNodes, { markDirty: true });
     return;
   }
   const update = () => updateTabNodes(
@@ -2854,8 +3086,47 @@ function updateTabFromRunEvent(
     updateNodes,
     { markDirty: commitsOutput },
   );
-  if (commitsOutput) update();
-  else runWithoutHistory(update);
+  runWithoutHistory(update);
+}
+
+/**
+ * 每次成功生成均创建独立结果节点并连线。调用方必须包在 runWithoutHistory
+ * 中，使系统回写可保存但不会被“撤销”误删或恢复。
+ */
+export function ensureGeneratedResultNode(
+  nodes: FlowNode[],
+  edges: Edge[],
+  sourceNodeId: string,
+  media: string[],
+): { nodes: FlowNode[]; edges: Edge[]; resultNodeId: string } {
+  const source = nodes.find((node) => node.id === sourceNodeId);
+  if (!source || media.length === 0) return { nodes, edges, resultNodeId: "" };
+  const resultNodeId = `result-${nanoid(8)}`;
+  const siblingCount = edges.filter((edge) => edge.source === sourceNodeId && edge.target.startsWith("result-")).length;
+  const resultNode: FlowNode = {
+    id: resultNodeId,
+    type: "result",
+    position: {
+      x: source.position.x + 380,
+      y: source.position.y + siblingCount * 48,
+    },
+    data: {
+      ...defaultNodeData("result"),
+      label: `结果 ${siblingCount + 1}`,
+      status: "success",
+      images: [...media],
+    },
+  };
+  const sourceHandle = source.data.kind === "video-generate" ? "video" : "image";
+  const edge: Edge = {
+    id: `edge-${nanoid(10)}`,
+    source: sourceNodeId,
+    sourceHandle,
+    target: resultNodeId,
+    targetHandle: "references",
+    type: "pulse",
+  };
+  return { nodes: [...nodes, resultNode], edges: [...edges, edge], resultNodeId };
 }
 
 function applyActiveTemporalHistory(direction: "undo" | "redo"): void {
@@ -3027,6 +3298,8 @@ export const useFlowStore = create<FlowState>()(
         activeTabId: initialTab.id,
         tabSessionPersistenceError: null,
         pendingMaskWorkCount: 0,
+        pendingConnectionDraft: null,
+        connectionDraftError: null,
         // 服务端历史在登录成功后注入；不能从浏览器本地缓存恢复其他账号的记录。
         recentResults: [],
         viewer: null,
@@ -3044,6 +3317,8 @@ export const useFlowStore = create<FlowState>()(
         runWithoutHistory(() => set({
           activeTabId: target.id,
           viewer: null,
+          pendingConnectionDraft: null,
+          connectionDraftError: null,
         }));
         restoreTemporalHistory(target.id);
       },
@@ -3067,7 +3342,7 @@ export const useFlowStore = create<FlowState>()(
         if (remaining.length === 0) remaining.push(newTab());
         if (tabId !== state.activeTabId) {
           temporalHistoryByTab.delete(tabId);
-          set({ tabs: remaining });
+          set({ tabs: remaining, pendingConnectionDraft: null, connectionDraftError: null });
           return;
         }
         temporalHistoryByTab.delete(tabId);
@@ -3076,6 +3351,8 @@ export const useFlowStore = create<FlowState>()(
           tabs: remaining,
           activeTabId: target.id,
           viewer: null,
+          pendingConnectionDraft: null,
+          connectionDraftError: null,
         }));
         restoreTemporalHistory(target.id);
       },
@@ -3105,6 +3382,8 @@ export const useFlowStore = create<FlowState>()(
             tabs,
             activeTabId: existing.id,
             viewer: null,
+            pendingConnectionDraft: null,
+            connectionDraftError: null,
           }));
           if (switchesTab) restoreTemporalHistory(existing.id);
         } else {
@@ -3122,6 +3401,8 @@ export const useFlowStore = create<FlowState>()(
             tabs: [...state.tabs, tab],
             activeTabId: tab.id,
             viewer: null,
+            pendingConnectionDraft: null,
+            connectionDraftError: null,
           }));
           temporalHistoryByTab.delete(tab.id);
           restoreTemporalHistory(tab.id);
@@ -3137,6 +3418,8 @@ export const useFlowStore = create<FlowState>()(
           tabs: [...state.tabs, tab],
           activeTabId: tab.id,
           viewer: null,
+          pendingConnectionDraft: null,
+          connectionDraftError: null,
         }));
         temporalHistoryByTab.delete(tab.id);
         restoreTemporalHistory(tab.id);
@@ -3166,6 +3449,20 @@ export const useFlowStore = create<FlowState>()(
         });
       },
       setSelectedNodeId: (id) => get().setSelectedNodeIds(id ? [id] : []),
+      autoLayoutSelectedWorkflow: () => {
+        const tab = selectActiveDocument(get());
+        if (tab.readOnly) return "当前项目为只读状态";
+        const selectedNodeId = selectPrimarySelectedNodeId(tab);
+        if (!selectedNodeId) return "请先选择需要整理的工作流节点";
+        let nodes: FlowNode[];
+        try {
+          nodes = layoutConnectedComponent(selectedNodeId, tab.nodes, tab.edges);
+        } catch (error) {
+          return error instanceof Error ? error.message : "自动整理失败";
+        }
+        commitDocumentMutationWithSet(set, { nodes });
+        return null;
+      },
       setSelectedResultId: (id) => {
         const nextId = id && get().recentResults.some((record) => record.id === id) ? id : null;
         runWithoutHistory(() => {
@@ -3251,7 +3548,18 @@ export const useFlowStore = create<FlowState>()(
         const edges = applyEdgeChanges(allowed, tab.edges);
         if (edges === tab.edges) return;
         const changesDocument = allowed.some((change) => change.type !== "select");
-        if (changesDocument) commitDocumentMutationWithSet(set, { edges });
+        if (changesDocument) {
+          const changedStageIds = new Set<string>();
+          for (const edge of [...tab.edges, ...edges]) {
+            const target = tab.nodes.find((node) => node.id === edge.target);
+            if (target?.data.kind === "virtual-try-on" && target.data.workflowStage === "scene-stabilize") {
+              const before = tab.edges.some((candidate) => candidate.id === edge.id);
+              const after = edges.some((candidate) => candidate.id === edge.id);
+              if (before !== after) changedStageIds.add(edge.target);
+            }
+          }
+          commitDocumentMutationWithSet(set, { edges, nodes: incrementSceneBasis(tab.nodes, changedStageIds) });
+        }
         else runWithoutHistory(() => patchTab(set, tab.id, { edges }));
       },
 
@@ -3263,18 +3571,85 @@ export const useFlowStore = create<FlowState>()(
       onConnect: (conn) => {
         const tab = selectActiveDocument(get());
         if (tab.readOnly) return;
+        const targetNode = tab.nodes.find((node) => node.id === conn.target);
+        if (targetNode && isStagedTryOnData(targetNode.data) && conn.source && conn.target) {
+          const target = selectActiveDocumentTarget(get());
+          runWithoutHistory(() => set({
+            pendingConnectionDraft: {
+              target,
+              sourceNodeId: conn.source,
+              targetNodeId: conn.target,
+              sourceHandle: conn.sourceHandle ?? null,
+              proposedTargetHandle: (conn.targetHandle as WorkflowInputRole | null | undefined) ?? null,
+            },
+            connectionDraftError: null,
+          }));
+          return;
+        }
         if (!get().isValidConnection(conn)) return;
         commitDocumentMutationWithSet(set, { edges: addEdge(conn, tab.edges) });
       },
 
-      addNode: (kind, position) => {
+      confirmPendingConnection: (targetHandle) => {
+        const state = get();
+        const draft = state.pendingConnectionDraft;
+        if (!draft) return false;
+        const tab = documentForTarget(state, draft.target);
+        if (!tab || tab.readOnly) {
+          set({ pendingConnectionDraft: null, connectionDraftError: null });
+          return false;
+        }
+        const source = tab.nodes.find((node) => node.id === draft.sourceNodeId);
+        const target = tab.nodes.find((node) => node.id === draft.targetNodeId);
+        if (!source || !target || !isStagedTryOnData(target.data)) {
+          set({ connectionDraftError: "连接对象已变化，请重新拖线" });
+          return false;
+        }
+        if (draft.proposedTargetHandle && draft.proposedTargetHandle !== targetHandle) {
+          const proposed = STAGED_ROLE_LABELS[draft.proposedTargetHandle] ?? draft.proposedTargetHandle;
+          const selected = STAGED_ROLE_LABELS[targetHandle] ?? targetHandle;
+          set({ connectionDraftError: `该连线已指定为${proposed}，不能改为${selected}` });
+          return false;
+        }
+        const connection: Connection = {
+          source: draft.sourceNodeId,
+          target: draft.targetNodeId,
+          sourceHandle: draft.sourceHandle,
+          targetHandle,
+        };
+        const compatibilityError = connectionCompatibilityError({
+          source,
+          target,
+          sourceHandle: connection.sourceHandle,
+          targetHandle,
+          existingEdges: tab.edges,
+        });
+        if (compatibilityError) {
+          set({ connectionDraftError: compatibilityError });
+          return false;
+        }
+        const nextEdges = addEdge(connection, tab.edges);
+        commitDocumentMutationWithSet(set, {
+          edges: nextEdges,
+          nodes: incrementSceneBasis(tab.nodes, new Set([target.id])),
+        });
+        runWithoutHistory(() => set({ pendingConnectionDraft: null, connectionDraftError: null }));
+        return true;
+      },
+
+      cancelPendingConnection: () => runWithoutHistory(() => set({
+        pendingConnectionDraft: null,
+        connectionDraftError: null,
+      })),
+
+      addNode: (kind, position, preset) => {
         const tab = selectActiveDocument(get());
         if (tab.readOnly) return null;
         const node: FlowNode = {
           id: nanoid(8),
           type: kind,
           position,
-          data: defaultNodeData(kind),
+          data: defaultNodeDataWithPreset(kind, preset),
         };
         const selection = normalizeNodeSelection([...tab.nodes, node], [node.id]);
         commitDocumentMutationWithSet(set, { ...selection, selectedResultId: null });
@@ -3340,14 +3715,78 @@ export const useFlowStore = create<FlowState>()(
         commitDocumentMutationWithSet(set, { ...selection, selectedResultId: null });
       },
 
+      commitDrawingBoard: (target, nodeId, refs) => {
+        const state = get();
+        const tab = documentForTarget(state, target);
+        if (!tab || tab.readOnly || state.activeTabId !== target.tabId) return false;
+        const node = tab.nodes.find((candidate) => candidate.id === nodeId);
+        if (!node || node.data.kind !== "drawing-board") return false;
+        return commitDocumentMutationWithSet(set, (latest) => {
+          if (!matchesDocumentTarget(latest, target)) return {};
+          const nodes = latest.nodes.map((candidate) => candidate.id === nodeId && candidate.data.kind === "drawing-board"
+            ? {
+                ...candidate,
+                data: {
+                  ...candidate.data,
+                  ...refs,
+                  status: "success" as const,
+                  error: undefined,
+                },
+              }
+            : candidate);
+          return { nodes };
+        });
+      },
+
+      exportDrawingBoardImageNode: (target, nodeId) => {
+        const state = get();
+        const tab = documentForTarget(state, target);
+        if (!tab || tab.readOnly || state.activeTabId !== target.tabId) return null;
+        const board = tab.nodes.find((candidate) => candidate.id === nodeId);
+        if (!board || board.data.kind !== "drawing-board" || !board.data.previewImageRef || !board.data.contentRef) return null;
+        const id = nanoid(8);
+        const imageNode: FlowNode = {
+          id,
+          type: "image-input",
+          position: { x: board.position.x + 380, y: board.position.y },
+          data: {
+            ...defaultNodeData("image-input"),
+            label: `${board.data.label} 导出`,
+            status: "success",
+            imageUrl: board.data.previewImageRef,
+          } as ImageInputNodeData,
+        };
+        const nextBoard = {
+          ...board,
+          data: { ...board.data, exportImageRef: board.data.previewImageRef },
+        };
+        const nodes = [...tab.nodes.map((candidate) => candidate.id === nodeId ? nextBoard : candidate), imageNode];
+        const selection = normalizeNodeSelection(nodes, [id]);
+        const changed = commitDocumentMutationWithSet(set, { ...selection, selectedResultId: null });
+        return changed ? id : null;
+      },
+
       updateNodeData: (id, patch) => {
         const tab = selectActiveDocument(get());
         if (tab.readOnly) return;
         if (!tab.nodes.some((n) => n.id === id)) return;
+        const edited = tab.nodes.find((node) => node.id === id)!;
+        const basisKeys = new Set(["prompt", "imageSize", "modelId", "modelOptions", "outputImages"]);
+        const sourceOutputKeys = new Set(["imageUrl", "outputImages", "previewImageRef", "exportImageRef"]);
+        const stageTargets = new Set<string>();
+        if (
+          edited.data.kind === "virtual-try-on"
+          && edited.data.workflowStage === "scene-stabilize"
+          && Object.keys(patch).some((key) => basisKeys.has(key) && !Object.is(edited.data[key], patch[key]))
+        ) stageTargets.add(id);
+        if (Object.keys(patch).some((key) => sourceOutputKeys.has(key) && !Object.is(edited.data[key], patch[key]))) {
+          for (const targetId of sceneBasisTargetsForSource(tab, id)) stageTargets.add(targetId);
+        }
+        const patchedNodes = tab.nodes.map((n) =>
+          n.id === id ? { ...n, data: { ...n.data, ...patch } as WorkflowNodeData } : n,
+        );
         commitDocumentMutationWithSet(set, {
-          nodes: tab.nodes.map((n) =>
-            n.id === id ? { ...n, data: { ...n.data, ...patch } as WorkflowNodeData } : n,
-          ),
+          nodes: incrementSceneBasis(patchedNodes, stageTargets),
         });
       },
       updateNodeDataInTab: (target, id, patch) => {
@@ -3416,6 +3855,11 @@ export const useFlowStore = create<FlowState>()(
             ));
           });
           return;
+        }
+        if (node.data.kind === "virtual-try-on" && node.data.workflowStage === "scene-stabilize") {
+          commitDocumentMutationWithSet(set, {
+            nodes: incrementSceneBasis(initialDocument.nodes, new Set([node.id])),
+          });
         }
 
         const preparationKey = runPreparationKey(target, id);
@@ -3644,7 +4088,12 @@ export const useFlowStore = create<FlowState>()(
           draftSyncedRevision: undefined,
           draftCreatedAt: undefined,
         };
-        runWithoutHistory(() => set({ tabs: replaceTab(state.tabs, tab), viewer: null }));
+        runWithoutHistory(() => set({
+          tabs: replaceTab(state.tabs, tab),
+          viewer: null,
+          pendingConnectionDraft: null,
+          connectionDraftError: null,
+        }));
         // 清空撤销历史，避免撤销回上一个项目的画布状态
         temporalHistoryByTab.delete(state.activeTabId);
         useFlowStore.temporal.getState().clear();

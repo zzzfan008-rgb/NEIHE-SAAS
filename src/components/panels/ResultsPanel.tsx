@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { isNodeRunActive } from "@/types/workflow";
 import { STATUS_TEXT } from "@/components/nodes/NodeFrame";
 import { requestCanvasLanding } from "@/lib/canvasLanding";
+import { Button } from "@/components/ui/button";
 
 interface ResultsPanelProps {
   hasMore?: boolean;
@@ -28,7 +29,7 @@ export function ResultsPanel({
   // 生成历史是跨项目的全局记录；即使项目页签未恢复，也必须能在刷新后找回。
   const recentResults = useFlowStore((s) => s.recentResults);
   const selectedResultId = useFlowStore(selectActiveSelectedResultId);
-  const setSelectedResultId = useFlowStore((s) => s.setSelectedResultId);
+  const switchTab = useFlowStore((s) => s.switchTab);
   const compareIds = useFlowStore(selectActiveCompareIds);
   const toggleCompareId = useFlowStore((s) => s.toggleCompareId);
   const openViewer = useFlowStore((s) => s.openViewer);
@@ -37,10 +38,21 @@ export function ResultsPanel({
   );
   const resultCardClass = "aspect-square min-w-0 w-full";
   const resultActionClass =
-    "rounded-sm px-1 py-1 text-[10px] font-medium leading-none text-[var(--gc-media-overlay-text)] hover:bg-white/15 hover:text-white focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-gold disabled:cursor-not-allowed disabled:opacity-45";
+    "h-auto min-h-6 rounded-sm px-1 py-1 text-[10px] font-medium leading-none text-[var(--gc-media-overlay-text)] hover:bg-white/15 hover:text-white focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-[var(--gc-accent)] disabled:cursor-not-allowed disabled:opacity-45";
+  const isVideo = (ref: string) => /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(ref) || ref.startsWith("data:video/");
+
+  const selectResultRecord = (r: (typeof recentResults)[number]) => {
+    if (r.projectId) {
+      const state = useFlowStore.getState();
+      const targetTab = state.tabs.find((tab) => tab.projectId === r.projectId);
+      if (targetTab && targetTab.id !== state.activeTabId) switchTab(targetTab.id);
+    }
+    useFlowStore.getState().setSelectedResultId(r.id);
+  };
 
   const viewResult = (r: (typeof recentResults)[number]) => {
-    setSelectedResultId(r.id);
+    selectResultRecord(r);
+    if (isVideo(r.image)) return;
     openViewer({
       url: r.image,
       title: r.nodeLabel,
@@ -67,116 +79,137 @@ export function ResultsPanel({
   return (
     <section
       aria-label="最近生成"
-      className={cn("gc-panel flex min-h-0 flex-col bg-[#141414]", className)}
+      className={cn("gc-panel flex min-h-0 flex-col bg-[var(--gc-panel)]", className)}
     >
-      <div className="flex min-w-0 items-center gap-2 border-b border-[#262626] px-3 py-2">
-        <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-500">
+      <div className="flex min-w-0 items-center gap-2 border-b border-[var(--gc-border)] px-3 py-2">
+        <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--gc-text-muted)]">
           最近生成
         </span>
-        <span className="text-[10px] text-neutral-600">{recentResults.length} 条</span>
+        <span className="text-[10px] text-[var(--gc-text-muted)]">{recentResults.length} 条</span>
         <span className="ml-auto flex min-w-0 shrink-0 items-center gap-3">
           {compareIds.length >= 2 && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="xs"
               onClick={(e) => {
                 e.stopPropagation();
                 window.dispatchEvent(new CustomEvent(OPEN_COMPARE_EVENT));
               }}
-              className="rounded-sm border border-gold/60 bg-gold/10 px-2 py-0.5 text-[10px] font-medium text-gold transition-colors hover:bg-gold/20"
+              className="border-[var(--gc-accent)]/60 bg-[var(--gc-accent)]/10 text-[10px] font-medium text-[var(--gc-accent)] hover:bg-[var(--gc-accent)]/20"
             >
               对比 {compareIds.length} 张
-            </button>
+            </Button>
           )}
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {recentResults.length === 0 ? (
-            <p className="py-3 text-center text-[10px] text-neutral-600">
-              运行 AI 节点后，生成结果与运行记录会汇总在这里
-            </p>
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              {recentResults.map((r) =>
-                isNodeRunActive(r.status) ? (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setSelectedResultId(r.id)}
-                    className={`flex ${resultCardClass} flex-col items-center justify-center gap-2 rounded-md border bg-[#0f0f0f] px-1 ${
-                      selectedResultId === r.id
-                        ? "border-gold"
-                        : "border-[#3a3226] hover:border-gold/60"
-                    }`}
-                    title={STATUS_TEXT[r.status]}
-                  >
-                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-gold/30 border-t-gold" />
-                    <span className="text-[10px] text-gold">
-                      {STATUS_TEXT[r.status]}
-                    </span>
-                    <span className="w-full truncate text-center text-[9px] text-neutral-500">
-                      {r.nodeLabel}
-                    </span>
-                  </button>
-                ) : r.status !== "success" ? (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setSelectedResultId(r.id)}
-                    className={`flex ${resultCardClass} flex-col items-center justify-center gap-1 rounded-md border bg-[#0f0f0f] px-1 ${
-                      selectedResultId === r.id
-                        ? r.status === "cancelled" ? "border-neutral-500" : "border-red-400"
-                        : r.status === "cancelled"
-                          ? "border-neutral-700 hover:border-neutral-500"
-                          : "border-red-900/50 hover:border-red-400/60"
-                    }`}
-                    title={r.error ?? STATUS_TEXT[r.status]}
-                  >
-                    <span className={`text-[10px] ${r.status === "cancelled" ? "text-neutral-500" : "text-red-400"}`}>
-                      {STATUS_TEXT[r.status]}
-                    </span>
-                    <span className="w-full truncate text-center text-[9px] text-neutral-500">
-                      {r.nodeLabel}
-                    </span>
-                  </button>
-                ) : (
-                  <article
-                    key={r.id}
-                    className={`group relative ${resultCardClass} overflow-hidden rounded-md border bg-[#0f0f0f] ${
-                      compareIds.includes(r.id)
-                        ? "border-gold ring-2 ring-gold/70"
-                        : selectedResultId === r.id
-                          ? "border-gold ring-1 ring-gold"
-                          : "border-[#262626] hover:border-gold/60"
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        if (e.ctrlKey || e.metaKey) {
-                          toggleCompareId(r.id);
-                        } else {
-                          viewResult(r);
-                        }
-                      }}
-                      aria-label={`查看 ${r.nodeLabel}`}
-                      className="absolute inset-0 h-full w-full cursor-zoom-in focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold"
-                    >
-                      <img
-                        src={r.thumbnail ?? thumbnailImageUrl(r.image)}
-                        alt={r.nodeLabel}
-                        loading="lazy"
-                        decoding="async"
-                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
+        {recentResults.length === 0 ? (
+          <p className="mx-auto max-w-[18rem] py-5 text-center text-[10px] leading-5 text-[var(--gc-text-muted)]">
+            运行 AI 节点后，生成结果与运行记录会汇总在这里
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {recentResults.map((r) =>
+              isNodeRunActive(r.status) ? (
+                <Button
+                  key={r.id}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => selectResultRecord(r)}
+                  aria-label={`${STATUS_TEXT[r.status]}：${r.nodeLabel}`}
+                  className={`flex ${resultCardClass} flex-col items-center justify-center gap-2 rounded-md border bg-[var(--gc-control)] px-1 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--gc-accent)] ${
+                    selectedResultId === r.id
+                      ? "border-[var(--gc-accent)]"
+                      : "border-[var(--gc-border)] hover:border-[var(--gc-accent)]/60"
+                  }`}
+                  title={STATUS_TEXT[r.status]}
+                >
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--gc-accent)]/30 border-t-[var(--gc-accent)]" />
+                  <span className="text-[10px] text-[var(--gc-accent)]">
+                    {STATUS_TEXT[r.status]}
+                  </span>
+                  <span className="w-full truncate text-center text-[9px] text-[var(--gc-text-muted)]">
+                    {r.nodeLabel}
+                  </span>
+                </Button>
+              ) : r.status !== "success" ? (
+                <Button
+                  key={r.id}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => selectResultRecord(r)}
+                  aria-label={`${STATUS_TEXT[r.status]}：${r.nodeLabel}`}
+                  className={`flex ${resultCardClass} flex-col items-center justify-center gap-1 rounded-md border bg-[var(--gc-control)] px-1 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--gc-accent)] ${
+                    selectedResultId === r.id
+                      ? r.status === "cancelled" ? "border-[var(--gc-text-muted)]" : "border-red-400"
+                      : r.status === "cancelled"
+                        ? "border-[var(--gc-border)] hover:border-[var(--gc-text-muted)]"
+                        : "border-red-900/50 hover:border-red-400/60"
+                  }`}
+                  title={r.error ?? STATUS_TEXT[r.status]}
+                >
+                  <span className={`text-[10px] ${r.status === "cancelled" ? "text-[var(--gc-text-muted)]" : "text-red-400"}`}>
+                    {STATUS_TEXT[r.status]}
+                  </span>
+                  <span className="w-full truncate text-center text-[9px] text-[var(--gc-text-muted)]">
+                    {r.nodeLabel}
+                  </span>
+                </Button>
+              ) : (
+                <article
+                  key={r.id}
+                  className={`group relative ${resultCardClass} overflow-hidden rounded-md border bg-[var(--gc-control)] ${
+                    compareIds.includes(r.id)
+                      ? "border-[var(--gc-accent)] ring-2 ring-[var(--gc-accent)]/70"
+                      : selectedResultId === r.id
+                        ? "border-[var(--gc-accent)] ring-1 ring-[var(--gc-accent)]"
+                        : "border-[var(--gc-border)] hover:border-[var(--gc-accent)]/60"
+                  }`}
+                >
+                    {isVideo(r.image) ? (
+                      <video
+                        src={r.image}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        onClick={() => selectResultRecord(r)}
+                        aria-label={`播放 ${r.nodeLabel}`}
+                        className="absolute inset-0 h-full w-full object-cover"
                       />
-                    </button>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          if (e.ctrlKey || e.metaKey) toggleCompareId(r.id);
+                          else viewResult(r);
+                        }}
+                        aria-label={`查看 ${r.nodeLabel}`}
+                        className="absolute inset-0 h-full w-full cursor-zoom-in rounded-none p-0 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-[var(--gc-accent)]"
+                      >
+                        <img
+                          src={r.thumbnail ?? thumbnailImageUrl(r.image)}
+                          alt={r.nodeLabel}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                        />
+                      </Button>
+                    )}
                     {compareIds.includes(r.id) && (
-                      <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gold text-[9px] font-bold text-ink">
+                        <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--gc-accent)] text-[9px] font-bold text-[var(--gc-primary-foreground)]">
                         {compareIds.indexOf(r.id) + 1}
                       </span>
                     )}
-                    <div className="absolute inset-x-0 bottom-0 grid grid-cols-2 gap-1 bg-black/75 p-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                      <button
+                    <div className="absolute inset-x-0 bottom-0 grid grid-cols-2 gap-1 bg-[color-mix(in_srgb,var(--gc-shell)_82%,transparent)] p-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="xs"
                         onClick={(e) => {
                           e.stopPropagation();
                           viewResult(r);
@@ -186,9 +219,11 @@ export function ResultsPanel({
                         title="查看"
                       >
                         查看
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="xs"
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleCompareId(r.id);
@@ -199,19 +234,27 @@ export function ResultsPanel({
                         title={compareIds.includes(r.id) ? "取消对比" : "加入对比"}
                       >
                         {compareIds.includes(r.id) ? "取消" : "对比"}
-                      </button>
-                      <a
-                        href={r.image}
-                        download
-                        onClick={(e) => e.stopPropagation()}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        render={(
+                          <a
+                            href={r.image}
+                            download
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label={`下载 ${r.nodeLabel}`}
+                            title="下载"
+                          >
+                            下载
+                          </a>
+                        )}
                         className={resultActionClass}
-                        aria-label={`下载 ${r.nodeLabel}`}
-                        title="下载"
-                      >
-                        下载
-                      </a>
-                      <button
+                      />
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="xs"
                         onClick={(e) => {
                           e.stopPropagation();
                           continueWithResult(r);
@@ -222,23 +265,25 @@ export function ResultsPanel({
                         title={activeTabReadOnly ? "当前项目只读" : "设为输入"}
                       >
                         输入
-                      </button>
+                      </Button>
                     </div>
                   </article>
-                ),
-              )}
-              {hasMore && onLoadMore && (
-                <button
-                  type="button"
-                  onClick={onLoadMore}
-                  disabled={loadingMore}
-                  className={`${resultCardClass} rounded-md border border-dashed border-(--gc-border) text-[10px] text-(--gc-text-muted) hover:border-(--gc-accent) hover:text-(--gc-accent) disabled:opacity-50`}
-                >
-                  {loadingMore ? "加载中…" : "加载更多"}
-                </button>
-              )}
-            </div>
-          )}
+              ),
+            )}
+            {hasMore && onLoadMore && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onLoadMore}
+                disabled={loadingMore}
+                className={`${resultCardClass} rounded-md border-dashed border-[var(--gc-border)] bg-transparent text-[10px] text-[var(--gc-text-muted)] hover:border-[var(--gc-accent)] hover:text-[var(--gc-accent)]`}
+              >
+                {loadingMore ? "加载中…" : "加载更多"}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );

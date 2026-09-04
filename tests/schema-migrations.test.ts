@@ -33,6 +33,7 @@ assert.deepEqual(versions, [
   { version: 10, name: "generation_run_request_idempotency" },
   { version: 11, name: "versioned_tutorial_receipts" },
   { version: 12, name: "initial_draft_project_lifecycle" },
+  { version: 13, name: "drawing_document_versions" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
 
@@ -121,6 +122,38 @@ assert.match(initialDraftUniqueIndex?.indexdef ?? "", /owner_id/);
 assert.match(initialDraftUniqueIndex?.indexdef ?? "", /lifecycle = 'initial_draft'/);
 assert.match(initialDraftUniqueIndex?.indexdef ?? "", /deleted_at IS NULL/);
 console.log("  ✓ 项目生命周期、草稿 revision 与单用户唯一有效草稿约束已建立");
+
+const drawingTables = await query<{ table_name: string }>(`
+  SELECT table_name FROM information_schema.tables
+  WHERE table_schema = 'public'
+    AND table_name IN ('drawing_document_versions','drawing_board_idempotency')
+  ORDER BY table_name
+`);
+assert.deepEqual(drawingTables, [
+  { table_name: "drawing_board_idempotency" },
+  { table_name: "drawing_document_versions" },
+]);
+const drawingIndexes = await query<{ indexname: string; indexdef: string }>(`
+  SELECT indexname, indexdef FROM pg_indexes
+  WHERE schemaname = 'public' AND indexname IN (
+    'drawing_document_versions_owner_project_node_idx',
+    'drawing_board_idempotency_content_ref_unique'
+  ) ORDER BY indexname
+`);
+assert.deepEqual(drawingIndexes.map((row) => row.indexname), [
+  "drawing_board_idempotency_content_ref_unique",
+  "drawing_document_versions_owner_project_node_idx",
+]);
+const drawingConstraints = await query<{ conname: string; definition: string }>(`
+  SELECT conname, pg_get_constraintdef(oid) AS definition
+  FROM pg_constraint
+  WHERE conrelid IN ('drawing_document_versions'::regclass, 'drawing_board_idempotency'::regclass)
+  ORDER BY conname
+`);
+assert.ok(drawingConstraints.some((row) => row.conname === "drawing_document_versions_version_check" && /version = 1/.test(row.definition)));
+assert.ok(drawingConstraints.some((row) => row.conname === "drawing_document_versions_sha256_check" && /64/.test(row.definition)));
+assert.ok(drawingConstraints.some((row) => row.conname === "drawing_board_idempotency_pkey" && /owner_id, client_request_id/.test(row.definition)));
+console.log("  ✓ 画板不可变版本、幂等请求、索引和边界约束已建立");
 
 const queueTables = await query<{ table_name: string }>(`
   SELECT table_name FROM information_schema.tables

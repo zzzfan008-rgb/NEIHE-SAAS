@@ -167,7 +167,7 @@ export function TutorialOverlay() {
         </header>
 
         <div className="grid grid-cols-[168px_minmax(0,1fr)]">
-          <nav aria-label="教程进度" className="border-r border-[var(--gc-border)] bg-[var(--gc-panel-soft)] px-4 py-6">
+          <nav aria-label="教程进度" className="border-r border-[var(--gc-border)] bg-[var(--gc-control)] px-4 py-6">
             <ol className="space-y-2">
               {STEPS.map((item, index) => (
                 <li key={item.title}>
@@ -207,7 +207,7 @@ export function TutorialOverlay() {
               </div>
             ) : (
               <>
-                <div className="flex size-12 items-center justify-center rounded-xl border border-[var(--gc-border)] bg-[var(--gc-panel-soft)] text-[var(--gc-accent)]">
+                <div className="flex size-12 items-center justify-center rounded-xl border border-[var(--gc-border)] bg-[var(--gc-control)] text-[var(--gc-accent)]">
                   <StepIcon aria-hidden="true" className="size-6" />
                 </div>
                 <p className="mt-6 text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--gc-text-muted)]">
@@ -215,7 +215,7 @@ export function TutorialOverlay() {
                 </p>
                 <h2 className="mt-2 text-lg font-semibold text-[var(--gc-text)]">{current.title}</h2>
                 <p className="mt-3 text-sm leading-6 text-[var(--gc-text-muted)]">{current.description}</p>
-                <p className="mt-4 rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel-soft)] px-4 py-3 text-xs leading-5 text-[var(--gc-text-muted)]">
+                <p className="mt-4 rounded-lg border border-[var(--gc-border)] bg-[var(--gc-control)] px-4 py-3 text-xs leading-5 text-[var(--gc-text-muted)]">
                   {current.detail}
                 </p>
 

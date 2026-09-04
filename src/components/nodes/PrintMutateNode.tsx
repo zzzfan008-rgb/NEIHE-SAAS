@@ -19,7 +19,8 @@ export function PrintMutateNode({ id, data, selected }: NodeProps<Node<PrintMuta
 
   return (
     <>
-      <Handle type="target" position={Position.Left} />
+      <Handle id="references" type="target" position={Position.Left} title="参考图" style={{ top: "38%" }} />
+      <Handle id="prompt" type="target" position={Position.Left} title="提示词" style={{ top: "72%" }} />
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
         <label className="block space-y-1">
           <span className="text-[10px] text-neutral-500">裂变数量</span>
@@ -51,7 +52,7 @@ export function PrintMutateNode({ id, data, selected }: NodeProps<Node<PrintMuta
         {running && <Developing />}
         <ImageGrid images={data.outputImages} />
       </NodeFrame>
-      <Handle type="source" position={Position.Right} />
+      <Handle id="image" type="source" position={Position.Right} title="生成图片" />
     </>
   );
 }

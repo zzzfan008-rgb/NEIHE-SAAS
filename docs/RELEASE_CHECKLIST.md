@@ -12,14 +12,14 @@
 ## 2. 本地门禁
 
 ```bash
-npm ci
-npm audit
-npm run check
-npm run test:e2e
-npm run build
-npm run test:e2e:production
+pnpm install --frozen-lockfile
+pnpm audit
+pnpm run check
+pnpm run test:e2e
+pnpm run build
+pnpm run test:e2e:production
 git diff --check
-npm run gate:codex -- --base origin/main
+pnpm run gate:codex -- --base origin/main
 ```
 
 - [x] 所有测试使用隔离 PostgreSQL、临时 `DATA_DIR` 与 dummy/stub AI。
@@ -32,7 +32,7 @@ npm run gate:codex -- --base origin/main
 - [x] `detect_changes` 已记录：Phase G 候选为 low；后续 PR #19 累计变更为 high（66 个变更符号、11 条受影响流程），CanvasFlow 与初始草稿同步提示的定向影响均为 low，并由完整回归覆盖。
 - [x] 本机 Ollama `gemma4:e4b` 对 PR #19 精确 `c23f4174865dda827f969219e035f55c3038a2e8...c8d99866d06468868920b684e90da6e367e66995` 分三组复审，全部 `APPROVED`，无有效 P0–P3 阻断项。
 - [x] 不触发或等待 Codex Cloud；本机模型复审绑定精确 PR head SHA。
-- [x] 当前候选使用 Codex 配置的默认模型完成 `npm run gate:codex`，无 P0-P3 有效问题；未硬编码模型 ID。
+- [x] 当前候选使用 Codex 配置的默认模型完成 `pnpm run gate:codex`，无 P0-P3 有效问题；未硬编码模型 ID。
 
 ## 4. 桌面与恢复验收
 
@@ -43,9 +43,9 @@ npm run gate:codex -- --base origin/main
 - [x] 首次安装、管理员登录/改密、项目保存/恢复、活动任务恢复和失败处理已由隔离测试与恢复场景覆盖。
 - [x] PostgreSQL + `DATA_DIR` 同一恢复点的备份/恢复流程已在隔离环境验证。
 
-本地门禁记录（2026-08-30）：Phase G 的 `npm ci`、`npm audit`（0 漏洞）、`npm run check`、桌面 E2E 26/26、`npm run build`、production smoke 3/3 与 `git diff --check` 通过；恢复演练的一次性容器与临时目录均已清理。随后 PR #19 的完整 `npm run check`、桌面 E2E 29/29、生产构建与 `git diff --check` 再次通过；合并后 `main@bb89795` CI 复跑 29/29 桌面回归和 production smoke 3/3，全部成功。
+本地门禁记录（2026-08-30）：Phase G 的 `pnpm install --frozen-lockfile`、`pnpm audit`（0 漏洞）、`pnpm run check`、桌面 E2E 26/26、`pnpm run build`、production smoke 3/3 与 `git diff --check` 通过；恢复演练的一次性容器与临时目录均已清理。随后 PR #19 的完整 `pnpm run check`、桌面 E2E 29/29、生产构建与 `git diff --check` 再次通过；合并后 `main@bb89795` CI 复跑 29/29 桌面回归和 production smoke 3/3，全部成功。
 
-本地门禁记录（2026-09-01）：PR #22 精确 head `246a258bdad108c0c49853fb5804e811768c468a` 相对 base `d942885c57fcf97c5f18821ee94c7f3f720e6cac` 的完整门禁通过：Node.js 22.20.0、`npm ci`、`npm audit`（0 漏洞）、`npm run check`、桌面 E2E 30/30、production smoke 3/3、精确 `git diff --check`、GitNexus（8 个索引文件、64 个变更符号、0 条受影响流程、low risk）和 Codex 默认模型结构化复审均通过。合并后 `main@4701280af93cea8a62df6c2799ba5f1b425829ce` 再次完成同一确定性套件；第一次模型结果在人工中断边界返回 `pass`，随后 `--review-only` 补跑以退出码 0 返回 `pass`，无 P0-P3 findings。
+本地门禁记录（2026-09-01）：PR #22 精确 head `246a258bdad108c0c49853fb5804e811768c468a` 相对 base `d942885c57fcf97c5f18821ee94c7f3f720e6cac` 的完整门禁通过：Node.js 22.20.0、`pnpm install --frozen-lockfile`、`pnpm audit`（0 漏洞）、`pnpm run check`、桌面 E2E 30/30、production smoke 3/3、精确 `git diff --check`、GitNexus（8 个索引文件、64 个变更符号、0 条受影响流程、low risk）和 Codex 默认模型结构化复审均通过。合并后 `main@4701280af93cea8a62df6c2799ba5f1b425829ce` 再次完成同一确定性套件；第一次模型结果在人工中断边界返回 `pass`，随后 `--review-only` 补跑以退出码 0 返回 `pass`，无 P0-P3 findings。
 
 本机 `gemma4:e4b` 先对暂存候选完成预提交复审，再对精确 `3dc6a1dc8b54b4ee2596f5f484471328380edafc...fbdff19193bff4dbdbc8b33dc416bcea1aa451d4` 完成最终复审并返回 `APPROVE`；[精确 SHA 复审记录](https://github.com/zzzfan008-rgb/kittin-saas-b-v2/pull/17#issuecomment-5464184334)无有效 P0–P3。
 

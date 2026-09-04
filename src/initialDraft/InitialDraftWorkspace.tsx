@@ -172,7 +172,7 @@ function ConflictDialog({
             <p className="mt-2 text-xs leading-6 text-[var(--gc-text-muted)]">
               系统不会静默覆盖任何一份内容。保留本机会明确更新云端；使用云端时，当前本机内容会另存为“本机备份”页签。
             </p>
-            <p className="mt-3 rounded-md bg-[var(--gc-panel-soft)] px-3 py-2 text-[11px] text-[var(--gc-text-muted)]">
+            <p className="mt-3 rounded-md bg-[var(--gc-control)] px-3 py-2 text-[11px] text-[var(--gc-text-muted)]">
               云端项目：{conflict.server.name} · revision {conflict.server.revision}
             </p>
           </div>

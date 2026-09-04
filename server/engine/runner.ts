@@ -50,6 +50,7 @@ import {
   analyzeSceneReference,
   type SceneAnalyzer,
 } from "../lib/sceneAnalysis";
+import { generateApiYiVideo } from "../providers/apiyiVideo";
 
 export interface RunFailure {
   prompt?: string;
@@ -108,6 +109,23 @@ const DEFAULT_PROMPTS: Partial<Record<NodeExecution["kind"], string>> = {
   "fabric-recolor": "保持服装款式、细节、光影与背景不变，仅替换面料质感",
 };
 
+export function fabricRecolorPrompt(
+  operationMode: "combined" | "fabric" | "color",
+  color?: string,
+  extra = "",
+): string {
+  const preserve = "保持服装版型、结构细节、人物、姿势、构图、背景和光影不变";
+  const supplement = extra.trim() ? `。补充要求：${extra.trim()}` : "";
+  if (operationMode === "fabric") {
+    return `${preserve}；仅依据面料参考图替换服装覆盖区域的材质、纹理、织法、光泽和垂感，保留原有配色，不得复制参考图中的服装款式或背景${supplement}`;
+  }
+  if (!color) throw new Error("配色模式必须提供至少一个目标颜色");
+  if (operationMode === "color") {
+    return `${buildRecolorPrompt([color])}；保持原有面料纹理、织法、光泽和垂感，${preserve}${supplement}`;
+  }
+  return `${buildRecolorPrompt([color])}；同时依据面料参考图替换服装覆盖区域的材质、纹理、织法、光泽和垂感，${preserve}，不得复制参考图中的服装款式或背景${supplement}`;
+}
+
 const GEMINI_AUTO_ASPECT_RATIOS = [
   "1:1", "1:4", "4:1", "1:8", "8:1", "2:3", "3:2",
   "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
@@ -151,7 +169,10 @@ function stagedVirtualTryOnPrompt(
     const accessory = accessoryDescriptions
       ? `以下配饰参考的全局权重低于人物身份、场景描述和主穿搭，但在各自目标类别内必须精确执行；各类别互不借用特征。${accessoryDescriptions}`
       : "";
-    return `建立第一轮人物场景基准。${one("face-anchor")}是从人物身份图右下角提取的脸部锚点，是脸部恢复唯一正确来源，最高优先级锁定五官结构、脸型和可识别身份；发生任何脸部冲突时只服从该锚点。${one("person")}是完整人物身份图，是人物一致性的唯一来源，只控制同一人物的肤色、发型、体型和身体特征；其中原服装及非身份物体全部忽略，不得进入结果。${one("outfit")}是服装与搭配风格的唯一来源，只控制服装整体版型、上下装比例、层叠、穿着方式、颜色与风格；图内人物身份、背景及非服装物体全部删除、忽略。原始场景图没有发送给生图模型；以下内容是外部视觉模型过滤后的纯场景描述，只控制背景、光线、镜头、构图、人物位置、身体姿态、手部姿态、神态与视线，不具有身份、服装或物体外观控制权：${sceneDescription ?? "场景分析不可用"}。${accessory}冲突优先级为“脸部锚点 > 完整人物身份 > 场景文字 > 主穿搭 > 对应类别配饰”。本轮保证人物身份、动作神态、肢体、场景构图、服装大轮廓及已提供目标物稳定，不强求针目、蕾丝组织或缝线等微观细节。不得融合参考图中的无关人物、背景、陈列台、文字、Logo、水印、标记框或错误肢体。输出一张完整写实的第一轮基准图${extra ? `。补充要求：${extra}` : ""}`;
+    const detail = indexes("detail").length
+      ? `${many("detail")}仅低权重补充主穿搭图中可见的大型服装结构；不得改变主穿搭的整体搭配、颜色与风格，图内人物、背景、配饰及无关服装全部删除、忽略。`
+      : "";
+    return `建立第一轮人物场景基准。${one("face-anchor")}是从人物身份图右下角提取的脸部锚点，是脸部恢复唯一正确来源，最高优先级锁定五官结构、脸型和可识别身份；发生任何脸部冲突时只服从该锚点。${one("person")}是完整人物身份图，是人物一致性的唯一来源，只控制同一人物的肤色、发型、体型和身体特征；其中原服装及非身份物体全部忽略，不得进入结果。${one("outfit")}是服装与搭配风格的唯一来源，只控制服装整体版型、上下装比例、层叠、穿着方式、颜色与风格；图内人物身份、背景及非服装物体全部删除、忽略。原始场景图没有发送给生图模型；以下内容是外部视觉模型过滤后的纯场景描述，只控制背景、光线、镜头、构图、人物位置、身体姿态、手部姿态、神态与视线，不具有身份、服装或物体外观控制权：${sceneDescription ?? "场景分析不可用"}。${accessory}${detail}冲突优先级为“脸部锚点 > 完整人物身份 > 场景文字 > 主穿搭 > 对应类别配饰与局部结构”。本轮保证人物身份、动作神态、肢体、场景构图、服装大轮廓及已提供目标物稳定，不强求针目、蕾丝组织或缝线等微观细节。不得融合参考图中的无关人物、背景、陈列台、文字、Logo、水印、标记框或错误肢体。输出一张完整写实的第一轮基准图${extra ? `。补充要求：${extra}` : ""}`;
   }
 
   const category = params.garmentCategory === "knit" ? "针织"
@@ -168,7 +189,7 @@ function stagedVirtualTryOnPrompt(
 }
 
 const SCENE_STABILIZE_REFERENCE_ORDER = [
-  "person", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet",
+  "person", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet", "detail",
 ] as const;
 
 interface SceneStabilizePreparation {
@@ -268,6 +289,7 @@ async function virtualTryOnModelOptions(
   imageSize: "2K" | "4K",
   modelReference: string,
   stage: unknown,
+  requestedAspectRatio: unknown,
 ): Promise<ImageModelOptions> {
   const metadata = await sharp(parseDataUrl(modelReference).buffer, {
     animated: false,
@@ -278,12 +300,17 @@ async function virtualTryOnModelOptions(
   const swapsAxes = metadata.orientation !== undefined && metadata.orientation >= 5 && metadata.orientation <= 8;
   const width = swapsAxes ? metadata.height : metadata.width;
   const height = swapsAxes ? metadata.width : metadata.height;
+  const requested = typeof requestedAspectRatio === "string" && /^(1:1|4:5|3:4|2:3|9:16|16:9)$/.test(requestedAspectRatio)
+    ? requestedAspectRatio
+    : undefined;
+  const [requestedWidth, requestedHeight] = requested?.split(":").map(Number) ?? [width, height];
+  const useRequestedRatio = stage === "standard" && requested !== undefined;
   return modelId === "gpt-image-2"
     ? {
-        size: gptOutputSize(width, height, imageSize),
+        size: gptOutputSize(useRequestedRatio ? requestedWidth : width, useRequestedRatio ? requestedHeight : height, imageSize),
         ...(stage === "garment-refine" ? { quality: "medium" as const } : {}),
       }
-    : { aspectRatio: nearestAspectRatio(width, height), imageSize };
+    : { aspectRatio: useRequestedRatio ? requested : nearestAspectRatio(width, height), imageSize };
 }
 
 function maskReferenceRolePrompt(userReferenceCount: number): string {
@@ -311,7 +338,7 @@ function stagedVirtualTryOnRuntimeError(
     : `${label}必须且只能提供 1 张图片`;
   if (referenceRoles.length !== inputImages.length) return "分步换装参考图角色信息不完整";
   if (stage === "scene-stabilize") {
-    const allowedRoles = new Set(["person", "scene", "outfit", ...SCENE_STABILIZE_REFERENCE_ORDER.slice(2)]);
+    const allowedRoles = new Set(["person", "scene", "outfit", ...SCENE_STABILIZE_REFERENCE_ORDER.slice(2), "detail"]);
     const unsupportedRole = referenceRoles.find((role) => !allowedRoles.has(role));
     if (unsupportedRole !== undefined) return `第一轮不支持输入角色：${unsupportedRole || "未命名"}`;
     const requiredError = requireOne("person", "人物身份图")
@@ -324,6 +351,7 @@ function stagedVirtualTryOnRuntimeError(
     ] as const) {
       if (imagesFor(role).length > 1) return `${label}参考图最多 1 张`;
     }
+    if (imagesFor("detail").length > 5) return "服装局部结构参考图最多 5 张";
     return undefined;
   }
   const allowedRoles = new Set(["baseline", "outfit", "material", "detail"]);
@@ -607,9 +635,37 @@ export async function executeStep(
       const imageUrl = step.params.imageUrl as string | undefined;
       return { images: imageUrl ? [imageUrl] : [], providerRequests: 0 };
     }
+    case "video-input": {
+      const videoUrl = step.params.videoUrl as string | undefined;
+      return { images: videoUrl ? [videoUrl] : [], providerRequests: 0 };
+    }
+    case "text-input":
+    case "color-palette":
+      return { images: [], providerRequests: 0 };
+    case "drawing-board": {
+      const previewImageRef = step.params.previewImageRef as string | undefined;
+      return { images: previewImageRef ? [previewImageRef] : [], providerRequests: 0 };
+    }
+    case "stage-approval": {
+      const approvedBaselineRef = step.params.approvedBaselineRef as string | undefined;
+      return { images: approvedBaselineRef ? [approvedBaselineRef] : [], providerRequests: 0 };
+    }
     case "result": {
       // 结果节点：汇总上游本次运行的真实产出
       return { images: inputImages, providerRequests: 0 };
+    }
+    case "video-generate": {
+      const result = await generateApiYiVideo({
+        mode: step.params.mode as never,
+        prompt: String(step.params.prompt ?? ""),
+        quality: step.params.quality === "standard" ? "standard" : "fast",
+        aspectRatio: step.params.aspectRatio === "9:16" ? "9:16" : "16:9",
+        resolution: step.params.resolution === "1080p" || step.params.resolution === "4k" ? step.params.resolution : "720p",
+        seconds: step.params.seconds === 4 || step.params.seconds === 6 ? step.params.seconds : 8,
+        references: inputImages,
+        beforeProviderCall: options.beforeProviderCall,
+      });
+      return { images: [result.video], model: result.model, providerRequests: result.providerRequests, prompts: [String(step.params.prompt ?? "")] };
     }
     case "sketch-to-render":
     case "ai-modify":
@@ -678,10 +734,16 @@ export async function executeStep(
 
       // 配色替换：每个颜色独立调用，保证一色一图；部分失败也保留成功结果。
       if (step.kind === "fabric-recolor") {
+        const operationMode = step.params.operationMode === "fabric" || step.params.operationMode === "color"
+          ? step.params.operationMode
+          : "combined";
         const colors = Array.isArray(step.params.colors)
           ? step.params.colors.filter((value): value is string => typeof value === "string")
           : [];
-        if (colors.length > 0) {
+        if (operationMode !== "fabric" && colors.length === 0) {
+          throw new Error("配色替换必须选择颜色或连接色板");
+        }
+        if (operationMode !== "fabric" && colors.length > 0) {
           const images: string[] = [];
           const prompts: string[] = [];
           const providerOutputSizes: Array<string | null> = [];
@@ -690,7 +752,7 @@ export async function executeStep(
           let providerRequests = 0;
           let firstError: unknown;
           for (const color of colors) {
-            const prompt = buildRecolorPrompt([color]);
+            const prompt = fabricRecolorPrompt(operationMode, color, extra);
             try {
               const result = await generateExactImages(
                 provider,
@@ -766,6 +828,8 @@ export async function executeStep(
       const prompt =
         step.kind === "upscale"
           ? "将这张服装效果图放大为超高清版本，增强面料纹理、走线与边缘细节，保持原有构图、色彩和光影完全不变"
+          : step.kind === "fabric-recolor"
+            ? fabricRecolorPrompt("fabric", undefined, extra)
           : step.kind === "print-extract"
             ? "提取这件衣服上的印花图案：将印花完整抠出并平铺展开为规整的矩形图案，纯白背景，去除衣身、褶皱、阴影和穿着效果，印花的比例、细节和色彩与原图保持一致，适合作为印花素材复用" +
               (extra ? `。补充要求：${extra}` : "")
@@ -803,6 +867,7 @@ export async function executeStep(
             step.params.imageSize === "4K" ? "4K" : "2K",
             virtualTryOnAspectReference,
             step.params.workflowStage,
+            step.params.aspectRatio,
           )
         : modelOptions;
       const request = {

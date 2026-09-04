@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import { selectActiveEdges, useFlowStore } from "@/store/flowStore";
+import { selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
 import { useCustomColors } from "@/store/customColors";
-import { isNodeRunActive, type FabricRecolorNodeData } from "@/types/workflow";
+import { isNodeRunActive, type ColorPaletteNodeData, type FabricRecolorNodeData } from "@/types/workflow";
 import { NodeFrame, RunButton, Developing } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { ModelControls } from "./ModelControls";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   COLOR_CATEGORIES,
   buildRecolorPrompt,
@@ -24,12 +26,20 @@ export function FabricRecolorNode({
 }: NodeProps<Node<FabricRecolorNodeData>>) {
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
   const runNode = useFlowStore((s) => s.runNode);
-  const hasFabricInput = useFlowStore((state) =>
-    selectActiveEdges(state).some((edge) => edge.target === id && edge.targetHandle === "fabric"),
-  );
+  const hasFabricInput = useFlowStore((state) => {
+    const inputs = selectActiveEdges(state).filter((edge) => edge.target === id);
+    return inputs.some((edge) => edge.targetHandle === "fabric")
+      || inputs.filter((edge) => edge.targetHandle === "references").length >= 2;
+  });
+  const paletteNode = useFlowStore((state): Node<ColorPaletteNodeData> | undefined => {
+    const edge = selectActiveEdges(state).find((candidate) => candidate.target === id && candidate.targetHandle === "palette");
+    const source = edge ? selectActiveNodes(state).find((candidate) => candidate.id === edge.source) : undefined;
+    return source?.data.kind === "color-palette" ? source as Node<ColorPaletteNodeData> : undefined;
+  });
   const running = isNodeRunActive(data.status);
 
-  const colors = data.colors ?? [];
+  const localColors = data.colors ?? [];
+  const colors = paletteNode ? paletteNode.data.swatches.map((swatch) => swatch.value) : localColors;
   const [hexInput, setHexInput] = useState("");
   const [categoryId, setCategoryId] = useState(COLOR_CATEGORIES[0].id);
 
@@ -58,10 +68,11 @@ export function FabricRecolorNode({
   };
 
   const toggleColor = (hex: string) => {
-    if (colors.includes(hex)) {
-      applyColors(colors.filter((c) => c !== hex));
-    } else if (colors.length < MAX_COLORS) {
-      applyColors([...colors, hex]);
+    if (paletteNode) return;
+    if (localColors.includes(hex)) {
+      applyColors(localColors.filter((c) => c !== hex));
+    } else if (localColors.length < MAX_COLORS) {
+      applyColors([...localColors, hex]);
     }
   };
 
@@ -69,8 +80,8 @@ export function FabricRecolorNode({
     if (!isValidHex(hexInput)) return;
     const hex = normalizeHex(hexInput);
     addCustomColor(hex); // 保存到自定义色分类（localStorage 持久化）
-    if (!colors.includes(hex) && colors.length < MAX_COLORS) {
-      applyColors([...colors, hex]);
+    if (!paletteNode && !localColors.includes(hex) && localColors.length < MAX_COLORS) {
+      applyColors([...localColors, hex]);
     }
     setHexInput("");
   };
@@ -80,24 +91,47 @@ export function FabricRecolorNode({
       <Handle
         type="target"
         position={Position.Left}
-        id="garment"
-        style={{ top: "32%" }}
-        title="款式图输入"
+        id="references"
+        style={{ top: "38%" }}
+        title="主服装图与面料参考图（按连线顺序）"
       />
       <Handle
         type="target"
         position={Position.Left}
-        id="fabric"
-        style={{ top: "68%" }}
-        title="面料图输入"
+        id="palette"
+        style={{ top: "76%" }}
+        title="目标色板输入"
       />
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
         <div className="rounded-md border border-[#262626] bg-[#0f0f0f] px-2 py-1.5 text-[10px] leading-relaxed text-neutral-500">
-          左侧输入口：上 = 款式/补充参考，下 = 面料参考；总计最多 8 图
+          参考图输入口按顺序接收主服装图和目标面料图；色板是独立颜色数据，不计入参考图。
         </div>
 
+        <div className="grid grid-cols-3 gap-1" role="group" aria-label="替换模式">
+          {([['fabric', '仅面料'], ['color', '仅配色'], ['combined', '面料+配色']] as const).map(([operationMode, label]) => (
+            <Button
+              key={operationMode}
+              type="button"
+              variant={data.operationMode === operationMode ? "secondary" : "outline"}
+              size="xs"
+              disabled={running}
+              aria-pressed={data.operationMode === operationMode}
+              onClick={() => updateNodeData(id, { operationMode, error: undefined })}
+              className="px-1 text-[9px]"
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+
+        {paletteNode && (
+          <p className="rounded-md border border-gold/30 bg-gold/10 px-2 py-1 text-[9px] text-gold">
+            已连接“{paletteNode.data.label}”：使用其 {colors.length} 个颜色；节点内临时颜色仅作断开后的备用。
+          </p>
+        )}
+
         {/* 已选配色（最多 3 色，点击移除） */}
-        <div className="flex min-h-[22px] flex-wrap items-center gap-1 rounded-md border border-[#262626] bg-[#0f0f0f] px-1.5 py-1">
+        <div className="flex min-h-[22px] flex-wrap items-center gap-1 rounded-md border border-[#262626] bg-[#0f0f0f] px-1.5 py-1" aria-label="已选配色">
           {colors.length === 0 ? (
             <span className="text-[10px] text-neutral-600">已选配色（最多 8 色，每色出 1 张图）</span>
           ) : (
@@ -107,7 +141,8 @@ export function FabricRecolorNode({
                 type="button"
                 onClick={() => toggleColor(hex)}
                 title={`${nameOfColor(hex)} ${hex} · 点击移除`}
-                className="flex items-center gap-1 rounded-xs border border-[#333] bg-[#161616] px-1 py-0.5 text-[9px] text-neutral-300 hover:border-red-400/60"
+                aria-pressed="true"
+                className="flex items-center gap-1 rounded-xs border border-[#333] bg-[#161616] px-1 py-0.5 text-[9px] text-neutral-300 outline-hidden transition-colors hover:border-red-400/60 focus-visible:border-gold focus-visible:ring-2 focus-visible:ring-gold/40"
               >
                 <span
                   className="h-2.5 w-2.5 rounded-[2px]"
@@ -123,18 +158,17 @@ export function FabricRecolorNode({
         <div className="nodrag rounded-md border border-[#262626] bg-[#161616] p-1.5">
           <div className="mb-1.5 grid grid-cols-4 gap-1">
             {tabs.map((cat) => (
-              <button
+              <Button
                 key={cat.id}
                 type="button"
+                variant={cat.id === categoryId ? "secondary" : "outline"}
+                size="xs"
                 onClick={() => setCategoryId(cat.id)}
-                className={`rounded-xs border px-1 py-1 text-[10px] transition-colors ${
-                  cat.id === categoryId
-                    ? "border-gold bg-gold/15 text-gold"
-                    : "border-[#333] text-neutral-400 hover:border-gold/40"
-                }`}
+                aria-pressed={cat.id === categoryId}
+                className="px-1 text-[10px]"
               >
                 {cat.label}
-              </button>
+              </Button>
             ))}
           </div>
 
@@ -152,6 +186,7 @@ export function FabricRecolorNode({
                     type="button"
                     title={`${c.name} ${c.hex}`}
                     onClick={() => toggleColor(c.hex)}
+                    disabled={Boolean(paletteNode)}
                     onContextMenu={(e) => {
                       // 自定义色：右键从色板删除
                       if (categoryId === CUSTOM_CATEGORY_ID) {
@@ -159,7 +194,8 @@ export function FabricRecolorNode({
                         removeCustomColor(c.hex);
                       }
                     }}
-                    className="flex flex-col items-center gap-0.5"
+                    aria-pressed={active}
+                    className="flex flex-col items-center gap-0.5 outline-hidden transition-opacity focus-visible:opacity-90"
                   >
                     <span
                       className={`h-5 w-full rounded-xs border transition-transform hover:scale-105 ${
@@ -189,24 +225,28 @@ export function FabricRecolorNode({
                 type="color"
                 value={isValidHex(hexInput) ? normalizeHex(hexInput) : "#C9A66B"}
                 onChange={(e) => setHexInput(e.target.value)}
+                aria-label="自定义取色"
                 className="h-6 w-7 cursor-pointer rounded-xs border border-[#333] bg-transparent p-0"
                 title="自定义取色"
               />
-              <input
+              <Input
+                type="text"
                 value={hexInput}
                 onChange={(e) => setHexInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addCustomHex()}
                 placeholder="#RRGGBB"
-                className="h-6 flex-1 rounded-xs border border-[#333] bg-[#0f0f0f] px-1.5 font-mono text-[10px] text-neutral-200 outline-hidden focus:border-gold/60"
+                className="h-6 flex-1 rounded-xs border border-[#333] bg-[#0f0f0f] px-1.5 font-mono text-[10px] text-neutral-200 shadow-none placeholder:text-neutral-600 focus:border-gold/60 focus-visible:ring-0"
               />
-              <button
+              <Button
                 type="button"
                 onClick={addCustomHex}
                 disabled={!isValidHex(hexInput)}
+                variant="outline"
+                size="xs"
                 className="h-6 rounded-xs border border-[#333] px-2 text-[10px] text-neutral-300 hover:border-gold/60 disabled:opacity-40"
               >
                 添加
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -215,13 +255,17 @@ export function FabricRecolorNode({
         <RunButton
           status={data.status}
           onClick={() => void runNode(id)}
-          label="替换面料配色"
-          disabled={colors.length === 0 && !hasFabricInput}
+          label={data.operationMode === "fabric" ? "替换面料" : data.operationMode === "color" ? "替换配色" : "替换面料与配色"}
+          disabled={
+            data.operationMode === "fabric" ? !hasFabricInput && !data.fabricImageUrl
+              : data.operationMode === "color" ? colors.length === 0
+                : colors.length === 0 || (!hasFabricInput && !data.fabricImageUrl)
+          }
         />
         {running && <Developing />}
         <ImageGrid images={data.outputImages} />
       </NodeFrame>
-      <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={Position.Right} id="image" />
     </>
   );
 }

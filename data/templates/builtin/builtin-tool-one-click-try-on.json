@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 6,
+  "id": "builtin-tool-one-click-try-on",
+  "name": "一键换装",
+  "description": "人物身份图与主穿搭图连接到固定引擎换装节点。",
+  "builtIn": true,
+  "createdAt": "2026-09-03T08:00:00.000Z",
+  "flow": {
+    "schemaVersion": 6,
+    "nodes": [
+      {
+        "id": "person",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": -140
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "人物身份图",
+          "status": "idle",
+          "imageRole": "reference"
+        }
+      },
+      {
+        "id": "outfit",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": 180
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "主穿搭图",
+          "status": "idle",
+          "imageRole": "garment"
+        }
+      },
+      {
+        "id": "generate",
+        "type": "virtual-try-on",
+        "position": {
+          "x": 430,
+          "y": 0
+        },
+        "data": {
+          "kind": "virtual-try-on",
+          "label": "一键换装",
+          "status": "idle",
+          "workflowStage": "standard",
+          "prompt": "",
+          "modelId": "gpt-image-2",
+          "modelOptions": {},
+          "imageSize": "2K",
+          "aspectRatio": "3:4",
+          "basisRevision": 0,
+          "outputImages": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "person-generate",
+        "source": "person",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "references"
+      },
+      {
+        "id": "outfit-generate",
+        "source": "outfit",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "references"
+      }
+    ]
+  }
+}

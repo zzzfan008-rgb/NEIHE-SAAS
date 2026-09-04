@@ -50,6 +50,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const appSource = fs.readFileSync(path.join(root, "src/App.tsx"), "utf8");
 const nodeFrameSource = fs.readFileSync(path.join(root, "src/components/nodes/NodeFrame.tsx"), "utf8");
 const imageViewerSource = fs.readFileSync(path.join(root, "src/components/ImageViewer.tsx"), "utf8");
+const accountMenuSource = fs.readFileSync(path.join(root, "src/components/panels/AccountMenu.tsx"), "utf8");
 const projectTabsSource = fs.readFileSync(path.join(root, "src/components/panels/ProjectTabs.tsx"), "utf8");
 const storeSource = fs.readFileSync(path.join(root, "src/store/flowStore.ts"), "utf8");
 
@@ -57,6 +58,10 @@ assert.doesNotMatch(appSource, /absolute inset-0 z-100/, "历史失败不得再�
 assert.match(appSource, /画布仍可编辑和保存/, "历史失败必须明确保留非付费操作");
 assert.match(nodeFrameSource, /newGenerationBlocked/, "共享运行按钮必须呈现安全门禁用状态");
 assert.match(imageViewerSource, /generationSafetyBlockReason/, "图片查看器的重新生成入口必须同步安全门");
+assert.match(imageViewerSource, /role="dialog"/, "图片查看器必须使用对话框语义");
+assert.match(imageViewerSource, /aria-label="关闭图片查看器"/, "图片查看器关闭按钮必须有可访问名称");
+assert.match(accountMenuSource, /role="dialog"/, "账户面板必须使用对话框语义");
+assert.match(accountMenuSource, /aria-label="关闭账户面板"/, "账户面板关闭按钮必须有可访问名称");
 assert.match(storeSource, /getGenerationSafetyBlockReason\(\)/, "runNode 必须二次校验安全门，不能只依赖按钮禁用");
 assert.match(projectTabsSource, /runReconciliationBlockReason/, "活动任务对账完成前页签关闭入口必须 fail-closed");
 assert.match(storeSource, /closeTab:[\s\S]*getGenerationSafetyBlockReason\(\)/, "closeTab action 必须独立执行对账门禁");

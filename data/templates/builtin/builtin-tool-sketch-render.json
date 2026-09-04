@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 6,
+  "id": "builtin-tool-sketch-render",
+  "name": "草图到效果图",
+  "description": "上传草图并渲染；成功后自动创建结果节点。",
+  "builtIn": true,
+  "createdAt": "2026-09-03T08:00:00.000Z",
+  "flow": {
+    "schemaVersion": 6,
+    "nodes": [
+      {
+        "id": "sketch",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "服装草图",
+          "status": "idle",
+          "imageRole": "sketch"
+        }
+      },
+      {
+        "id": "generate",
+        "type": "sketch-to-render",
+        "position": {
+          "x": 380,
+          "y": 0
+        },
+        "data": {
+          "kind": "sketch-to-render",
+          "label": "草图渲染",
+          "status": "idle",
+          "prompt": "",
+          "aspectRatio": "3:4",
+          "batchSize": 1,
+          "outputImages": [],
+          "modelId": "gpt-image-2-vip",
+          "modelOptions": {
+            "size": "1536x2048"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "sketch-generate",
+        "source": "sketch",
+        "sourceHandle": "image",
+        "target": "generate",
+        "targetHandle": "references"
+      }
+    ]
+  }
+}

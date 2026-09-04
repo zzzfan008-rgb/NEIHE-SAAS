@@ -122,7 +122,7 @@ function ProjectCover({
 
 function CardFrame({ children }: { children: ReactNode }) {
   return (
-    <Card size="sm" className="group gap-0 overflow-hidden border border-[var(--gc-border)] bg-[var(--gc-panel-soft)] py-0 text-[var(--gc-text)] ring-0 transition-colors hover:border-[var(--gc-accent)]">
+    <Card size="sm" className="group gap-0 overflow-hidden border border-[var(--gc-border)] bg-[var(--gc-control)] py-0 text-[var(--gc-text)] ring-0 transition-colors hover:border-[var(--gc-accent)]">
       {children}
     </Card>
   );
@@ -132,7 +132,7 @@ function TemplateSkeletons() {
   return (
     <div aria-label="正在加载模板" className={PROJECT_CENTER_CARD_GRID_CLASS}>
       {Array.from({ length: 8 }, (_, index) => (
-        <Card key={index} size="sm" className="gap-3 border border-[var(--gc-border)] bg-[var(--gc-panel-soft)] py-0 ring-0">
+        <Card key={index} size="sm" className="gap-3 border border-[var(--gc-border)] bg-[var(--gc-control)] py-0 ring-0">
           <Skeleton className="aspect-[16/10] w-full rounded-none bg-[var(--gc-panel-hover)]" />
           <div className="space-y-2 px-3 pb-3">
             <Skeleton className="h-3 w-2/3 bg-[var(--gc-panel-hover)]" />
@@ -522,7 +522,12 @@ export function ProjectCenter({
                     return (
                       <CardFrame key={template.id}>
                         <div className="relative overflow-hidden">
-                          <button type="button" onClick={() => openTemplate(template)} className="block w-full text-left">
+                          <button
+                            type="button"
+                            aria-label={`打开我的模板：${template.name}`}
+                            onClick={() => openTemplate(template)}
+                            className="block w-full text-left"
+                          >
                             <ProjectCover src={image} alt={template.name} />
                           </button>
                           <DropdownMenu>
@@ -593,7 +598,7 @@ export function ProjectCenter({
                   删除后无法恢复；由此模板创建的项目不会受到影响。
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <AlertDialogFooter className="border-[var(--gc-border)] bg-[var(--gc-panel-soft)]">
+              <AlertDialogFooter className="border-[var(--gc-border)] bg-[var(--gc-control)]">
                 <AlertDialogCancel disabled={deletingTemplateId !== null}>保留模板</AlertDialogCancel>
                 <AlertDialogAction
                   variant="destructive"

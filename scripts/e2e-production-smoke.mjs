@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createComposeProjectName, acquireTestLock } from "./test-with-postgres.mjs";
+import { packageManagerExecArgs, packageManagerRunArgs } from "./package-manager.mjs";
 
 async function reserveFreePort() {
   return new Promise((resolve, reject) => {
@@ -45,21 +46,13 @@ function runCommandSoft(command, args, options = {}) {
 }
 
 function runNpmScript(script, env) {
-  if (process.env.npm_execpath) {
-    runCommand(process.execPath, [process.env.npm_execpath, "run", script], { env });
-    return;
-  }
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  runCommand(npm, ["run", script], { env });
+  const manager = packageManagerRunArgs(script, env);
+  runCommand(manager.command, manager.args, { env });
 }
 
 function runPlaywrightCommand(env) {
-  if (process.env.npm_execpath) {
-    runCommand(process.execPath, [process.env.npm_execpath, "exec", "--", "playwright", "test", "--config", "playwright.production.config.ts"], { env });
-    return;
-  }
-  const playwright = process.platform === "win32" ? "npx.cmd" : "npx";
-  runCommand(playwright, ["playwright", "test", "--config", "playwright.production.config.ts"], { env });
+  const manager = packageManagerExecArgs(["playwright", "test", "--config", "playwright.production.config.ts"], env);
+  runCommand(manager.command, manager.args, { env });
 }
 
 async function main() {

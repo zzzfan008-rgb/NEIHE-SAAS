@@ -515,6 +515,45 @@ assert.ok(!recoveredStagedSession.tabs[0].edges.some((edge) => edge.id === "stru
 assert.ok(!recoveredStagedSession.tabs[0].edges.some((edge) => edge.id === "garment-detail-stabilize"));
 console.log("  ✓ 旧浏览器会话按角色连线恢复双模型分步节点");
 
+const recoveredV5NodeFields = normalizeTabSessionValue({
+  activeTabId: "v5-node-fields",
+  tabs: [{
+    ...storedSelectionTab("v5-node-fields", []),
+    nodes: [
+      { id: "text-v5", type: "text-input", position: { x: 0, y: 0 }, data: { kind: "text-input", label: "说明", status: "idle", text: "面料说明", selectionRange: [0, 2] } },
+      { id: "board-v5", type: "drawing-board", position: { x: 100, y: 0 }, data: { kind: "drawing-board", label: "画板", status: "idle", boardVersion: 1, width: 1200, height: 900, background: "#FFFFFF", contentRef: "/api/drawings/content-1", previewImageRef: "/api/files/preview.png", exportImageRef: "/api/files/export.png", drawingRecoveryDraft: { private: true } } },
+      { id: "palette-v5", type: "color-palette", position: { x: 200, y: 0 }, data: { kind: "color-palette", label: "色板", status: "idle", paletteVersion: 1, swatches: [{ id: "red", value: "#FF0000", source: "custom" }], recentColors: ["#000000"] } },
+      { id: "approval-v5", type: "stage-approval", position: { x: 300, y: 0 }, data: { kind: "stage-approval", label: "确认基准", status: "idle", approvalKind: "scene-baseline", approvedSourceNodeId: "stabilize-v5", approvedBaselineRef: "/api/files/baseline.png", approvedBasisRevision: 2, approvedAt: "2026-09-03T00:00:00.000Z", confirmPopoverOpen: true } },
+      { id: "stabilize-v5", type: "virtual-try-on", position: { x: 400, y: 0 }, data: { kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize", prompt: "", modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, imageSize: "2K", basisRevision: 2, outputImages: ["/api/files/baseline.png"], displayState: "ready" } },
+      { id: "fabric-v5", type: "fabric-recolor", position: { x: 500, y: 0 }, data: { kind: "fabric-recolor", label: "配色替换", status: "idle", operationMode: "color", colors: ["#FF0000"], prompt: "", outputImages: [], modelId: "gpt-image-2-vip", modelOptions: { size: "2048x2048" } } },
+    ],
+    edges: [
+      { id: "board-approval", source: "board-v5", sourceHandle: "image", target: "approval-v5", targetHandle: "baseline-candidate" },
+      { id: "palette-fabric", source: "palette-v5", sourceHandle: "colors", target: "fabric-v5", targetHandle: "palette" },
+    ],
+    connectionDraft: { sourceNodeId: "board-v5", targetNodeId: "approval-v5" },
+    rightDockOpen: true,
+    openToolGroupId: "create",
+    drawingRecoveryState: { nodeId: "board-v5" },
+  }],
+});
+assert.ok(recoveredV5NodeFields);
+assert.deepEqual(recoveredV5NodeFields.tabs[0].nodes.map((node) => node.data.kind), ["text-input", "drawing-board", "color-palette", "stage-approval", "virtual-try-on", "fabric-recolor"]);
+const recoveredV5Tab = recoveredV5NodeFields.tabs[0] as unknown as Record<string, unknown>;
+assert.equal(recoveredV5Tab.connectionDraft, undefined);
+assert.equal(recoveredV5Tab.rightDockOpen, undefined);
+assert.equal(recoveredV5Tab.openToolGroupId, undefined);
+assert.equal(recoveredV5Tab.drawingRecoveryState, undefined);
+for (const node of recoveredV5NodeFields.tabs[0].nodes) {
+  const data = node.data as unknown as Record<string, unknown>;
+  assert.equal(data.selectionRange, undefined);
+  assert.equal(data.drawingRecoveryDraft, undefined);
+  assert.equal(data.recentColors, undefined);
+  assert.equal(data.confirmPopoverOpen, undefined);
+  assert.equal(data.displayState, undefined);
+}
+console.log("  ✓ v5 节点字段可恢复且 UI、连接与画板恢复瞬态不会进入页签会话");
+
 const generalModelPairs = [
   { modelId: "gpt-image-2-vip", modelOptions: { size: "2048x1152" }, aspectRatio: "16:9" },
   {

@@ -3,7 +3,7 @@ import { useViewport } from "@xyflow/react";
 
 /**
  * 画布点阵背景 · 波浪呼吸动效
- * 金色圆点沿对角线方向做正弦波呼吸（大小 + 透明度起伏），
+ * 中性灰圆点沿对角线方向做正弦波呼吸（大小 + 透明度起伏），
  * 跟随画布平移/缩放，视觉上是附着在画布上的。
  */
 export function DotWaveBackground() {
@@ -67,7 +67,7 @@ export function DotWaveBackground() {
           const r = (0.7 + s * 1.0) * sizeScale;
           ctx.beginPath();
           ctx.arc(cx, cy, r, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(201, 166, 107, ${(0.08 + s * 0.2).toFixed(3)})`;
+          ctx.fillStyle = `rgba(70, 70, 70, ${(0.1 + s * 0.18).toFixed(3)})`;
           ctx.fill();
         }
       }

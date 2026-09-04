@@ -11,8 +11,10 @@ import {
 import {
   WORKFLOW_SCHEMA_VERSION,
   type BatchSize,
+  type ColorSwatch,
   type NodeKind,
   type PersistedWorkflow,
+  type WorkflowInputRole,
   type WorkflowNodeData,
 } from "../types/workflow";
 
@@ -27,6 +29,55 @@ export type DocumentNodeData =
       label: string;
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
       imageUrl?: string;
+    }
+  | {
+      kind: "text-input";
+      label: string;
+      text: string;
+    }
+  | {
+      kind: "drawing-board";
+      label: string;
+      boardVersion: 1;
+      width: number;
+      height: number;
+      background: string;
+      contentRef?: string;
+      previewImageRef?: string;
+      exportImageRef?: string;
+    }
+  | {
+      kind: "color-palette";
+      label: string;
+      paletteVersion: 1;
+      swatches: ColorSwatch[];
+    }
+  | {
+      kind: "stage-approval";
+      label: string;
+      approvalKind: "scene-baseline";
+      approvedSourceNodeId?: string;
+      approvedBaselineRef?: string;
+      approvedBasisRevision?: number;
+      approvedAt?: string;
+    }
+  | {
+      kind: "video-input";
+      label: string;
+      videoUrl?: string;
+      mimeType?: "video/mp4" | "video/webm" | "video/quicktime";
+    }
+  | {
+      kind: "video-generate";
+      label: string;
+      mode: "text-to-video" | "keyframes-to-video" | "multi-image-video" | "video-to-video";
+      prompt: string;
+      videoModel: "veo-3.1";
+      quality: "fast" | "standard";
+      aspectRatio: "16:9" | "9:16";
+      resolution: "720p" | "1080p" | "4k";
+      seconds: 4 | 6 | 8;
+      outputImages: string[];
     }
   | ({
       kind: "sketch-to-render";
@@ -47,6 +98,7 @@ export type DocumentNodeData =
   | ({
       kind: "fabric-recolor";
       label: string;
+      operationMode: "combined" | "fabric" | "color";
       colors: string[];
       prompt: string;
       fabricImageUrl?: string;
@@ -78,10 +130,11 @@ export type DocumentNodeData =
       workflowStage: "standard" | "scene-stabilize" | "garment-refine";
       prompt: string;
       imageSize: "2K" | "4K";
+      aspectRatio: "1:1" | "4:5" | "3:4" | "2:3" | "9:16" | "16:9";
       garmentCategory?: "knit" | "woven" | "other";
       materialSpec?: string;
       constructionSpec?: string;
-      approvedBaselineRef?: string;
+      basisRevision?: number;
       outputImages: string[];
       modelId: VirtualTryOnModelId;
       modelOptions: ImageModelOptions;
@@ -115,7 +168,7 @@ export interface DocumentEdge {
   source: string;
   target: string;
   sourceHandle?: string | null;
-  targetHandle?: string | null;
+  targetHandle?: WorkflowInputRole | null;
 }
 
 export interface DocumentSnapshot {
@@ -139,8 +192,24 @@ interface EdgeLike {
   targetHandle?: string | null;
 }
 
+const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
+  "person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet",
+  "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
+  "first-frame", "last-frame", "source-video",
+];
+
+function documentTargetHandle(value: string | null | undefined): WorkflowInputRole | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return WORKFLOW_INPUT_ROLES.includes(value as WorkflowInputRole) ? value as WorkflowInputRole : null;
+}
+
 function optionalString<K extends string>(key: K, value: string | undefined): Partial<Record<K, string>> {
   return value === undefined ? {} : { [key]: value } as Record<K, string>;
+}
+
+function optionalNumber<K extends string>(key: K, value: number | undefined): Partial<Record<K, number>> {
+  return value === undefined ? {} : { [key]: value } as Record<K, number>;
 }
 
 function generationModelFields(
@@ -189,6 +258,57 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         imageRole: data.imageRole,
         ...optionalString("imageUrl", data.imageUrl),
       };
+    case "text-input":
+      return { kind: data.kind, label: data.label, text: data.text };
+    case "drawing-board":
+      return {
+        kind: data.kind,
+        label: data.label,
+        boardVersion: data.boardVersion,
+        width: data.width,
+        height: data.height,
+        background: data.background,
+        ...optionalString("contentRef", data.contentRef),
+        ...optionalString("previewImageRef", data.previewImageRef),
+        ...optionalString("exportImageRef", data.exportImageRef),
+      };
+    case "color-palette":
+      return {
+        kind: data.kind,
+        label: data.label,
+        paletteVersion: data.paletteVersion,
+        swatches: data.swatches.map((swatch) => ({ ...swatch })),
+      };
+    case "stage-approval":
+      return {
+        kind: data.kind,
+        label: data.label,
+        approvalKind: data.approvalKind,
+        ...optionalString("approvedSourceNodeId", data.approvedSourceNodeId),
+        ...optionalString("approvedBaselineRef", data.approvedBaselineRef),
+        ...optionalNumber("approvedBasisRevision", data.approvedBasisRevision),
+        ...optionalString("approvedAt", data.approvedAt),
+      };
+    case "video-input":
+      return {
+        kind: data.kind,
+        label: data.label,
+        ...optionalString("videoUrl", data.videoUrl),
+        ...(data.mimeType ? { mimeType: data.mimeType } : {}),
+      };
+    case "video-generate":
+      return {
+        kind: data.kind,
+        label: data.label,
+        mode: data.mode,
+        prompt: data.prompt,
+        videoModel: data.videoModel,
+        quality: data.quality,
+        aspectRatio: data.aspectRatio,
+        resolution: data.resolution,
+        seconds: data.seconds,
+        outputImages: [...data.outputImages],
+      };
     case "sketch-to-render":
       return {
         kind: data.kind,
@@ -213,6 +333,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
       return {
         kind: data.kind,
         label: data.label,
+        operationMode: data.operationMode ?? "combined",
         colors: [...data.colors],
         prompt: data.prompt,
         ...optionalString("fabricImageUrl", data.fabricImageUrl),
@@ -252,10 +373,11 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         workflowStage: data.workflowStage,
         prompt: data.prompt,
         imageSize: data.imageSize,
+        aspectRatio: data.aspectRatio,
+        ...optionalNumber("basisRevision", data.basisRevision),
         ...(data.garmentCategory ? { garmentCategory: data.garmentCategory } : {}),
         ...optionalString("materialSpec", data.materialSpec),
         ...optionalString("constructionSpec", data.constructionSpec),
-        ...optionalString("approvedBaselineRef", data.approvedBaselineRef),
         outputImages: [...data.outputImages],
         ...virtualTryOnModelFields(data.modelId, data.modelOptions, data.imageSize),
       };
@@ -299,12 +421,13 @@ function createDocumentNode(node: NodeLike): DocumentNode {
 }
 
 function createDocumentEdge(edge: EdgeLike): DocumentEdge {
+  const targetHandle = documentTargetHandle(edge.targetHandle);
   return {
     id: edge.id,
     source: edge.source,
     target: edge.target,
     ...(edge.sourceHandle === undefined ? {} : { sourceHandle: edge.sourceHandle }),
-    ...(edge.targetHandle === undefined ? {} : { targetHandle: edge.targetHandle }),
+    ...(targetHandle === undefined ? {} : { targetHandle }),
   };
 }
 

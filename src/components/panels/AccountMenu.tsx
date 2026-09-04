@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth, type CurrentUser } from "@/auth/AuthContext";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ImageModelId } from "@/types/imageModels";
+import { XIcon } from "lucide-react";
 
 interface ManagedUser extends CurrentUser {
   active: boolean;
@@ -101,6 +103,7 @@ function AccountPanel({ initialTab, onClose }: { initialTab: AccountPanelTab; on
   const [probeResults, setProbeResults] = useState<Record<string, string>>({});
   const [selectedUser, setSelectedUser] = useState(user?.role === "admin" ? "all" : user?.id ?? "");
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   const loadUsers = async () => {
     if (user?.role !== "admin") return;
@@ -127,6 +130,10 @@ function AccountPanel({ initialTab, onClose }: { initialTab: AccountPanelTab; on
     setError(null);
     void Promise.all([loadUsers(), loadUsage(), loadDiagnostics()]).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
   }, [selectedUser]);
+
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
 
   const runProbe = async (providerId: AiDiagnosticProvider["providerId"], mode: "generate" | "edit") => {
     const key = `${providerId}:${mode}`;
@@ -209,25 +216,86 @@ function AccountPanel({ initialTab, onClose }: { initialTab: AccountPanelTab; on
 
   return (
     <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/70 p-6" onClick={onClose}>
-      <section className="flex h-[70vh] w-full max-w-4xl flex-col rounded-xl border border-(--gc-border) bg-(--gc-panel) shadow-2xl"
-        onClick={(event) => event.stopPropagation()}>
+      <section
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-panel-title"
+        tabIndex={-1}
+        className="flex h-[70vh] w-full max-w-4xl flex-col rounded-xl border border-(--gc-border) bg-(--gc-panel) shadow-2xl outline-hidden"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onClose();
+          }
+        }}
+      >
+        <h2 id="account-panel-title" className="sr-only">账户面板</h2>
         <header className="flex items-center border-b border-(--gc-border) px-5 py-3">
-          <button onClick={() => setTab("usage")} className={`px-3 py-1.5 text-xs ${tab === "usage" ? "text-(--gc-accent)" : "text-(--gc-text-muted)"}`}>消耗记录</button>
-          {user?.role === "admin" && <button onClick={() => setTab("users")} className={`px-3 py-1.5 text-xs ${tab === "users" ? "text-(--gc-accent)" : "text-(--gc-text-muted)"}`}>用户管理</button>}
-          {user?.role === "admin" && <button onClick={() => setTab("diagnostics")} className={`px-3 py-1.5 text-xs ${tab === "diagnostics" ? "text-(--gc-accent)" : "text-(--gc-text-muted)"}`}>AI 服务诊断</button>}
-          <button onClick={onClose} className="ml-auto text-sm text-(--gc-text-muted)">✕</button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant={tab === "usage" ? "secondary" : "ghost"}
+              size="xs"
+              aria-pressed={tab === "usage"}
+              onClick={() => setTab("usage")}
+              className="px-3 text-xs"
+            >
+              消耗记录
+            </Button>
+            {user?.role === "admin" && (
+              <Button
+                type="button"
+                variant={tab === "users" ? "secondary" : "ghost"}
+                size="xs"
+                aria-pressed={tab === "users"}
+                onClick={() => setTab("users")}
+                className="px-3 text-xs"
+              >
+                用户管理
+              </Button>
+            )}
+            {user?.role === "admin" && (
+              <Button
+                type="button"
+                variant={tab === "diagnostics" ? "secondary" : "ghost"}
+                size="xs"
+                aria-pressed={tab === "diagnostics"}
+                onClick={() => setTab("diagnostics")}
+                className="px-3 text-xs"
+              >
+                AI 服务诊断
+              </Button>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="关闭账户面板"
+            onClick={onClose}
+            className="ml-auto text-(--gc-text-muted)"
+          >
+            <XIcon className="size-4" />
+          </Button>
         </header>
         {error && <p className="mx-5 mt-3 rounded-sm bg-red-950/20 px-3 py-2 text-xs text-red-400">{error}</p>}
         {tab === "usage" ? (
           <div className="flex min-h-0 flex-1 flex-col p-5">
             <div className="mb-3 flex gap-2">
               {user?.role === "admin" && (
-                <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)} className="rounded-sm border border-(--gc-border) bg-(--gc-control) px-2 py-1 text-xs">
+                <select
+                  aria-label="选择用户查看消耗记录"
+                  value={selectedUser}
+                  onChange={(e) => setSelectedUser(e.target.value)}
+                  className="rounded-sm border border-(--gc-border) bg-(--gc-control) px-2 py-1 text-xs"
+                >
                   <option value="all">全部用户</option>
                   {users.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.accountId}</option>)}
                 </select>
               )}
-              <button onClick={exportUsage} className="ml-auto rounded-sm bg-(--gc-accent) px-3 py-1.5 text-xs text-white">导出 CSV</button>
+              <Button type="button" onClick={exportUsage} className="ml-auto">导出 CSV</Button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto rounded-sm border border-(--gc-border)">
               <table className="w-full text-left text-[11px]">
@@ -238,8 +306,46 @@ function AccountPanel({ initialTab, onClose }: { initialTab: AccountPanelTab; on
           </div>
         ) : tab === "users" ? (
           <div className="min-h-0 flex-1 overflow-auto p-5">
-            <button onClick={() => void createUser()} className="mb-3 rounded-sm bg-(--gc-accent) px-3 py-1.5 text-xs text-white">创建用户</button>
-            <div className="space-y-2">{users.map((item) => <div key={item.id} className="flex items-center rounded-sm border border-(--gc-border) p-3 text-xs"><span className="min-w-0 flex-1"><strong>{item.displayName}</strong><span className="ml-2 text-(--gc-text-muted)">{item.accountId} · {item.role === "admin" ? "管理员" : "用户"}</span></span><button onClick={() => void resetPassword(item)} className="mr-2 rounded-sm border border-(--gc-border) px-2 py-1">重置密码</button><button disabled={item.id === user?.id} onClick={() => void toggleUser(item)} className={`mr-2 rounded-sm px-2 py-1 ${item.active ? "bg-red-950/30 text-red-400" : "bg-emerald-950/30 text-emerald-400"}`}>{item.active ? "停用" : "启用"}</button>{item.id !== user?.id && <button onClick={() => void deleteUser(item)} className="rounded-sm border border-red-900/50 px-2 py-1 text-red-400">删除</button>}</div>)}</div>
+            <Button type="button" onClick={() => void createUser()} className="mb-3">创建用户</Button>
+            <div className="space-y-2">
+              {users.map((item) => (
+                <div key={item.id} className="flex items-center rounded-sm border border-(--gc-border) p-3 text-xs">
+                  <span className="min-w-0 flex-1">
+                    <strong>{item.displayName}</strong>
+                    <span className="ml-2 text-(--gc-text-muted)">{item.accountId} · {item.role === "admin" ? "管理员" : "用户"}</span>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={() => void resetPassword(item)}
+                    className="mr-2"
+                  >
+                    重置密码
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={item.active ? "destructive" : "secondary"}
+                    size="xs"
+                    disabled={item.id === user?.id}
+                    onClick={() => void toggleUser(item)}
+                    className="mr-2"
+                  >
+                    {item.active ? "停用" : "启用"}
+                  </Button>
+                  {item.id !== user?.id && (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="xs"
+                      onClick={() => void deleteUser(item)}
+                    >
+                      删除
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-auto p-5">
@@ -273,12 +379,17 @@ function AccountPanel({ initialTab, onClose }: { initialTab: AccountPanelTab; on
                       const key = `${provider.providerId}:${mode}`;
                       const label = mode === "generate" ? "检查文生图" : "检查改图";
                       return (
-                        <button key={mode} disabled={!provider.configured || probing !== null}
+                        <Button
+                          key={mode}
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          disabled={!provider.configured || probing !== null}
                           onClick={() => void runProbe(provider.providerId, mode)}
-                          className="rounded-sm border border-(--gc-border) px-2.5 py-1.5 disabled:opacity-40">
+                        >
                           {probing === key ? "检查中…" : label}
                           {probeResults[key] ? ` · ${probeResults[key]}` : ""}
-                        </button>
+                        </Button>
                       );
                     })}
                   </div>

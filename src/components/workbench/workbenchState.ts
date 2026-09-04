@@ -1,26 +1,94 @@
-export interface WorkbenchUiState {
-  activePanel: "library" | "inspector" | null;
+import type { ToolGroupId, WorkbenchUiState as WorkbenchUiStateContract } from "@/types/workbench";
+
+export interface WorkbenchUiState extends WorkbenchUiStateContract {
+  focusReturnGroupId: ToolGroupId | null;
 }
 
 export type WorkbenchUiAction =
-  | { type: "toggle-panel"; panel: "library" | "inspector" };
+  | { type: "hover-group"; groupId: ToolGroupId }
+  | { type: "leave-group"; groupId: ToolGroupId }
+  | { type: "close-hover"; groupId: ToolGroupId }
+  | { type: "toggle-pin"; groupId: ToolGroupId }
+  | { type: "close-group"; groupId: ToolGroupId }
+  | { type: "escape" }
+  | { type: "consume-focus-return" }
+  | { type: "toggle-right-dock" }
+  | { type: "toggle-results-flyout" }
+  | { type: "close-results-flyout" };
 
 export const INITIAL_WORKBENCH_UI_STATE: WorkbenchUiState = {
-  // 首屏优先保留画布空间，需要节点、属性或结果时再展开左侧 Dock。
-  activePanel: null,
+  hoveredToolGroupId: null,
+  openToolGroupId: null,
+  pinnedToolGroupId: null,
+  rightDockOpen: false,
+  resultsFlyoutOpen: false,
+  focusReturnGroupId: null,
 };
 
-/**
- * 工作台外壳的纯 UI 状态。不保存项目、节点或运行数据，
- * 避免面板开合污染工作流的撤销和持久化链路。
- */
+/** Pure, non-persisted interaction state for the tool flyout and right dock. */
 export function workbenchUiReducer(
   state: WorkbenchUiState,
   action: WorkbenchUiAction,
 ): WorkbenchUiState {
   switch (action.type) {
-    case "toggle-panel":
-      return { activePanel: state.activePanel === action.panel ? null : action.panel };
+    case "hover-group":
+      return {
+        ...state,
+        hoveredToolGroupId: action.groupId,
+        openToolGroupId: state.pinnedToolGroupId ?? action.groupId,
+      };
+    case "leave-group":
+      return state.hoveredToolGroupId === action.groupId
+        ? { ...state, hoveredToolGroupId: null }
+        : state;
+    case "close-hover":
+      return state.pinnedToolGroupId === null
+        && state.hoveredToolGroupId === null
+        && state.openToolGroupId === action.groupId
+        ? { ...state, openToolGroupId: null }
+        : state;
+    case "toggle-pin":
+      if (state.pinnedToolGroupId === action.groupId) {
+        return {
+          ...state,
+          hoveredToolGroupId: null,
+          openToolGroupId: null,
+          pinnedToolGroupId: null,
+          focusReturnGroupId: action.groupId,
+        };
+      }
+      return {
+        ...state,
+        openToolGroupId: action.groupId,
+        pinnedToolGroupId: action.groupId,
+        focusReturnGroupId: null,
+      };
+    case "close-group":
+      if (state.openToolGroupId !== action.groupId) return state;
+      return {
+        ...state,
+        hoveredToolGroupId: null,
+        openToolGroupId: null,
+        pinnedToolGroupId: null,
+      };
+    case "escape": {
+      const focusReturnGroupId = state.pinnedToolGroupId ?? state.openToolGroupId;
+      return {
+        ...state,
+        hoveredToolGroupId: null,
+        openToolGroupId: null,
+        pinnedToolGroupId: null,
+        focusReturnGroupId,
+      };
+    }
+    case "consume-focus-return":
+      return state.focusReturnGroupId === null ? state : { ...state, focusReturnGroupId: null };
+    case "toggle-right-dock":
+      return { ...state, rightDockOpen: !state.rightDockOpen };
+    case "toggle-results-flyout":
+      return { ...state, resultsFlyoutOpen: !state.resultsFlyoutOpen };
+    case "close-results-flyout":
+      return { ...state, resultsFlyoutOpen: false };
     default:
       return state;
   }

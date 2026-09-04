@@ -54,7 +54,7 @@ const healthy = assessPreflight(defaults, {
   dockerReachable: true,
 });
 assert.deepEqual(healthy.blockers, []);
-assert.equal(healthy.notes.some((note) => note.includes("本次 npm run dev")), true);
+assert.equal(healthy.notes.some((note) => note.includes("本次 pnpm run dev")), true);
 
 const blocked = assessPreflight(defaults, {
   webPortOpen: true,

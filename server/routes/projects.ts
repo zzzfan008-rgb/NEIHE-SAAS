@@ -13,6 +13,7 @@ import {
 import { lockActiveOwner } from "../lib/ownerMutation";
 import { isLocalImageReference } from "../lib/imageValidation";
 import type { PersistedWorkflow } from "../../src/types/workflow";
+import { assertDrawingBoardReferences, DrawingBoardAccessError } from "../lib/drawingBoard";
 
 export const projectsRouter = Router();
 
@@ -309,6 +310,7 @@ projectsRouter.post("/", asyncHandler(async (req, res) => {
         };
       }
       await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update" });
+      await assertDrawingBoardReferences(client, user.id, projectId, normalized);
       await syncMaskFiles(client, projectId, user.id, normalized, new Date(now));
       const result = await client.query(`
         INSERT INTO projects (
@@ -353,7 +355,7 @@ projectsRouter.post("/", asyncHandler(async (req, res) => {
     }
     res.json({ ok: true, id: projectId });
   } catch (error) {
-    res.status(error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : 500)
+    res.status(error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : error instanceof DrawingBoardAccessError ? 409 : 500)
       .json({ error: error instanceof Error ? error.message : String(error) });
   }
 }));
@@ -430,6 +432,7 @@ projectsRouter.post("/initial-draft/bootstrap", asyncHandler(async (req, res) =>
       const nowIso = now.toISOString();
       const projectName = typeof name === "string" ? name.trim() : initialDraftProjectName(now);
       await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update" });
+      await assertDrawingBoardReferences(client, user.id, projectId, normalized);
       await syncMaskFiles(client, projectId, user.id, normalized, now);
       const inserted = (await client.query<InitialDraftRow>(`
         INSERT INTO projects (
@@ -459,7 +462,7 @@ projectsRouter.post("/initial-draft/bootstrap", asyncHandler(async (req, res) =>
       draft: initialDraftPayload(outcome.row),
     });
   } catch (error) {
-    res.status(error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : 500)
+    res.status(error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : error instanceof DrawingBoardAccessError ? 409 : 500)
       .json({ error: error instanceof Error ? error.message : String(error) });
   }
 }));
@@ -513,6 +516,7 @@ projectsRouter.put("/initial-draft/:id", asyncHandler(async (req, res) => {
       const now = new Date();
       const nowIso = now.toISOString();
       await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update" });
+      await assertDrawingBoardReferences(client, user.id, req.params.id, normalized);
       await syncMaskFiles(client, req.params.id, user.id, normalized, now);
       const updated = (await client.query<InitialDraftRow>(`
         UPDATE projects
@@ -550,7 +554,7 @@ projectsRouter.put("/initial-draft/:id", asyncHandler(async (req, res) => {
     }
     res.json({ draft: initialDraftPayload(outcome.row) });
   } catch (error) {
-    res.status(error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : 500)
+    res.status(error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : error instanceof DrawingBoardAccessError ? 409 : 500)
       .json({ error: error instanceof Error ? error.message : String(error) });
   }
 }));

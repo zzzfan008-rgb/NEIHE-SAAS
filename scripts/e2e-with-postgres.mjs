@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { acquireTestLock, createComposeProjectName } from "./test-with-postgres.mjs";
+import { packageManagerRunArgs } from "./package-manager.mjs";
 
 async function reserveFreePorts(count) {
   const servers = [];
@@ -38,11 +39,10 @@ function run(command, args, options = {}) {
 }
 
 function runNpmScript(script, env) {
-  if (process.env.npm_execpath) {
-    run(process.execPath, [process.env.npm_execpath, "run", script], { env });
-    return;
-  }
-  run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", script], { env });
+  const extraArgs = process.argv.slice(2);
+  if (extraArgs[0] === "--") extraArgs.shift();
+  const manager = packageManagerRunArgs(script, env, extraArgs);
+  run(manager.command, manager.args, { env });
 }
 
 async function main() {
