@@ -1933,6 +1933,18 @@ await test("画板版本按 owner/project/node/base 授权并以请求号幂等"
   const replayText = await replay.text();
   assert.equal(replay.status, 200, replayText);
   assert.equal((JSON.parse(replayText) as { contentRef: string }).contentRef, createdBody.contentRef);
+  const advancedBoardFlow = structuredClone(boardFlow);
+  advancedBoardFlow.nodes[0].data.contentRef = createdBody.contentRef;
+  await query("UPDATE projects SET flow_json = $1 WHERE id = $2", [JSON.stringify(advancedBoardFlow), projectId]);
+  const replayAfterAdvance = await request("/drawing-boards/versions", "owner", {
+    method: "POST", body: JSON.stringify(body),
+  });
+  const replayAfterAdvanceText = await replayAfterAdvance.text();
+  assert.equal(replayAfterAdvance.status, 200, replayAfterAdvanceText);
+  assert.equal(
+    (JSON.parse(replayAfterAdvanceText) as { contentRef: string }).contentRef,
+    createdBody.contentRef,
+  );
   assert.equal((await request(`/drawing-boards/versions/${createdBody.contentRef}`, "owner")).status, 200);
   assert.equal((await request(`/drawing-boards/versions/${createdBody.contentRef}`, "other")).status, 404);
   assert.equal((await request(`/drawing-boards/versions/${createdBody.contentRef}`, "admin")).status, 404);

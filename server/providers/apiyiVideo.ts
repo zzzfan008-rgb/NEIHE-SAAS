@@ -16,7 +16,15 @@ export interface ApiYiVideoRequest {
   resolution: "720p" | "1080p" | "4k";
   seconds: 4 | 6 | 8;
   references: string[];
+  idempotencyKey?: string;
+  resumeTask?: ApiYiVideoTask;
   beforeProviderCall?: (requestNumber: number) => void | Promise<void>;
+  onTaskAccepted?: (task: ApiYiVideoTask) => void | Promise<void>;
+}
+
+export interface ApiYiVideoTask {
+  id: string;
+  model: string;
 }
 
 export interface ApiYiVideoResult {
@@ -85,7 +93,7 @@ async function extractFirstFrame(videoRef: string): Promise<string> {
   }
 }
 
-async function submit(request: ApiYiVideoRequest): Promise<{ id: string; model: string }> {
+async function submit(request: ApiYiVideoRequest): Promise<ApiYiVideoTask> {
   const usesReverseFrames = request.mode === "keyframes-to-video" || request.mode === "multi-image-video";
   const model = usesReverseFrames ? reverseModel(request) : officialModel(request);
   let refs = request.references;
@@ -93,7 +101,10 @@ async function submit(request: ApiYiVideoRequest): Promise<{ id: string; model: 
   await request.beforeProviderCall?.(1);
 
   let body: BodyInit;
-  let headers: Record<string, string> = authHeaders();
+  let headers: Record<string, string> = {
+    ...authHeaders(),
+    ...(request.idempotencyKey ? { "Idempotency-Key": request.idempotencyKey } : {}),
+  };
   if (request.mode === "text-to-video") {
     headers = { ...headers, "Content-Type": "application/json" };
     body = JSON.stringify({
@@ -129,8 +140,10 @@ async function submit(request: ApiYiVideoRequest): Promise<{ id: string; model: 
 
 async function waitUntilComplete(id: string, model: string, resolution: ApiYiVideoRequest["resolution"]): Promise<void> {
   const deadline = Date.now() + (resolution === "4k" ? 10 * 60_000 : 5 * 60_000);
+  let firstPoll = true;
   while (Date.now() < deadline) {
-    await wait(8_000);
+    if (!firstPoll) await wait(8_000);
+    firstPoll = false;
     const response = await fetchWithRetry(`${config.apiyiBaseUrl()}/v1/videos/${encodeURIComponent(id)}`, () => ({ headers: authHeaders() }), {
       providerId: model,
       timeoutMs: config.aiTimeoutMs(30_000),
@@ -174,7 +187,26 @@ export async function generateApiYiVideo(request: ApiYiVideoRequest): Promise<Ap
     throw new ProviderError("首尾帧或多图参考必须使用 2 张图片", 400, "apiyi-video", "invalid_request");
   }
   if (request.mode === "video-to-video" && request.references.length !== 1) throw new ProviderError("视频重制需要 1 个源视频", 400, "apiyi-video", "invalid_request");
-  const task = await submit(request);
+  const expectedModel = request.mode === "keyframes-to-video" || request.mode === "multi-image-video"
+    ? reverseModel(request)
+    : officialModel(request);
+  let providerRequests = 0;
+  let task = request.resumeTask;
+  if (task) {
+    if (!task.id.trim() || task.id.length > 256 || task.model !== expectedModel) {
+      throw new ProviderError("已保存的视频任务状态无效", 500, expectedModel, "invalid_response");
+    }
+  } else {
+    task = await submit(request);
+    providerRequests = 1;
+    try {
+      await request.onTaskAccepted?.(task);
+    } catch (error) {
+      throw new Error(
+        `视频任务已受理但状态保存失败，请核对 API易消耗记录后再决定是否重试：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   await waitUntilComplete(task.id, task.model, request.resolution);
-  return { video: await download(task.id, task.model), model: task.model, providerRequests: 1 };
+  return { video: await download(task.id, task.model), model: task.model, providerRequests };
 }

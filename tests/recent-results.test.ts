@@ -92,7 +92,27 @@ assert.match(resultsPanelSource, /toggleCompareId/);
 assert.match(resultsPanelSource, /href=\{r\.image\}[\s\S]*?download/);
 assert.match(resultsPanelSource, /continueWithResult/);
 assert.match(resultsPanelSource, /addAssetNode/);
+assert.match(resultsPanelSource, /isVideo\(r\.image\)[\s\S]*?addNode\("video-input"/);
 console.log("  ✓ Results 保持挂载、恢复全局记录，并保留查看、对比、下载、设为输入和跨项目跳转");
+
+test("视频结果作为输入时创建带媒体类型的视频节点", () => {
+  useFlowStore.getState().loadFlow({
+    projectId: "video-result-project",
+    projectName: "视频结果",
+    nodes: [],
+    edges: [],
+  });
+  const id = useFlowStore.getState().addNode("video-input", { x: 10, y: 20 }, {
+    label: "走秀结果",
+    videoUrl: "/api/files/runway.webm",
+    mimeType: "video/webm",
+  });
+  const node = activeDocument().nodes.find((candidate) => candidate.id === id);
+  assert.equal(node?.data.kind, "video-input");
+  assert.equal(node?.data.label, "走秀结果");
+  assert.equal(node?.data.kind === "video-input" ? node.data.videoUrl : undefined, "/api/files/runway.webm");
+  assert.equal(node?.data.kind === "video-input" ? node.data.mimeType : undefined, "video/webm");
+});
 
 test("排队卡收到运行事件后原地更新，不重复新建", () => {
   const result = apply({

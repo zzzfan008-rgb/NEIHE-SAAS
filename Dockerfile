@@ -3,13 +3,14 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
+RUN pnpm install --frozen-lockfile
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 FROM build AS production-dependencies
-RUN npm prune --omit=dev
+RUN pnpm prune --prod
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
@@ -17,7 +18,7 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg \
   && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --from=production-dependencies /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server

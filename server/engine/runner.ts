@@ -50,7 +50,7 @@ import {
   analyzeSceneReference,
   type SceneAnalyzer,
 } from "../lib/sceneAnalysis";
-import { generateApiYiVideo } from "../providers/apiyiVideo";
+import { generateApiYiVideo, type ApiYiVideoTask } from "../providers/apiyiVideo";
 
 export interface RunFailure {
   prompt?: string;
@@ -619,6 +619,28 @@ export interface ExecuteStepOptions {
   beforeProviderCall?: (providerRequest: number) => void | Promise<void>;
   referenceRoles?: string[];
   sceneAnalyzer?: SceneAnalyzer;
+  videoTask?: ApiYiVideoTask;
+  videoIdempotencyKey?: string;
+  onVideoTaskAccepted?: (task: ApiYiVideoTask) => void | Promise<void>;
+}
+
+function orderedVideoReferences(
+  mode: unknown,
+  inputImages: string[],
+  referenceRoles: string[],
+): string[] {
+  if (mode !== "keyframes-to-video" && mode !== "multi-image-video") return inputImages;
+  if (referenceRoles.length !== inputImages.length) {
+    throw new ProviderError("视频参考帧角色信息不完整", 400, "apiyi-video", "invalid_request");
+  }
+  const references = ["first-frame", "last-frame"].map((role) => {
+    const matches = inputImages.filter((_, index) => referenceRoles[index] === role);
+    if (matches.length !== 1) {
+      throw new ProviderError("首帧和尾帧必须各提供 1 张图片", 400, "apiyi-video", "invalid_request");
+    }
+    return matches[0];
+  });
+  return references;
 }
 
 export async function executeStep(
@@ -655,6 +677,11 @@ export async function executeStep(
       return { images: inputImages, providerRequests: 0 };
     }
     case "video-generate": {
+      const references = orderedVideoReferences(
+        step.params.mode,
+        inputImages,
+        options.referenceRoles ?? [],
+      );
       const result = await generateApiYiVideo({
         mode: step.params.mode as never,
         prompt: String(step.params.prompt ?? ""),
@@ -662,8 +689,11 @@ export async function executeStep(
         aspectRatio: step.params.aspectRatio === "9:16" ? "9:16" : "16:9",
         resolution: step.params.resolution === "1080p" || step.params.resolution === "4k" ? step.params.resolution : "720p",
         seconds: step.params.seconds === 4 || step.params.seconds === 6 ? step.params.seconds : 8,
-        references: inputImages,
+        references,
+        idempotencyKey: options.videoIdempotencyKey,
+        resumeTask: options.videoTask,
         beforeProviderCall: options.beforeProviderCall,
+        onTaskAccepted: options.onVideoTaskAccepted,
       });
       return { images: [result.video], model: result.model, providerRequests: result.providerRequests, prompts: [String(step.params.prompt ?? "")] };
     }

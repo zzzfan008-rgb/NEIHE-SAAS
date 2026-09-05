@@ -67,10 +67,18 @@ export function ResultsPanel({
     if (!tab || tab.readOnly) return;
     const nodes = selectActiveNodes(state);
     const minX = Math.min(0, ...nodes.map((node) => node.position.x));
-    const nodeId = state.addAssetNode(
-      { name: r.nodeLabel, image: r.image },
-      { x: minX - 320, y: nodes.length * 40 },
-    );
+    const position = { x: minX - 320, y: nodes.length * 40 };
+    const nodeId = isVideo(r.image)
+      ? state.addNode("video-input", position, {
+          label: r.nodeLabel,
+          videoUrl: r.image,
+          mimeType: r.image.startsWith("data:video/webm") || /\.webm(?:[?#]|$)/i.test(r.image)
+            ? "video/webm"
+            : r.image.startsWith("data:video/quicktime") || /\.mov(?:[?#]|$)/i.test(r.image)
+              ? "video/quicktime"
+              : "video/mp4",
+        })
+      : state.addAssetNode({ name: r.nodeLabel, image: r.image }, position);
     if (nodeId) {
       requestCanvasLanding({ tabId: tab.id, nodeId, fitView: false });
     }

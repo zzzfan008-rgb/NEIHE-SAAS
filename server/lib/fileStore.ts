@@ -46,13 +46,16 @@ const EXT_MIME: Record<string, string> = {
 };
 
 const VIDEO_MIMES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
-const MAX_VIDEO_BYTES = 32 * 1024 * 1024;
+const MAX_VIDEO_UPLOAD_BYTES = 32 * 1024 * 1024;
+const MAX_GENERATED_VIDEO_BYTES = 100 * 1024 * 1024;
 
-function validateVideoDataUrl(dataUrl: string): { mime: string; buffer: Buffer } {
+function validateVideoDataUrl(dataUrl: string, maxBytes: number): { mime: string; buffer: Buffer } {
   const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
   if (!match || !VIDEO_MIMES.has(match[1])) throw new Error("仅支持 MP4、WebM 或 MOV 视频");
   const buffer = Buffer.from(match[2], "base64");
-  if (buffer.byteLength === 0 || buffer.byteLength > MAX_VIDEO_BYTES) throw new Error("视频为空或超过 32MB");
+  if (buffer.byteLength === 0 || buffer.byteLength > maxBytes) {
+    throw new Error(`视频为空或超过 ${Math.floor(maxBytes / 1024 / 1024)}MB`);
+  }
   const isWebm = buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
   const isIsoMedia = buffer.byteLength >= 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp";
   if (match[1] === "video/webm" ? !isWebm : !isIsoMedia) throw new Error("视频扩展类型与文件内容不匹配");
@@ -233,7 +236,7 @@ export function storedMediaPath(ref: string, allowedMimes?: readonly string[]): 
 export function saveVideoUploadDataUrl(dataUrl: string): {
   id: string; url: string; mimeType: string; byteLength: number;
 } {
-  const { mime, buffer } = validateVideoDataUrl(dataUrl);
+  const { mime, buffer } = validateVideoDataUrl(dataUrl, MAX_VIDEO_UPLOAD_BYTES);
   const id = `${nanoid(12)}.${MIME_EXT[mime]}`;
   if (!createStoredImage(id, buffer)) throw new Error("视频文件名冲突，请重试");
   return { id, url: `/api/files/${id}`, mimeType: mime, byteLength: buffer.byteLength };
@@ -566,7 +569,7 @@ export async function persistMediaRefWithReceipt(
 ): Promise<PersistedMediaReceipt> {
   if (!ref.startsWith("data:video/")) return persistImageRefWithReceipt(ref, idempotencyKey);
   if (!idempotencyKey.trim()) throw new Error("media persistence idempotency key is required");
-  const { mime, buffer } = validateVideoDataUrl(ref);
+  const { mime, buffer } = validateVideoDataUrl(ref, MAX_GENERATED_VIDEO_BYTES);
   const ext = MIME_EXT[mime];
   const keyDigest = sha256(idempotencyKey).slice(0, 24);
   const contentDigest = sha256(buffer).slice(0, 16);

@@ -9,8 +9,10 @@ import {
   applyRunEventToTab,
   beginHistoryTransaction,
   endHistoryTransaction,
+  ensureGeneratedResultNode,
   reconcileRunHistory,
   selectActiveDocument,
+  selectResultImages,
   useFlowStore,
   type DocumentTarget,
   type FlowNode,
@@ -82,6 +84,29 @@ function resetDocument(node = aiNode()): { tabId: string; nodeId: string } {
 console.log("画布文档历史事务测试");
 // 这些用例验证已完成活动任务对账后的历史行为；冷启动关闭门禁另有契约测试。
 setGenerationSafetyBlockReason(null);
+
+await test("每个生成结果节点读取创建时快照而不是上游最新输出", () => {
+  const source = aiNode("snapshot-source");
+  const first = ensureGeneratedResultNode(
+    [source],
+    [],
+    source.id,
+    ["/api/files/first-generation.png"],
+  );
+  const nodes = first.nodes.map((node) => node.id === source.id
+    ? { ...node, data: { ...node.data, outputImages: ["/api/files/second-generation.png"] } as WorkflowNodeData }
+    : node);
+  useFlowStore.getState().loadFlow({
+    projectId: "result-snapshot-project",
+    projectName: "结果快照",
+    nodes,
+    edges: first.edges,
+  });
+  assert.deepEqual(
+    selectResultImages(useFlowStore.getState(), first.resultNodeId),
+    ["/api/files/first-generation.png"],
+  );
+});
 
 await test("queued/running/retry/cancel 运行态不进入撤销历史", () => {
   const { tabId, nodeId } = resetDocument();

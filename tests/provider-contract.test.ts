@@ -11,6 +11,7 @@ import { compositeMaskedEdit, validateMaskForSource } from "../server/lib/maskPr
 import { createRateLimitMiddleware } from "../server/lib/rateLimit";
 import { apiyiProviders } from "../server/providers/apiyi";
 import { generateApiYiVideo } from "../server/providers/apiyiVideo";
+import { executeStep } from "../server/engine/runner";
 import { fetchWithRetry, ProviderError } from "../server/providers/base";
 import { createAiDiagnosticsRouter } from "../server/routes/aiDiagnostics";
 import {
@@ -93,6 +94,26 @@ function pngPayload(dataUrl: string): { data: Array<{ b64_json: string }> } {
   return { data: [{ b64_json: dataUrl.split(",")[1] }] };
 }
 
+function mp4Payload(): Buffer {
+  const buffer = Buffer.alloc(12);
+  buffer.writeUInt32BE(12, 0);
+  buffer.write("ftyp", 4, "ascii");
+  return buffer;
+}
+
+async function withoutTimerDelay<T>(run: () => Promise<T>): Promise<T> {
+  const original = globalThis.setTimeout;
+  globalThis.setTimeout = ((callback: (...args: unknown[]) => void, _delay?: number, ...args: unknown[]) => {
+    queueMicrotask(() => callback(...args));
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+  try {
+    return await run();
+  } finally {
+    globalThis.setTimeout = original;
+  }
+}
+
 function assertPixel(
   data: Buffer,
   width: number,
@@ -143,6 +164,73 @@ async function main(): Promise<void> {
           }
         }
         assert.equal(calls, 0);
+      } finally {
+        restoreFetch();
+      }
+    });
+
+    await test("视频首尾帧按角色排序，不受边插入顺序影响", async () => {
+      let submittedForm: FormData | undefined;
+      const restoreFetch = installFetchMock((input, init) => {
+        const url = String(input);
+        if (init?.method === "POST") {
+          submittedForm = init.body as FormData;
+          return Response.json({ task_id: "role-ordered-task" });
+        }
+        if (url.endsWith("/content")) return new Response(mp4Payload());
+        return Response.json({ status: "completed" });
+      });
+      try {
+        await withoutTimerDelay(() => executeStep({
+          nodeId: "video-role-order",
+          kind: "video-generate",
+          inputImages: [],
+          params: {
+            mode: "keyframes-to-video",
+            prompt: "服装从静止到转身",
+            quality: "standard",
+            aspectRatio: "16:9",
+            resolution: "720p",
+            seconds: 8,
+          },
+        }, [blue, white], undefined, {
+          referenceRoles: ["last-frame", "first-frame"],
+        }));
+        const files = submittedForm?.getAll("input_reference") as File[] | undefined;
+        assert.equal(files?.length, 2);
+        assert.deepEqual(Buffer.from(await files![0].arrayBuffer()), Buffer.from(white.split(",")[1], "base64"));
+        assert.deepEqual(Buffer.from(await files![1].arrayBuffer()), Buffer.from(blue.split(",")[1], "base64"));
+      } finally {
+        restoreFetch();
+      }
+    });
+
+    await test("已受理视频任务恢复时只轮询和下载，不重复 POST", async () => {
+      const methods: string[] = [];
+      let beforeCalls = 0;
+      let acceptedCalls = 0;
+      const restoreFetch = installFetchMock((input, init) => {
+        methods.push(init?.method ?? "GET");
+        if (String(input).endsWith("/content")) return new Response(mp4Payload());
+        return Response.json({ status: "completed" });
+      });
+      try {
+        const result = await withoutTimerDelay(() => generateApiYiVideo({
+          mode: "text-to-video",
+          prompt: "服装走秀",
+          quality: "fast",
+          aspectRatio: "16:9",
+          resolution: "720p",
+          seconds: 8,
+          references: [],
+          resumeTask: { id: "accepted-video-task", model: "veo-3.1-fast-generate-preview" },
+          beforeProviderCall: () => { beforeCalls += 1; },
+          onTaskAccepted: () => { acceptedCalls += 1; },
+        }));
+        assert.deepEqual(methods, ["GET", "GET"]);
+        assert.equal(beforeCalls, 0);
+        assert.equal(acceptedCalls, 0);
+        assert.equal(result.providerRequests, 0);
       } finally {
         restoreFetch();
       }

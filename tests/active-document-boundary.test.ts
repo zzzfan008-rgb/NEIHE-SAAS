@@ -8,6 +8,7 @@ import {
   selectActiveCompareIds,
   selectActiveDirty,
   selectActiveDocument,
+  selectActiveDocumentTarget,
   selectActiveDocumentEpoch,
   selectActiveEdges,
   selectActiveNodes,
@@ -114,6 +115,17 @@ assert.doesNotMatch(
 );
 console.log("  ✓ FlowState 与源码不再包含活动文档镜像边界");
 
+const textToolbarSource = fs.readFileSync(
+  path.join(sourceRoot, "components/nodes/NodeActionToolbar.tsx"),
+  "utf8",
+);
+assert.match(
+  textToolbarSource,
+  /const target = selectActiveDocumentTarget\(useFlowStore\.getState\(\)\);[\s\S]*?await fetch\([\s\S]*?updateNodeDataInTab\(target, nodeId,/,
+  "提示词优化必须在请求前捕获 DocumentTarget，并按该目标写回",
+);
+console.log("  ✓ 提示词优化异步回写绑定发起文档身份");
+
 useFlowStore.getState().loadFlow({
   projectId: "selector-a",
   projectName: "Selector A",
@@ -210,6 +222,37 @@ assert.equal(previousDocument?.nodes[0]?.id, "selector-a-node");
 assert.equal(selectActiveProjectId(blankState) === "selector-a", false);
 assert.equal(selectHasDirtyTabs(blankState), true, "非活动页签的 dirty 仍必须被卸载保护感知");
 console.log("  ✓ 切页后 selector 区分活动文档与非活动页签快照");
+
+useFlowStore.getState().loadFlow({
+  projectId: "async-write-source",
+  projectName: "Async source",
+  nodes: [{
+    id: "shared-text-node",
+    type: "text-input",
+    position: { x: 0, y: 0 },
+    data: { kind: "text-input", label: "Source", status: "idle", text: "source" },
+  }],
+  edges: [],
+});
+const asyncTarget = selectActiveDocumentTarget(useFlowStore.getState());
+useFlowStore.getState().openFlowTab({
+  projectId: "async-write-destination",
+  projectName: "Async destination",
+  nodes: [{
+    id: "shared-text-node",
+    type: "text-input",
+    position: { x: 0, y: 0 },
+    data: { kind: "text-input", label: "Destination", status: "idle", text: "destination" },
+  }],
+  edges: [],
+});
+useFlowStore.getState().updateNodeDataInTab(asyncTarget, "shared-text-node", { text: "optimized source" });
+const asyncState = useFlowStore.getState();
+const sourceTab = asyncState.tabs.find((tab) => tab.id === asyncTarget.tabId);
+const destinationTab = asyncState.tabs.find((tab) => tab.id === asyncState.activeTabId);
+assert.equal(sourceTab?.nodes[0]?.data.kind === "text-input" ? sourceTab.nodes[0].data.text : "", "optimized source");
+assert.equal(destinationTab?.nodes[0]?.data.kind === "text-input" ? destinationTab.nodes[0].data.text : "", "destination");
+console.log("  ✓ 同 ID 节点的迟到异步结果不会写入当前其他页签");
 
 const printUrl = "/api/files/selector-print.png";
 useFlowStore.getState().loadFlow({

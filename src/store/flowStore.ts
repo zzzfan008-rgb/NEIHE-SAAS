@@ -1066,6 +1066,19 @@ function defaultNodeDataWithPreset(kind: NodeKind, preset?: Record<string, unkno
   if ((data.kind === "ai-modify" || data.kind === "sketch-to-render") && typeof preset.prompt === "string") {
     return { ...data, prompt: preset.prompt };
   }
+  if (
+    data.kind === "video-input"
+    && typeof preset.videoUrl === "string"
+    && typeof preset.mimeType === "string"
+    && ["video/mp4", "video/webm", "video/quicktime"].includes(preset.mimeType)
+  ) {
+    return {
+      ...data,
+      label: typeof preset.label === "string" && preset.label.trim() ? preset.label.trim() : data.label,
+      videoUrl: preset.videoUrl,
+      mimeType: preset.mimeType as "video/mp4" | "video/webm" | "video/quicktime",
+    };
+  }
   return data;
 }
 
@@ -4656,6 +4669,8 @@ export function applyRunEventToTab(
 /** 读取 result 节点聚合的上游图片（直接上游） */
 export function selectResultImages(state: FlowState, nodeId: string): string[] {
   const document = selectActiveDocument(state);
+  const result = document.nodes.find((node) => node.id === nodeId);
+  if (result?.data.kind === "result") return result.data.images ?? [];
   const urls: string[] = [];
   for (const e of document.edges) {
     if (e.target !== nodeId) continue;

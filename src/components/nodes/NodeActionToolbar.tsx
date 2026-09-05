@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { CopyIcon, CropIcon, PaintbrushIcon, SparklesIcon, Trash2Icon, WandSparklesIcon } from "lucide-react";
 import { nanoid } from "nanoid";
-import { selectActiveNodes, selectActiveReadOnly, useFlowStore, type FlowNode } from "@/store/flowStore";
+import {
+  selectActiveDocumentTarget,
+  selectActiveNodes,
+  selectActiveReadOnly,
+  useFlowStore,
+  type FlowNode,
+} from "@/store/flowStore";
 import { isNodeRunActive } from "@/types/workflow";
 import { Button } from "@/components/ui/button";
 import {
@@ -84,6 +90,7 @@ export function TextNodeActionToolbar({ nodeId, text }: { nodeId: string; text: 
   const toolbarDisabled = useToolbarDisabled(nodeId);
   const optimize = async () => {
     if (!text.trim() || optimizing || toolbarDisabled) return;
+    const target = selectActiveDocumentTarget(useFlowStore.getState());
     setOptimizing(true);
     setOptimizeError(null);
     try {
@@ -94,8 +101,8 @@ export function TextNodeActionToolbar({ nodeId, text }: { nodeId: string; text: 
       });
       const payload = await response.json().catch(() => ({})) as { text?: string; error?: string };
       if (!response.ok || !payload.text?.trim()) throw new Error(payload.error || "提示词优化失败");
-      // 按产品约定直接覆盖；updateNodeData 仍保留一次可撤销历史。
-      useFlowStore.getState().updateNodeData(nodeId, { text: payload.text.trim() });
+      // 异步结果只能写回发起请求时的文档；切页或重载后由 Store 丢弃。
+      useFlowStore.getState().updateNodeDataInTab(target, nodeId, { text: payload.text.trim() });
     } catch (error) {
       setOptimizeError(error instanceof Error ? error.message : "提示词优化失败");
     } finally {

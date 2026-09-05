@@ -52,19 +52,6 @@ drawingBoardsRouter.post("/versions", asyncHandler(async (req, res) => {
       const flow = validateAndMigrateFlow(JSON.parse(project.flow_json));
       const node = drawingNodeFromFlow(flow, nodeId);
       if (node.data.kind !== "drawing-board") return { status: "not-found" as const };
-      if (node.data.width !== (document as { canvas?: { width?: unknown } })?.canvas?.width ||
-          node.data.height !== (document as { canvas?: { height?: unknown } })?.canvas?.height) {
-        return { status: "mismatch" as const };
-      }
-      if ((node.data.contentRef ?? null) !== normalizedBase) return { status: "base-mismatch" as const };
-      if (normalizedBase) {
-        const base = (await client.query(`
-          SELECT id FROM drawing_document_versions
-          WHERE id = $1 AND owner_id = $2 AND project_id = $3 AND node_id = $4
-          FOR KEY SHARE
-        `, [normalizedBase, user.id, projectId, nodeId])).rows[0];
-        if (!base) return { status: "not-found" as const };
-      }
       const replay = (await client.query<{
         request_sha256: string; content_ref: string; sha256: string; created_at: string;
       }>(`
@@ -78,6 +65,19 @@ drawingBoardsRouter.post("/versions", asyncHandler(async (req, res) => {
         return replay.request_sha256 === requestSha256
           ? { status: "replay" as const, contentRef: replay.content_ref, sha256: replay.sha256, createdAt: replay.created_at }
           : { status: "idempotency-conflict" as const };
+      }
+      if (node.data.width !== (document as { canvas?: { width?: unknown } })?.canvas?.width ||
+          node.data.height !== (document as { canvas?: { height?: unknown } })?.canvas?.height) {
+        return { status: "mismatch" as const };
+      }
+      if ((node.data.contentRef ?? null) !== normalizedBase) return { status: "base-mismatch" as const };
+      if (normalizedBase) {
+        const base = (await client.query(`
+          SELECT id FROM drawing_document_versions
+          WHERE id = $1 AND owner_id = $2 AND project_id = $3 AND node_id = $4
+          FOR KEY SHARE
+        `, [normalizedBase, user.id, projectId, nodeId])).rows[0];
+        if (!base) return { status: "not-found" as const };
       }
       const contentRef = `draw_${nanoid(20)}`;
       const createdAt = new Date().toISOString();

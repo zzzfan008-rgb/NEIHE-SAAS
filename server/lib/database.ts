@@ -607,6 +607,24 @@ async function migrate(): Promise<void> {
       );
     }
 
+    if (!applied.has(14)) {
+      await client.query(`
+        ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS provider_task_id TEXT;
+        ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS provider_model TEXT;
+        ALTER TABLE generation_jobs
+          DROP CONSTRAINT IF EXISTS generation_jobs_provider_task_pair_check;
+        ALTER TABLE generation_jobs
+          ADD CONSTRAINT generation_jobs_provider_task_pair_check CHECK (
+            (provider_task_id IS NULL AND provider_model IS NULL) OR
+            (provider_task_id IS NOT NULL AND provider_model IS NOT NULL)
+          );
+      `);
+      await client.query(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (14, $1, $2)",
+        ["generation_video_provider_task_state", new Date().toISOString()],
+      );
+    }
+
     return imported;
   });
   if (importedRows !== undefined) {

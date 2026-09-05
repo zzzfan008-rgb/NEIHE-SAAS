@@ -16,6 +16,7 @@ import type { SceneAnalyzer } from "../lib/sceneAnalysis";
 import { ACTIVE_RUN_LIMIT } from "../lib/generationLimits";
 import { lockActiveOwner } from "../lib/ownerMutation";
 import { getProvider } from "../providers";
+import type { ApiYiVideoTask } from "../providers/apiyiVideo";
 import {
   ProviderError,
   publicProviderErrorMessage,
@@ -99,6 +100,8 @@ interface ClaimedJob {
   step: NodeExecution;
   retryCount: number;
   startedAt: number;
+  idempotencyKey: string;
+  videoTask?: ApiYiVideoTask;
 }
 
 interface JobLockRow {
@@ -114,6 +117,9 @@ interface JobLockRow {
   step_json: string;
   step_started_at: number | null;
   target_step_id: string | null;
+  idempotency_key: string;
+  provider_task_id: string | null;
+  provider_model: string | null;
 }
 
 export interface ProcessGenerationJobOptions {
@@ -310,6 +316,7 @@ export async function enqueueGenerationRun(
 
 export const CLAIM_NEXT_JOB_SQL = `
   SELECT j.id, j.run_id, j.step_id, j.status, j.retry_count, j.attempt_started_at, j.worker_id,
+    j.idempotency_key, j.provider_task_id, j.provider_model,
     s.node_id, s.step_index, s.step_json, s.started_at AS step_started_at, r.target_step_id
   FROM generation_jobs j
   JOIN generation_run_steps s ON s.id = j.step_id
@@ -365,6 +372,10 @@ export async function claimNextJob(
       step,
       retryCount: row.retry_count,
       startedAt: now,
+      idempotencyKey: row.idempotency_key,
+      videoTask: row.provider_task_id && row.provider_model
+        ? { id: row.provider_task_id, model: row.provider_model }
+        : undefined,
     };
   });
 }
@@ -416,6 +427,40 @@ async function markAttemptStarted(
     await client.query(`
       UPDATE generation_run_steps SET provider_requests = provider_requests + 1 WHERE id = $1
     `, [job.stepId]);
+  });
+}
+
+async function markVideoTaskAccepted(
+  job: ClaimedJob,
+  workerId: string,
+  task: ApiYiVideoTask,
+  now: number,
+  leaseMs: number,
+): Promise<void> {
+  await transaction(async (client) => {
+    const row = (await client.query<{
+      status: DurableRunStatus;
+      worker_id: string | null;
+      provider_task_id: string | null;
+      provider_model: string | null;
+    }>(`
+      SELECT status, worker_id, provider_task_id, provider_model
+      FROM generation_jobs WHERE id = $1 FOR UPDATE
+    `, [job.id])).rows[0];
+    if (!row || row.worker_id !== workerId || row.status !== "running") {
+      throw new Error("generation job lease was lost before provider task persistence");
+    }
+    if (
+      (row.provider_task_id && row.provider_task_id !== task.id)
+      || (row.provider_model && row.provider_model !== task.model)
+    ) {
+      throw new Error("generation job provider task changed unexpectedly");
+    }
+    await client.query(`
+      UPDATE generation_jobs
+      SET provider_task_id = $1, provider_model = $2, lease_expires_at = $3, updated_at = $4
+      WHERE id = $5
+    `, [task.id, task.model, now + leaseMs, now, job.id]);
   });
 }
 
@@ -792,6 +837,7 @@ async function handleJobError(
   await transaction(async (client) => {
     const row = (await client.query<JobLockRow>(`
       SELECT j.id, j.run_id, j.step_id, j.status, j.retry_count, j.attempt_started_at, j.worker_id,
+        j.idempotency_key, j.provider_task_id, j.provider_model,
         s.node_id, s.step_index, s.step_json, s.started_at AS step_started_at, r.target_step_id
       FROM generation_jobs j JOIN generation_run_steps s ON s.id = j.step_id
       JOIN generation_runs r ON r.id = j.run_id
@@ -830,6 +876,7 @@ export async function recoverExpiredGenerationJobs(now = Date.now()): Promise<nu
   return transaction(async (client) => {
     const rows = (await client.query<JobLockRow>(`
       SELECT j.id, j.run_id, j.step_id, j.status, j.retry_count, j.attempt_started_at, j.worker_id,
+        j.idempotency_key, j.provider_task_id, j.provider_model,
         s.node_id, s.step_index, s.step_json, s.started_at AS step_started_at, r.target_step_id
       FROM generation_jobs j JOIN generation_run_steps s ON s.id = j.step_id
       JOIN generation_runs r ON r.id = j.run_id
@@ -840,6 +887,17 @@ export async function recoverExpiredGenerationJobs(now = Date.now()): Promise<nu
     `, [now])).rows;
     for (const row of rows) {
       if (row.attempt_started_at !== null) {
+        const step = parseJson<NodeExecution | undefined>(row.step_json, undefined);
+        if (step?.kind === "video-generate" && !row.provider_task_id) {
+          await terminateRun(
+            client,
+            row,
+            "outcome_unknown",
+            outcomeUnknownMessage("Worker 在视频任务受理状态落库前中断，系统已禁止自动重提"),
+            now,
+          );
+          continue;
+        }
         if (row.status !== "cancel_requested" && await scheduleAutomaticRetry(
           client,
           row,
@@ -905,6 +963,17 @@ export async function processNextGenerationJob(
         runId: job.runId,
         referenceRoles: input.referenceRoles,
         sceneAnalyzer: options.sceneAnalyzer,
+        videoTask: job.videoTask,
+        videoIdempotencyKey: job.idempotencyKey,
+        onVideoTaskAccepted: async (task) => {
+          await markVideoTaskAccepted(
+            job,
+            workerId,
+            task,
+            options.now?.() ?? Date.now(),
+            leaseMs,
+          );
+        },
         beforeProviderCall: async () => {
           await markAttemptStarted(job, workerId, options.now?.() ?? Date.now(), leaseMs);
         },

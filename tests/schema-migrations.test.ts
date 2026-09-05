@@ -34,6 +34,7 @@ assert.deepEqual(versions, [
   { version: 11, name: "versioned_tutorial_receipts" },
   { version: 12, name: "initial_draft_project_lifecycle" },
   { version: 13, name: "drawing_document_versions" },
+  { version: 14, name: "generation_video_provider_task_state" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
 
@@ -213,6 +214,24 @@ assert.deepEqual(queueIndexes.map((row) => row.indexname), [
 ]);
 assert.match(queueIndexes.find((row) => row.indexname === "generation_jobs_ready_order_idx")?.indexdef ?? "", /available_at, run_started_at, step_index, id/);
 console.log("  ✓ 队列排序列、可用时间索引与原子事件序号列已建立");
+const videoTaskColumns = await query<{ column_name: string; is_nullable: string }>(`
+  SELECT column_name, is_nullable FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'generation_jobs'
+    AND column_name IN ('provider_task_id','provider_model')
+  ORDER BY column_name
+`);
+assert.deepEqual(videoTaskColumns, [
+  { column_name: "provider_model", is_nullable: "YES" },
+  { column_name: "provider_task_id", is_nullable: "YES" },
+]);
+const videoTaskPairConstraint = await queryOne<{ definition: string }>(`
+  SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+  WHERE conrelid = 'generation_jobs'::regclass
+    AND conname = 'generation_jobs_provider_task_pair_check'
+`);
+assert.match(videoTaskPairConstraint?.definition ?? "", /provider_task_id IS NULL/);
+assert.match(videoTaskPairConstraint?.definition ?? "", /provider_model IS NOT NULL/);
+console.log("  ✓ 视频 Provider 任务编号与模型成对持久化");
 const requestIdColumns = await query<{ column_name: string }>(`
   SELECT column_name FROM information_schema.columns
   WHERE table_schema = 'public' AND table_name = 'generation_runs'

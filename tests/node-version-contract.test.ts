@@ -70,11 +70,24 @@ assert.doesNotMatch(
   "Codex 门禁必须使用用户配置的默认模型",
 );
 const dockerfile = read("Dockerfile");
+const pnpmWorkspace = read("pnpm-workspace.yaml");
 const nodeImages = [...dockerfile.matchAll(/^FROM node:([^\s]+).*$/gm)].map((match) => match[1]);
 assert.ok(nodeImages.length > 0, "Dockerfile 必须声明 Node.js 基础镜像");
 assert.ok(
   nodeImages.every((image) => image.startsWith("22-")),
   `Dockerfile 中所有 Node.js 基础镜像必须使用 22.x，实际为：${nodeImages.join(", ")}`,
 );
+assert.match(
+  dockerfile,
+  /corepack enable && corepack prepare pnpm@11\.19\.0 --activate[\s\S]*pnpm install --frozen-lockfile[\s\S]*RUN pnpm run build/,
+  "Docker 构建阶段必须使用锁定 pnpm 版本和 frozen lockfile",
+);
+for (const dependency of ["better-sqlite3", "esbuild", "sharp"]) {
+  assert.match(
+    pnpmWorkspace,
+    new RegExp(`allowBuilds:[\\s\\S]*?${dependency.replace("-", "\\-")}: true`),
+    `pnpm 必须显式批准 ${dependency} 的原生构建脚本`,
+  );
+}
 
 console.log("  ✓ package、文档、安装器与本地 Codex 门禁统一为 Node.js 22.20+，Docker 保持 22.x 安全更新");

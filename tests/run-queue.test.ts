@@ -19,6 +19,8 @@ process.env.DATA_DIR = temp;
 process.env.SQLITE_IMPORT_FILE = "missing.db";
 process.env.INITIAL_ADMIN_ACCOUNT_ID = "queue-admin";
 process.env.INITIAL_ADMIN_PASSWORD = "Initial1234";
+process.env.APIYI_API_KEY = "queue-video-test-key";
+process.env.APIYI_BASE_URL = "https://video-queue.example";
 
 await resetPostgresTestDatabase();
 const database = await import("../server/lib/database");
@@ -81,6 +83,28 @@ async function enqueueSingle(prefix: string): Promise<string> {
   sequence += 1;
   const nodeId = `${prefix}-${sequence}`;
   const run = await queue.enqueueGenerationRun({ steps: [step(nodeId)] }, owner.id, context(nodeId));
+  return run.id;
+}
+
+async function enqueueVideo(prefix: string): Promise<string> {
+  sequence += 1;
+  const nodeId = `${prefix}-${sequence}`;
+  const videoStep: NodeExecution = {
+    nodeId,
+    kind: "video-generate",
+    inputImages: [],
+    params: {
+      mode: "text-to-video",
+      prompt: "服装走秀",
+      quality: "fast",
+      aspectRatio: "16:9",
+      resolution: "720p",
+      seconds: 8,
+    },
+  };
+  const run = await queue.enqueueGenerationRun({ steps: [videoStep] }, owner.id, {
+    ...context(nodeId), kind: "video-generate", prompt: "服装走秀",
+  });
   return run.id;
 }
 
@@ -489,6 +513,59 @@ await test("明确 429 最多自动重放两次并保留三次真实请求计数
   }), false);
 });
 
+await test("视频轮询失败后从已保存任务恢复且不会重复提交", async () => {
+  const runId = await enqueueVideo("video-resume");
+  const originalFetch = globalThis.fetch;
+  let postCalls = 0;
+  let statusCalls = 0;
+  const mp4 = Buffer.alloc(12);
+  mp4.writeUInt32BE(12, 0);
+  mp4.write("ftyp", 4, "ascii");
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input);
+    if (init?.method === "POST") {
+      postCalls += 1;
+      assert.ok(new Headers(init.headers).get("idempotency-key"));
+      return Response.json({ task_id: "durable-video-task" });
+    }
+    if (url.endsWith("/content")) return new Response(mp4);
+    statusCalls += 1;
+    return statusCalls === 1
+      ? new Response(JSON.stringify({ error: "busy" }), { status: 429 })
+      : Response.json({ status: "completed" });
+  }) as typeof fetch;
+  try {
+    let now = tick();
+    assert.equal(await queue.processNextGenerationJob("worker-video-resume", {
+      now: () => now, random: () => 0, retryDelaysMs: [0, 0],
+    }), true);
+    assert.deepEqual(await database.queryOne<{
+      status: string; retry_count: number; provider_task_id: string; provider_model: string;
+    }>(`
+      SELECT status, retry_count, provider_task_id, provider_model
+      FROM generation_jobs WHERE run_id = $1
+    `, [runId]), {
+      status: "retry_wait",
+      retry_count: 1,
+      provider_task_id: "durable-video-task",
+      provider_model: "veo-3.1-fast-generate-preview",
+    });
+    assert.equal((await runRow(runId))?.provider_requests, 0, "运行汇总在终态前不提前发布");
+
+    now = tick();
+    assert.equal(await queue.processNextGenerationJob("worker-video-resume", {
+      now: () => now, random: () => 0, retryDelaysMs: [0, 0],
+    }), true);
+    assert.equal(postCalls, 1);
+    assert.equal(statusCalls, 2);
+    assert.deepEqual(await runRow(runId), {
+      status: "succeeded", error: null, provider_requests: 1, successful_count: 1,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 await test("Gemini IMAGE_SAFETY 最多自动重试两次并可在第三次成功", async () => {
   const fake = resolver((_request, call) => {
     if (call <= 2) {
@@ -667,6 +744,27 @@ await test("租约在上游调用前过期可安全重排，调用开始后中�
   assert.equal(unknown?.status, "outcome_unknown");
   assert.equal(unknown?.provider_requests, 3);
   assert.match(unknown?.error ?? "", /核对 API易消耗记录/);
+});
+
+await test("视频任务在受理状态落库前中断时禁止自动重提", async () => {
+  const runId = await enqueueVideo("video-untracked");
+  const expiredAt = tick();
+  await database.query(`
+    UPDATE generation_jobs SET status = 'running', worker_id = 'dead-video-worker',
+      lease_expires_at = $1, attempt_started_at = $2 WHERE run_id = $3
+  `, [expiredAt - 1, expiredAt - 100, runId]);
+  await database.query(`
+    UPDATE generation_run_steps SET status = 'running', provider_requests = 1 WHERE run_id = $1
+  `, [runId]);
+  await database.query("UPDATE generation_runs SET status = 'running' WHERE id = $1", [runId]);
+  assert.equal(await queue.recoverExpiredGenerationJobs(expiredAt), 1);
+  const row = await runRow(runId);
+  assert.equal(row?.status, "outcome_unknown");
+  assert.equal(row?.provider_requests, 1);
+  assert.match(row?.error ?? "", /禁止自动重提/);
+  assert.deepEqual(await database.queryOne<{ status: string; retry_count: number }>(
+    "SELECT status, retry_count FROM generation_jobs WHERE run_id = $1", [runId],
+  ), { status: "outcome_unknown", retry_count: 0 });
 });
 
 await test("同一 run 的并发事件通过原子序号严格递增且无缺口", async () => {
