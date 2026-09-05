@@ -33,6 +33,15 @@ export interface ApiYiVideoResult {
   providerRequests: number;
 }
 
+export class AcceptedVideoTaskPersistenceError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `视频任务已受理但状态保存失败，结果状态未知；请核对 API易消耗记录后再决定是否重试：${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = "AcceptedVideoTaskPersistenceError";
+  }
+}
+
 const authHeaders = () => ({ Authorization: `Bearer ${config.apiyiApiKey()}` });
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -202,9 +211,7 @@ export async function generateApiYiVideo(request: ApiYiVideoRequest): Promise<Ap
     try {
       await request.onTaskAccepted?.(task);
     } catch (error) {
-      throw new Error(
-        `视频任务已受理但状态保存失败，请核对 API易消耗记录后再决定是否重试：${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new AcceptedVideoTaskPersistenceError(error);
     }
   }
   await waitUntilComplete(task.id, task.model, request.resolution);

@@ -108,6 +108,33 @@ await test("每个生成结果节点读取创建时快照而不是上游最新�
   );
 });
 
+await test("旧结果节点没有快照时继续聚合直接上游输出", () => {
+  const source = aiNode("legacy-result-source");
+  source.data = {
+    ...source.data,
+    outputImages: ["/api/files/upstream-output.png"],
+  } as WorkflowNodeData;
+  const generated = ensureGeneratedResultNode(
+    [source],
+    [],
+    source.id,
+    ["/api/files/upstream-output.png"],
+  );
+  const nodes = generated.nodes.map((node) => node.id === generated.resultNodeId
+    ? { ...node, data: { ...node.data, images: [] } as WorkflowNodeData }
+    : node);
+  useFlowStore.getState().loadFlow({
+    projectId: "legacy-result-project",
+    projectName: "旧结果节点",
+    nodes,
+    edges: generated.edges,
+  });
+  assert.deepEqual(
+    selectResultImages(useFlowStore.getState(), generated.resultNodeId),
+    ["/api/files/upstream-output.png"],
+  );
+});
+
 await test("queued/running/retry/cancel 运行态不进入撤销历史", () => {
   const { tabId, nodeId } = resetDocument();
   const before = activeDocument();

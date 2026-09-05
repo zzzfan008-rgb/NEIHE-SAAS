@@ -10,7 +10,10 @@ import { config } from "../server/config";
 import { compositeMaskedEdit, validateMaskForSource } from "../server/lib/maskProcessing";
 import { createRateLimitMiddleware } from "../server/lib/rateLimit";
 import { apiyiProviders } from "../server/providers/apiyi";
-import { generateApiYiVideo } from "../server/providers/apiyiVideo";
+import {
+  AcceptedVideoTaskPersistenceError,
+  generateApiYiVideo,
+} from "../server/providers/apiyiVideo";
 import { executeStep } from "../server/engine/runner";
 import { fetchWithRetry, ProviderError } from "../server/providers/base";
 import { createAiDiagnosticsRouter } from "../server/routes/aiDiagnostics";
@@ -231,6 +234,34 @@ async function main(): Promise<void> {
         assert.equal(beforeCalls, 0);
         assert.equal(acceptedCalls, 0);
         assert.equal(result.providerRequests, 0);
+      } finally {
+        restoreFetch();
+      }
+    });
+
+    await test("视频任务受理状态保存失败时返回不可重放的专用错误", async () => {
+      let calls = 0;
+      const restoreFetch = installFetchMock((_input, init) => {
+        calls += 1;
+        assert.equal(init?.method, "POST");
+        return Response.json({ task_id: "accepted-but-untracked" });
+      });
+      try {
+        await assert.rejects(
+          () => generateApiYiVideo({
+            mode: "text-to-video",
+            prompt: "服装走秀",
+            quality: "fast",
+            aspectRatio: "16:9",
+            resolution: "720p",
+            seconds: 8,
+            references: [],
+            onTaskAccepted: () => { throw new Error("database unavailable"); },
+          }),
+          (error: unknown) => error instanceof AcceptedVideoTaskPersistenceError &&
+            /结果状态未知/.test(error.message) && /database unavailable/.test(error.message),
+        );
+        assert.equal(calls, 1);
       } finally {
         restoreFetch();
       }

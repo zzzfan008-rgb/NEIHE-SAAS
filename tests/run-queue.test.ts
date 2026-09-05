@@ -566,6 +566,54 @@ await test("视频轮询失败后从已保存任务恢复且不会重复提交",
   }
 });
 
+await test("视频已受理但任务状态落库失败时终止为未知且不重提", async () => {
+  const runId = await enqueueVideo("video-acceptance-persistence-failure");
+  await database.query(`
+    CREATE FUNCTION reject_video_task_state_for_test() RETURNS trigger AS $$
+    BEGIN
+      RAISE EXCEPTION 'simulated provider task persistence failure';
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await database.query(`
+    CREATE TRIGGER reject_video_task_state_for_test
+    BEFORE UPDATE OF provider_task_id ON generation_jobs
+    FOR EACH ROW WHEN (NEW.provider_task_id IS NOT NULL)
+    EXECUTE FUNCTION reject_video_task_state_for_test()
+  `);
+  const originalFetch = globalThis.fetch;
+  let postCalls = 0;
+  let pollCalls = 0;
+  globalThis.fetch = (async (_input, init) => {
+    if (init?.method === "POST") {
+      postCalls += 1;
+      return Response.json({ task_id: "accepted-with-db-failure" });
+    }
+    pollCalls += 1;
+    return Response.json({ status: "completed" });
+  }) as typeof fetch;
+  try {
+    assert.equal(await queue.processNextGenerationJob("worker-video-persistence-failure", {
+      now: () => tick(), random: () => 0, retryDelaysMs: [0, 0],
+    }), true);
+    assert.equal(postCalls, 1);
+    assert.equal(pollCalls, 0);
+    assert.deepEqual(await runRow(runId), {
+      status: "outcome_unknown",
+      error: "视频任务已受理但状态保存失败，结果状态未知；请核对 API易消耗记录后再决定是否重试：simulated provider task persistence failure",
+      provider_requests: 1,
+      successful_count: 0,
+    });
+    assert.deepEqual(await database.queryOne<{ status: string; retry_count: number }>(
+      "SELECT status, retry_count FROM generation_jobs WHERE run_id = $1", [runId],
+    ), { status: "outcome_unknown", retry_count: 0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+    await database.query("DROP TRIGGER reject_video_task_state_for_test ON generation_jobs");
+    await database.query("DROP FUNCTION reject_video_task_state_for_test()");
+  }
+});
+
 await test("Gemini IMAGE_SAFETY 最多自动重试两次并可在第三次成功", async () => {
   const fake = resolver((_request, call) => {
     if (call <= 2) {

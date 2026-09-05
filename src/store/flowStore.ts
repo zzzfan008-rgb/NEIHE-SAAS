@@ -4666,11 +4666,11 @@ export function applyRunEventToTab(
   updateTabFromRunEvent(useFlowStore.setState, target, nodeId, event);
 }
 
-/** 读取 result 节点聚合的上游图片（直接上游） */
+/** 优先读取 result 快照；旧的空快照节点继续聚合直接上游媒体。 */
 export function selectResultImages(state: FlowState, nodeId: string): string[] {
   const document = selectActiveDocument(state);
   const result = document.nodes.find((node) => node.id === nodeId);
-  if (result?.data.kind === "result") return result.data.images ?? [];
+  if (result?.data.kind === "result" && result.data.images.length > 0) return result.data.images;
   const urls: string[] = [];
   for (const e of document.edges) {
     if (e.target !== nodeId) continue;

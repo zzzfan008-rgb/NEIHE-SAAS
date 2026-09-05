@@ -16,7 +16,10 @@ import type { SceneAnalyzer } from "../lib/sceneAnalysis";
 import { ACTIVE_RUN_LIMIT } from "../lib/generationLimits";
 import { lockActiveOwner } from "../lib/ownerMutation";
 import { getProvider } from "../providers";
-import type { ApiYiVideoTask } from "../providers/apiyiVideo";
+import {
+  AcceptedVideoTaskPersistenceError,
+  type ApiYiVideoTask,
+} from "../providers/apiyiVideo";
 import {
   ProviderError,
   publicProviderErrorMessage,
@@ -850,6 +853,10 @@ async function handleJobError(
     }
     if (row.status === "cancel_requested") {
       await terminateRun(client, row, "cancelled", "用户取消了任务，系统未继续重试", now);
+      return;
+    }
+    if (error instanceof AcceptedVideoTaskPersistenceError) {
+      await terminateRun(client, row, "outcome_unknown", message, now);
       return;
     }
     const automaticallyRetryable = isRetryableProviderError(error) || (
