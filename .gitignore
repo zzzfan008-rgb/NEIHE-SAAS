@@ -26,6 +26,7 @@ data/assets/
 data/scene-analysis-cache/
 data/templates/user/
 data/quarantine/
+data/evaluations/
 data/*.db
 data/*.db-*
 data/*.dump

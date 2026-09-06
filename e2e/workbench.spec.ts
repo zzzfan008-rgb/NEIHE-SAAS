@@ -64,6 +64,10 @@ const PROJECT_CENTER_TEMPLATE_FIXTURES: Array<WorkflowTemplate> = [
 ];
 
 const RESULTS_DENSITY_IMAGE = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+const E2E_UPLOAD_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 const RESULTS_DENSITY_FIXTURES = [
   {
@@ -301,6 +305,85 @@ test("five tool groups support hover keyboard click drag and disabled no-op", as
     clientY: box.y + box.height * 0.42,
   });
   await expect(page.locator(".react-flow__node")).toHaveCount(3);
+});
+
+test("one-click try-on uploads auto-connect and uploaded media drags as one history action", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  await rail.getByRole("button", { name: "模特换装", exact: true }).click();
+  const menu = page.getByRole("menu", { name: "模特换装" });
+  await menu.getByRole("menuitem", { name: /一键换装/ }).click();
+  await expect(page.locator(".react-flow__node")).toHaveCount(15);
+  const personNode = page.locator('.react-flow__node[data-id="person"]');
+  const outfitNode = page.locator('.react-flow__node[data-id="outfit"]');
+  const personMedia = personNode.locator(".gc-image-input-media");
+  await personNode.locator('input[type="file"]').setInputFiles({
+    name: "person.png",
+    mimeType: "image/png",
+    buffer: E2E_UPLOAD_PNG,
+  });
+  await expect(personMedia.getByAltText("已上传图片")).toBeVisible();
+  await expect.poll(() => page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const tab = useFlowStore.getState().tabs.find((candidate: { id: string }) => candidate.id === useFlowStore.getState().activeTabId);
+    return tab?.edges.map((edge: { source: string; target: string; targetHandle?: string | null }) => `${edge.source}:${edge.target}:${edge.targetHandle}`).sort();
+  })).toEqual([
+    "approval:refine:baseline",
+    "person:stabilize:person",
+    "stabilize:approval:baseline-candidate",
+  ]);
+
+  await outfitNode.locator('input[type="file"]').setInputFiles({
+    name: "outfit.png",
+    mimeType: "image/png",
+    buffer: E2E_UPLOAD_PNG,
+  });
+  await expect.poll(() => page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    return tab?.edges.filter((edge: { source: string }) => edge.source === "outfit").map((edge: { target: string }) => edge.target).sort();
+  })).toEqual(["refine", "stabilize"]);
+
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().setSelectedNodeIds([]);
+    useFlowStore.temporal.getState().clear();
+  });
+  await personMedia.click();
+  await expect(personNode).toHaveClass(/\bselected\b/);
+  await expect(page.getByRole("dialog", { name: "图片查看器" })).toHaveCount(0);
+
+  const start = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    return tab?.nodes.find((node: { id: string; position: { x: number; y: number } }) => node.id === "person")?.position;
+  });
+  const mediaBox = await personMedia.boundingBox();
+  if (!mediaBox || !start) throw new Error("Uploaded image drag target is missing");
+  await page.mouse.move(mediaBox.x + mediaBox.width / 2, mediaBox.y + mediaBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(mediaBox.x + mediaBox.width / 2 + 90, mediaBox.y + mediaBox.height / 2 + 35, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    return useFlowStore.temporal.getState().pastStates.length;
+  })).toBe(1);
+  await page.keyboard.press(`${modifier}+z`);
+  await expect.poll(() => page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    return tab?.nodes.find((node: { id: string; position: { x: number; y: number } }) => node.id === "person")?.position;
+  })).toEqual(start);
 });
 
 test("staged try-on confirms a semantic role before connecting and invalidates stale approval", async ({ page }, testInfo) => {
@@ -638,7 +721,7 @@ test("results and project center follow desktop density for cards", async ({ pag
   await expect(firstSuccessCard).toBeVisible();
   await firstSuccessCard.hover();
   const compareButton = firstSuccessCard.locator('button[title="加入对比"]');
-  const viewButton = firstSuccessCard.locator('button[title="查看"]');
+  const viewButton = firstSuccessCard.locator('button[title="查看图片"]');
   const downloadButton = firstSuccessCard.locator('a[title="下载"]');
   const applyButton = firstSuccessCard.locator('button[title="设为输入"]');
   await expect(compareButton).toBeVisible();
@@ -1049,7 +1132,7 @@ test("tool rail, right dock and horizontal zoom controls preserve canvas identit
   await expect(resultsFlyout).toHaveAttribute("aria-hidden", "false");
   await expectInert(resultsFlyout, false);
   const resultsRegion = page.getByRole("region", { name: "最近生成" });
-  await expect(resultsRegion).toContainText("运行 AI 节点后，生成结果与运行记录会汇总在这里");
+  await expect(resultsRegion).toContainText("运行 AI 节点后，最近生成会显示在这里");
   const originalResultsRegion = await resultsRegion.elementHandle();
   if (!originalResultsRegion) throw new Error("Results region is missing");
   const resultsScroller = resultsRegion.locator(".overflow-y-auto");

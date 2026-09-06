@@ -74,6 +74,16 @@ test("已有图片被选中时在窗口外提供重新上传与素材库入口",
   assert.match(html, /gc-image-input-media/);
 });
 
+test("已上传图片区域只负责节点选择与拖动，不再打开查看器", () => {
+  const html = renderNode({ ...baseData, imageUrl: "/api/files/source.png" });
+  const source = readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
+  assert.match(html, /<img[^>]*draggable="false"[^>]*alt="已上传图片"/);
+  assert.doesNotMatch(html, /单击查看大图|cursor-zoom-in/);
+  assert.doesNotMatch(source, /openViewer/);
+  assert.match(source, /className=\{`gc-image-input-media relative/);
+  assert.doesNotMatch(source, /gc-image-input-media nodrag nopan/);
+});
+
 test("上传入口不再通过脚本点击隐藏文件控件", () => {
   const source = readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(source, /fileInputRef/);

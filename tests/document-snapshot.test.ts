@@ -3,6 +3,7 @@ import {
   createDocumentSnapshot,
   documentSnapshotToPersistedWorkflow,
 } from "../src/lib/documentSnapshot";
+import { WORKFLOW_SCHEMA_VERSION } from "../src/types/workflow";
 
 const source = {
   projectName: "2027 春夏胶囊系列",
@@ -31,6 +32,7 @@ const source = {
         error: "runtime-only",
         imageRole: "garment",
         imageUrl: "/api/files/garment.png",
+        autoConnectTargets: [{ targetNodeId: "sketch", targetHandle: "references" }],
         selectedResultId: "result-runtime",
         unknownData: "drop-me",
       },
@@ -210,6 +212,7 @@ assert.deepEqual(snapshot, {
         label: "款式参考",
         imageRole: "garment",
         imageUrl: "/api/files/garment.png",
+        autoConnectTargets: [{ targetNodeId: "sketch", targetHandle: "references" }],
       },
     },
     {
@@ -349,6 +352,10 @@ assert.notStrictEqual(snapshot.edges, source.edges);
 assert.notStrictEqual(snapshot.nodes[0].position, source.nodes[0].position);
 assert.notStrictEqual(snapshot.nodes[0].data, source.nodes[0].data);
 assert.notStrictEqual(
+  snapshot.nodes[0].data.kind === "image-input" && snapshot.nodes[0].data.autoConnectTargets,
+  source.nodes[0].data.autoConnectTargets,
+);
+assert.notStrictEqual(
   snapshot.nodes[1].data.kind === "sketch-to-render" && snapshot.nodes[1].data.outputImages,
   source.nodes[1].data.outputImages,
 );
@@ -362,7 +369,7 @@ assert.notStrictEqual(
 );
 
 const wire = documentSnapshotToPersistedWorkflow(snapshot);
-assert.equal(wire.schemaVersion, 6);
+assert.equal(wire.schemaVersion, WORKFLOW_SCHEMA_VERSION);
 assert.deepEqual(wire.nodes, snapshot.nodes.map((node) => ({
   ...node,
   data: { ...node.data, status: "idle" },
@@ -398,7 +405,7 @@ const v5Snapshot = createDocumentSnapshot({
 } as unknown as Parameters<typeof createDocumentSnapshot>[0]);
 
 const v5Wire = documentSnapshotToPersistedWorkflow(v5Snapshot);
-assert.equal(v5Wire.schemaVersion, 6);
+assert.equal(v5Wire.schemaVersion, WORKFLOW_SCHEMA_VERSION);
 assert.deepEqual(v5Snapshot.nodes.map((node) => node.data.kind), ["text-input", "drawing-board", "color-palette", "stage-approval", "virtual-try-on", "fabric-recolor"]);
 assert.equal((v5Snapshot.nodes[0].data as Record<string, unknown>).editorSelection, undefined);
 assert.equal((v5Snapshot.nodes[1].data as Record<string, unknown>).drawingRecoveryDraft, undefined);

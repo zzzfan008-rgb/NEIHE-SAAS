@@ -737,7 +737,7 @@ await test("前端未拿到 normalized:true 时不会把图片写入节点", () 
   assert.match(source, /fetch\("\/api\/assets"/);
   assert.match(source, /category: "reference"[\s\S]*scope: "private"[\s\S]*image: dataUrl/);
   assert.match(source, /data\.normalized !== true[\s\S]*服务端未完成素材标准化/);
-  assert.match(source, /const upload = await uploadFile\(file\)[\s\S]*imageUrl: upload\.url/);
+  assert.match(source, /const upload = await uploadFile\(file\)[\s\S]*assignImageInputInTab\(target, id, upload\.url\)/);
 });
 
 await closeDatabaseForTests();

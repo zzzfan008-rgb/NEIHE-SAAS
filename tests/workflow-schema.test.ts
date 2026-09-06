@@ -20,6 +20,7 @@ import {
 import { validateAndMigrateFlow, WorkflowValidationError } from "../server/lib/workflowSchema";
 import { ensureBuiltinTemplates } from "../server/routes/templates";
 import { getImageModelContract, MASK_REDRAW_MODEL_ID } from "../src/types/imageModels";
+import { WORKFLOW_SCHEMA_VERSION } from "../src/types/workflow";
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
@@ -153,7 +154,7 @@ async function main() {
     };
 
     const migrated = validateAndMigrateFlow(legacy);
-    assert.equal(migrated.schemaVersion, 6);
+    assert.equal(migrated.schemaVersion, WORKFLOW_SCHEMA_VERSION);
     const fabric = migrated.nodes.find((node) => node.id === "palette-source")?.data;
     assert.equal(fabric?.kind === "fabric-recolor" && fabric.operationMode, "combined");
     const stabilize = migrated.nodes.find((node) => node.id === "stabilize")?.data;
@@ -180,7 +181,7 @@ async function main() {
     assert.deepEqual(validateAndMigrateFlow(migrated), migrated, "重复读取不得重复插入确认节点");
   });
 
-  await test("v6 接受新节点及合法 typed ports，并拒绝非法角色与类型组合", () => {
+  await test("v7 接受新节点及合法 typed ports，并拒绝非法角色与类型组合", () => {
     const nodes = [
       {
         id: "text", type: "text-input", position: { x: 0, y: 0 },
@@ -214,7 +215,7 @@ async function main() {
       },
     ];
     const valid = validateAndMigrateFlow({
-      schemaVersion: 6,
+      schemaVersion: WORKFLOW_SCHEMA_VERSION,
       nodes,
       edges: [
         { id: "board-approval", source: "board", sourceHandle: "image", target: "approval", targetHandle: "baseline-candidate" },
@@ -225,21 +226,21 @@ async function main() {
     assert.equal(valid.edges.length, 2);
 
     assert.throws(() => validateAndMigrateFlow({
-      schemaVersion: 6,
+      schemaVersion: WORKFLOW_SCHEMA_VERSION,
       nodes,
       edges: [{ id: "wrong-kind", source: "text", sourceHandle: "text", target: "fabric", targetHandle: "palette" }],
     }), /配色|palette|colors|类型/);
     assert.throws(() => validateAndMigrateFlow({
-      schemaVersion: 6,
+      schemaVersion: WORKFLOW_SCHEMA_VERSION,
       nodes,
       edges: [{ id: "unknown-role", source: "board", target: "approval", targetHandle: "not-a-role" }],
     }), /角色|role|targetHandle/);
   });
 
-  await test("无版本 v0 确定性迁移到 v6，并补模型默认字段", () => {
+  await test("无版本 v0 确定性迁移到 v7，并补模型默认字段", () => {
     const first = validateAndMigrateFlow(legacyAiFlow());
     const second = validateAndMigrateFlow(first);
-    assert.equal(first.schemaVersion, 6);
+    assert.equal(first.schemaVersion, WORKFLOW_SCHEMA_VERSION);
     assert.equal(first.nodes[0].data.kind, "ai-modify");
     if (first.nodes[0].data.kind !== "ai-modify") throw new Error("unexpected node kind");
     assert.equal(first.nodes[0].data.aspectRatio, "1:1");
@@ -361,6 +362,25 @@ async function main() {
     assert.equal(refine.garmentCategory, "knit");
     assert.deepEqual(refine.modelOptions, { quality: "medium" });
     assert.ok(normalized.edges.some((edge) => edge.target === "refine" && edge.targetHandle === "baseline"));
+
+    const invalidFirstStage = structuredClone(normalized);
+    const firstStageNode = invalidFirstStage.nodes.find((node) => node.id === "stabilize");
+    if (!firstStageNode || firstStageNode.data.kind !== "virtual-try-on") throw new Error("missing first stage");
+    firstStageNode.data.modelId = "gpt-image-2";
+    assert.throws(
+      () => validateAndMigrateFlow(invalidFirstStage),
+      /scene-stabilize must use gemini-3\.1-flash-image-preview/,
+    );
+
+    const invalidSecondStage = structuredClone(normalized);
+    const secondStageNode = invalidSecondStage.nodes.find((node) => node.id === "refine");
+    if (!secondStageNode || secondStageNode.data.kind !== "virtual-try-on") throw new Error("missing second stage");
+    secondStageNode.data.modelId = "gemini-3.1-flash-image-preview";
+    secondStageNode.data.modelOptions = { aspectRatio: "1:1", imageSize: "2K" };
+    assert.throws(
+      () => validateAndMigrateFlow(invalidSecondStage),
+      /garment-refine must use gpt-image-2/,
+    );
   });
 
   await test("旧浏览器丢失阶段字段后按角色连线与固定模型安全恢复", () => {
@@ -438,7 +458,7 @@ async function main() {
     };
     legacyMaskFlow.nodes[0].data.maskMode = "preserve";
     const normalized = validateAndMigrateFlow(legacyMaskFlow);
-    assert.equal(normalized.schemaVersion, 6);
+    assert.equal(normalized.schemaVersion, WORKFLOW_SCHEMA_VERSION);
     assert.equal((normalized.nodes[0].data as Record<string, unknown>).maskMode, undefined);
   });
 
@@ -465,7 +485,7 @@ async function main() {
     }
 
     const migrated = validateAndMigrateFlow(legacyMaskFlow);
-    assert.equal(migrated.schemaVersion, 6);
+    assert.equal(migrated.schemaVersion, WORKFLOW_SCHEMA_VERSION);
     assert.equal(migrated.edges.length, 8);
     assert.deepEqual(validateAndMigrateFlow(migrated), migrated);
   });
@@ -526,7 +546,7 @@ async function main() {
     });
 
     assert.deepEqual(normalized, {
-      schemaVersion: 6,
+      schemaVersion: WORKFLOW_SCHEMA_VERSION,
       nodes: [
         {
           id: "n1",
@@ -645,6 +665,37 @@ async function main() {
     assert.throws(() => validateAndMigrateFlow(flow), /imageUrl/);
   });
 
+  await test("v7 校验并持久化图片自动连接目标，v6 节点默认不启用", () => {
+    const v6 = imageInputFlow("/api/files/source.png");
+    v6.schemaVersion = 6;
+    const migrated = validateAndMigrateFlow(v6);
+    assert.equal(migrated.schemaVersion, WORKFLOW_SCHEMA_VERSION);
+    assert.equal(migrated.nodes[0].data.kind, "image-input");
+    if (migrated.nodes[0].data.kind !== "image-input") throw new Error("unexpected node kind");
+    assert.equal(migrated.nodes[0].data.autoConnectTargets, undefined);
+
+    const current = imageInputFlow("/api/files/source.png") as ReturnType<typeof imageInputFlow> & {
+      nodes: Array<{ data: Record<string, unknown> }>;
+    };
+    current.schemaVersion = WORKFLOW_SCHEMA_VERSION;
+    current.nodes[0].data.autoConnectTargets = [
+      { targetNodeId: "stabilize", targetHandle: "person" },
+    ];
+    const validated = validateAndMigrateFlow(current);
+    assert.deepEqual(
+      validated.nodes[0].data.kind === "image-input" && validated.nodes[0].data.autoConnectTargets,
+      [{ targetNodeId: "stabilize", targetHandle: "person" }],
+    );
+
+    current.nodes[0].data.autoConnectTargets = [
+      { targetNodeId: "stabilize", targetHandle: "person" },
+      { targetNodeId: "stabilize", targetHandle: "person" },
+    ];
+    assert.throws(() => validateAndMigrateFlow(current), /duplicate/);
+    current.nodes[0].data.autoConnectTargets = [{ targetNodeId: "stabilize", targetHandle: "unknown" }];
+    assert.throws(() => validateAndMigrateFlow(current), /targetHandle/);
+  });
+
   await test("大于文本上限但小于图片字节上限的 dataURL 可用于通用图片与蒙版", async () => {
     const largePng = await halfEditablePng(128, 128, true);
     assert.ok(largePng.dataUrl.length > 20_000, "fixture 必须超过普通文本上限");
@@ -705,14 +756,14 @@ async function main() {
       updatedAt: "2026-01-01T00:00:00.000Z",
       flow: legacyAiFlow(),
     };
-    assert.equal(validateAndMigrateFlow(legacyProject.flow).schemaVersion, 6);
+    assert.equal(validateAndMigrateFlow(legacyProject.flow).schemaVersion, WORKFLOW_SCHEMA_VERSION);
 
     const builtinRoot = "data/templates/builtin";
     const builtinFiles = fs.readdirSync(builtinRoot).filter((name) => name.endsWith(".json"));
     assert.ok(builtinFiles.length >= 7, "仓库应包含基础内置模板");
     for (const file of builtinFiles) {
       const value = JSON.parse(fs.readFileSync(path.join(builtinRoot, file), "utf-8")) as { flow: unknown };
-      assert.equal(validateAndMigrateFlow(value.flow).schemaVersion, 6, `${builtinRoot}/${file}`);
+      assert.equal(validateAndMigrateFlow(value.flow).schemaVersion, WORKFLOW_SCHEMA_VERSION, `${builtinRoot}/${file}`);
     }
     for (const [file, expected] of [
       ["builtin-person-scene-transfer.json", ["subject", "scene"]],
@@ -735,7 +786,7 @@ async function main() {
     assert.equal(textToImage.flow.edges.length, 1, "文生图结果应自动汇总到结果节点");
 
     const stagedTryOn = JSON.parse(
-      fs.readFileSync(path.join(builtinRoot, "builtin-dual-model-staged-try-on.json"), "utf-8"),
+      fs.readFileSync(path.join(builtinRoot, "builtin-tool-one-click-try-on.json"), "utf-8"),
     ) as {
       schemaVersion: number;
       id: string;
@@ -747,20 +798,17 @@ async function main() {
         edges: Array<{ source: string; target: string; sourceHandle?: string; targetHandle?: string }>;
       };
     };
-    assert.equal(stagedTryOn.schemaVersion, 6);
-    assert.equal(stagedTryOn.id, "builtin-dual-model-staged-try-on");
+    assert.equal(stagedTryOn.schemaVersion, WORKFLOW_SCHEMA_VERSION);
+    assert.equal(stagedTryOn.id, "builtin-tool-one-click-try-on");
     assert.equal(stagedTryOn.builtIn, true);
     assert.equal(stagedTryOn.ownerId, undefined);
-    assert.equal(stagedTryOn.flow.schemaVersion, 6);
+    assert.equal(stagedTryOn.flow.schemaVersion, WORKFLOW_SCHEMA_VERSION);
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3.1-flash-image-preview");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.modelId, "gpt-image-2");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
-    assert.deepEqual(
-      stagedTryOn.flow.edges
-        .filter((edge) => edge.target === "stabilize")
-        .map((edge) => edge.targetHandle),
-      ["person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet"],
-    );
+    assert.equal(stagedTryOn.flow.nodes.length, 15);
+    assert.equal(stagedTryOn.flow.edges.length, 2, "图片连接必须在赋值后创建");
+    assert.equal(stagedTryOn.flow.edges.some((edge) => edge.target === "stabilize" && edge.source !== "approval"), false);
     assert.ok(stagedTryOn.flow.edges.some((edge) => (
       edge.source === "stabilize" && edge.target === "approval" &&
       edge.sourceHandle === "image" && edge.targetHandle === "baseline-candidate"
@@ -769,12 +817,20 @@ async function main() {
       edge.source === "approval" && edge.target === "refine" &&
       edge.sourceHandle === "image" && edge.targetHandle === "baseline"
     )));
-    assert.deepEqual(
-      stagedTryOn.flow.edges
-        .filter((edge) => edge.target === "refine")
-        .map((edge) => edge.targetHandle),
-      ["baseline", "outfit", "material", "detail"],
+    const targetsFor = (nodeId: string) => (
+      stagedTryOn.flow.nodes.find((node) => node.id === nodeId)?.data.autoConnectTargets
     );
+    assert.deepEqual(targetsFor("person"), [{ targetNodeId: "stabilize", targetHandle: "person" }]);
+    assert.deepEqual(targetsFor("scene"), [{ targetNodeId: "stabilize", targetHandle: "scene" }]);
+    assert.deepEqual(targetsFor("outfit"), [
+      { targetNodeId: "stabilize", targetHandle: "outfit" },
+      { targetNodeId: "refine", targetHandle: "outfit" },
+    ]);
+    for (const role of ["bag", "shoes", "hat", "ring", "earrings", "bracelet"]) {
+      assert.deepEqual(targetsFor(role), [{ targetNodeId: "stabilize", targetHandle: role }]);
+    }
+    assert.deepEqual(targetsFor("material"), [{ targetNodeId: "refine", targetHandle: "material" }]);
+    assert.deepEqual(targetsFor("garment-detail"), [{ targetNodeId: "refine", targetHandle: "detail" }]);
     for (const node of stagedTryOn.flow.nodes) {
       assert.equal("imageUrl" in node.data, false, `${node.id} 不得保存真实输入图`);
       assert.equal("approvedBaselineRef" in node.data, false, `${node.id} 不得保存审批事实`);
@@ -810,15 +866,16 @@ async function main() {
         if (file !== path.basename(existingPath)) fs.rmSync(path.join(builtinDir, file));
       }
       fs.writeFileSync(path.join(builtinDir, "builtin-style-transfer.json"), "deprecated", "utf-8");
+      fs.writeFileSync(path.join(builtinDir, "builtin-dual-model-staged-try-on.json"), "deprecated", "utf-8");
 
       ensureBuiltinTemplates();
 
       assert.equal(fs.readFileSync(existingPath, "utf-8"), existingJson);
       assert.equal(fs.existsSync(path.join(builtinDir, "builtin-style-transfer.json")), false);
+      assert.equal(fs.existsSync(path.join(builtinDir, "builtin-dual-model-staged-try-on.json")), false);
       const refreshedFiles = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(refreshedFiles.length, 20);
+      assert.equal(refreshedFiles.length, 19);
       for (const required of [
-        "builtin-dual-model-staged-try-on.json",
         "builtin-sketch-recolor.json",
         "builtin-tool-one-click-try-on.json",
         "builtin-tool-text-to-video.json",
@@ -853,8 +910,8 @@ async function main() {
         schemaVersion: unknown;
         flow: { nodes: Array<{ type: string; data: Record<string, unknown> }> };
       };
-      assert.equal(repaired.schemaVersion, 6);
-      assert.equal(validateAndMigrateFlow(repaired.flow).schemaVersion, 6);
+      assert.equal(repaired.schemaVersion, WORKFLOW_SCHEMA_VERSION);
+      assert.equal(validateAndMigrateFlow(repaired.flow).schemaVersion, WORKFLOW_SCHEMA_VERSION);
       for (const node of repaired.flow.nodes.filter((candidate) => candidate.type !== "image-input")) {
         assert.equal(typeof node.data.modelId, "string", `${node.type} 应补 modelId`);
         assert.equal(typeof node.data.modelOptions, "object", `${node.type} 应补 modelOptions`);
@@ -866,7 +923,7 @@ async function main() {
     }
   });
 
-  await test("全新空数据目录生成的 v6 内置模板均可读取和校验", () => {
+  await test("全新空数据目录生成的 v7 内置模板均可读取和校验", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "garment-canvas-fresh-templates-"));
     const originalDataDir = process.env.DATA_DIR;
     try {
@@ -875,14 +932,14 @@ async function main() {
 
       const builtinDir = path.join(dir, "templates", "builtin");
       const files = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(files.length, 20);
+      assert.equal(files.length, 19);
       for (const file of files) {
         const template = JSON.parse(fs.readFileSync(path.join(builtinDir, file), "utf-8")) as {
           schemaVersion: unknown;
           flow: unknown;
         };
-        assert.equal(template.schemaVersion, 6, file);
-        assert.equal(validateAndMigrateFlow(template.flow).schemaVersion, 6, file);
+        assert.equal(template.schemaVersion, WORKFLOW_SCHEMA_VERSION, file);
+        assert.equal(validateAndMigrateFlow(template.flow).schemaVersion, WORKFLOW_SCHEMA_VERSION, file);
       }
     } finally {
       if (originalDataDir === undefined) delete process.env.DATA_DIR;

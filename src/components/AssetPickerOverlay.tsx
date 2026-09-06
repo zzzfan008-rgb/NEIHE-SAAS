@@ -34,7 +34,7 @@ export function AssetPickerOverlay({
   request: AssetPickerRequest;
   onRequestChange: (request: AssetPickerRequest | null) => void;
 }) {
-  const updateNodeDataInTab = useFlowStore((s) => s.updateNodeDataInTab);
+  const assignImageInputInTab = useFlowStore((s) => s.assignImageInputInTab);
   const [category, setCategory] = useState<CategoryFilter>("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -87,11 +87,7 @@ export function AssetPickerOverlay({
   }, [request, load]);
 
   const pick = (asset: Asset) => {
-    updateNodeDataInTab(request.target, request.nodeId, {
-      imageUrl: asset.image,
-      status: "success",
-      error: undefined,
-    });
+    assignImageInputInTab(request.target, request.nodeId, asset.image);
     onRequestChange(null);
   };
 

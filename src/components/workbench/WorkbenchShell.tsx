@@ -82,7 +82,7 @@ export function WorkbenchShell({ inspector, results, children }: WorkbenchShellP
         >
           <div className="flex h-11 shrink-0 items-center border-b border-[var(--gc-border)] px-3">
             <HistoryIcon aria-hidden="true" className="mr-2 size-4 text-[var(--gc-accent)]" />
-            <h2 className="text-xs font-semibold text-[var(--gc-text)]">结果 / 记录</h2>
+            <h2 className="text-xs font-semibold text-[var(--gc-text)]">最近生成</h2>
             <Button
               type="button"
               variant="ghost"

@@ -120,7 +120,7 @@ function FilePickerButton({
 
 export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInputNodeData>>) {
   const updateNodeDataInTab = useFlowStore((s) => s.updateNodeDataInTab);
-  const openViewer = useFlowStore((s) => s.openViewer);
+  const assignImageInputInTab = useFlowStore((s) => s.assignImageInputInTab);
   const uploadRequestRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -148,7 +148,7 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
         const upload = await uploadFile(file);
         if (requestId !== uploadRequestRef.current) return;
         setImageDimensions({ url: upload.url, width: upload.width, height: upload.height });
-        updateNodeDataInTab(target, id, { imageUrl: upload.url, status: "success", error: undefined });
+        assignImageInputInTab(target, id, upload.url);
       } catch (err) {
         if (requestId !== uploadRequestRef.current) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -160,7 +160,7 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
         if (requestId === uploadRequestRef.current) setUploading(false);
       }
     },
-    [id, updateNodeDataInTab],
+    [assignImageInputInTab, id, updateNodeDataInTab],
   );
 
   // Ctrl+V 粘贴（节点被选中时生效）
@@ -205,31 +205,25 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
         {data.imageUrl ? (
           <div
             {...dropHandlers}
-            className={`gc-image-input-media nodrag nopan relative overflow-hidden bg-white ${dragOver ? "gc-image-input-media--dragging" : ""}`}
+            className={`gc-image-input-media relative overflow-hidden bg-white ${dragOver ? "gc-image-input-media--dragging" : ""}`}
+            style={{ height: fittedImage.height }}
           >
-            <button
-              type="button"
-              className="block w-full cursor-zoom-in overflow-hidden"
-              style={{ height: fittedImage.height }}
-              title="单击查看大图"
-              onClick={() => openViewer({ url: data.imageUrl!, title: data.label })}
-            >
-              <img
-                src={thumbnailImageUrl(data.imageUrl)}
-                loading="lazy"
-                decoding="async"
-                alt="已上传图片"
-                className="block h-full w-full object-cover"
-                onLoad={(event) => {
-                  const image = event.currentTarget;
-                  setImageDimensions({
-                    url: data.imageUrl!,
-                    width: image.naturalWidth,
-                    height: image.naturalHeight,
-                  });
-                }}
-              />
-            </button>
+            <img
+              src={thumbnailImageUrl(data.imageUrl)}
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              alt="已上传图片"
+              className="block h-full w-full select-none object-cover"
+              onLoad={(event) => {
+                const image = event.currentTarget;
+                setImageDimensions({
+                  url: data.imageUrl!,
+                  width: image.naturalWidth,
+                  height: image.naturalHeight,
+                });
+              }}
+            />
             {uploading && (
               <div role="status" className="absolute inset-0 grid place-items-center bg-white/80 text-[10px] text-[var(--gc-node-muted)]">
                 素材处理中…

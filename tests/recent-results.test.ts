@@ -93,7 +93,9 @@ assert.match(resultsPanelSource, /href=\{r\.image\}[\s\S]*?download/);
 assert.match(resultsPanelSource, /continueWithResult/);
 assert.match(resultsPanelSource, /addAssetNode/);
 assert.match(resultsPanelSource, /isVideo\(r\.image\)[\s\S]*?addNode\("video-input"/);
-console.log("  ✓ Results 保持挂载、恢复全局记录，并保留查看、对比、下载、设为输入和跨项目跳转");
+assert.match(resultsPanelSource, /OPEN_GENERATION_RECORD_EVENT/);
+assert.doesNotMatch(contextPanelSource, /<InspectorPanel view="result"/);
+console.log("  ✓ Results 保持挂载、恢复全局记录，并通过独立弹窗保留记录、查看、对比、下载、设为输入和跨项目跳转");
 
 test("视频结果作为输入时创建带媒体类型的视频节点", () => {
   useFlowStore.getState().loadFlow({

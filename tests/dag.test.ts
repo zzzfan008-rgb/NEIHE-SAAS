@@ -359,6 +359,19 @@ async function main() {
       "/api/files/detail.png",
     ]);
     assert.doesNotThrow(() => assertPlanInputs(stageOne, stageOneEdges));
+    const invalidStageOneNode: FlowNode = {
+      ...stabilize,
+      data: { ...stabilize.data, modelId: "gpt-image-2" },
+    };
+    const invalidStageOne = buildExecutionPlan(
+      [...stageOneNodes.filter((node) => node.id !== stabilize.id), invalidStageOneNode],
+      stageOneEdges,
+      { onlyNodeId: stabilize.id, includeDownstream: false },
+    );
+    assert.throws(
+      () => assertPlanInputs(invalidStageOne, stageOneEdges),
+      /第一轮必须使用 Gemini 3\.1 Flash/,
+    );
 
     const baselineRef = "/api/files/baseline.png";
     const approvedStage: FlowNode = {
@@ -410,6 +423,19 @@ async function main() {
       "/api/files/baseline.png", "/api/files/outfit.png", "/api/files/material.png", "/api/files/detail.png",
     ]);
     assert.doesNotThrow(() => assertPlanInputs(stageTwo, stageTwoEdges));
+    const invalidStageTwoNode: FlowNode = {
+      ...refine,
+      data: { ...refine.data, modelId: "gemini-3.1-flash-image-preview" },
+    };
+    const invalidStageTwo = buildExecutionPlan(
+      [...stageTwoNodes.filter((node) => node.id !== refine.id), invalidStageTwoNode],
+      stageTwoEdges,
+      { onlyNodeId: refine.id, includeDownstream: false },
+    );
+    assert.throws(
+      () => assertPlanInputs(invalidStageTwo, stageTwoEdges),
+      /第二轮必须使用 GPT Image 2/,
+    );
 
     const staleApproval: FlowNode = {
       ...approval,
@@ -693,6 +719,9 @@ async function main() {
     assert.match(stageOne.calls[0].request.prompt, /参考图8只控制目标耳环/);
     assert.match(stageOne.calls[0].request.prompt, /参考图9只控制目标手镯/);
     assert.match(stageOne.calls[0].request.prompt, /全局权重低于人物身份、场景描述和主穿搭/);
+    assert.match(stageOne.calls[0].request.prompt, /真实存在且清晰可见的金属装饰图案与五金/);
+    assert.match(stageOne.calls[0].request.prompt, /只提取戒指本体/);
+    assert.match(stageOne.calls[0].request.prompt, /目标商品本体上已有的金属装饰图案与五金保持来源外观/);
 
     const bagOnly = await runRecordedAiStep(
       "virtual-try-on",
@@ -722,6 +751,9 @@ async function main() {
     );
     assert.deepStrictEqual(stageTwo.calls[0].request.modelOptions, { size: "2048x2048", quality: "medium" });
     assert.match(stageTwo.calls[0].request.prompt, /唯一人物与场景基准/);
+    assert.match(stageTwo.calls[0].request.prompt, /不得裁剪、缩放、扩图、重新取景或重新生成整个人物/);
+    assert.match(stageTwo.calls[0].request.prompt, /不得简化为近似扣带或其它结构/);
+    assert.match(stageTwo.calls[0].request.prompt, /目标商品上已经存在的金属装饰图案与五金必须保持原有位置、比例和外观/);
     assert.match(stageTwo.calls[0].request.prompt, /羊毛双股纱，中等厚度/);
     assert.match(stageTwo.calls[0].request.prompt, /12GG，平针衣身/);
   });

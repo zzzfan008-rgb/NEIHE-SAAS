@@ -80,9 +80,9 @@ const BUILTIN_CREATED_AT = "2026-08-05T00:00:00.000Z";
 function dualModelStagedTryOnTemplate(): WorkflowTemplate {
   return {
     schemaVersion: WORKFLOW_SCHEMA_VERSION,
-    id: "builtin-dual-model-staged-try-on",
-    name: "双模型分步换装（场景表演定版→服装精修）",
-    description: "Gemini 第一轮锁定人物身份、场景表演、主穿搭和六类可选配饰；人工确认基准后，GPT Image 2 按必填面料与工艺精修服装。",
+    id: "builtin-tool-one-click-try-on",
+    name: "一键换装",
+    description: "上传图片后自动连接完整双阶段工作流：Gemini 锁定人物与场景，人工确认后由 GPT Image 2 精修服装。",
     builtIn: true,
     createdAt: "2026-09-03T00:00:00.000Z",
     flow: {
@@ -92,55 +92,55 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           id: "person",
           type: "image-input",
           position: { x: 0, y: -560 },
-          data: { kind: "image-input", label: "人物身份图（必需）", status: "idle", imageRole: "reference" },
+          data: { kind: "image-input", label: "人物身份图（必需）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "person" }] },
         },
         {
           id: "scene",
           type: "image-input",
           position: { x: 0, y: -300 },
-          data: { kind: "image-input", label: "场景/表演参考图（必需）", status: "idle", imageRole: "reference" },
+          data: { kind: "image-input", label: "场景/表演参考图（必需）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "scene" }] },
         },
         {
           id: "outfit",
           type: "image-input",
           position: { x: 0, y: -40 },
-          data: { kind: "image-input", label: "主穿搭图（必需）", status: "idle", imageRole: "garment" },
+          data: { kind: "image-input", label: "主穿搭图（必需）", status: "idle", imageRole: "garment", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "outfit" }, { targetNodeId: "refine", targetHandle: "outfit" }] },
         },
         {
           id: "bag",
           type: "image-input",
           position: { x: 300, y: -560 },
-          data: { kind: "image-input", label: "包袋参考图（可选）", status: "idle", imageRole: "reference" },
+          data: { kind: "image-input", label: "包袋参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bag" }] },
         },
         {
           id: "shoes",
           type: "image-input",
           position: { x: 300, y: -300 },
-          data: { kind: "image-input", label: "鞋履参考图（可选）", status: "idle", imageRole: "reference" },
+          data: { kind: "image-input", label: "鞋履参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "shoes" }] },
         },
         {
           id: "hat",
           type: "image-input",
           position: { x: 300, y: -40 },
-          data: { kind: "image-input", label: "帽子参考图（可选）", status: "idle", imageRole: "reference" },
+          data: { kind: "image-input", label: "帽子参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "hat" }] },
         },
         {
           id: "ring",
           type: "image-input",
           position: { x: 300, y: 220 },
-          data: { kind: "image-input", label: "戒指参考图（可选）", status: "idle", imageRole: "reference" },
+          data: { kind: "image-input", label: "戒指参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "ring" }] },
         },
         {
           id: "earrings",
           type: "image-input",
           position: { x: 300, y: 480 },
-          data: { kind: "image-input", label: "耳环参考图（可选）", status: "idle", imageRole: "reference" },
+          data: { kind: "image-input", label: "耳环参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "earrings" }] },
         },
         {
           id: "bracelet",
           type: "image-input",
           position: { x: 300, y: 740 },
-          data: { kind: "image-input", label: "手镯参考图（可选）", status: "idle", imageRole: "reference" },
+          data: { kind: "image-input", label: "手镯参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bracelet" }] },
         },
         {
           id: "stabilize",
@@ -175,13 +175,13 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           id: "material",
           type: "image-input",
           position: { x: 720, y: 420 },
-          data: { kind: "image-input", label: "第二轮 · 面料/纱线参考（可选）", status: "idle", imageRole: "fabric" },
+          data: { kind: "image-input", label: "第二轮 · 面料/纱线参考（可选）", status: "idle", imageRole: "fabric", autoConnectTargets: [{ targetNodeId: "refine", targetHandle: "material" }] },
         },
         {
           id: "garment-detail",
           type: "image-input",
           position: { x: 720, y: 680 },
-          data: { kind: "image-input", label: "第二轮 · 服装局部结构参考（可选）", status: "idle", imageRole: "garment" },
+          data: { kind: "image-input", label: "第二轮 · 服装局部结构参考（可选）", status: "idle", imageRole: "garment", autoConnectTargets: [{ targetNodeId: "refine", targetHandle: "detail" }] },
         },
         {
           id: "refine",
@@ -211,25 +211,13 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
             kind: "text-input",
             label: "使用步骤",
             status: "idle",
-            text: "① 上传人物、场景和主穿搭必需图。② 按需上传包、鞋、帽子、戒指、耳环、手镯；未提供的类别不会写入约束。③ 运行第一轮并在独立节点确认基准。④ 在右侧属性中选择针织/梭织/其他，填写材料规格与结构工艺。⑤ 面料和服装局部图只供第二轮使用，确认后运行 GPT 精修。",
+            text: "① 上传人物、场景和主穿搭必需图，图片会自动连接对应阶段。② 按需上传包、鞋、帽子、戒指、耳环、手镯；未提供的类别不会写入约束。③ 运行第一轮并在独立节点确认基准。④ 在右侧属性中选择针织/梭织/其他，填写材料规格与结构工艺。⑤ 面料和服装局部图只供第二轮使用，确认后运行 GPT 精修。",
           },
         },
       ],
       edges: [
-        { id: "person-stabilize", source: "person", target: "stabilize", sourceHandle: "image", targetHandle: "person" },
-        { id: "scene-stabilize", source: "scene", target: "stabilize", sourceHandle: "image", targetHandle: "scene" },
-        { id: "outfit-stabilize", source: "outfit", target: "stabilize", sourceHandle: "image", targetHandle: "outfit" },
-        { id: "bag-stabilize", source: "bag", target: "stabilize", sourceHandle: "image", targetHandle: "bag" },
-        { id: "shoes-stabilize", source: "shoes", target: "stabilize", sourceHandle: "image", targetHandle: "shoes" },
-        { id: "hat-stabilize", source: "hat", target: "stabilize", sourceHandle: "image", targetHandle: "hat" },
-        { id: "ring-stabilize", source: "ring", target: "stabilize", sourceHandle: "image", targetHandle: "ring" },
-        { id: "earrings-stabilize", source: "earrings", target: "stabilize", sourceHandle: "image", targetHandle: "earrings" },
-        { id: "bracelet-stabilize", source: "bracelet", target: "stabilize", sourceHandle: "image", targetHandle: "bracelet" },
         { id: "stabilize-approval", source: "stabilize", target: "approval", sourceHandle: "image", targetHandle: "baseline-candidate" },
         { id: "approval-refine", source: "approval", target: "refine", sourceHandle: "image", targetHandle: "baseline" },
-        { id: "outfit-refine", source: "outfit", target: "refine", sourceHandle: "image", targetHandle: "outfit" },
-        { id: "material-refine", source: "material", target: "refine", sourceHandle: "image", targetHandle: "material" },
-        { id: "garment-detail-refine", source: "garment-detail", target: "refine", sourceHandle: "image", targetHandle: "detail" },
       ],
     },
   };
@@ -266,7 +254,6 @@ function toolWorkflowTemplates(): WorkflowTemplate[] {
     template("builtin-tool-print-extract", "印花提取", "从上传图中提取可复用印花。", [image("source", "印花来源图", 0, 0), imageGenerator("generate", "print-extract", "印花提取", 380, 0)], [{ id: "source-generate", source: "source", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
     template("builtin-tool-print-mutate", "印花裂变", "原始印花与裂变方向已连接。", [image("source", "原始印花", 0, -120), text("prompt", "裂变方向", 0, 180), imageGenerator("generate", "print-mutate", "印花裂变", 420, 0)], [{ id: "source-generate", source: "source", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
     template("builtin-tool-white-background", "白底图制作", "上传主体后制作纯白背景图。", [image("source", "商品或模特图", 0, 0), imageGenerator("generate", "ai-modify", "白底图制作", 380, 0, "保持主体外观、人物身份、服装和配饰细节，移除原背景，生成干净均匀的纯白背景与自然接触阴影。")], [{ id: "source-generate", source: "source", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
-    template("builtin-tool-one-click-try-on", "一键换装", "人物身份图与主穿搭图连接到固定引擎换装节点。", [image("person", "人物身份图", 0, -140, "reference"), image("outfit", "主穿搭图", 0, 180, "garment"), { id: "generate", type: "virtual-try-on", position: { x: 430, y: 0 }, data: { kind: "virtual-try-on", label: "一键换装", status: "idle", workflowStage: "standard", prompt: "", modelId: "gpt-image-2", modelOptions: {}, imageSize: "2K", aspectRatio: "3:4", basisRevision: 0, outputImages: [] } }], [{ id: "person-generate", source: "person", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "outfit-generate", source: "outfit", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
     template("builtin-tool-style-transfer", "风格迁移", "主体、风格参考和可选要求已连接。", [image("source", "目标主体图", 0, -180), image("style", "风格参考图", 0, 80), text("prompt", "补充要求", 0, 340), imageGenerator("generate", "ai-modify", "风格迁移", 430, 0, "只迁移参考图的视觉语言、材质、色彩与光影；保持目标主体的身份、结构和构图，不复制风格图中的人物、服装或配饰。")], [{ id: "source-generate", source: "source", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "style-generate", source: "style", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
     template("builtin-tool-text-to-video", "文生视频", "文字提示连接真实视频生成节点。", [text("prompt", "视频提示词", 0, 0), videoGenerator("generate", "文生视频", "text-to-video", 420, 0)], [{ id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
     template("builtin-tool-keyframes-to-video", "首尾帧生视频", "首帧、尾帧和提示词按角色连接。", [image("first", "首帧", 0, -220), image("last", "尾帧", 0, 60), text("prompt", "视频提示词", 0, 340), videoGenerator("generate", "首尾帧生视频", "keyframes-to-video", 430, 0)], [{ id: "first-generate", source: "first", sourceHandle: "image", target: "generate", targetHandle: "first-frame" }, { id: "last-generate", source: "last", sourceHandle: "image", target: "generate", targetHandle: "last-frame" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
@@ -646,10 +633,10 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
       schemaVersion?: unknown;
       flow?: { edges?: Array<{ id?: unknown; targetHandle?: unknown }> };
     };
-    if (templateId === "builtin-dual-model-staged-try-on") {
+    if (templateId === "builtin-tool-one-click-try-on") {
       const named = raw as typeof raw & { name?: unknown };
       return raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION
-        || named.name !== "双模型分步换装（场景表演定版→服装精修）";
+        || named.name !== "一键换装";
     }
     return false;
   } catch {
@@ -659,8 +646,9 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
 
 /** 启动时补齐新增模板；保留可读旧版本，并用当前定义修复损坏或不兼容的内置文件。 */
 export function ensureBuiltinTemplates(): void {
-  // 旧版模板已拆分为两个明确模板；它是部署内置数据，不属于用户模板。
+  // 旧内置模板属于部署数据；用户项目与用户模板不受清理影响。
   fs.rmSync(templatePath("builtin", "builtin-style-transfer"), { force: true });
+  fs.rmSync(templatePath("builtin", "builtin-dual-model-staged-try-on"), { force: true });
   for (const tpl of builtinTemplates()) {
     const filePath = templatePath("builtin", tpl.id);
     if (!fs.existsSync(filePath) || !builtinTemplateIsReadable(filePath) || managedBuiltinNeedsRefresh(filePath, tpl.id)) {
@@ -690,7 +678,7 @@ function readTemplates(sub: "builtin" | "user"): StoredWorkflowTemplate[] {
 
 function readTemplateFile(filePath: string): StoredWorkflowTemplate {
   const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>;
-  const isLegacyVersion = raw.schemaVersion === undefined || raw.schemaVersion === 0 || raw.schemaVersion === 1 || raw.schemaVersion === 2 || raw.schemaVersion === 3 || raw.schemaVersion === 4 || raw.schemaVersion === 5;
+  const isLegacyVersion = raw.schemaVersion === undefined || raw.schemaVersion === 0 || raw.schemaVersion === 1 || raw.schemaVersion === 2 || raw.schemaVersion === 3 || raw.schemaVersion === 4 || raw.schemaVersion === 5 || raw.schemaVersion === 6;
   if (!isLegacyVersion && raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION) {
     throw new WorkflowValidationError(`unsupported template schemaVersion: ${String(raw.schemaVersion)}`);
   }

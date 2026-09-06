@@ -29,6 +29,10 @@ export type DocumentNodeData =
       label: string;
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
       imageUrl?: string;
+      autoConnectTargets?: Array<{
+        targetNodeId: string;
+        targetHandle: WorkflowInputRole;
+      }>;
     }
   | {
       kind: "text-input";
@@ -257,6 +261,9 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         label: data.label,
         imageRole: data.imageRole,
         ...optionalString("imageUrl", data.imageUrl),
+        ...(data.autoConnectTargets
+          ? { autoConnectTargets: data.autoConnectTargets.map((target) => ({ ...target })) }
+          : {}),
       };
     case "text-input":
       return { kind: data.kind, label: data.label, text: data.text };

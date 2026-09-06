@@ -214,6 +214,8 @@ export interface FlowState {
   exportDrawingBoardImageNode: (target: DocumentTarget, nodeId: string) => string | null;
   updateNodeData: (id: string, patch: Record<string, unknown>) => void;
   updateNodeDataInTab: (target: DocumentTarget, id: string, patch: Record<string, unknown>) => void;
+  /** 为目标图片节点赋值，并在同一次历史提交中补齐模板声明的后续连接。 */
+  assignImageInputInTab: (target: DocumentTarget, id: string, imageUrl: string) => void;
   setNodeStatus: (id: string, status: NodeRunStatus, error?: string) => void;
   runNode: (id: string) => Promise<void>;
   /** 保存当前页签；返回服务端是否确认持久化成功。 */
@@ -1735,6 +1737,48 @@ function updateTabNodes(
   if (history.before && history.current) {
     recordInactiveTabHistory(target.tabId, history.before, history.current);
   }
+}
+
+/** 在指定文档上提交一次原子修改；后台页签也保留独立撤销历史。 */
+function commitDocumentMutationForTarget(
+  set: FlowSet,
+  target: DocumentTarget,
+  mutation: DocumentMutation,
+): boolean {
+  flushActiveTextEditForTarget(target);
+  const state = useFlowStore.getState();
+  if (!documentForTarget(state, target)) return false;
+  if (state.activeTabId === target.tabId) {
+    return commitDocumentMutationWithSet(set, (tab) => (
+      matchesDocumentTarget(tab, target)
+        ? (typeof mutation === "function" ? mutation(tab) : mutation)
+        : {}
+    ));
+  }
+
+  const history: { before: FlowTemporalState | null; current: FlowTemporalState | null } = {
+    before: null,
+    current: null,
+  };
+  let changed = false;
+  patchDocumentTarget(set, target, (tab) => {
+    const patch = typeof mutation === "function" ? mutation(tab) : mutation;
+    if (!documentMutationChanged(tab, patch)) return patch;
+    changed = true;
+    const next = { ...tab, ...patch };
+    history.before = temporalDocument(tab);
+    history.current = temporalDocument(next);
+    return {
+      ...patch,
+      revision: tab.revision + 1,
+      dirty: true,
+      saveState: tab.saveState === "saving" ? "saving" : "idle",
+    };
+  });
+  if (history.before && history.current) {
+    recordInactiveTabHistory(target.tabId, history.before, history.current);
+  }
+  return changed;
 }
 
 /** 最近生成持久化（localStorage）：刷新/重开浏览器不丢 */
@@ -3817,6 +3861,55 @@ export const useFlowStore = create<FlowState>()(
           },
           { markDirty: true },
         );
+      },
+
+      assignImageInputInTab: (target, id, imageUrl) => {
+        if (!imageUrl || documentForTarget(get(), target)?.readOnly !== false) return;
+        commitDocumentMutationForTarget(set, target, (tab) => {
+          const source = tab.nodes.find((node) => node.id === id);
+          if (!source || source.data.kind !== "image-input") return {};
+
+          const imageChanged = source.data.imageUrl !== imageUrl;
+          let nodes = tab.nodes.map((node) => node.id === id
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  imageUrl,
+                  status: "success" as const,
+                  error: undefined,
+                },
+              }
+            : node);
+          let edges = tab.edges;
+          const changedStageIds = imageChanged
+            ? sceneBasisTargetsForSource(tab, id)
+            : new Set<string>();
+
+          for (const declaredTarget of source.data.autoConnectTargets ?? []) {
+            const connection: Connection = {
+              source: id,
+              sourceHandle: "image",
+              target: declaredTarget.targetNodeId,
+              targetHandle: declaredTarget.targetHandle,
+            };
+            const exactEdgeExists = edges.some((edge) => (
+              edge.source === connection.source
+              && edge.sourceHandle === connection.sourceHandle
+              && edge.target === connection.target
+              && edge.targetHandle === connection.targetHandle
+            ));
+            if (exactEdgeExists || !isDocumentConnectionValid({ nodes, edges }, connection)) continue;
+            edges = addEdge(connection, edges);
+            const targetNode = nodes.find((node) => node.id === connection.target);
+            if (targetNode?.data.kind === "virtual-try-on" && targetNode.data.workflowStage === "scene-stabilize") {
+              changedStageIds.add(targetNode.id);
+            }
+          }
+
+          nodes = incrementSceneBasis(nodes, changedStageIds);
+          return { nodes, edges };
+        });
       },
 
       setNodeStatus: (id, status, error) =>

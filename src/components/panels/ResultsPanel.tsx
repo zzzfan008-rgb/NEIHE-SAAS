@@ -4,7 +4,7 @@ import {
   selectActiveNodes,
   useFlowStore,
 } from "@/store/flowStore";
-import { OPEN_COMPARE_EVENT } from "@/lib/overlayEvents";
+import { OPEN_COMPARE_EVENT, OPEN_GENERATION_RECORD_EVENT } from "@/lib/overlayEvents";
 import { thumbnailImageUrl } from "@/lib/images";
 import { cn } from "@/lib/utils";
 import { isNodeRunActive } from "@/types/workflow";
@@ -19,7 +19,7 @@ interface ResultsPanelProps {
   className?: string;
 }
 
-/** 左侧上下文 Dock 中的跨项目结果与运行记录。 */
+/** 左侧浮层中的跨项目最近生成。 */
 export function ResultsPanel({
   hasMore = false,
   loadingMore = false,
@@ -59,6 +59,13 @@ export function ResultsPanel({
       prompt: r.prompt,
       meta: `${r.model ?? ""} · ${(((r.finishedAt ?? r.startedAt) - r.startedAt) / 1000).toFixed(1)}s · ${new Date(r.finishedAt ?? r.startedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`,
     });
+  };
+
+  const openResultRecord = (r: (typeof recentResults)[number]) => {
+    selectResultRecord(r);
+    window.dispatchEvent(new CustomEvent(OPEN_GENERATION_RECORD_EVENT, {
+      detail: { resultId: r.id },
+    }));
   };
 
   const continueWithResult = (r: (typeof recentResults)[number]) => {
@@ -114,7 +121,7 @@ export function ResultsPanel({
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {recentResults.length === 0 ? (
           <p className="mx-auto max-w-[18rem] py-5 text-center text-[10px] leading-5 text-[var(--gc-text-muted)]">
-            运行 AI 节点后，生成结果与运行记录会汇总在这里
+            运行 AI 节点后，最近生成会显示在这里
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-2">
@@ -125,7 +132,7 @@ export function ResultsPanel({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => selectResultRecord(r)}
+                  onClick={() => openResultRecord(r)}
                   aria-label={`${STATUS_TEXT[r.status]}：${r.nodeLabel}`}
                   className={`flex ${resultCardClass} flex-col items-center justify-center gap-2 rounded-md border bg-[var(--gc-control)] px-1 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--gc-accent)] ${
                     selectedResultId === r.id
@@ -148,7 +155,7 @@ export function ResultsPanel({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => selectResultRecord(r)}
+                  onClick={() => openResultRecord(r)}
                   aria-label={`${STATUS_TEXT[r.status]}：${r.nodeLabel}`}
                   className={`flex ${resultCardClass} flex-col items-center justify-center gap-1 rounded-md border bg-[var(--gc-control)] px-1 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--gc-accent)] ${
                     selectedResultId === r.id
@@ -177,28 +184,27 @@ export function ResultsPanel({
                         : "border-[var(--gc-border)] hover:border-[var(--gc-accent)]/60"
                   }`}
                 >
-                    {isVideo(r.image) ? (
-                      <video
-                        src={r.image}
-                        controls
-                        playsInline
-                        preload="metadata"
-                        onClick={() => selectResultRecord(r)}
-                        aria-label={`播放 ${r.nodeLabel}`}
-                        className="absolute inset-0 h-full w-full object-cover"
-                      />
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          if (e.ctrlKey || e.metaKey) toggleCompareId(r.id);
-                          else viewResult(r);
-                        }}
-                        aria-label={`查看 ${r.nodeLabel}`}
-                        className="absolute inset-0 h-full w-full cursor-zoom-in rounded-none p-0 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-[var(--gc-accent)]"
-                      >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        if (e.ctrlKey || e.metaKey) toggleCompareId(r.id);
+                        else openResultRecord(r);
+                      }}
+                      aria-label={`查看生成记录：${r.nodeLabel}`}
+                      className="absolute inset-0 h-full w-full cursor-pointer rounded-none p-0 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-[var(--gc-accent)]"
+                    >
+                      {isVideo(r.image) ? (
+                        <video
+                          src={r.image}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          aria-hidden="true"
+                          className="pointer-events-none h-full w-full object-cover"
+                        />
+                      ) : (
                         <img
                           src={r.thumbnail ?? thumbnailImageUrl(r.image)}
                           alt={r.nodeLabel}
@@ -206,27 +212,28 @@ export function ResultsPanel({
                           decoding="async"
                           className="h-full w-full object-cover transition-transform group-hover:scale-105"
                         />
-                      </Button>
-                    )}
+                      )}
+                    </Button>
                     {compareIds.includes(r.id) && (
                         <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--gc-accent)] text-[9px] font-bold text-[var(--gc-primary-foreground)]">
                         {compareIds.indexOf(r.id) + 1}
                       </span>
                     )}
-                    <div className="absolute inset-x-0 bottom-0 grid grid-cols-2 gap-1 bg-[color-mix(in_srgb,var(--gc-shell)_82%,transparent)] p-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 grid grid-cols-2 gap-1 bg-[color-mix(in_srgb,var(--gc-shell)_82%,transparent)] p-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
                       <Button
                         type="button"
                         variant="ghost"
                         size="xs"
                         onClick={(e) => {
                           e.stopPropagation();
-                          viewResult(r);
+                          if (isVideo(r.image)) openResultRecord(r);
+                          else viewResult(r);
                         }}
                         className={resultActionClass}
-                        aria-label={`查看 ${r.nodeLabel}`}
-                        title="查看"
+                        aria-label={`${isVideo(r.image) ? "播放视频" : "查看图片"} ${r.nodeLabel}`}
+                        title={isVideo(r.image) ? "播放视频" : "查看图片"}
                       >
-                        查看
+                        {isVideo(r.image) ? "播放" : "查看"}
                       </Button>
                       <Button
                         type="button"

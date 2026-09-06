@@ -20,8 +20,7 @@ interface ContextPanelProps {
 }
 
 /**
- * 左侧上下文 Dock：属性和跨项目结果共用一个面板，但两个 Panel
- * 始终 keepMounted，切换 Tab 不会丢失滚动位置、加载状态或详情上下文。
+ * 左侧上下文 Dock：属性和跨项目最近生成共用一个面板。
  */
 export function ContextPanel({
   hasMore = false,
@@ -76,15 +75,12 @@ export function ContextPanel({
         <InspectorPanel view="properties" className="h-full w-full border-0" />
       </TabsContent>
       <TabsContent value="results" keepMounted className="min-h-0 flex-1">
-        <div className="flex h-full min-h-0 flex-col">
-          <ResultsPanel
-            hasMore={hasMore}
-            loadingMore={loadingMore}
-            onLoadMore={onLoadMore}
-            className="min-h-40 max-h-[46%] shrink-0 border-b border-[var(--gc-border)]"
-          />
-          <InspectorPanel view="result" className="min-h-0 w-full flex-1 border-0" />
-        </div>
+        <ResultsPanel
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={onLoadMore}
+          className="h-full"
+        />
       </TabsContent>
     </Tabs>
   );

@@ -118,6 +118,13 @@ export interface ImageInputNodeData extends BaseNodeData {
   /** dataURL 或 /api/files/xxx 路径 */
   imageUrl?: string;
   imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
+  /** 图片赋值成功后，由 Store 原子补齐的模板声明连接。 */
+  autoConnectTargets?: ImageInputAutoConnectTarget[];
+}
+
+export interface ImageInputAutoConnectTarget {
+  targetNodeId: string;
+  targetHandle: WorkflowInputRole;
 }
 
 export interface TextInputNodeData extends BaseNodeData {
@@ -295,10 +302,10 @@ export type WorkflowNodeData =
 
 // ---------- 持久化工作流（项目 / 模板共用）----------
 /**
- * 版本 6 增加视频输入、VEO 生成节点与媒体结果；读取 v0-v5 时服务端确定性迁移；
+ * 版本 7 增加图片输入节点的声明式自动连接；读取 v0-v6 时服务端确定性迁移；
  * 新版本不得静默降级读取。
  */
-export const WORKFLOW_SCHEMA_VERSION = 6 as const;
+export const WORKFLOW_SCHEMA_VERSION = 7 as const;
 export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
 
 export interface PersistedWorkflowNode {

@@ -113,6 +113,10 @@ const nodeFrameSource = fs.readFileSync(
 );
 const flowStoreSource = fs.readFileSync(path.resolve(testRoot, "../src/store/flowStore.ts"), "utf8");
 const runPlanRouteSource = fs.readFileSync(path.resolve(testRoot, "../server/routes/runPlan.ts"), "utf8");
+const generationRecordDialogSource = fs.readFileSync(
+  path.resolve(testRoot, "../src/components/GenerationRecordDialog.tsx"),
+  "utf8",
+);
 const popoverSource = fs.readFileSync(
   path.resolve(testRoot, "../src/components/ui/popover.tsx"),
   "utf8",
@@ -196,7 +200,13 @@ assert.match(shellSource, /id=\{INSPECTOR_PANEL_ID\}[\s\S]*?inert=\{!state\.righ
 assert.doesNotMatch(shellSource, /MobileSheet|useMediaQuery|DESKTOP_QUERY|mobilePanel/);
 assert.doesNotMatch(appSource, /workspaceKey=\{activeTabId\}/);
 assert.match(appSource, /inspector=\{\([\s\S]*?<InspectorPanel view="properties"/);
-assert.match(appSource, /results=\{\([\s\S]*?<ResultsPanel[\s\S]*?<InspectorPanel view="result"/);
+assert.match(appSource, /results=\{\([\s\S]*?<ResultsPanel[\s\S]*?className="h-full"/);
+assert.doesNotMatch(appSource, /<InspectorPanel view="result"/, "最近生成浮层不得内嵌生成记录");
+assert.match(appSource, /LazyGenerationRecordDialog/, "生成记录必须由独立 Dialog 承载");
+assert.match(shellSource, />最近生成<\/h2>/);
+assert.match(generationRecordDialogSource, /from "@\/components\/ui\/dialog"/);
+assert.match(generationRecordDialogSource, /resultId: string \| null/);
+assert.match(generationRecordDialogSource, /--gc-border/);
 assert.doesNotMatch(appSource, /NodeLibraryPanel/, "旧节点库不得继续挂载；工具发现统一由 ToolRail 提供");
 assert.ok(nodeLibrarySource.length > 0, "旧节点库源码暂保留以支持回滚，但不得挂载");
 assert.match(appSource, /LazyAssetPickerOverlay/, "节点内的素材选择浮层必须继续保留");

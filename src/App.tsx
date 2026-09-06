@@ -38,7 +38,9 @@ import { isInitialDraftInteractionBlocking } from "@/initialDraft/initialDraftRu
 import {
   OPEN_ASSET_PICKER_EVENT,
   OPEN_COMPARE_EVENT,
+  OPEN_GENERATION_RECORD_EVENT,
   type AssetPickerRequest,
+  type GenerationRecordRequest,
 } from "@/lib/overlayEvents";
 import { requestCanvasZoom } from "@/lib/keyboardShortcuts";
 import { OPEN_BUILTIN_TEMPLATE_EVENT } from "@/lib/canvasCreation";
@@ -53,6 +55,9 @@ const LazyImageViewer = lazy(() => import("@/components/ImageViewer").then((modu
 })));
 const LazyAssetPickerOverlay = lazy(() => import("@/components/AssetPickerOverlay").then((module) => ({
   default: module.AssetPickerOverlay,
+})));
+const LazyGenerationRecordDialog = lazy(() => import("@/components/GenerationRecordDialog").then((module) => ({
+  default: module.GenerationRecordDialog,
 })));
 
 interface NodeClipboardEntry {
@@ -221,6 +226,7 @@ function Workspace() {
   const clearCompare = useFlowStore((state) => state.clearCompare);
   const [compareOpen, setCompareOpen] = useState(false);
   const [assetPickerRequest, setAssetPickerRequest] = useState<AssetPickerRequest | null>(null);
+  const [generationRecordResultId, setGenerationRecordResultId] = useState<string | null>(null);
   const [toolLaunchError, setToolLaunchError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -229,11 +235,17 @@ function Workspace() {
       const request = (event as CustomEvent<AssetPickerRequest>).detail;
       if (request?.target && request.nodeId) setAssetPickerRequest(request);
     };
+    const openGenerationRecord = (event: Event) => {
+      const request = (event as CustomEvent<GenerationRecordRequest>).detail;
+      if (request?.resultId) setGenerationRecordResultId(request.resultId);
+    };
     window.addEventListener(OPEN_COMPARE_EVENT, openCompare);
     window.addEventListener(OPEN_ASSET_PICKER_EVENT, openAssetPicker);
+    window.addEventListener(OPEN_GENERATION_RECORD_EVENT, openGenerationRecord);
     return () => {
       window.removeEventListener(OPEN_COMPARE_EVENT, openCompare);
       window.removeEventListener(OPEN_ASSET_PICKER_EVENT, openAssetPicker);
+      window.removeEventListener(OPEN_GENERATION_RECORD_EVENT, openGenerationRecord);
     };
   }, []);
 
@@ -414,15 +426,12 @@ function Workspace() {
           <InspectorPanel view="properties" className="h-full w-full border-0" />
         )}
         results={(
-          <div className="flex h-full min-h-0 flex-col">
-            <ResultsPanel
+          <ResultsPanel
             hasMore={historyHasMore}
             loadingMore={historyLoading}
             onLoadMore={() => void loadMoreHistory()}
-              className="min-h-48 flex-1"
+            className="h-full"
           />
-            <InspectorPanel view="result" className="max-h-[44%] min-h-48 w-full shrink-0 border-t border-[var(--gc-border)]" />
-          </div>
         )}
       >
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -447,6 +456,14 @@ function Workspace() {
           <LazyAssetPickerOverlay
             request={assetPickerRequest}
             onRequestChange={setAssetPickerRequest}
+          />
+        </Suspense>
+      )}
+      {generationRecordResultId && (
+        <Suspense fallback={<OverlayLoadingStatus label="正在打开生成记录…" />}>
+          <LazyGenerationRecordDialog
+            resultId={generationRecordResultId}
+            onOpenChange={(open) => { if (!open) setGenerationRecordResultId(null); }}
           />
         </Suspense>
       )}

@@ -72,6 +72,7 @@ const MAX_EDGES = 2_000;
 const MAX_TEXT_LENGTH = 20_000;
 const MAX_IMAGE_REFERENCE_LENGTH = 20_000;
 const MAX_IMAGE_REFS = 100;
+const MAX_AUTO_CONNECT_TARGETS = 16;
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const MASK_DATA_URL_CONTRACT = (() => {
   const contract = getImageModelContract(MASK_REDRAW_MODEL_ID).edit.mask;
@@ -317,6 +318,22 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
     case "image-input":
       oneOf(raw.imageRole, IMAGE_ROLES, `${path}.imageRole`);
       optionalImageReference(raw.imageUrl, `${path}.imageUrl`);
+      if (raw.autoConnectTargets !== undefined) {
+        if (!Array.isArray(raw.autoConnectTargets) || raw.autoConnectTargets.length > MAX_AUTO_CONNECT_TARGETS) {
+          fail(`${path}.autoConnectTargets`, `must be an array with at most ${MAX_AUTO_CONNECT_TARGETS} entries`);
+        }
+        const seenTargets = new Set<string>();
+        raw.autoConnectTargets.forEach((value, index) => {
+          const targetPath = `${path}.autoConnectTargets[${index}]`;
+          const target = record(value, targetPath);
+          const targetNodeId = stringValue(target.targetNodeId, `${targetPath}.targetNodeId`, { nonEmpty: true });
+          if (!SAFE_ID.test(targetNodeId)) fail(`${targetPath}.targetNodeId`, "must be a valid node id");
+          const targetHandle = oneOf(target.targetHandle, WORKFLOW_INPUT_ROLES, `${targetPath}.targetHandle`);
+          const key = `${targetNodeId}\u0000${targetHandle}`;
+          if (seenTargets.has(key)) fail(targetPath, "must not duplicate an automatic connection target");
+          seenTargets.add(key);
+        });
+      }
       break;
     case "text-input":
       stringValue(raw.text, `${path}.text`);
@@ -745,11 +762,11 @@ function migrateV4StageApprovals(
   return { nodes: [...nodes, ...insertedNodes], edges };
 }
 
-/** Validate untrusted JSON and migrate supported unversioned/v0-v5 formats to v6. */
+/** Validate untrusted JSON and migrate supported unversioned/v0-v6 formats to v7. */
 export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
   const raw = record(value, "flow");
   const version = raw.schemaVersion;
-  const migrateLegacy = version === undefined || version === 0 || version === 1 || version === 2 || version === 3 || version === 4 || version === 5;
+  const migrateLegacy = version === undefined || version === 0 || version === 1 || version === 2 || version === 3 || version === 4 || version === 5 || version === 6;
   if (!migrateLegacy && version !== WORKFLOW_SCHEMA_VERSION) {
     fail("flow.schemaVersion", `unsupported version ${String(version)}; current version is ${WORKFLOW_SCHEMA_VERSION}`);
   }

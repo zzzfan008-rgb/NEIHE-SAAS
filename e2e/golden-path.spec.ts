@@ -174,14 +174,24 @@ test("upload and text starters complete the isolated first-generation golden pat
   await textResultCard.hover();
   const actionBar = textResultCard.locator('div.absolute.inset-x-0.bottom-0');
   await expect(actionBar).toHaveClass(/grid-cols-2/);
-  await expect(textResultCard.locator('button[title="查看"]')).toBeVisible();
+  await expect(textResultCard.locator('button[title="查看图片"]')).toBeVisible();
   await expect(textResultCard.locator('button[title="加入对比"]')).toBeVisible();
   await expect(textResultCard.locator('a[title="下载"]')).toHaveAttribute("download", "");
   const textInputNodesBefore = await page.locator(".react-flow__node").filter({ hasText: "文生图" }).count();
   await textResultCard.locator('button[title="设为输入"]').click();
   await expect(page.locator(".react-flow__node").filter({ hasText: "文生图" })).toHaveCount(textInputNodesBefore + 1);
 
-  await textResultCard.locator('button[title="查看"]').click();
+  const recordTrigger = textResultCard.getByRole("button", { name: "查看生成记录：文生图" });
+  await recordTrigger.click();
+  const recordDialog = page.getByRole("dialog", { name: "文生图" });
+  await expect(recordDialog).toBeVisible();
+  await expect(recordDialog).toContainText("e2e-stub-model");
+  await expect(recordDialog).toContainText("isolated golden path");
+  await page.keyboard.press("Escape");
+  await expect(recordDialog).toHaveCount(0);
+  await expect(recordTrigger).toBeFocused();
+
+  await textResultCard.locator('button[title="查看图片"]').click();
   await expect(page.getByText(/滚轮缩放 100%/)).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByText(/滚轮缩放 100%/)).toHaveCount(0);
@@ -215,9 +225,9 @@ test("upload and text starters complete the isolated first-generation golden pat
     accent: "#b18745",
   });
   await textResultCard.hover();
-  const viewColor = await textResultCard.locator('button[title="查看"]').evaluate((element) => getComputedStyle(element).color);
+  const viewColor = await textResultCard.locator('button[title="查看图片"]').evaluate((element) => getComputedStyle(element).color);
   expect(viewColor).toMatch(/rgb\(244, 244, 244\)/);
-  await textResultCard.locator('button[title="查看"]').focus();
+  await textResultCard.locator('button[title="查看图片"]').focus();
   const inputColor = await textResultCard.locator('button[title="设为输入"]').evaluate((element) => getComputedStyle(element).color);
   expect(inputColor).toMatch(/rgb\(244, 244, 244\)/);
   await page.getByRole("button", { name: "收起结果与记录" }).click();

@@ -138,6 +138,68 @@ await test("第一轮只接受六类配饰角色且每类最多一条连线", ()
   }), true);
 });
 
+await test("图片赋值与模板自动连接原子提交，重复和过期写入均为 no-op", () => {
+  const person = imageNode("auto-person", "人物身份图");
+  const outfit = imageNode("auto-outfit", "主穿搭图");
+  if (person.data.kind !== "image-input" || outfit.data.kind !== "image-input") throw new Error("测试图片节点错误");
+  person.data.autoConnectTargets = [{ targetNodeId: "auto-stabilize", targetHandle: "person" }];
+  outfit.data.autoConnectTargets = [
+    { targetNodeId: "auto-stabilize", targetHandle: "outfit" },
+    { targetNodeId: "auto-refine", targetHandle: "outfit" },
+  ];
+  const stabilize: FlowNode = {
+    id: "auto-stabilize", type: "virtual-try-on", position: { x: 320, y: 0 },
+    data: {
+      kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize",
+      prompt: "", modelId: "gemini-3.1-flash-image-preview", modelOptions: { imageSize: "2K" },
+      imageSize: "2K", aspectRatio: "3:4", basisRevision: 0, outputImages: [],
+    },
+  };
+  const refine: FlowNode = {
+    id: "auto-refine", type: "virtual-try-on", position: { x: 680, y: 0 },
+    data: {
+      kind: "virtual-try-on", label: "第二轮", status: "idle", workflowStage: "garment-refine",
+      prompt: "", modelId: "gpt-image-2", modelOptions: { quality: "medium" },
+      imageSize: "2K", aspectRatio: "3:4", outputImages: [],
+    },
+  };
+  useFlowStore.getState().loadFlow({
+    projectId: "auto-connect-project",
+    projectName: "自动连接",
+    nodes: [person, outfit, stabilize, refine],
+    edges: [],
+  });
+  useFlowStore.temporal.getState().clear();
+  const target = selectActiveDocumentTarget(useFlowStore.getState());
+
+  useFlowStore.getState().assignImageInputInTab(target, person.id, "/api/files/person.png");
+  assert.equal(activeDocument().edges.length, 1);
+  assert.equal(activeDocument().edges[0].targetHandle, "person");
+  assert.equal(activeDocument().nodes.find((node) => node.id === stabilize.id)?.data.basisRevision, 1);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 1);
+
+  useFlowStore.getState().undo();
+  const undonePerson = activeDocument().nodes.find((node) => node.id === person.id);
+  assert.equal(undonePerson?.data.kind === "image-input" && undonePerson.data.imageUrl, undefined);
+  assert.equal(activeDocument().edges.length, 0);
+
+  useFlowStore.temporal.getState().clear();
+  useFlowStore.getState().assignImageInputInTab(target, outfit.id, "/api/files/outfit.png");
+  assert.deepEqual(activeDocument().edges.map((edge) => edge.targetHandle).sort(), ["outfit", "outfit"]);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 1);
+  useFlowStore.getState().assignImageInputInTab(target, outfit.id, "/api/files/outfit.png");
+  assert.equal(activeDocument().edges.length, 2);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 1);
+
+  const beforeStaleWrite = structuredClone(activeDocument());
+  useFlowStore.getState().assignImageInputInTab(
+    { ...target, documentEpoch: target.documentEpoch + 1 },
+    person.id,
+    "/api/files/stale.png",
+  );
+  assert.deepEqual(activeDocument(), beforeStaleWrite);
+});
+
 type ConnectionDraftState = FlowState & {
   pendingConnectionDraft: ConnectionDraft | null;
   connectionDraftError: string | null;
@@ -1746,7 +1808,9 @@ await test("最近生成成功卡显式提供查看、对比、下载与设为�
     new URL("../src/components/panels/ResultsPanel.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(resultsPanelSource, /aria-label=\{`查看 \$\{r\.nodeLabel\}`\}/);
+  assert.match(resultsPanelSource, /aria-label=\{`查看生成记录：\$\{r\.nodeLabel\}`\}/);
+  assert.match(resultsPanelSource, /OPEN_GENERATION_RECORD_EVENT/);
+  assert.match(resultsPanelSource, /查看图片/);
   assert.match(resultsPanelSource, /aria-label=\{`\$\{compareIds\.includes\(r\.id\) \? "取消" : "加入"\}对比 \$\{r\.nodeLabel\}`\}/);
   assert.match(resultsPanelSource, /href=\{r\.image\}[\s\S]*download/);
   assert.match(resultsPanelSource, /aria-label=\{`将 \$\{r\.nodeLabel\} 设为输入，继续处理`\}/);
@@ -1795,6 +1859,58 @@ await test("第二轮缺少人工确认或面料工艺时在任何网络请求�
     const current = activeDocument().nodes.find((node) => node.id === refine.id);
     assert.equal(current?.data.status, "error");
     assert.match(current?.data.error ?? "", /确认当前第一轮基准图/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+await test("分步换装错误模型在客户端付费请求前被拒绝", async () => {
+  const firstStage: FlowNode = {
+    id: "invalid-model-first",
+    type: "virtual-try-on",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize",
+      prompt: "", imageSize: "2K", aspectRatio: "3:4", modelId: "gpt-image-2",
+      modelOptions: { quality: "medium" }, basisRevision: 0, outputImages: [],
+    },
+  };
+  const secondStage: FlowNode = {
+    id: "invalid-model-second",
+    type: "virtual-try-on",
+    position: { x: 400, y: 0 },
+    data: {
+      kind: "virtual-try-on", label: "第二轮", status: "idle", workflowStage: "garment-refine",
+      prompt: "", imageSize: "2K", aspectRatio: "3:4", modelId: "gemini-3.1-flash-image-preview",
+      modelOptions: { imageSize: "2K" }, garmentCategory: "knit", materialSpec: "羊毛", constructionSpec: "12GG", outputImages: [],
+    },
+  };
+  let networkCalls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    networkCalls += 1;
+    return Response.json({ ok: true });
+  };
+  try {
+    useFlowStore.getState().loadFlow({
+      projectId: "invalid-model-first-project",
+      projectName: "错误第一轮模型",
+      nodes: [firstStage],
+      edges: [],
+    });
+    await useFlowStore.getState().runNode(firstStage.id);
+    assert.equal(networkCalls, 0);
+    assert.match(activeDocument().nodes[0].data.error ?? "", /第一轮必须使用 Gemini 3\.1 Flash/);
+
+    useFlowStore.getState().loadFlow({
+      projectId: "invalid-model-second-project",
+      projectName: "错误第二轮模型",
+      nodes: [secondStage],
+      edges: [],
+    });
+    await useFlowStore.getState().runNode(secondStage.id);
+    assert.equal(networkCalls, 0);
+    assert.match(activeDocument().nodes[0].data.error ?? "", /第二轮必须使用 GPT Image 2/);
   } finally {
     globalThis.fetch = originalFetch;
   }
