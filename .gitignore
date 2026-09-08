@@ -24,6 +24,7 @@ data/thumbnails/
 data/projects/
 data/assets/
 data/scene-analysis-cache/
+data/prompt-enhancement-cache/
 data/templates/user/
 data/quarantine/
 data/evaluations/

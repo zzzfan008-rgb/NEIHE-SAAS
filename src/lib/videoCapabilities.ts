@@ -2,9 +2,11 @@ import type { ToolItem } from "@/types/workbench";
 
 export type VideoCapabilityId =
   | "text-to-video"
+  | "first-frame-to-video"
   | "keyframes-to-video"
-  | "multi-image-video"
-  | "video-to-video";
+  | "multimodal-reference"
+  | "video-edit"
+  | "video-extend";
 
 export interface VideoCapabilityDescriptor {
   id: VideoCapabilityId;
@@ -42,6 +44,13 @@ export const VIDEO_CAPABILITIES: readonly VideoCapabilityDescriptor[] = [
     disabledReason: "文生视频的独立规格、模型计费与输出验收尚未全部批准",
   },
   {
+    id: "first-frame-to-video",
+    name: "首帧生视频",
+    icon: "image-play",
+    description: "根据单张首帧生成后续视频。",
+    disabledReason: "首帧角色、时长与生成验收尚未全部批准",
+  },
+  {
     id: "keyframes-to-video",
     name: "首尾帧生视频",
     icon: "between-horizontal-start",
@@ -49,18 +58,25 @@ export const VIDEO_CAPABILITIES: readonly VideoCapabilityDescriptor[] = [
     disabledReason: "首尾帧角色、插帧时长与生成验收尚未全部批准",
   },
   {
-    id: "multi-image-video",
-    name: "多图参考生视频",
+    id: "multimodal-reference",
+    name: "多模态参考生视频",
     icon: "images",
-    description: "综合多张参考图生成视频。",
-    disabledReason: "多图角色、顺序上限与生成验收尚未全部批准",
+    description: "综合图片、视频和音频参考生成视频。",
+    disabledReason: "多模态角色、顺序上限与生成验收尚未全部批准",
   },
   {
-    id: "video-to-video",
-    name: "视频生视频",
+    id: "video-edit",
+    name: "视频编辑",
     icon: "refresh-ccw",
-    description: "基于现有视频完成风格或内容变换。",
+    description: "基于现有视频增加、删除、修改或替换内容。",
     disabledReason: "视频上传、变换计费、播放导出与上线验收尚未全部批准",
+  },
+  {
+    id: "video-extend",
+    name: "视频延长",
+    icon: "move-right",
+    description: "沿用现有视频内容向前或向后延长。",
+    disabledReason: "视频延长的时长、衔接与生成验收尚未全部批准",
   },
 ] as const;
 
@@ -71,16 +87,18 @@ export const VIDEO_CAPABILITIES: readonly VideoCapabilityDescriptor[] = [
  */
 export const VIDEO_CAPABILITY_APPROVAL: VideoCapabilityApproval = {
   independentSpecId: "spec-001-canvas-workbench-redesign",
-  generationContractId: "apiyi-veo-3.1-v1",
+  generationContractId: "apiyi-seedance-2.5-2.0-v2",
   acceptanceRecordId: "chat-confirmation-2026-09-03-video-entry-activation",
   approvedAt: "2026-09-03T18:00:00+08:00",
 };
 
 const VIDEO_TEMPLATE_IDS: Record<VideoCapabilityId, string> = {
   "text-to-video": "builtin-tool-text-to-video",
+  "first-frame-to-video": "builtin-tool-first-frame-to-video",
   "keyframes-to-video": "builtin-tool-keyframes-to-video",
-  "multi-image-video": "builtin-tool-multi-image-video",
-  "video-to-video": "builtin-tool-video-to-video",
+  "multimodal-reference": "builtin-tool-multimodal-reference",
+  "video-edit": "builtin-tool-video-edit",
+  "video-extend": "builtin-tool-video-extend",
 };
 
 function validApproval(approval: VideoCapabilityApproval | undefined): boolean {
@@ -95,8 +113,7 @@ function validApproval(approval: VideoCapabilityApproval | undefined): boolean {
 
 /**
  * Fail-closed future enablement seam. A capability needs all three approval
- * artifacts plus an explicitly registered implementation intent. This module
- * deliberately defines no video node kind or implementation today.
+ * artifacts plus an explicitly registered implementation intent.
  */
 export function resolveVideoCapability<TIntent>(
   descriptor: VideoCapabilityDescriptor,

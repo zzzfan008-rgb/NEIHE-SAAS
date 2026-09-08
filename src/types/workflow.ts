@@ -3,6 +3,7 @@
  * 无限画布 + 节点 DAG + 节点级图片模型选择。
  */
 import type { GenerationImageModelId, ImageModelOptions } from "./imageModels";
+import type { TryOnQualityMode } from "../lib/tryOnStylePresets";
 
 // ---------- 节点类型 ----------
 export type NodeKind =
@@ -12,7 +13,8 @@ export type NodeKind =
   | "color-palette"      // 显式色板（typed colors 输出）
   | "stage-approval"     // 第一轮基准人工确认门槛
   | "video-input"       // 本地视频上传
-  | "video-generate"    // VEO 文生/帧生/参考图/视频重制
+  | "audio-input"       // Seedance 音频参考
+  | "video-generate"    // Seedance 2.5 / 2.0 视频生成与编辑
   | "sketch-to-render"   // 草图→效果图（节点内选择 API易模型）
   | "ai-modify"          // AI 改款/变体（gpt-image-2）
   | "fabric-recolor"     // 面料/配色替换（gpt-image-2）
@@ -47,7 +49,7 @@ export type NodeDisplayState =
   | "unknown-outcome"
   | "needs-reconfirmation";
 
-export type PortValueKind = "image" | "text" | "colors" | "video" | "none";
+export type PortValueKind = "image" | "text" | "colors" | "video" | "audio" | "none";
 
 export type WorkflowInputRole =
   | "person"
@@ -68,7 +70,24 @@ export type WorkflowInputRole =
   | "references"
   | "first-frame"
   | "last-frame"
-  | "source-video";
+  | "source-video"
+  | "reference-image"
+  | "reference-video"
+  | "reference-audio"
+  | "repair-source"
+  | "eyewear"
+  | "neckwear"
+  | "belt"
+  | "watch";
+
+export type MaskRepairFocus =
+  | "custom"
+  | "upper-garment"
+  | "pants"
+  | "accessories"
+  | "logo-text";
+
+export type MaskRepairExecutionMode = "repair" | "bypass";
 
 export interface NodePortSpec {
   id: string;
@@ -236,6 +255,17 @@ export interface VirtualTryOnNodeData extends BaseNodeData {
   garmentCategory?: "knit" | "woven" | "other";
   materialSpec?: string;
   constructionSpec?: string;
+  /** 只改写用户补充要求，不允许改写服务端固定的参考图角色。 */
+  promptEnhancement: boolean;
+  /** fast=单候选；balanced/best 会生成多个候选并由视觉模型择优。 */
+  qualityMode: TryOnQualityMode;
+  /** 内容拒绝且没有任何图片时，最多使用安全提示词再请求一次。 */
+  safetyFallback: boolean;
+  /** 内置或用户私有风格预设的稳定 ID 与运行快照。 */
+  stylePresetId: string;
+  stylePresetName?: string;
+  stylePrompt?: string;
+  styleReferenceImage?: string;
   outputImages: string[];
 }
 
@@ -246,22 +276,42 @@ export interface VideoInputNodeData extends BaseNodeData {
   mimeType?: "video/mp4" | "video/webm" | "video/quicktime";
 }
 
+export interface AudioInputNodeData extends BaseNodeData {
+  kind: "audio-input";
+  /** Seedance 可访问的公网 URL 或 asset:// 素材库引用。 */
+  audioUrl?: string;
+  mimeType?: "audio/mpeg" | "audio/wav" | "audio/mp4" | "audio/ogg";
+}
+
 export type VideoGenerationMode =
   | "text-to-video"
+  | "first-frame-to-video"
   | "keyframes-to-video"
-  | "multi-image-video"
-  | "video-to-video";
+  | "multimodal-reference"
+  | "video-edit"
+  | "video-extend";
+
+export type SeedanceVideoModelId =
+  | "doubao-seedance-2-5-260628"
+  | "doubao-seedance-2-0-260128"
+  | "doubao-seedance-2-0-fast-260128"
+  | "doubao-seedance-2-0-mini-260615";
+
+export type VideoAspectRatio = "16:9" | "4:3" | "1:1" | "3:4" | "9:16" | "21:9" | "adaptive";
+export type VideoResolution = "480p" | "720p" | "1080p";
+export type SeedanceOutputFormat = "mp4" | "mov";
 
 export interface VideoGenerateNodeData extends BaseNodeData {
   kind: "video-generate";
   mode: VideoGenerationMode;
   prompt: string;
-  /** 固定由服务端路由到 VEO 3.1 兼容型号，前端不允许自由填写模型。 */
-  videoModel: "veo-3.1";
-  quality: "fast" | "standard";
-  aspectRatio: "16:9" | "9:16";
-  resolution: "720p" | "1080p" | "4k";
-  seconds: 4 | 6 | 8;
+  videoModel: SeedanceVideoModelId;
+  aspectRatio: VideoAspectRatio;
+  resolution: VideoResolution;
+  /** Seedance 2.5 显式时长，避免省略后由模型自主决定成本。 */
+  seconds: number;
+  generateAudio: boolean;
+  outputFormat: SeedanceOutputFormat;
   /** 为复用既有持久化/运行事件，媒体引用仍沿用 outputImages 字段。 */
   outputImages: string[];
 }
@@ -270,6 +320,8 @@ export interface MaskRedrawNodeData extends BaseNodeData {
   kind: "mask-redraw";
   modelId: "gpt-image-2";
   modelOptions: ImageModelOptions;
+  repairFocus: MaskRepairFocus;
+  executionMode: MaskRepairExecutionMode;
   prompt: string;
   mask?: string;
   maskSourceRef?: string;
@@ -289,6 +341,7 @@ export type WorkflowNodeData =
   | ColorPaletteNodeData
   | StageApprovalNodeData
   | VideoInputNodeData
+  | AudioInputNodeData
   | VideoGenerateNodeData
   | SketchToRenderNodeData
   | AiModifyNodeData
@@ -302,10 +355,11 @@ export type WorkflowNodeData =
 
 // ---------- 持久化工作流（项目 / 模板共用）----------
 /**
- * 版本 7 增加图片输入节点的声明式自动连接；读取 v0-v6 时服务端确定性迁移；
+ * 版本 11 增加 Seedance 2.5 / 2.0 模型矩阵、首帧、多模态、编辑、延长和音频输入；
+ * 读取 v0-v10 时服务端确定性迁移，旧视频模式映射到新的明确任务类型；
  * 新版本不得静默降级读取。
  */
-export const WORKFLOW_SCHEMA_VERSION = 7 as const;
+export const WORKFLOW_SCHEMA_VERSION = 11 as const;
 export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
 
 export interface PersistedWorkflowNode {
@@ -372,7 +426,12 @@ export interface NodeExecution {
    * 上游依赖（按边顺序）：运行时优先取本次 Run 中该上游的产出，
    * 上游不在执行范围（单节点重跑）时回退到 images 快照。
    */
-  upstream?: { nodeId: string; images: string[]; targetHandle?: string | null }[];
+  upstream?: {
+    nodeId: string;
+    images: string[];
+    sourceHandle?: string | null;
+    targetHandle?: string | null;
+  }[];
   params: Record<string, unknown>;
 }
 
@@ -440,7 +499,7 @@ export interface NodeSpec {
   description: string;
   providerId?: string;     // AI 节点对应的 provider
   inputs: number;          // 接受的图片输入数（0 = 无输入）
-  outputs: "images" | "videos" | "none";
+  outputs: "images" | "videos" | "audio" | "none";
   inputPorts: readonly NodePortSpec[];
   outputPorts: readonly NodePortSpec[];
 }
@@ -522,12 +581,21 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     inputPorts: noPorts,
     outputPorts: [{ id: "video", label: "视频", direction: "output", valueKind: "video", required: false, maxSources: 1 }],
   },
+  "audio-input": {
+    kind: "audio-input",
+    title: "音频参考",
+    description: "提供 Seedance 可访问的音频 URL 或素材库引用",
+    inputs: 0,
+    outputs: "audio",
+    inputPorts: noPorts,
+    outputPorts: [{ id: "audio", label: "音频", direction: "output", valueKind: "audio", required: false, maxSources: 1 }],
+  },
   "video-generate": {
     kind: "video-generate",
     title: "视频生成",
-    description: "使用 VEO 3.1 生成或重制 8 秒服装视频",
+    description: "使用 Seedance 2.5 / 2.0 生成、编辑或延长视频",
     providerId: "apiyi-video",
-    inputs: 8,
+    inputs: 50,
     outputs: "videos",
     inputPorts: [
       { id: "references", label: "参考素材", direction: "input", valueKind: "image", required: false, maxSources: 8, accepts: ["image", "video", "text"] },

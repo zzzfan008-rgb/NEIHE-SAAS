@@ -24,6 +24,17 @@ import {
   isModelAllowedForNode,
   modelMaxReferenceImages,
 } from "../../src/types/imageModels";
+import { effectiveIncomingSources, isBypassedMaskRepair } from "../../src/lib/maskRepair";
+import { imagesForSourceHandle } from "../../src/lib/workflowPorts";
+import {
+  SEEDANCE_MODEL_CAPABILITIES,
+  SEEDANCE_OUTPUT_FORMATS,
+  SEEDANCE_RATIOS,
+  SEEDANCE_RESOLUTIONS,
+  SEEDANCE_VIDEO_MODES,
+  isSeedanceVideoModel,
+  seedanceModeRequiresAdaptive,
+} from "../../src/lib/seedance";
 
 /** React Flow 节点/边的最小结构（前端传入） */
 export interface FlowNode {
@@ -57,16 +68,60 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
       const prompt = typeof step.params.prompt === "string" ? step.params.prompt.trim() : "";
       if (!prompt) throw new DagError(`Node ${step.nodeId} requires a video prompt`);
       const mode = String(step.params.mode);
+      if (!SEEDANCE_VIDEO_MODES.includes(mode as never)) throw new DagError(`Node ${step.nodeId} uses an unsupported Seedance mode`);
+      if (!isSeedanceVideoModel(step.params.videoModel)) throw new DagError(`Node ${step.nodeId} uses an unsupported Seedance model`);
+      const model = step.params.videoModel;
+      const capability = SEEDANCE_MODEL_CAPABILITIES[model];
+      if (!SEEDANCE_RESOLUTIONS.includes(step.params.resolution as never)) {
+        throw new DagError(`Node ${step.nodeId} uses an unsupported Seedance resolution`);
+      }
+      if (step.params.resolution === "1080p" && !capability.supports1080p) {
+        throw new DagError(`Node ${step.nodeId} model does not support 1080p`);
+      }
+      if (!SEEDANCE_RATIOS.includes(step.params.aspectRatio as never)) {
+        throw new DagError(`Node ${step.nodeId} uses an unsupported Seedance ratio`);
+      }
+      if (typeof step.params.generateAudio !== "boolean") throw new DagError(`Node ${step.nodeId} requires an audio setting`);
+      if (!SEEDANCE_OUTPUT_FORMATS.includes(step.params.outputFormat as never)) throw new DagError(`Node ${step.nodeId} uses an unsupported output format`);
+      if (step.params.outputFormat === "mov" && !capability.supportsMov) throw new DagError(`Node ${step.nodeId} model does not support MOV output`);
+      if ((mode === "video-edit" || mode === "video-extend") && !capability.supportsEdit) {
+        throw new DagError(`Node ${step.nodeId} video editing and extension require Seedance 2.5`);
+      }
       const mediaInputs = (step.upstream ?? []).filter((source) => source.targetHandle !== "prompt");
       if (mode === "text-to-video" && mediaInputs.length !== 0) throw new DagError(`Node ${step.nodeId} text-to-video does not accept media inputs`);
-      if ((mode === "keyframes-to-video" || mode === "multi-image-video") && mediaInputs.length !== 2) {
-        throw new DagError(`Node ${step.nodeId} requires exactly two ordered reference frames`);
+      if (mode === "first-frame-to-video" && (mediaInputs.length !== 1 || mediaInputs[0].targetHandle !== "first-frame")) {
+        throw new DagError(`Node ${step.nodeId} requires exactly one first frame`);
       }
-      if (mode === "video-to-video" && (mediaInputs.length !== 1 || mediaInputs[0].targetHandle !== "source-video")) {
+      if (mode === "keyframes-to-video") {
+        if (mediaInputs.length !== 2 || !["first-frame", "last-frame"].every((role) => mediaInputs.filter((item) => item.targetHandle === role).length === 1)) {
+          throw new DagError(`Node ${step.nodeId} requires exactly one first frame and one last frame`);
+        }
+      }
+      if (mode === "multimodal-reference") {
+        const count = (role: string) => mediaInputs.filter((item) => item.targetHandle === role).length;
+        const images = count("reference-image");
+        const videos = count("reference-video");
+        const audios = count("reference-audio");
+        if (images > capability.maxImages || videos > capability.maxVideos || audios > capability.maxAudios) {
+          throw new DagError(`Node ${step.nodeId} exceeds the selected Seedance model reference limits`);
+        }
+        if (images + videos + audios === 0 || (!capability.supportsAudioOnly && images + videos === 0)) {
+          throw new DagError(`Node ${step.nodeId} requires supported multimodal reference media`);
+        }
+      }
+      if ((mode === "video-edit" || mode === "video-extend") && (mediaInputs.length !== 1 || mediaInputs[0].targetHandle !== "source-video")) {
         throw new DagError(`Node ${step.nodeId} requires exactly one source video`);
       }
-      if ((step.params.resolution === "1080p" || step.params.resolution === "4k") && step.params.seconds !== 8) {
-        throw new DagError(`Node ${step.nodeId} requires 8 seconds for 1080p or 4K`);
+      if (step.params.seconds !== -1 && (
+        !Number.isSafeInteger(step.params.seconds) || Number(step.params.seconds) < 4 || Number(step.params.seconds) > capability.maxDuration
+      )) {
+        throw new DagError(`Node ${step.nodeId} requires -1 or a duration from 4 to ${capability.maxDuration} seconds`);
+      }
+      if (mode === "video-edit" && step.params.seconds !== -1) {
+        throw new DagError(`Node ${step.nodeId} video editing requires duration -1`);
+      }
+      if (seedanceModeRequiresAdaptive(model, mode as never) && step.params.aspectRatio !== "adaptive") {
+        throw new DagError(`Node ${step.nodeId} requires adaptive ratio for this Seedance 2.5 task type`);
       }
       continue;
     }
@@ -136,7 +191,11 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
         if (modelId !== "gemini-3.1-flash-image-preview") {
           throw new DagError(`节点 ${step.nodeId} 第一轮必须使用 Gemini 3.1 Flash`);
         }
-        requireOne("person", "person");
+        const personSources = roleSources("person");
+        const personImages = roleImages("person");
+        if (personSources.length < 1 || personSources.length > 3 || personImages.length !== personSources.length) {
+          throw new DagError(`节点 ${step.nodeId} 必须连接 1 至 3 张同一人物身份图片`);
+        }
         requireOne("scene", "scene");
         requireOne("outfit", "outfit");
         for (const [role, label] of [
@@ -184,6 +243,9 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
       continue;
     }
     if (step.kind === "mask-redraw") {
+      if (step.upstream?.[0]?.targetHandle !== "repair-source") {
+        throw new DagError(`Node ${step.nodeId} requires one explicit repair-source input`);
+      }
       if (usableImages.length === 0) throw new DagError(`Node ${step.nodeId} requires an upstream image`);
       if (typeof step.params.mask !== "string" || !step.params.mask) {
         throw new DagError(`Node ${step.nodeId} requires a saved PNG mask`);
@@ -268,21 +330,27 @@ export function buildExecutionPlan(
   // 生成执行步骤：记录每个节点的上游依赖（节点 ID + 计划期快照）。
   // 运行时由 runner 从本次 Run 的 outputs 解析真实输入；
   // 上游不在执行范围（单节点重跑）时回退到快照。
-  const steps: NodeExecution[] = sorted.map((id) => {
+  const executableIds = sorted.filter((id) => !isBypassedMaskRepair(nodeMap.get(id)!.data));
+  const steps: NodeExecution[] = executableIds.map((id) => {
     const node = nodeMap.get(id)!;
     const data = node.data;
 
     // 上游按 edges 数组顺序（result 节点多输入时保持连接顺序）
-    const upstream: { nodeId: string; images: string[]; targetHandle?: string | null }[] = [];
-    for (const e of edges) {
-      if (e.target !== id) continue;
-      const srcData = nodeMap.get(e.source)!.data;
+    const upstream: {
+      nodeId: string;
+      images: string[];
+      sourceHandle?: string | null;
+      targetHandle?: string | null;
+    }[] = [];
+    for (const effective of effectiveIncomingSources(nodes, edges, id)) {
+      const srcData = effective.node.data;
       upstream.push({
-        nodeId: e.source,
-        images: extractOutputImages(srcData),
+        nodeId: effective.node.id,
+        images: extractOutputImages(srcData, effective.sourceHandle),
+        ...(effective.sourceHandle ? { sourceHandle: effective.sourceHandle } : {}),
         // Persisted v4/v5 edges normalize an omitted handle to null. Canonicalize
         // both forms by omitting the field, while retaining explicit typed roles.
-        ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
+        ...(effective.targetHandle ? { targetHandle: effective.targetHandle } : {}),
       });
     }
     if (data.kind === "virtual-try-on" && data.workflowStage !== "standard") {
@@ -297,6 +365,9 @@ export function buildExecutionPlan(
     }
 
     const params = extractParams(data);
+    if (data.kind === "mask-redraw") {
+      params.referenceLabels = upstream.map((source) => nodeMap.get(source.nodeId)?.data.label ?? source.nodeId);
+    }
     const upstreamText = edges
       .filter((edge) => edge.target === id && edge.targetHandle === "prompt")
       .map((edge) => nodeMap.get(edge.source)?.data)
@@ -352,7 +423,7 @@ export function buildExecutionPlan(
 }
 
 /** 从节点 data 提取该节点当前已知的输出图片 */
-function extractOutputImages(data: WorkflowNodeData): string[] {
+function extractOutputImages(data: WorkflowNodeData, sourceHandle?: string | null): string[] {
   switch (data.kind) {
     case "image-input":
       return data.imageUrl ? [data.imageUrl] : [];
@@ -362,6 +433,8 @@ function extractOutputImages(data: WorkflowNodeData): string[] {
       return data.approvedBaselineRef ? [data.approvedBaselineRef] : [];
     case "video-input":
       return data.videoUrl ? [data.videoUrl] : [];
+    case "audio-input":
+      return data.audioUrl ? [data.audioUrl] : [];
     case "text-input":
     case "color-palette":
       return [];
@@ -376,7 +449,7 @@ function extractOutputImages(data: WorkflowNodeData): string[] {
     case "video-generate":
       return data.outputImages ?? [];
     case "result":
-      return data.images ?? [];
+      return imagesForSourceHandle(data.images ?? [], sourceHandle);
   }
 }
 
@@ -419,15 +492,18 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
       };
     case "video-input":
       return { videoUrl: data.videoUrl, mimeType: data.mimeType };
+    case "audio-input":
+      return { audioUrl: data.audioUrl, mimeType: data.mimeType };
     case "video-generate":
       return {
         mode: data.mode,
         prompt: data.prompt,
         videoModel: data.videoModel,
-        quality: data.quality,
         aspectRatio: data.aspectRatio,
         resolution: data.resolution,
         seconds: data.seconds,
+        generateAudio: data.generateAudio,
+        outputFormat: data.outputFormat,
       };
     case "sketch-to-render":
       return {
@@ -462,11 +538,19 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
         garmentCategory: data.garmentCategory,
         materialSpec: data.materialSpec,
         constructionSpec: data.constructionSpec,
+        promptEnhancement: data.promptEnhancement,
+        qualityMode: data.qualityMode,
+        safetyFallback: data.safetyFallback,
+        stylePresetId: data.stylePresetId,
+        stylePresetName: data.stylePresetName,
+        stylePrompt: data.stylePrompt,
+        styleReferenceImage: data.styleReferenceImage,
         basisRevision: data.basisRevision,
         ...modelFields(),
       };
     case "mask-redraw":
       return {
+        repairFocus: data.repairFocus, executionMode: data.executionMode,
         prompt: data.prompt, mask: data.mask, maskSourceRef: data.maskSourceRef,
         maskPipelineVersion: MASK_PIPELINE_VERSION,
         modelId: MASK_REDRAW_MODEL_ID, modelOptions: {},

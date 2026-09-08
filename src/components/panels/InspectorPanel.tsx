@@ -35,6 +35,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { TryOnQualityControls } from "./TryOnQualityControls";
 
 const UPSTREAM_SUGGESTIONS: Record<NodeKind, NodeKind[]> = {
   "image-input": [],
@@ -43,7 +45,8 @@ const UPSTREAM_SUGGESTIONS: Record<NodeKind, NodeKind[]> = {
   "color-palette": [],
   "stage-approval": ["virtual-try-on"],
   "video-input": [],
-  "video-generate": ["video-input", "image-input", "text-input"],
+  "audio-input": [],
+  "video-generate": ["video-input", "audio-input", "image-input", "text-input"],
   "sketch-to-render": ["image-input"],
   "ai-modify": ["image-input", "sketch-to-render"],
   "fabric-recolor": ["image-input", "sketch-to-render"],
@@ -62,6 +65,7 @@ const DOWNSTREAM_SUGGESTIONS: Record<NodeKind, NodeKind[]> = {
   "color-palette": ["fabric-recolor"],
   "stage-approval": ["virtual-try-on"],
   "video-input": ["video-generate"],
+  "audio-input": ["video-generate"],
   "video-generate": ["result"],
   "sketch-to-render": ["ai-modify", "fabric-recolor", "upscale", "result"],
   "ai-modify": ["fabric-recolor", "upscale", "result"],
@@ -140,6 +144,9 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
   const node = nodes.find((candidate) => candidate.id === nodeId);
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
   const runNode = useFlowStore((s) => s.runNode);
+  const onConnect = useFlowStore((s) => s.onConnect);
+  const onEdgesChange = useFlowStore((s) => s.onEdgesChange);
+  const readOnly = useFlowStore(selectActiveReadOnly);
   const labelEdit = useCoalescedTextEdit({ kind: "node-data", nodeId, field: "label" });
   const promptEdit = useCoalescedTextEdit(
     { kind: "node-data", nodeId, field: "prompt" },
@@ -169,6 +176,14 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
     ? edges.find((edge) => edge.target === nodeId && edge.targetHandle === "palette")
     : undefined;
   const paletteSource = paletteEdge ? nodes.find((candidate) => candidate.id === paletteEdge.source) : undefined;
+  const accessoryCandidates = d.kind === "mask-redraw" && d.repairFocus === "accessories"
+    ? nodes.filter((candidate) => candidate.data.kind === "image-input" && candidate.data.autoConnectTargets?.some((target) => (
+        target.targetNodeId === nodeId && target.targetHandle === "references"
+      )))
+    : [];
+  const selectedAccessoryEdges = d.kind === "mask-redraw" && d.repairFocus === "accessories"
+    ? edges.filter((edge) => edge.target === nodeId && edge.targetHandle === "references")
+    : [];
 
   return (
     <div className="space-y-3">
@@ -217,6 +232,67 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
             <span key={swatch.id} title={swatch.value} className="h-7 w-7 rounded-md border border-white/15" style={{ backgroundColor: swatch.value }} />
           ))}</div>
           <p className="text-[10px] leading-relaxed text-[var(--gc-text-muted)]">色板是独立节点；需要另一组颜色时，请从左侧色彩工具新建色板。</p>
+        </section>
+      )}
+
+      {d.kind === "mask-redraw" && d.repairFocus !== "custom" && (
+        <section className="space-y-3 border-t border-[var(--gc-border)] pt-3" aria-label="局部精修设置">
+          <label className="flex items-center justify-between gap-3">
+            <span>
+              <span className="block text-[10px] font-medium text-[var(--gc-text)]">参与精修</span>
+              <span className="block text-[9px] text-[var(--gc-text-muted)]">跳过时不生成、不计费</span>
+            </span>
+            <Switch
+              checked={d.executionMode === "repair"}
+              disabled={readOnly || isNodeRunActive(d.status)}
+              aria-label={`${d.label}参与精修`}
+              onCheckedChange={(checked) => updateNodeData(nodeId, checked
+                ? { executionMode: "repair", status: "idle", error: undefined }
+                : {
+                    executionMode: "bypass",
+                    status: "idle",
+                    error: undefined,
+                    mask: undefined,
+                    maskSourceRef: undefined,
+                    outputImages: [],
+                  })}
+            />
+          </label>
+
+          {d.repairFocus === "accessories" && (
+            <fieldset className="space-y-2">
+              <legend className="text-[10px] text-[var(--gc-text-muted)]">
+                配饰细节参考（{selectedAccessoryEdges.length}/6）
+              </legend>
+              {accessoryCandidates.map((candidate) => {
+                const selectedEdge = selectedAccessoryEdges.find((edge) => edge.source === candidate.id);
+                const hasImage = candidate.data.kind === "image-input" && Boolean(candidate.data.imageUrl);
+                return (
+                  <label key={candidate.id} className="flex min-h-8 items-center justify-between gap-3 rounded-md border border-[var(--gc-border)] bg-[var(--gc-control)] px-2.5 py-1.5">
+                    <span className="min-w-0 truncate text-[10px] text-[var(--gc-text)]">{candidate.data.label}</span>
+                    <Switch
+                      checked={Boolean(selectedEdge)}
+                      disabled={readOnly || !hasImage || (!selectedEdge && selectedAccessoryEdges.length >= 6)}
+                      aria-label={`选择配饰参考：${candidate.data.label}`}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          onConnect({
+                            source: candidate.id,
+                            sourceHandle: "image",
+                            target: nodeId,
+                            targetHandle: "references",
+                          });
+                        } else if (selectedEdge) {
+                          onEdgesChange([{ id: selectedEdge.id, type: "remove" }]);
+                        }
+                      }}
+                    />
+                  </label>
+                );
+              })}
+              <p className="text-[9px] leading-4 text-[var(--gc-text-muted)]">上传时自动选择有空位的参考；已满时先关闭一项再选择其它配饰。</p>
+            </fieldset>
+          )}
         </section>
       )}
 
@@ -353,6 +429,11 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
               ))}
             </div>
           </fieldset>
+          <TryOnQualityControls
+            data={d}
+            disabled={isNodeRunActive(d.status)}
+            onChange={(patch) => updateNodeData(nodeId, patch)}
+          />
           {d.workflowStage === "garment-refine" && (
             <div className="space-y-3 border-t border-[var(--gc-border)] pt-3">
               <fieldset className="space-y-1">
@@ -415,7 +496,7 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
         />
       )}
 
-      {spec.providerId && (
+      {spec.providerId && !(d.kind === "mask-redraw" && d.executionMode === "bypass") && (
         <RunButton
           status={d.status}
           onClick={() => void runNode(nodeId)}

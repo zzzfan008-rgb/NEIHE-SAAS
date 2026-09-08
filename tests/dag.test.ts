@@ -14,6 +14,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { assertPlanInputs, buildExecutionPlan, DagError, type FlowEdge, type FlowNode } from "../server/engine/dag";
 import type { SceneAnalyzer } from "../server/lib/sceneAnalysis";
+import type { ExecuteStepOptions, RunEvent } from "../server/engine/runner";
 import type {
   AIProvider,
   ImageGenRequest,
@@ -129,11 +130,36 @@ function aiNode(id: string, kind: "sketch-to-render" | "ai-modify", outputImages
   };
 }
 
-function resultNode(id: string): FlowNode {
+function resultNode(id: string, images: string[] = []): FlowNode {
   return {
     id,
     type: "result",
-    data: { kind: "result", label: id, status: "idle", images: [] } as WorkflowNodeData as FlowNode["data"],
+    data: { kind: "result", label: id, status: "idle", images } as WorkflowNodeData as FlowNode["data"],
+  };
+}
+
+function videoNode(
+  id: string,
+  patch: Partial<Extract<WorkflowNodeData, { kind: "video-generate" }>> = {},
+): FlowNode {
+  return {
+    id,
+    type: "video-generate",
+    data: {
+      kind: "video-generate",
+      label: id,
+      status: "idle",
+      mode: "text-to-video",
+      prompt: "布料随微风自然摆动",
+      videoModel: "doubao-seedance-2-5-260628",
+      aspectRatio: "16:9",
+      resolution: "480p",
+      seconds: 4,
+      generateAudio: false,
+      outputFormat: "mp4",
+      outputImages: [],
+      ...patch,
+    },
   };
 }
 
@@ -151,6 +177,7 @@ async function runRecordedAiStep(
   providerImages?: string[],
   referenceRoles?: string[],
   sceneAnalyzer?: SceneAnalyzer,
+  executeOptions: Partial<ExecuteStepOptions> = {},
 ) {
   const calls: RecordedProviderCall[] = [];
   const providerIds: string[] = [];
@@ -182,7 +209,21 @@ async function runRecordedAiStep(
   const result = await executeStep(step, inputImages, (providerId) => {
     providerIds.push(providerId);
     return provider;
-  }, { referenceRoles, sceneAnalyzer });
+  }, {
+    referenceRoles,
+    sceneAnalyzer,
+    identityAnchorer: async (_image, options) => {
+      await options?.beforeProviderCall?.(1);
+      return {
+        image: SEED_DATA_URL,
+        model: "identity-anchor-stub",
+        providerRequests: 1,
+        cacheHit: false,
+        fallback: false,
+      };
+    },
+    ...executeOptions,
+  });
   return { calls, providerIds, result };
 }
 
@@ -213,6 +254,25 @@ async function main() {
     assert.deepStrictEqual(out.upstream?.map((u) => u.nodeId), ["r1", "r2"]);
   });
 
+  await ok("结果节点动态图片端口只向执行计划传递选中的单张图", () => {
+    const result = resultNode("result", [SEED_DATA_URL, SECOND_DATA_URL]);
+    const target = aiNode("target", "ai-modify");
+    const plan = buildExecutionPlan([result, target], [{
+      source: result.id,
+      sourceHandle: "image:1",
+      target: target.id,
+      targetHandle: "references",
+    }]);
+    const targetStep = plan.steps.find((step) => step.nodeId === target.id)!;
+    assert.deepStrictEqual(targetStep.inputImages, [SECOND_DATA_URL]);
+    assert.deepStrictEqual(targetStep.upstream, [{
+      nodeId: result.id,
+      images: [SECOND_DATA_URL],
+      sourceHandle: "image:1",
+      targetHandle: "references",
+    }]);
+  });
+
   await ok("蒙版执行计划统一为版本化局部修改，不再携带旧处理模式", () => {
     const maskNode = (id: string, legacyMaskMode?: "preserve" | "replace"): FlowNode => ({
       id,
@@ -221,6 +281,8 @@ async function main() {
         kind: "mask-redraw",
         label: "蒙版重绘",
         status: "idle",
+        repairFocus: "custom",
+        executionMode: "repair",
         prompt: "替换胸前图案",
         mask: MASK_DATA_URL,
         maskSourceRef: MASK_SOURCE_DATA_URL,
@@ -478,7 +540,7 @@ async function main() {
         modelOptions: {},
       } as WorkflowNodeData as FlowNode["data"],
     };
-    const maskEdge = edge(upstream.id, maskNode.id);
+    const maskEdge = { ...edge(upstream.id, maskNode.id), targetHandle: "repair-source" };
     const plan = buildExecutionPlan([upstream, maskNode], [maskEdge], {
       onlyNodeId: maskNode.id,
       includeDownstream: false,
@@ -487,6 +549,45 @@ async function main() {
     assert.throws(
       () => assertPlanInputs(plan, [maskEdge]),
       /at most 7 user reference images/,
+    );
+  });
+
+  await ok("可跳过局部精修从计划中移除，并把最近有效底图透传给下游", () => {
+    const refined = aiNode("refined", "ai-modify", ["/api/files/refined.png"]);
+    const bypass = (id: string): FlowNode => ({
+      id,
+      type: "mask-redraw",
+      data: {
+        kind: "mask-redraw", label: id, status: "idle", repairFocus: "upper-garment",
+        executionMode: "bypass", prompt: "", outputImages: [], modelId: "gpt-image-2", modelOptions: {},
+      },
+    });
+    const target: FlowNode = {
+      id: "accessory-repair",
+      type: "mask-redraw",
+      data: {
+        kind: "mask-redraw", label: "配饰精修", status: "idle", repairFocus: "accessories",
+        executionMode: "repair", prompt: "修复手提包", mask: MASK_DATA_URL,
+        maskSourceRef: "/api/files/refined.png", outputImages: [], modelId: "gpt-image-2", modelOptions: {},
+      },
+    };
+    const nodes = [refined, bypass("upper-repair"), bypass("pants-repair"), target];
+    const edges = [
+      { ...edge("refined", "upper-repair"), targetHandle: "repair-source" },
+      { ...edge("upper-repair", "pants-repair"), targetHandle: "repair-source" },
+      { ...edge("pants-repair", "accessory-repair"), targetHandle: "repair-source" },
+    ];
+    const plan = buildExecutionPlan(nodes, edges, { onlyNodeId: target.id, includeDownstream: false });
+    assert.deepEqual(plan.steps.map((step) => step.nodeId), [target.id]);
+    assert.deepEqual(plan.steps[0].upstream, [{
+      nodeId: refined.id,
+      images: ["/api/files/refined.png"],
+      targetHandle: "repair-source",
+    }]);
+    assert.doesNotThrow(() => assertPlanInputs(plan, edges));
+    assert.deepEqual(
+      buildExecutionPlan(nodes, edges, { onlyNodeId: "upper-repair", includeDownstream: false }).steps,
+      [],
     );
   });
 
@@ -582,6 +683,77 @@ async function main() {
     const step = plan.steps[0];
     assert.equal(step.params.prompt, "test");
     assert.deepStrictEqual(step.inputImages, []);
+  });
+
+  await ok("Seedance 文生视频无需媒体，首帧模式按角色和 2.5 adaptive 约束校验", () => {
+    const textPlan = buildExecutionPlan([videoNode("text-video")], []);
+    assert.doesNotThrow(() => assertPlanInputs(textPlan, []));
+
+    const firstFrame = imgNode("video-first", "/api/files/first.png");
+    const target = videoNode("first-frame-video", {
+      mode: "first-frame-to-video",
+      aspectRatio: "adaptive",
+    });
+    const firstEdge: FlowEdge = {
+      source: firstFrame.id,
+      sourceHandle: "image",
+      target: target.id,
+      targetHandle: "first-frame",
+    };
+    const firstPlan = buildExecutionPlan([firstFrame, target], [firstEdge], {
+      onlyNodeId: target.id,
+      includeDownstream: false,
+    });
+    assert.doesNotThrow(() => assertPlanInputs(firstPlan, [firstEdge]));
+
+    const invalidRatio = buildExecutionPlan([
+      firstFrame,
+      videoNode(target.id, { mode: "first-frame-to-video", aspectRatio: "16:9" }),
+    ], [firstEdge], { onlyNodeId: target.id, includeDownstream: false });
+    assert.throws(() => assertPlanInputs(invalidRatio, [firstEdge]), /requires adaptive ratio/);
+  });
+
+  await ok("Seedance 2.5 允许纯音频多模态，2.0 拒绝纯音频且 Mini 拒绝 1080p", () => {
+    const audio: FlowNode = {
+      id: "reference-audio",
+      type: "audio-input",
+      data: {
+        kind: "audio-input",
+        label: "参考音频",
+        status: "idle",
+        audioUrl: "asset://audio-reference",
+      },
+    };
+    const audioEdge: FlowEdge = {
+      source: audio.id,
+      sourceHandle: "audio",
+      target: "multimodal-video",
+      targetHandle: "reference-audio",
+    };
+    const seedance25 = videoNode("multimodal-video", { mode: "multimodal-reference" });
+    const seedance25Plan = buildExecutionPlan([audio, seedance25], [audioEdge], {
+      onlyNodeId: seedance25.id,
+      includeDownstream: false,
+    });
+    assert.doesNotThrow(() => assertPlanInputs(seedance25Plan, [audioEdge]));
+
+    const seedance20 = videoNode("multimodal-video", {
+      mode: "multimodal-reference",
+      videoModel: "doubao-seedance-2-0-mini-260615",
+    });
+    const seedance20Plan = buildExecutionPlan([audio, seedance20], [audioEdge], {
+      onlyNodeId: seedance20.id,
+      includeDownstream: false,
+    });
+    assert.throws(() => assertPlanInputs(seedance20Plan, [audioEdge]), /supported multimodal reference media/);
+
+    const mini1080 = buildExecutionPlan([
+      videoNode("mini-1080", {
+        videoModel: "doubao-seedance-2-0-mini-260615",
+        resolution: "1080p",
+      }),
+    ], []);
+    assert.throws(() => assertPlanInputs(mini1080, []), /does not support 1080p/);
   });
 
   await ok("runner 草图效果图：有参考图走 edit 并按批量返回", async () => {
@@ -700,15 +872,15 @@ async function main() {
       ["scene", "person", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet"],
       sceneAnalyzer,
     );
-    assert.equal(stageOne.result.providerRequests, 2);
+    assert.equal(stageOne.result.providerRequests, 3);
     assert.equal(stageOne.calls[0].request.referenceImages?.length, 9);
-    assert.notEqual(stageOne.calls[0].request.referenceImages?.[0], PERSON_GRID_DATA_URL);
+    assert.equal(stageOne.calls[0].request.referenceImages?.[0], SEED_DATA_URL);
     assert.equal(stageOne.calls[0].request.referenceImages?.[1], PERSON_GRID_DATA_URL);
     assert.equal(stageOne.calls[0].request.referenceImages?.[2], SECOND_DATA_URL);
     assert.ok(!stageOne.calls[0].request.referenceImages?.includes(SCENE_DATA_URL));
     assert.deepEqual(stageOne.calls[0].request.modelOptions, { aspectRatio: "2:3", imageSize: "2K" });
-    assert.match(stageOne.calls[0].request.prompt, /右下角提取的脸部锚点，是脸部恢复唯一正确来源/);
-    assert.match(stageOne.calls[0].request.prompt, /完整人物身份图，是人物一致性的唯一来源/);
+    assert.match(stageOne.calls[0].request.prompt, /视觉定位后从主要人物脸部裁切的身份锚点/);
+    assert.match(stageOne.calls[0].request.prompt, /主要完整人物身份图/);
     assert.match(stageOne.calls[0].request.prompt, /参考图3是服装与搭配风格的唯一来源/);
     assert.match(stageOne.calls[0].request.prompt, /原始场景图没有发送给生图模型/);
     assert.match(stageOne.calls[0].request.prompt, /暖灰色无缝背景/);
@@ -736,6 +908,63 @@ async function main() {
     );
     assert.match(bagOnly.calls[0].request.prompt, /只控制目标包袋/);
     assert.doesNotMatch(bagOnly.calls[0].request.prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
+
+    const bestMode = await runRecordedAiStep(
+      "virtual-try-on",
+      {
+        workflowStage: "scene-stabilize", prompt: "自然站立", imageSize: "2K",
+        modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
+        promptEnhancement: false, qualityMode: "best", safetyFallback: false, stylePresetId: "faithful",
+      },
+      [SCENE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL],
+      undefined,
+      ["scene", "person", "outfit"],
+      sceneAnalyzer,
+      {
+        candidateSelector: async (input) => {
+          await input.beforeProviderCall?.(1);
+          return {
+            selectedIndex: 2,
+            scores: [],
+            model: "judge-stub",
+            providerRequests: 1,
+            allHardFail: false,
+          };
+        },
+      },
+    );
+    assert.equal(bestMode.calls.length, 3, "最佳档位必须发出三次独立单图请求");
+    assert.ok(bestMode.calls.every((call) => call.request.batchSize === 1));
+    assert.equal(bestMode.result.candidateSelection?.selectedIndex, 2);
+    assert.equal(bestMode.result.providerRequests, 6);
+
+    const enhancedMode = await runRecordedAiStep(
+      "virtual-try-on",
+      {
+        workflowStage: "scene-stabilize", prompt: "保留象牙白阔腿裤的双褶线", imageSize: "2K",
+        modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
+        promptEnhancement: true, qualityMode: "fast", safetyFallback: true, stylePresetId: "faithful",
+      },
+      [SCENE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL],
+      undefined,
+      ["scene", "person", "outfit"],
+      sceneAnalyzer,
+      {
+        promptEnhancer: async (_input, options) => {
+          await options?.beforeProviderCall?.(1);
+          return {
+            enhancedPrompt: "主体自然站立；左前方柔光；平视中焦；低饱和写实摄影；非对称留白构图",
+            safePrompt: "自然站立，保留服装结构",
+            model: "enhancer-stub",
+            providerRequests: 1,
+            cacheHit: false,
+          };
+        },
+      },
+    );
+    assert.match(enhancedMode.calls[0].request.prompt, /用户原始要求（必须逐项保留）：保留象牙白阔腿裤的双褶线/);
+    assert.match(enhancedMode.calls[0].request.prompt, /结构化增强要求：主体自然站立/);
+    assert.equal(enhancedMode.result.providerRequests, 4);
 
     const stageTwo = await runRecordedAiStep(
       "virtual-try-on",
@@ -877,7 +1106,7 @@ async function main() {
     assert.match(calls[0].request.prompt, /真实接触并符合整幅画面光源方向的阴影/);
     assert.match(calls[0].request.prompt, /PNG 完整最终图片/);
     assert.deepStrictEqual(calls[0].request.modelOptions, { size: "816x816" });
-    assert.notStrictEqual(calls[0].request.mask, MASK_DATA_URL, "模型必须收到扩展后的安全区蒙版");
+    assert.strictEqual(calls[0].request.mask, undefined, "工作流不得发送当前主网关会拒绝的 mask 文件字段");
     assert.strictEqual(result.images.length, 1);
     const decoded = await sharp(Buffer.from(result.images[0].split(",")[1], "base64"))
       .raw()
@@ -911,6 +1140,29 @@ async function main() {
     assert.match(calls[0].request.prompt, /参考图2是用户提供的目标内容参考图/);
     assert.match(calls[0].request.prompt, /最后一张参考图（参考图3）才是区域引导图/);
     assert.doesNotMatch(calls[0].request.prompt, /参考图2是区域引导图/);
+  });
+
+  await ok("runner 专用精修提示锁定非目标区域并标注细节参考来源", async () => {
+    const { calls } = await runRecordedAiStep(
+      "mask-redraw",
+      {
+        repairFocus: "pants",
+        executionMode: "repair",
+        referenceLabels: ["第二轮成片", "主穿搭图"],
+        prompt: "保留象牙白颜色",
+        mask: MASK_DATA_URL,
+        maskSourceRef: MASK_SOURCE_DATA_URL,
+        modelId: "gpt-image-2",
+        modelOptions: {},
+      },
+      [MASK_SOURCE_DATA_URL, SECOND_DATA_URL],
+      [REPLACE_PROVIDER_DATA_URL],
+    );
+    assert.match(calls[0].request.prompt, /腰头、腰线、腰袢、门襟、口袋、褶裥、裤线/);
+    assert.match(calls[0].request.prompt, /锁定人物身份.*上衣.*鞋包配饰.*背景/);
+    assert.match(calls[0].request.prompt, /用户补充要求（不得覆盖上述锁定规则）：保留象牙白颜色/);
+    assert.match(calls[0].request.prompt, /参考图2（主穿搭图）/);
+    assert.doesNotMatch(calls[0].request.prompt, /8K|杰作|完美/);
   });
 
   await ok("runner 蒙版参考图上限：为内部区域引导图预留一个模型名额", async () => {
@@ -957,6 +1209,41 @@ async function main() {
           }
         },
       );
+    });
+  });
+
+  await ok("端到端（无 AI）：结果动态端口在运行时只透传所选图片", async () => {
+    const aggregate = resultNode("aggregate");
+    const selected = resultNode("selected");
+    const plan = buildExecutionPlan(
+      [imgNode("first", SEED_DATA_URL), imgNode("second", SECOND_DATA_URL), aggregate, selected],
+      [
+        edge("first", "aggregate"),
+        edge("second", "aggregate"),
+        { source: "aggregate", sourceHandle: "image:1", target: "selected", targetHandle: "references" },
+      ],
+    );
+    const run = await createRun(plan, TEST_OWNER_ID);
+    let secondOutput: string | undefined;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("run timeout")), 5000);
+      run.emitter.on("event", (event: RunEvent) => {
+        if (event.type === "node-status" && event.nodeId === "second" && event.status === "success") {
+          secondOutput = event.images?.[0];
+        }
+        if (event.type === "node-status" && event.nodeId === "selected" && event.status === "success") {
+          assert.ok(secondOutput);
+          assert.deepStrictEqual(event.images, [secondOutput]);
+        }
+        if (event.type === "done") {
+          clearTimeout(timer);
+          resolve();
+        }
+        if (event.type === "run-error") {
+          clearTimeout(timer);
+          reject(new Error(`run failed: ${event.error}`));
+        }
+      });
     });
   });
 

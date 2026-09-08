@@ -25,6 +25,7 @@ import {
   type WorkflowNodeData,
   type NodeRunStatus,
   type ImageInputNodeData,
+  type VideoGenerateNodeData,
   type PersistedWorkflow,
   type WorkflowInputRole,
   type ColorSwatch,
@@ -33,6 +34,8 @@ import type { ConnectionDraft } from "@/types/workbench";
 import {
   compatibleUnusedInputRoles,
   connectionCompatibilityError,
+  imagesForSourceHandle,
+  inputPortSpecs,
   isStagedTryOnData,
   STAGED_ROLE_LABELS,
 } from "@/lib/workflowPorts";
@@ -61,9 +64,20 @@ import {
 import { waitForInitialDraftSyncBeforeFormalSave } from "@/initialDraft/initialDraftRuntime";
 import { layoutConnectedComponent } from "@/lib/graphLayout";
 import { normalizeColorSwatches } from "@/lib/colorPalette";
+import { effectiveIncomingSources } from "@/lib/maskRepair";
+import {
+  SEEDANCE_VIDEO_MODES,
+  isSeedanceVideoModel,
+  normalizedSeedanceSettings,
+} from "@/lib/seedance";
 
 export type FlowNode = Node<WorkflowNodeData>;
 export type ConnectedNodeDirection = "upstream" | "downstream";
+export interface ConnectedNodeOptions {
+  preset?: Record<string, unknown>;
+  sourceHandle?: string | null;
+  targetHandle?: WorkflowInputRole | null;
+}
 export const DEFAULT_PROJECT_NAME = "未命名设计项目";
 export type ProjectLifecycle = "local" | "initial_draft" | "saved";
 
@@ -97,6 +111,7 @@ export interface RecentResult {
   providerOutputSize?: string;
   parameters?: Record<string, unknown>;
   referenceImages?: string[];
+  executionMeta?: Record<string, unknown>;
 }
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -196,6 +211,7 @@ export interface FlowState {
     anchorId: string,
     kind: NodeKind,
     direction: ConnectedNodeDirection,
+    options?: ConnectedNodeOptions,
   ) => string | null;
   /** 将素材以已完成的图片输入节点原子加入画布，一次撤销即可完整移除。 */
   addAssetNode: (
@@ -213,6 +229,8 @@ export interface FlowState {
   /** 将已提交画板预览导出为独立图片节点；画板自身保持可编辑。 */
   exportDrawingBoardImageNode: (target: DocumentTarget, nodeId: string) => string | null;
   updateNodeData: (id: string, patch: Record<string, unknown>) => void;
+  /** 原子更新视频设置，并移除新模式下不再存在的入边。 */
+  updateVideoNodeSettings: (id: string, patch: Partial<VideoGenerateNodeData>) => void;
   updateNodeDataInTab: (target: DocumentTarget, id: string, patch: Record<string, unknown>) => void;
   /** 为目标图片节点赋值，并在同一次历史提交中补齐模板声明的后续连接。 */
   assignImageInputInTab: (target: DocumentTarget, id: string, imageUrl: string) => void;
@@ -983,17 +1001,20 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
       return { ...base, kind, approvalKind: "scene-baseline" };
     case "video-input":
       return { ...base, kind };
+    case "audio-input":
+      return { ...base, kind };
     case "video-generate":
       return {
         ...base,
         kind,
         mode: "text-to-video",
         prompt: "",
-        videoModel: "veo-3.1",
-        quality: "fast",
+        videoModel: "doubao-seedance-2-5-260628",
         aspectRatio: "16:9",
         resolution: "720p",
-        seconds: 8,
+        seconds: 5,
+        generateAudio: true,
+        outputFormat: "mp4",
         outputImages: [],
       };
     case "sketch-to-render":
@@ -1034,12 +1055,13 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
       };
     case "virtual-try-on":
       return {
-        ...base, kind, workflowStage: "standard", prompt: "", imageSize: "2K", aspectRatio: "3:4", basisRevision: 0, outputImages: [],
+        ...base, kind, workflowStage: "standard", prompt: "", imageSize: "2K", aspectRatio: "3:4", basisRevision: 0,
+        promptEnhancement: false, qualityMode: "fast", safetyFallback: false, stylePresetId: "faithful", outputImages: [],
         modelId: MASK_REDRAW_MODEL_ID, modelOptions: {},
       };
     case "mask-redraw":
       return {
-        ...base, kind, prompt: "", outputImages: [],
+        ...base, kind, repairFocus: "custom", executionMode: "repair", prompt: "", outputImages: [],
         modelId: MASK_REDRAW_MODEL_ID, modelOptions: {},
       };
     case "result":
@@ -1068,6 +1090,9 @@ function defaultNodeDataWithPreset(kind: NodeKind, preset?: Record<string, unkno
   if ((data.kind === "ai-modify" || data.kind === "sketch-to-render") && typeof preset.prompt === "string") {
     return { ...data, prompt: preset.prompt };
   }
+  if (data.kind === "upscale" && (preset.imageSize === "2K" || preset.imageSize === "4K")) {
+    return { ...data, imageSize: preset.imageSize };
+  }
   if (
     data.kind === "video-input"
     && typeof preset.videoUrl === "string"
@@ -1081,16 +1106,32 @@ function defaultNodeDataWithPreset(kind: NodeKind, preset?: Record<string, unkno
       mimeType: preset.mimeType as "video/mp4" | "video/webm" | "video/quicktime",
     };
   }
+  if (
+    data.kind === "audio-input"
+    && typeof preset.audioUrl === "string"
+    && typeof preset.mimeType === "string"
+    && ["audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg"].includes(preset.mimeType)
+  ) {
+    return {
+      ...data,
+      label: typeof preset.label === "string" && preset.label.trim() ? preset.label.trim() : data.label,
+      audioUrl: preset.audioUrl,
+      mimeType: preset.mimeType as "audio/mpeg" | "audio/wav" | "audio/mp4" | "audio/ogg",
+    };
+  }
   return data;
 }
 
 /** 从节点 data 中取它对外输出的图片 */
-function nodeOutputImages(data: WorkflowNodeData): string[] {
+function nodeOutputImages(data: WorkflowNodeData, sourceHandle?: string | null): string[] {
   if (data.kind === "image-input") return data.imageUrl ? [data.imageUrl] : [];
   if (data.kind === "drawing-board") return data.previewImageRef ? [data.previewImageRef] : [];
   if (data.kind === "stage-approval") return data.approvedBaselineRef ? [data.approvedBaselineRef] : [];
   if (data.kind === "video-input") return data.videoUrl ? [data.videoUrl] : [];
-  if (data.kind === "result") return data.images ?? [];
+  if (data.kind === "audio-input") return data.audioUrl ? [data.audioUrl] : [];
+  if (data.kind === "result") {
+    return imagesForSourceHandle(data.images ?? [], sourceHandle);
+  }
   if (data.kind === "text-input" || data.kind === "color-palette") return [];
   return data.outputImages ?? [];
 }
@@ -1113,8 +1154,13 @@ function virtualTryOnRunBlockReason(node: FlowNode, document: ProjectTab): strin
 
   if (node.data.workflowStage === "scene-stabilize") {
     if (node.data.modelId !== "gemini-3.1-flash-image-preview") return "第一轮必须使用 Gemini 3.1 Flash";
-    return requireSingle("person", "人物身份图")
-      ?? requireSingle("scene", "场景/表演参考图")
+    const personEdges = edgesFor("person");
+    if (personEdges.length < 1 || personEdges.length > 3) return "人物身份图必须连接 1 至 3 张";
+    if (personEdges.some((edge) => {
+      const source = document.nodes.find((candidate) => candidate.id === edge.source);
+      return !source || nodeOutputImages(source.data).length === 0;
+    })) return "人物身份图尚未全部提供可用图片";
+    return requireSingle("scene", "场景/表演参考图")
       ?? requireSingle("outfit", "主穿搭图");
   }
 
@@ -1924,18 +1970,46 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
         delete data.mimeType;
       }
       break;
-    case "video-generate":
-      data.mode = input.mode === "keyframes-to-video" || input.mode === "multi-image-video" || input.mode === "video-to-video"
-        ? input.mode : "text-to-video";
+    case "audio-input":
+      if (typeof input.audioUrl !== "string") delete data.audioUrl;
+      if (["audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg"].includes(String(input.mimeType))) {
+        data.mimeType = input.mimeType;
+      } else {
+        delete data.mimeType;
+      }
+      break;
+    case "video-generate": {
+      const mode = input.mode === "multi-image-video"
+        ? "multimodal-reference"
+        : input.mode === "video-to-video"
+          ? "video-edit"
+          : SEEDANCE_VIDEO_MODES.includes(input.mode as never)
+            ? input.mode as (typeof SEEDANCE_VIDEO_MODES)[number]
+            : "text-to-video";
+      const model = isSeedanceVideoModel(input.videoModel)
+        ? input.videoModel
+        : "doubao-seedance-2-5-260628";
+      const normalized = normalizedSeedanceSettings({
+        model,
+        mode,
+        resolution: input.resolution === "480p" ? "480p"
+          : input.resolution === "1080p" || input.resolution === "4k" ? "1080p" : "720p",
+        ratio: typeof input.aspectRatio === "string" ? input.aspectRatio : "16:9",
+        duration: Number.isSafeInteger(input.seconds) ? Number(input.seconds) : 5,
+        outputFormat: input.outputFormat === "mov" ? "mov" : "mp4",
+      });
+      data.mode = normalized.mode;
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
-      data.videoModel = "veo-3.1";
-      data.quality = input.quality === "standard" ? "standard" : "fast";
-      data.aspectRatio = input.aspectRatio === "9:16" ? "9:16" : "16:9";
-      data.resolution = input.resolution === "1080p" || input.resolution === "4k" ? input.resolution : "720p";
-      data.seconds = input.seconds === 4 || input.seconds === 6 ? input.seconds : 8;
-      if (data.resolution !== "720p") data.seconds = 8;
+      data.videoModel = normalized.model;
+      data.aspectRatio = normalized.ratio;
+      data.resolution = normalized.resolution;
+      data.seconds = normalized.duration;
+      data.generateAudio = typeof input.generateAudio === "boolean" ? input.generateAudio : true;
+      data.outputFormat = normalized.outputFormat;
+      delete data.quality;
       data.outputImages = stringList(input.outputImages);
       break;
+    }
     case "sketch-to-render":
     case "ai-modify":
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
@@ -1989,6 +2063,20 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       else delete data.materialSpec;
       if (typeof input.constructionSpec === "string") data.constructionSpec = input.constructionSpec;
       else delete data.constructionSpec;
+      data.promptEnhancement = typeof input.promptEnhancement === "boolean" ? input.promptEnhancement : false;
+      data.qualityMode = input.qualityMode === "balanced" || input.qualityMode === "best"
+        ? input.qualityMode
+        : "fast";
+      data.safetyFallback = typeof input.safetyFallback === "boolean" ? input.safetyFallback : false;
+      data.stylePresetId = typeof input.stylePresetId === "string" && input.stylePresetId.trim()
+        ? input.stylePresetId.trim()
+        : "faithful";
+      if (typeof input.stylePresetName === "string") data.stylePresetName = input.stylePresetName;
+      else delete data.stylePresetName;
+      if (typeof input.stylePrompt === "string") data.stylePrompt = input.stylePrompt;
+      else delete data.stylePrompt;
+      if (typeof input.styleReferenceImage === "string") data.styleReferenceImage = input.styleReferenceImage;
+      else delete data.styleReferenceImage;
       if (data.workflowStage === "scene-stabilize") data.modelId = "gemini-3.1-flash-image-preview";
       if (data.workflowStage === "garment-refine") data.modelId = MASK_REDRAW_MODEL_ID;
       if (data.modelId === "gemini-3.1-flash-image-preview") {
@@ -2004,6 +2092,10 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     case "mask-redraw":
       data.modelId = MASK_REDRAW_MODEL_ID;
       data.modelOptions = {};
+      data.repairFocus = input.repairFocus === "upper-garment" || input.repairFocus === "pants"
+        || input.repairFocus === "accessories" || input.repairFocus === "logo-text"
+        ? input.repairFocus : "custom";
+      data.executionMode = input.executionMode === "bypass" ? "bypass" : "repair";
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
       data.outputImages = stringList(input.outputImages);
       if (typeof input.mask !== "string") delete data.mask;
@@ -2186,6 +2278,19 @@ function discardUntypedStagedDuplicateEdges(nodes: readonly FlowNode[], edges: r
   ));
 }
 
+function migrateSessionLegacyVideoEdges(nodes: readonly FlowNode[], edges: readonly Edge[]): Edge[] {
+  const multimodalIds = new Set(nodes.flatMap((node) => (
+    node.data.kind === "video-generate" && node.data.mode === "multimodal-reference"
+      ? [node.id]
+      : []
+  )));
+  return edges.map((edge) => (
+    multimodalIds.has(edge.target) && (edge.targetHandle === "first-frame" || edge.targetHandle === "last-frame")
+      ? { ...edge, targetHandle: "reference-image" }
+      : edge
+  ));
+}
+
 function normalizeSessionTab(value: unknown): ProjectTab | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Partial<ProjectTab>;
@@ -2212,7 +2317,10 @@ function normalizeSessionTab(value: unknown): ProjectTab | undefined {
     seenEdgeIds.add(normalized.id);
     return [normalized];
   });
-  const upgraded = migrateSessionLegacyDualModelAccessorySlot(nodes, normalizedEdges);
+  const upgraded = migrateSessionLegacyDualModelAccessorySlot(
+    nodes,
+    migrateSessionLegacyVideoEdges(nodes, normalizedEdges),
+  );
   const recoveredNodes = recoverSessionStagedTryOnNodes(upgraded.nodes, upgraded.edges);
   const edges = discardUntypedStagedDuplicateEdges(recoveredNodes, upgraded.edges);
   const revision = finiteNonNegative(raw.revision, 0);
@@ -2622,6 +2730,7 @@ interface RunEventMeta {
   prompts?: string[];
   providerOutputSizes?: Array<string | null>;
   failures?: RunFailure[];
+  executionMeta?: Record<string, unknown>;
   startedAt?: number;
   finishedAt?: number;
 }
@@ -2683,6 +2792,12 @@ function runFailures(value: unknown): RunFailure[] | undefined {
   return failures.length ? failures : undefined;
 }
 
+function recordObject(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
 /** SSE 数据不可信：在进入状态层前归一为判别联合，缺失图片永远不会写成 undefined。 */
 export function normalizeRunEvent(value: unknown): RunEvent {
   if (!value || typeof value !== "object") throw new Error("运行事件格式无效");
@@ -2710,6 +2825,7 @@ export function normalizeRunEvent(value: unknown): RunEvent {
       ? { providerOutputSizes: nullableStringArray(raw.providerOutputSizes) }
       : {}),
     ...(runFailures(raw.failures) ? { failures: runFailures(raw.failures) } : {}),
+    ...(recordObject(raw.executionMeta) ? { executionMeta: recordObject(raw.executionMeta) } : {}),
     ...(optionalFiniteNumber(raw.startedAt) !== undefined ? { startedAt: optionalFiniteNumber(raw.startedAt) } : {}),
     ...(optionalFiniteNumber(raw.finishedAt) !== undefined ? { finishedAt: optionalFiniteNumber(raw.finishedAt) } : {}),
   };
@@ -2825,6 +2941,7 @@ export function applyRunEventToRecentResults(
   const base = {
     ...currentWithoutProviderOutputSize,
     model: event.model ?? current.model,
+    executionMeta: event.executionMeta ?? current.executionMeta,
     startedAt,
     finishedAt,
   };
@@ -3713,7 +3830,7 @@ export const useFlowStore = create<FlowState>()(
         return node.id;
       },
 
-      addConnectedNode: (anchorId, kind, direction) => {
+      addConnectedNode: (anchorId, kind, direction, options) => {
         const tab = selectActiveDocument(get());
         if (tab.readOnly) return null;
         const anchor = tab.nodes.find((node) => node.id === anchorId);
@@ -3727,11 +3844,16 @@ export const useFlowStore = create<FlowState>()(
             x: anchor.position.x + (direction === "downstream" ? horizontalGap : -horizontalGap),
             y: anchor.position.y,
           },
-          data: defaultNodeData(kind),
+          data: defaultNodeDataWithPreset(kind, options?.preset),
         };
         const nodes = [...tab.nodes, node];
         const connection: Connection = direction === "downstream"
-          ? { source: anchor.id, target: id, sourceHandle: null, targetHandle: null }
+          ? {
+              source: anchor.id,
+              target: id,
+              sourceHandle: options?.sourceHandle ?? null,
+              targetHandle: options?.targetHandle ?? null,
+            }
           : { source: id, target: anchor.id, sourceHandle: null, targetHandle: null };
         const draft = { nodes, edges: tab.edges };
         if (!isDocumentConnectionValid(draft, connection)) return null;
@@ -3846,6 +3968,25 @@ export const useFlowStore = create<FlowState>()(
           nodes: incrementSceneBasis(patchedNodes, stageTargets),
         });
       },
+      updateVideoNodeSettings: (id, patch) => {
+        const tab = selectActiveDocument(get());
+        if (tab.readOnly) return;
+        const edited = tab.nodes.find((node) => node.id === id);
+        if (!edited || edited.data.kind !== "video-generate") return;
+
+        const nextData = { ...edited.data, ...patch } as VideoGenerateNodeData;
+        const validInputPorts = inputPortSpecs(nextData);
+        const validHandles = new Set(validInputPorts.map((port) => port.id));
+        const nodes = tab.nodes.map((node) => node.id === id
+          ? { ...node, data: nextData }
+          : node);
+        const edges = tab.edges.filter((edge) => {
+          if (edge.target !== id) return true;
+          if (edge.targetHandle) return validHandles.has(edge.targetHandle);
+          return validInputPorts.length === 1;
+        });
+        commitDocumentMutationWithSet(set, { nodes, edges });
+      },
       updateNodeDataInTab: (target, id, patch) => {
         if (documentForTarget(get(), target)?.readOnly !== false) return;
         updateTabNodes(
@@ -3949,6 +4090,7 @@ export const useFlowStore = create<FlowState>()(
           )
         ) return;
         const kind = node.data.kind;
+        if (node.data.kind === "mask-redraw" && node.data.executionMode === "bypass") return;
         const spec = NODE_SPECS[kind];
         if (!spec.providerId) return;
         const preparationError = virtualTryOnRunBlockReason(node, initialDocument);
@@ -4768,7 +4910,7 @@ export function selectResultImages(state: FlowState, nodeId: string): string[] {
   for (const e of document.edges) {
     if (e.target !== nodeId) continue;
     const src = document.nodes.find((n) => n.id === e.source);
-    if (src) urls.push(...nodeOutputImages(src.data));
+    if (src) urls.push(...nodeOutputImages(src.data, e.sourceHandle));
   }
   return urls;
 }
@@ -4778,13 +4920,8 @@ export function selectNodeInputImages(
   document: Pick<ProjectTab, "nodes" | "edges">,
   nodeId: string,
 ): string[] {
-  const urls: string[] = [];
-  for (const edge of document.edges) {
-    if (edge.target !== nodeId) continue;
-    const source = document.nodes.find((node) => node.id === edge.source);
-    if (source) urls.push(...nodeOutputImages(source.data));
-  }
-  return urls;
+  return effectiveIncomingSources(document.nodes, document.edges, nodeId)
+    .flatMap(({ node, sourceHandle }) => nodeOutputImages(node.data, sourceHandle));
 }
 
 /** Active-tab wrapper used by React subscriptions; the leaf result stays stable. */

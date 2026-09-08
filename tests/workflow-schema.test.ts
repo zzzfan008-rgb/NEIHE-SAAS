@@ -181,6 +181,77 @@ async function main() {
     assert.deepEqual(validateAndMigrateFlow(migrated), migrated, "重复读取不得重复插入确认节点");
   });
 
+  await test("v9 VEO 视频节点确定迁移为 Seedance v11 契约", () => {
+    const migrated = validateAndMigrateFlow({
+      schemaVersion: 9,
+      nodes: [{
+        id: "video",
+        type: "video-generate",
+        position: { x: 0, y: 0 },
+        data: {
+          kind: "video-generate",
+          label: "旧视频",
+          status: "idle",
+          mode: "keyframes-to-video",
+          prompt: "转身展示",
+          videoModel: "veo-3.1",
+          quality: "standard",
+          aspectRatio: "16:9",
+          resolution: "4k",
+          seconds: 8,
+          outputImages: [],
+        },
+      }],
+      edges: [],
+    });
+    const video = migrated.nodes[0].data;
+    assert.equal(migrated.schemaVersion, WORKFLOW_SCHEMA_VERSION);
+    assert.equal(video.kind, "video-generate");
+    if (video.kind !== "video-generate") throw new Error("video migration failed");
+    assert.equal(video.videoModel, "doubao-seedance-2-5-260628");
+    assert.equal(video.aspectRatio, "adaptive");
+    assert.equal(video.resolution, "1080p");
+    assert.equal(video.seconds, 8);
+    assert.equal(video.generateAudio, true);
+    assert.equal(video.outputFormat, "mp4");
+    assert.equal("quality" in video, false);
+  });
+
+  await test("v11 接受结果节点的稳定单图输出端口并拒绝越界视频参数", () => {
+    const base = {
+      schemaVersion: WORKFLOW_SCHEMA_VERSION,
+      nodes: [
+        {
+          id: "result", type: "result", position: { x: 0, y: 0 },
+          data: { kind: "result", label: "结果", status: "success", images: [PNG_DATA_URL, PNG_DATA_URL] },
+        },
+        {
+          id: "upscale", type: "upscale", position: { x: 380, y: 0 },
+          data: {
+            kind: "upscale", label: "放大", status: "idle", imageSize: "2K", outputImages: [],
+            modelId: "gpt-image-2-vip", modelOptions: { size: "2048x2048" },
+          },
+        },
+      ],
+      edges: [{ id: "selected-image", source: "result", sourceHandle: "image:1", target: "upscale", targetHandle: "references" }],
+    };
+    assert.equal(validateAndMigrateFlow(base).edges[0].sourceHandle, "image:1");
+
+    const invalidVideo = {
+      schemaVersion: WORKFLOW_SCHEMA_VERSION,
+      nodes: [{
+        id: "video", type: "video-generate", position: { x: 0, y: 0 },
+        data: {
+          kind: "video-generate", label: "视频", status: "idle", mode: "text-to-video", prompt: "展示",
+          videoModel: "doubao-seedance-2-5-260628", aspectRatio: "16:9", resolution: "4k", seconds: 5,
+          generateAudio: true, outputFormat: "mp4", outputImages: [],
+        },
+      }],
+      edges: [],
+    };
+    assert.throws(() => validateAndMigrateFlow(invalidVideo), /resolution/);
+  });
+
   await test("v7 接受新节点及合法 typed ports，并拒绝非法角色与类型组合", () => {
     const nodes = [
       {
@@ -460,6 +531,28 @@ async function main() {
     const normalized = validateAndMigrateFlow(legacyMaskFlow);
     assert.equal(normalized.schemaVersion, WORKFLOW_SCHEMA_VERSION);
     assert.equal((normalized.nodes[0].data as Record<string, unknown>).maskMode, undefined);
+  });
+
+  await test("v8 局部修改迁移为必跑自定义精修并把首条输入标记为底图", () => {
+    const legacy = maskFlow(PNG_DATA_URL) as ReturnType<typeof maskFlow> & {
+      schemaVersion: number;
+      nodes: Array<{ data: Record<string, unknown> }>;
+      edges: Array<Record<string, unknown>>;
+    };
+    legacy.schemaVersion = 8;
+    legacy.nodes.push({
+      id: "source",
+      type: "image-input",
+      position: { x: -200, y: 0 },
+      data: { kind: "image-input", label: "旧底图", status: "idle", imageRole: "reference", imageUrl: PNG_DATA_URL },
+    } as never);
+    legacy.edges.push({ id: "source-mask", source: "source", target: "mask", targetHandle: "references" });
+    const migrated = validateAndMigrateFlow(legacy);
+    const mask = migrated.nodes.find((node) => node.id === "mask");
+    assert.equal(mask?.data.kind === "mask-redraw" && mask.data.repairFocus, "custom");
+    assert.equal(mask?.data.kind === "mask-redraw" && mask.data.executionMode, "repair");
+    assert.equal(migrated.edges[0].targetHandle, "repair-source");
+    assert.deepEqual(validateAndMigrateFlow(migrated), migrated);
   });
 
   await test("v2 蒙版节点的 8 路历史输入可迁移、保存并再次读取", () => {
@@ -806,8 +899,8 @@ async function main() {
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3.1-flash-image-preview");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.modelId, "gpt-image-2");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
-    assert.equal(stagedTryOn.flow.nodes.length, 15);
-    assert.equal(stagedTryOn.flow.edges.length, 2, "图片连接必须在赋值后创建");
+    assert.equal(stagedTryOn.flow.nodes.length, 25);
+    assert.equal(stagedTryOn.flow.edges.length, 6, "图片连接必须在赋值后创建，四个局部精修节点保留固定串联边");
     assert.equal(stagedTryOn.flow.edges.some((edge) => edge.target === "stabilize" && edge.source !== "approval"), false);
     assert.ok(stagedTryOn.flow.edges.some((edge) => (
       edge.source === "stabilize" && edge.target === "approval" &&
@@ -821,16 +914,56 @@ async function main() {
       stagedTryOn.flow.nodes.find((node) => node.id === nodeId)?.data.autoConnectTargets
     );
     assert.deepEqual(targetsFor("person"), [{ targetNodeId: "stabilize", targetHandle: "person" }]);
+    assert.deepEqual(targetsFor("identity-secondary-1"), [{ targetNodeId: "stabilize", targetHandle: "person" }]);
+    assert.deepEqual(targetsFor("identity-secondary-2"), [{ targetNodeId: "stabilize", targetHandle: "person" }]);
     assert.deepEqual(targetsFor("scene"), [{ targetNodeId: "stabilize", targetHandle: "scene" }]);
     assert.deepEqual(targetsFor("outfit"), [
       { targetNodeId: "stabilize", targetHandle: "outfit" },
       { targetNodeId: "refine", targetHandle: "outfit" },
+      { targetNodeId: "upper-repair", targetHandle: "references" },
+      { targetNodeId: "pants-repair", targetHandle: "references" },
     ]);
     for (const role of ["bag", "shoes", "hat", "ring", "earrings", "bracelet"]) {
-      assert.deepEqual(targetsFor(role), [{ targetNodeId: "stabilize", targetHandle: role }]);
+      assert.deepEqual(targetsFor(role), [
+        { targetNodeId: "stabilize", targetHandle: role },
+        { targetNodeId: "accessory-repair", targetHandle: "references" },
+      ]);
     }
-    assert.deepEqual(targetsFor("material"), [{ targetNodeId: "refine", targetHandle: "material" }]);
-    assert.deepEqual(targetsFor("garment-detail"), [{ targetNodeId: "refine", targetHandle: "detail" }]);
+    for (const role of ["eyewear", "neckwear", "belt", "watch"]) {
+      assert.deepEqual(targetsFor(role), [{ targetNodeId: "accessory-repair", targetHandle: "references" }]);
+    }
+    assert.deepEqual(targetsFor("material"), [
+      { targetNodeId: "refine", targetHandle: "material" },
+      { targetNodeId: "upper-repair", targetHandle: "references" },
+      { targetNodeId: "pants-repair", targetHandle: "references" },
+    ]);
+    assert.deepEqual(targetsFor("garment-detail"), [
+      { targetNodeId: "refine", targetHandle: "detail" },
+      { targetNodeId: "upper-repair", targetHandle: "references" },
+      { targetNodeId: "pants-repair", targetHandle: "references" },
+    ]);
+    for (const nodeId of ["stabilize", "refine"]) {
+      const data = stagedTryOn.flow.nodes.find((node) => node.id === nodeId)?.data;
+      assert.equal(data?.qualityMode, "best");
+      assert.equal(data?.promptEnhancement, true);
+      assert.equal(data?.safetyFallback, true);
+      assert.equal(data?.stylePresetId, "faithful");
+    }
+    assert.deepEqual(
+      stagedTryOn.flow.edges.filter((edge) => edge.targetHandle === "repair-source").map((edge) => `${edge.source}:${edge.target}`),
+      ["refine:upper-repair", "upper-repair:pants-repair", "pants-repair:accessory-repair", "accessory-repair:logo-correct"],
+    );
+    for (const [nodeId, repairFocus] of [
+      ["upper-repair", "upper-garment"],
+      ["pants-repair", "pants"],
+      ["accessory-repair", "accessories"],
+      ["logo-correct", "logo-text"],
+    ] as const) {
+      const data = stagedTryOn.flow.nodes.find((node) => node.id === nodeId)?.data;
+      assert.equal(data?.modelId, "gpt-image-2");
+      assert.equal(data?.repairFocus, repairFocus);
+      assert.equal(data?.executionMode, "bypass");
+    }
     for (const node of stagedTryOn.flow.nodes) {
       assert.equal("imageUrl" in node.data, false, `${node.id} 不得保存真实输入图`);
       assert.equal("approvedBaselineRef" in node.data, false, `${node.id} 不得保存审批事实`);
@@ -874,12 +1007,15 @@ async function main() {
       assert.equal(fs.existsSync(path.join(builtinDir, "builtin-style-transfer.json")), false);
       assert.equal(fs.existsSync(path.join(builtinDir, "builtin-dual-model-staged-try-on.json")), false);
       const refreshedFiles = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(refreshedFiles.length, 19);
+      assert.equal(refreshedFiles.length, 21);
       for (const required of [
         "builtin-sketch-recolor.json",
         "builtin-tool-one-click-try-on.json",
         "builtin-tool-text-to-video.json",
-        "builtin-tool-video-to-video.json",
+        "builtin-tool-first-frame-to-video.json",
+        "builtin-tool-multimodal-reference.json",
+        "builtin-tool-video-edit.json",
+        "builtin-tool-video-extend.json",
       ]) assert.ok(refreshedFiles.includes(required), required);
     } finally {
       if (originalDataDir === undefined) delete process.env.DATA_DIR;
@@ -923,7 +1059,7 @@ async function main() {
     }
   });
 
-  await test("全新空数据目录生成的 v7 内置模板均可读取和校验", () => {
+  await test("全新空数据目录生成的 v11 内置模板均可读取和校验", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "garment-canvas-fresh-templates-"));
     const originalDataDir = process.env.DATA_DIR;
     try {
@@ -932,7 +1068,7 @@ async function main() {
 
       const builtinDir = path.join(dir, "templates", "builtin");
       const files = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(files.length, 19);
+      assert.equal(files.length, 21);
       for (const file of files) {
         const template = JSON.parse(fs.readFileSync(path.join(builtinDir, file), "utf-8")) as {
           schemaVersion: unknown;

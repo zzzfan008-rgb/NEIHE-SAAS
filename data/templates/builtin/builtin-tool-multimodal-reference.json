@@ -1,39 +1,51 @@
 {
   "schemaVersion": 11,
-  "id": "builtin-tool-keyframes-to-video",
-  "name": "首尾帧生视频",
-  "description": "首帧、尾帧和提示词按角色连接。",
+  "id": "builtin-tool-multimodal-reference",
+  "name": "多模态参考生视频",
+  "description": "图片、视频、音频和提示词按独立角色连接。",
   "builtIn": true,
   "createdAt": "2026-09-03T08:00:00.000Z",
   "flow": {
     "schemaVersion": 11,
     "nodes": [
       {
-        "id": "first",
+        "id": "image",
         "type": "image-input",
         "position": {
           "x": 0,
-          "y": -220
+          "y": -300
         },
         "data": {
           "kind": "image-input",
-          "label": "首帧",
+          "label": "参考图片",
           "status": "idle",
           "imageRole": "reference"
         }
       },
       {
-        "id": "last",
-        "type": "image-input",
+        "id": "video",
+        "type": "video-input",
         "position": {
           "x": 0,
-          "y": 60
+          "y": -40
         },
         "data": {
-          "kind": "image-input",
-          "label": "尾帧",
-          "status": "idle",
-          "imageRole": "reference"
+          "kind": "video-input",
+          "label": "参考视频",
+          "status": "idle"
+        }
+      },
+      {
+        "id": "audio",
+        "type": "audio-input",
+        "position": {
+          "x": 0,
+          "y": 220
+        },
+        "data": {
+          "kind": "audio-input",
+          "label": "参考音频",
+          "status": "idle"
         }
       },
       {
@@ -41,7 +53,7 @@
         "type": "text-input",
         "position": {
           "x": 0,
-          "y": 340
+          "y": 470
         },
         "data": {
           "kind": "text-input",
@@ -55,16 +67,16 @@
         "type": "video-generate",
         "position": {
           "x": 430,
-          "y": 0
+          "y": 20
         },
         "data": {
           "kind": "video-generate",
-          "label": "首尾帧生视频",
+          "label": "多模态参考生视频",
           "status": "idle",
-          "mode": "keyframes-to-video",
+          "mode": "multimodal-reference",
           "prompt": "",
           "videoModel": "doubao-seedance-2-5-260628",
-          "aspectRatio": "adaptive",
+          "aspectRatio": "16:9",
           "resolution": "720p",
           "seconds": 5,
           "generateAudio": true,
@@ -75,18 +87,25 @@
     ],
     "edges": [
       {
-        "id": "first-generate",
-        "source": "first",
+        "id": "image-generate",
+        "source": "image",
         "sourceHandle": "image",
         "target": "generate",
-        "targetHandle": "first-frame"
+        "targetHandle": "reference-image"
       },
       {
-        "id": "last-generate",
-        "source": "last",
-        "sourceHandle": "image",
+        "id": "video-generate",
+        "source": "video",
+        "sourceHandle": "video",
         "target": "generate",
-        "targetHandle": "last-frame"
+        "targetHandle": "reference-video"
+      },
+      {
+        "id": "audio-generate",
+        "source": "audio",
+        "sourceHandle": "audio",
+        "target": "generate",
+        "targetHandle": "reference-audio"
       },
       {
         "id": "prompt-generate",

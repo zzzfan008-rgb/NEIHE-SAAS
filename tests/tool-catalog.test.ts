@@ -21,11 +21,11 @@ assert.deepEqual(
     ["文本节点", "本地上传图片", "本地上传视频", "从资产库中选择"],
     ["草图到效果图", "AI 改款", "面料替换", "配色替换", "印花提取", "印花裂变"],
     ["白底图制作", "一键换装", "风格迁移"],
-    ["文生视频", "首尾帧生视频", "多图参考生视频", "视频生视频"],
+    ["文生视频", "首帧生视频", "首尾帧生视频", "多模态参考生视频", "视频编辑", "视频延长"],
     ["绘画工具", "色彩工具"],
   ],
 );
-assert.equal(TOOL_GROUPS.flatMap((group) => group.items).length, 19);
+assert.equal(TOOL_GROUPS.flatMap((group) => group.items).length, 21);
 
 const ids = TOOL_GROUPS.flatMap((group) => group.items.map((item) => item.id));
 assert.equal(new Set(ids).size, ids.length, "工具项目 id 必须全局稳定且唯一");
@@ -49,9 +49,9 @@ for (const name of ["草图到效果图", "AI 改款", "面料替换", "配色�
   assert.equal(item(name)?.creationIntent?.type, "workflow-template", `${name} 必须创建已连线工作流`);
 }
 assert.equal(item("本地上传视频")?.availability, "available");
-for (const name of ["文生视频", "首尾帧生视频", "多图参考生视频", "视频生视频"]) {
+for (const name of ["文生视频", "首帧生视频", "首尾帧生视频", "多模态参考生视频", "视频编辑", "视频延长"]) {
   assert.equal(item(name)?.availability, "available");
   assert.equal(item(name)?.creationIntent?.type, "workflow-template");
 }
 
-console.log("通过 1 项工具目录测试（5 组、19 项）");
+console.log("通过 1 项工具目录测试（5 组、21 项）");

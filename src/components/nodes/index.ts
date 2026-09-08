@@ -12,6 +12,7 @@ import { VirtualTryOnNode } from "./VirtualTryOnNode";
 import { TextInputNode } from "./TextInputNode";
 import { VideoInputNode } from "./VideoInputNode";
 import { VideoGenerateNode } from "./VideoGenerateNode";
+import { AudioInputNode } from "./AudioInputNode";
 import { StageApprovalNode } from "./StageApprovalNode";
 import { DrawingBoardNode } from "./DrawingBoardNode";
 import { ColorPaletteNode } from "./ColorPaletteNode";
@@ -20,6 +21,7 @@ export const nodeTypes: NodeTypes = {
   "image-input": ImageInputNode,
   "text-input": TextInputNode,
   "video-input": VideoInputNode,
+  "audio-input": AudioInputNode,
   "video-generate": VideoGenerateNode,
   "stage-approval": StageApprovalNode,
   "drawing-board": DrawingBoardNode,
@@ -45,6 +47,7 @@ export { ResultNode } from "./ResultNode";
 export { MaskRedrawNode } from "./MaskRedrawNode";
 export { VirtualTryOnNode } from "./VirtualTryOnNode";
 export { TextInputNode } from "./TextInputNode";
+export { AudioInputNode } from "./AudioInputNode";
 export { StageApprovalNode } from "./StageApprovalNode";
 export { DrawingBoardNode } from "./DrawingBoardNode";
 export { ColorPaletteNode } from "./ColorPaletteNode";

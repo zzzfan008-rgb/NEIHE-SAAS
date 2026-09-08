@@ -281,6 +281,19 @@ authRouter.delete("/users/:id", requireAdmin, asyncHandler(async (req, res) => {
       for (const table of ["projects", "assets"] as const) {
         await client.query(`UPDATE ${table} SET owner_id = $1 WHERE owner_id = $2`, [transferToUserId, req.params.id]);
       }
+      await client.query(`
+        UPDATE try_on_style_presets source
+        SET name = source.name || '（转移 ' || left(source.id, 4) || '）'
+        WHERE source.owner_id = $2 AND source.deleted_at IS NULL AND EXISTS (
+          SELECT 1 FROM try_on_style_presets target
+          WHERE target.owner_id = $1 AND target.deleted_at IS NULL
+            AND lower(target.name) = lower(source.name)
+        )
+      `, [transferToUserId, req.params.id]);
+      await client.query(
+        "UPDATE try_on_style_presets SET owner_id = $1 WHERE owner_id = $2",
+        [transferToUserId, req.params.id],
+      );
       // 源/目标用户排他锁已隔离新 Run；这里只按行更新，避免与 Worker 的
       // generation_runs 行锁形成表锁升级死锁。
       await client.query(`
@@ -316,6 +329,10 @@ authRouter.delete("/users/:id", requireAdmin, asyncHandler(async (req, res) => {
       await client.query(
         "UPDATE assets SET deleted_at = $1, purge_after = $2 WHERE owner_id = $3 AND deleted_at IS NULL",
         [nowIso, purgeAfter, req.params.id],
+      );
+      await client.query(
+        "UPDATE try_on_style_presets SET deleted_at = $1, updated_at = $1 WHERE owner_id = $2 AND deleted_at IS NULL",
+        [nowIso, req.params.id],
       );
       for (const table of ["generation_runs", "usage_events", "files"] as const) {
         await client.query(

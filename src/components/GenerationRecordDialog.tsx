@@ -151,6 +151,13 @@ export function GenerationRecordDialog({
             </details>
           )}
 
+          {record.executionMeta && Object.keys(record.executionMeta).length > 0 && (
+            <details className="mt-4 rounded-md border border-[var(--gc-border)] bg-[var(--gc-control)] p-3 text-[10px] text-[var(--gc-text-muted)]">
+              <summary className="cursor-pointer text-[var(--gc-text)]">换装评审与执行信息</summary>
+              <pre className="mt-2 whitespace-pre-wrap break-all font-mono leading-5">{JSON.stringify(record.executionMeta, null, 2)}</pre>
+            </details>
+          )}
+
           {record.error && (
             <section className="mt-4 rounded-md border border-red-900/50 bg-red-950/20 p-3">
               <h3 className="text-[10px] text-red-400">错误信息</h3>

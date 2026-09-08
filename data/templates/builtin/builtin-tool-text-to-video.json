@@ -1,12 +1,12 @@
 {
-  "schemaVersion": 6,
+  "schemaVersion": 11,
   "id": "builtin-tool-text-to-video",
   "name": "文生视频",
   "description": "文字提示连接真实视频生成节点。",
   "builtIn": true,
   "createdAt": "2026-09-03T08:00:00.000Z",
   "flow": {
-    "schemaVersion": 6,
+    "schemaVersion": 11,
     "nodes": [
       {
         "id": "prompt",
@@ -35,11 +35,12 @@
           "status": "idle",
           "mode": "text-to-video",
           "prompt": "",
-          "videoModel": "veo-3.1",
-          "quality": "fast",
+          "videoModel": "doubao-seedance-2-5-260628",
           "aspectRatio": "16:9",
           "resolution": "720p",
-          "seconds": 8,
+          "seconds": 5,
+          "generateAudio": true,
+          "outputFormat": "mp4",
           "outputImages": []
         }
       }

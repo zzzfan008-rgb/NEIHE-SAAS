@@ -1,37 +1,23 @@
 {
-  "schemaVersion": 6,
-  "id": "builtin-tool-multi-image-video",
-  "name": "多图参考生视频",
-  "description": "当前真实通道使用两张有序参考图建立连续性。",
+  "schemaVersion": 11,
+  "id": "builtin-tool-first-frame-to-video",
+  "name": "首帧生视频",
+  "description": "首帧和提示词按角色连接。",
   "builtIn": true,
   "createdAt": "2026-09-03T08:00:00.000Z",
   "flow": {
-    "schemaVersion": 6,
+    "schemaVersion": 11,
     "nodes": [
       {
         "id": "first",
         "type": "image-input",
         "position": {
           "x": 0,
-          "y": -220
+          "y": -140
         },
         "data": {
           "kind": "image-input",
-          "label": "参考图一",
-          "status": "idle",
-          "imageRole": "reference"
-        }
-      },
-      {
-        "id": "last",
-        "type": "image-input",
-        "position": {
-          "x": 0,
-          "y": 60
-        },
-        "data": {
-          "kind": "image-input",
-          "label": "参考图二",
+          "label": "首帧",
           "status": "idle",
           "imageRole": "reference"
         }
@@ -41,7 +27,7 @@
         "type": "text-input",
         "position": {
           "x": 0,
-          "y": 340
+          "y": 180
         },
         "data": {
           "kind": "text-input",
@@ -59,15 +45,16 @@
         },
         "data": {
           "kind": "video-generate",
-          "label": "多图参考生视频",
+          "label": "首帧生视频",
           "status": "idle",
-          "mode": "multi-image-video",
+          "mode": "first-frame-to-video",
           "prompt": "",
-          "videoModel": "veo-3.1",
-          "quality": "fast",
-          "aspectRatio": "16:9",
+          "videoModel": "doubao-seedance-2-5-260628",
+          "aspectRatio": "adaptive",
           "resolution": "720p",
-          "seconds": 8,
+          "seconds": 5,
+          "generateAudio": true,
+          "outputFormat": "mp4",
           "outputImages": []
         }
       }
@@ -79,13 +66,6 @@
         "sourceHandle": "image",
         "target": "generate",
         "targetHandle": "first-frame"
-      },
-      {
-        "id": "last-generate",
-        "source": "last",
-        "sourceHandle": "image",
-        "target": "generate",
-        "targetHandle": "last-frame"
       },
       {
         "id": "prompt-generate",

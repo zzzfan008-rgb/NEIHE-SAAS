@@ -314,7 +314,7 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   await rail.getByRole("button", { name: "模特换装", exact: true }).click();
   const menu = page.getByRole("menu", { name: "模特换装" });
   await menu.getByRole("menuitem", { name: /一键换装/ }).click();
-  await expect(page.locator(".react-flow__node")).toHaveCount(15);
+  await expect(page.locator(".react-flow__node")).toHaveCount(25);
   const personNode = page.locator('.react-flow__node[data-id="person"]');
   const outfitNode = page.locator('.react-flow__node[data-id="outfit"]');
   const personMedia = personNode.locator(".gc-image-input-media");
@@ -330,9 +330,13 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     const tab = useFlowStore.getState().tabs.find((candidate: { id: string }) => candidate.id === useFlowStore.getState().activeTabId);
     return tab?.edges.map((edge: { source: string; target: string; targetHandle?: string | null }) => `${edge.source}:${edge.target}:${edge.targetHandle}`).sort();
   })).toEqual([
+    "accessory-repair:logo-correct:repair-source",
     "approval:refine:baseline",
+    "pants-repair:accessory-repair:repair-source",
     "person:stabilize:person",
+    "refine:upper-repair:repair-source",
     "stabilize:approval:baseline-candidate",
+    "upper-repair:pants-repair:repair-source",
   ]);
 
   await outfitNode.locator('input[type="file"]').setInputFiles({
@@ -346,7 +350,39 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
     return tab?.edges.filter((edge: { source: string }) => edge.source === "outfit").map((edge: { target: string }) => edge.target).sort();
-  })).toEqual(["refine", "stabilize"]);
+  })).toEqual(["pants-repair", "refine", "stabilize", "upper-repair"]);
+
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().setSelectedNodeIds(["stabilize"]);
+  });
+  await page.getByRole("button", { name: "属性", exact: true }).click();
+  const qualityControls = page.locator("#workbench-inspector-panel");
+  await expect(qualityControls.getByText("风格预设", { exact: true })).toBeVisible();
+  await expect(qualityControls.getByRole("combobox", { name: "风格预设" })).toContainText("忠实还原");
+  await expect(qualityControls.getByRole("button", { name: "最佳", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(qualityControls.getByRole("switch", { name: "提示词增强" })).toBeChecked();
+  await expect(qualityControls.getByRole("switch", { name: "审核失败安全降级一次" })).toBeChecked();
+  await page.getByRole("button", { name: "属性", exact: true }).click();
+
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().setSelectedNodeIds(["upper-repair"]);
+  });
+  await page.getByRole("button", { name: "属性", exact: true }).click();
+  const upperRepairSwitch = page.locator("#workbench-inspector-panel").getByRole("switch", { name: "可选 · 上衣款型精修参与精修" });
+  await expect(upperRepairSwitch).not.toBeChecked();
+  await upperRepairSwitch.click();
+  await expect(upperRepairSwitch).toBeChecked();
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().undo();
+  });
+  await expect(upperRepairSwitch).not.toBeChecked();
+  await page.getByRole("button", { name: "属性", exact: true }).click();
 
   await page.evaluate(async () => {
     const storeModulePath = "/src/store/flowStore.ts";
@@ -354,6 +390,30 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     useFlowStore.getState().setSelectedNodeIds([]);
     useFlowStore.temporal.getState().clear();
   });
+  const beforePan = await personMedia.boundingBox();
+  if (!beforePan) throw new Error("Uploaded image is missing before viewport positioning");
+  if (beforePan.x < 96 || beforePan.y < 64) {
+    const panStart = await page.evaluate(() => {
+      for (let y = 140; y < window.innerHeight - 80; y += 40) {
+        for (let x = 160; x < window.innerWidth - 160; x += 40) {
+          const element = document.elementFromPoint(x, y);
+          if (element?.classList.contains("react-flow__pane")) return { x, y };
+        }
+      }
+      return null;
+    });
+    if (!panStart) throw new Error("No clear canvas point is available for viewport positioning");
+    await page.mouse.move(panStart.x, panStart.y);
+    await page.mouse.down({ button: "middle" });
+    await page.mouse.move(
+      panStart.x + Math.max(0, 128 - beforePan.x),
+      panStart.y + Math.max(0, 96 - beforePan.y),
+      { steps: 8 },
+    );
+    await page.mouse.up({ button: "middle" });
+  }
+  await expect.poll(async () => (await personMedia.boundingBox())?.x ?? 0).toBeGreaterThan(95);
+  await expect.poll(async () => (await personMedia.boundingBox())?.y ?? 0).toBeGreaterThan(63);
   await personMedia.click();
   await expect(personNode).toHaveClass(/\bselected\b/);
   await expect(page.getByRole("dialog", { name: "图片查看器" })).toHaveCount(0);
@@ -416,6 +476,10 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
               imageSize: "2K",
               aspectRatio: "1:1",
               basisRevision: 0,
+              promptEnhancement: false,
+              qualityMode: "fast",
+              safetyFallback: false,
+              stylePresetId: "faithful",
               outputImages: [],
             },
           },
@@ -447,6 +511,10 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
               garmentCategory: "knit",
               materialSpec: "羊毛混纺，双股纱，中等厚度",
               constructionSpec: "12GG 平针，1×1 罗纹领口",
+              promptEnhancement: false,
+              qualityMode: "fast",
+              safetyFallback: false,
+              stylePresetId: "faithful",
               outputImages: [],
             },
           },
@@ -973,6 +1041,15 @@ test("node title and media actions keep stable keyboard-accessible controls", as
   const mediaToolbar = imageNode.getByRole("toolbar", { name: "媒体节点操作" });
   await expect(mediaToolbar).toBeVisible();
   const upscaleTrigger = mediaToolbar.getByRole("button", { name: "高清放大" });
+  await expect(upscaleTrigger).toBeDisabled();
+  await imageNode.getByLabel("本地上传").setInputFiles({
+    name: "quick-action.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"),
+  });
+  await expect(imageNode.getByAltText("已上传图片")).toBeVisible();
+  await expect(upscaleTrigger).toBeEnabled();
+  const edgeCount = await page.locator(".react-flow__edge").count();
   await upscaleTrigger.focus();
   await upscaleTrigger.press("Enter");
   const twoK = page.getByRole("menuitem", { name: "2K", exact: true });
@@ -980,10 +1057,13 @@ test("node title and media actions keep stable keyboard-accessible controls", as
   await expect(twoK).toBeVisible();
   await expect(fourK).toBeVisible();
   await expect(twoK).toBeFocused();
-  await page.keyboard.press("Escape");
+  await twoK.click();
   await expect(twoK).toBeHidden();
-  await expect(upscaleTrigger).toBeFocused();
-  await expect(nodes).toHaveCount(nodeCount + 1);
+  await expect(nodes).toHaveCount(nodeCount + 2);
+  await expect(page.locator(".react-flow__edge")).toHaveCount(edgeCount + 1);
+  const upscaleNode = nodes.filter({ hasText: "高清放大" }).last();
+  await expect(upscaleNode).toHaveClass(/selected/);
+  await expect(upscaleNode.getByRole("button", { name: "2K · 长边 2048" })).toBeVisible();
 });
 
 test("dragging a node near the canvas edge never auto-pans the viewport", async ({ page }) => {
@@ -1411,9 +1491,11 @@ test("approved video capabilities open complete workflows without triggering gen
   const nodes = page.locator(".react-flow__node");
   const capabilities = [
     { name: "文生视频", nodeCount: 2 },
+    { name: "首帧生视频", nodeCount: 3 },
     { name: "首尾帧生视频", nodeCount: 4 },
-    { name: "多图参考生视频", nodeCount: 4 },
-    { name: "视频生视频", nodeCount: 3 },
+    { name: "多模态参考生视频", nodeCount: 5 },
+    { name: "视频编辑", nodeCount: 3 },
+    { name: "视频延长", nodeCount: 3 },
   ];
   for (const capability of capabilities) {
     const trigger = page.getByRole("navigation", { name: "工作台左侧工具" })

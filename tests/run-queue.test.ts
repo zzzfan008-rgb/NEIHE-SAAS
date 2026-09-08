@@ -11,6 +11,7 @@ import type { AuthenticatedRequest } from "../server/lib/auth";
 import type { GenerationRecordContext } from "../server/lib/generationRecords";
 import type { ProviderResolver } from "../server/engine/runner";
 import type { SceneAnalyzer } from "../server/lib/sceneAnalysis";
+import type { IdentityAnchorer } from "../server/lib/identityAnchor";
 import type { AIProvider, ExecutionPlan, ImageGenRequest, ImageGenResult, NodeExecution } from "../src/types/workflow";
 import { resetPostgresTestDatabase } from "./postgresTestDatabase";
 
@@ -19,8 +20,10 @@ process.env.DATA_DIR = temp;
 process.env.SQLITE_IMPORT_FILE = "missing.db";
 process.env.INITIAL_ADMIN_ACCOUNT_ID = "queue-admin";
 process.env.INITIAL_ADMIN_PASSWORD = "Initial1234";
-process.env.APIYI_API_KEY = "queue-video-test-key";
-process.env.APIYI_BASE_URL = "https://video-queue.example";
+process.env.APIYI_API_KEY = "queue-image-test-key";
+process.env.APIYI_BASE_URL = "https://image-queue.example";
+process.env.SEEDANCE_API_KEY = "queue-video-test-key";
+process.env.SEEDANCE_API_BASE_URL = "https://video-queue.example";
 
 await resetPostgresTestDatabase();
 const database = await import("../server/lib/database");
@@ -96,10 +99,12 @@ async function enqueueVideo(prefix: string): Promise<string> {
     params: {
       mode: "text-to-video",
       prompt: "服装走秀",
-      quality: "fast",
+      videoModel: "doubao-seedance-2-5-260628",
       aspectRatio: "16:9",
       resolution: "720p",
-      seconds: 8,
+      seconds: 5,
+      generateAudio: true,
+      outputFormat: "mp4",
     },
   };
   const run = await queue.enqueueGenerationRun({ steps: [videoStep] }, owner.id, {
@@ -226,6 +231,16 @@ await test("持久队列保留分步角色，场景只做文字分析且未提�
       cacheHit: false,
     };
   };
+  const identityAnchorer: IdentityAnchorer = async (_image, options) => {
+    await options?.beforeProviderCall?.(1);
+    return {
+      image: PNG_DATA_URL,
+      providerRequests: 1,
+      model: "identity-stub",
+      cacheHit: false,
+      fallback: false,
+    };
+  };
   const run = await queue.enqueueGenerationRun(
     {
       steps: [
@@ -249,6 +264,7 @@ await test("持久队列保留分步角色，场景只做文字分析且未提�
     assert.equal(await queue.processNextGenerationJob(`worker-roles-${testId}`, {
       resolveProvider: fake.resolveProvider,
       sceneAnalyzer,
+      identityAnchorer,
       now: () => tick(),
       random: () => 0,
     }), true);
@@ -263,8 +279,112 @@ await test("持久队列保留分步角色，场景只做文字分析且未提�
   assert.match(fake.requests()[0].prompt, /参考图4只控制目标包袋/);
   assert.doesNotMatch(fake.requests()[0].prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
   assert.deepEqual(await runRow(run.id), {
-    status: "succeeded", error: null, provider_requests: 2, successful_count: 1,
+    status: "succeeded", error: null, provider_requests: 3, successful_count: 1,
   });
+});
+
+await test("最佳档位独立生成三张候选，只发布赢家并持久化全部候选与评审元数据", async () => {
+  const testId = ++sequence;
+  const personImage = await solidImage(4, 4, { r: 200, g: 70, b: 50 });
+  const sceneImage = await solidImage(3, 4, { r: 60, g: 130, b: 90 });
+  const outfitImage = await solidImage(2, 3, { r: 40, g: 70, b: 180 });
+  const candidates = [
+    await solidImage(3, 4, { r: 220, g: 30, b: 30 }),
+    await solidImage(3, 4, { r: 30, g: 220, b: 30 }),
+    await solidImage(3, 4, { r: 30, g: 30, b: 220 }),
+  ];
+  let candidateIndex = 0;
+  const fake = resolver(() => ({
+    images: [candidates[candidateIndex++]],
+    model: "gemini-stub",
+  }));
+  const source = (nodeId: string, imageUrl: string): NodeExecution => ({
+    nodeId,
+    kind: "image-input",
+    inputImages: [],
+    params: { imageUrl },
+  });
+  const personId = `candidate-person-${testId}`;
+  const sceneId = `candidate-scene-${testId}`;
+  const outfitId = `candidate-outfit-${testId}`;
+  const stageId = `candidate-stage-${testId}`;
+  const stage: NodeExecution = {
+    nodeId: stageId,
+    kind: "virtual-try-on",
+    inputImages: [],
+    upstream: [
+      { nodeId: sceneId, images: [], targetHandle: "scene" },
+      { nodeId: personId, images: [], targetHandle: "person" },
+      { nodeId: outfitId, images: [], targetHandle: "outfit" },
+    ],
+    params: {
+      workflowStage: "scene-stabilize",
+      prompt: "保留目标穿搭",
+      imageSize: "2K",
+      modelId: "gemini-3.1-flash-image-preview",
+      modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
+      promptEnhancement: false,
+      qualityMode: "best",
+      safetyFallback: false,
+      stylePresetId: "faithful",
+    },
+  };
+  const run = await queue.enqueueGenerationRun(
+    { steps: [source(personId, personImage), source(sceneId, sceneImage), source(outfitId, outfitImage), stage] },
+    owner.id,
+    {
+      ...context(stageId),
+      nodeId: stageId,
+      nodeLabel: "候选择优",
+      kind: "virtual-try-on",
+      referenceImages: [personImage, sceneImage, outfitImage],
+    },
+  );
+  for (let index = 0; index < 4; index += 1) {
+    assert.equal(await queue.processNextGenerationJob(`worker-candidates-${testId}`, {
+      resolveProvider: fake.resolveProvider,
+      sceneAnalyzer: async (_image, options) => {
+        await options?.beforeProviderCall?.(1);
+        return { prompt: "环境：摄影棚；光线：左侧柔光；镜头：平视；构图：自然站立", providerRequests: 1, model: "scene-stub", cacheHit: false };
+      },
+      identityAnchorer: async (_image, options) => {
+        await options?.beforeProviderCall?.(1);
+        return { image: PNG_DATA_URL, providerRequests: 1, model: "identity-stub", cacheHit: false, fallback: false };
+      },
+      candidateSelector: async (input) => {
+        await input.beforeProviderCall?.(1);
+        return {
+          selectedIndex: 1,
+          scores: [
+            { index: 0, identity: 15, anatomy: 12, garment: 17, material: 15, accessories: 10, scene: 8, total: 77, hardFail: false, reasons: [] },
+            { index: 1, identity: 19, anatomy: 14, garment: 19, material: 18, accessories: 14, scene: 9, total: 93, hardFail: false, reasons: [] },
+            { index: 2, identity: 16, anatomy: 10, garment: 15, material: 15, accessories: 10, scene: 8, total: 74, hardFail: false, reasons: [] },
+          ],
+          model: "judge-stub",
+          providerRequests: 1,
+          allHardFail: false,
+        };
+      },
+      now: () => tick(),
+      random: () => 0,
+    }), true);
+  }
+  assert.equal(fake.calls(), 3);
+  assert.deepEqual(await runRow(run.id), {
+    status: "succeeded", error: null, provider_requests: 6, successful_count: 1,
+  });
+  const stepRow = await database.queryOne<{ output_images_json: string; execution_meta_json: string }>(`
+    SELECT output_images_json, execution_meta_json FROM generation_run_steps
+    WHERE run_id = $1 AND node_id = $2
+  `, [run.id, stageId]);
+  assert.equal(JSON.parse(stepRow?.output_images_json ?? "[]").length, 1);
+  assert.equal(JSON.parse(stepRow?.execution_meta_json ?? "{}").tryOn.candidateSelection.selectedIndex, 1);
+  assert.equal((await database.queryOne<{ count: number }>(`
+    SELECT COUNT(*)::int AS count FROM files WHERE run_id = $1 AND node_id = $2
+  `, [run.id, stageId]))?.count, 3);
+  assert.equal((await database.queryOne<{ count: number }>(`
+    SELECT COUNT(*)::int AS count FROM generation_outputs WHERE run_id = $1 AND status = 'success'
+  `, [run.id]))?.count, 1);
 });
 
 await test("同一付费请求号并发重试只创建一个 run，语义漂移返回冲突", async () => {
@@ -526,13 +646,13 @@ await test("视频轮询失败后从已保存任务恢复且不会重复提交",
     if (init?.method === "POST") {
       postCalls += 1;
       assert.ok(new Headers(init.headers).get("idempotency-key"));
-      return Response.json({ task_id: "durable-video-task" });
+      return Response.json({ id: "durable-video-task" });
     }
-    if (url.endsWith("/content")) return new Response(mp4);
+    if (url === "https://cdn.example/durable-video.mp4") return new Response(mp4);
     statusCalls += 1;
     return statusCalls === 1
       ? new Response(JSON.stringify({ error: "busy" }), { status: 429 })
-      : Response.json({ status: "completed" });
+      : Response.json({ status: "succeeded", content: { video_url: "https://cdn.example/durable-video.mp4" } });
   }) as typeof fetch;
   try {
     let now = tick();
@@ -548,7 +668,7 @@ await test("视频轮询失败后从已保存任务恢复且不会重复提交",
       status: "retry_wait",
       retry_count: 1,
       provider_task_id: "durable-video-task",
-      provider_model: "veo-3.1-fast-generate-preview",
+      provider_model: "doubao-seedance-2-5-260628",
     });
     assert.equal((await runRow(runId))?.provider_requests, 0, "运行汇总在终态前不提前发布");
 
@@ -587,10 +707,10 @@ await test("视频已受理但任务状态落库失败时终止为未知且不�
   globalThis.fetch = (async (_input, init) => {
     if (init?.method === "POST") {
       postCalls += 1;
-      return Response.json({ task_id: "accepted-with-db-failure" });
+      return Response.json({ id: "accepted-with-db-failure" });
     }
     pollCalls += 1;
-    return Response.json({ status: "completed" });
+    return Response.json({ status: "succeeded", content: { video_url: "https://cdn.example/unused.mp4" } });
   }) as typeof fetch;
   try {
     assert.equal(await queue.processNextGenerationJob("worker-video-persistence-failure", {

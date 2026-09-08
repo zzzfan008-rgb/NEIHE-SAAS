@@ -86,10 +86,11 @@ historyRouter.get("/", asyncHandler(async (req, res) => {
   const rows = await query<Record<string, unknown>>(`
     SELECT r.*, o.id AS output_id, o.image, o.prompt AS output_prompt,
       o.provider_output_size, o.status AS output_status, o.error AS output_error,
-      u.display_name AS owner_name
+      u.display_name AS owner_name, s.execution_meta_json
     FROM generation_runs r
     JOIN users u ON u.id = r.owner_id
     LEFT JOIN generation_outputs o ON o.run_id = r.id
+    LEFT JOIN generation_run_steps s ON s.run_id = r.id AND s.node_id = r.node_id
     WHERE r.id = ANY($1::text[])
     ORDER BY r.started_at DESC, r.id DESC, o.created_at ASC, o.id ASC
   `, [pageRuns.map((run) => run.id)]);
@@ -111,6 +112,7 @@ historyRouter.get("/", asyncHandler(async (req, res) => {
     prompt: (row.output_prompt as string | null) ?? row.prompt,
     parameters: parseJson<Record<string, unknown>>(row.parameters_json, {}),
     referenceImages: parseJson<string[]>(row.reference_images_json, []),
+    executionMeta: parseJson<Record<string, unknown>>(row.execution_meta_json, {}),
     model: row.model,
     requestedCount: row.requested_count,
     successfulCount: row.successful_count,

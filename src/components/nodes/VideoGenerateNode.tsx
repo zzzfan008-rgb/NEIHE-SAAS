@@ -1,49 +1,230 @@
+import { MinusIcon, PlusIcon } from "lucide-react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  SEEDANCE_MODEL_CAPABILITIES,
+  SEEDANCE_RATIOS,
+  SEEDANCE_RESOLUTIONS,
+  SEEDANCE_VIDEO_MODELS,
+  normalizedSeedanceSettings,
+  seedanceModeRequiresAdaptive,
+  seedanceModeSupported,
+} from "@/lib/seedance";
 import { inputPortSpecs } from "@/lib/workflowPorts";
 import { useFlowStore } from "@/store/flowStore";
-import { isNodeRunActive, type VideoGenerateNodeData } from "@/types/workflow";
-import { Developing, inputClass, NodeFrame, RunButton } from "./NodeFrame";
+import {
+  isNodeRunActive,
+  type SeedanceOutputFormat,
+  type SeedanceVideoModelId,
+  type VideoAspectRatio,
+  type VideoGenerateNodeData,
+  type VideoGenerationMode,
+  type VideoResolution,
+} from "@/types/workflow";
+import { Developing, NodeFrame, RunButton } from "./NodeFrame";
+
+const MODES: ReadonlyArray<{ value: VideoGenerationMode; label: string }> = [
+  { value: "text-to-video", label: "文生视频" },
+  { value: "first-frame-to-video", label: "首帧生视频" },
+  { value: "keyframes-to-video", label: "首尾帧生视频" },
+  { value: "multimodal-reference", label: "多模态参考" },
+  { value: "video-edit", label: "视频编辑" },
+  { value: "video-extend", label: "视频延长" },
+];
 
 export function VideoGenerateNode({ id, data, selected }: NodeProps<Node<VideoGenerateNodeData>>) {
   const runNode = useFlowStore((state) => state.runNode);
   const updateNodeData = useFlowStore((state) => state.updateNodeData);
-  const lockedFrames = data.mode === "keyframes-to-video" || data.mode === "multi-image-video";
+  const updateVideoNodeSettings = useFlowStore((state) => state.updateVideoNodeSettings);
+  const capability = SEEDANCE_MODEL_CAPABILITIES[data.videoModel];
+  const ratioLocked = seedanceModeRequiresAdaptive(data.videoModel, data.mode);
+  const durationLocked = data.mode === "video-edit";
   const ports = inputPortSpecs(data);
-  const setResolution = (resolution: VideoGenerateNodeData["resolution"]) => updateNodeData(id, {
-    resolution,
-    ...(resolution === "720p" ? {} : { seconds: 8 }),
-  });
+
+  const updateSettings = (patch: Partial<{
+    model: SeedanceVideoModelId;
+    mode: VideoGenerationMode;
+    resolution: VideoResolution;
+    ratio: VideoAspectRatio;
+    duration: number;
+    outputFormat: SeedanceOutputFormat;
+  }>) => {
+    const next = normalizedSeedanceSettings({
+      model: patch.model ?? data.videoModel,
+      mode: patch.mode ?? data.mode,
+      resolution: patch.resolution ?? data.resolution,
+      ratio: patch.ratio ?? data.aspectRatio,
+      duration: patch.duration ?? data.seconds,
+      outputFormat: patch.outputFormat ?? data.outputFormat,
+    });
+    updateVideoNodeSettings(id, {
+      videoModel: next.model,
+      mode: next.mode,
+      resolution: next.resolution,
+      aspectRatio: next.ratio,
+      seconds: next.duration,
+      outputFormat: next.outputFormat,
+      outputImages: [],
+    });
+  };
+
+  const changeSeconds = (delta: number) => {
+    const current = data.seconds === -1 ? 4 : data.seconds;
+    updateSettings({ duration: Math.min(capability.maxDuration, Math.max(4, current + delta)) });
+  };
 
   return (
     <>
-      {ports.map((port, index) => <Handle key={port.id} id={port.id} type="target" position={Position.Left} title={port.label} style={{ top: `${((index + 1) / (ports.length + 1)) * 100}%` }} />)}
+      {ports.map((port, index) => (
+        <Handle
+          key={port.id}
+          id={port.id}
+          type="target"
+          position={Position.Left}
+          title={port.label}
+          style={{ top: `${((index + 1) / (ports.length + 1)) * 100}%` }}
+        />
+      ))}
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} executable>
-        <p className="text-[9px] leading-relaxed text-[var(--gc-node-muted)]">
-          {data.mode === "text-to-video" ? "文字生成服装短片" : data.mode === "keyframes-to-video" ? "首帧与尾帧之间生成连续过渡" : data.mode === "multi-image-video" ? "按参考图一与参考图二建立视觉连续性" : "提取源视频首帧后生成全新镜头；不会逐帧复刻原视频"}
-        </p>
+        <label className="block space-y-1">
+          <span className="text-[9px] text-[var(--gc-node-muted)]">模型</span>
+          <Select value={data.videoModel} onValueChange={(value) => updateSettings({ model: value as SeedanceVideoModelId })}>
+            <SelectTrigger size="sm" aria-label="Seedance 模型" className="nodrag w-full border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] text-[10px] text-[var(--gc-node-text)]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start" className="border border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]">
+              {SEEDANCE_VIDEO_MODELS.map((model) => (
+                <SelectItem key={model} value={model} className="min-h-8 text-xs">
+                  {SEEDANCE_MODEL_CAPABILITIES[model].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+
+        <label className="block space-y-1">
+          <span className="text-[9px] text-[var(--gc-node-muted)]">生成方式</span>
+          <Select value={data.mode} onValueChange={(value) => updateSettings({ mode: value as VideoGenerationMode })}>
+            <SelectTrigger size="sm" aria-label="视频生成方式" className="nodrag w-full border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] text-[10px] text-[var(--gc-node-text)]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start" className="border border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]">
+              {MODES.map((mode) => (
+                <SelectItem
+                  key={mode.value}
+                  value={mode.value}
+                  disabled={!seedanceModeSupported(data.videoModel, mode.value)}
+                  className="min-h-8 text-xs"
+                >
+                  {mode.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+
         <label className="block space-y-1">
           <span className="text-[10px] text-[var(--gc-node-muted)]">镜头提示词（必填）</span>
-          <textarea value={data.prompt} rows={3} onChange={(event) => updateNodeData(id, { prompt: event.target.value })} className={`${inputClass} resize-none`} placeholder="镜头运动、人物动作、布料动态、声音氛围…" />
+          <Textarea
+            value={data.prompt}
+            rows={3}
+            onChange={(event) => updateNodeData(id, { prompt: event.target.value })}
+            className="nodrag min-h-20 resize-none border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-2 py-1.5 text-xs text-[var(--gc-node-text)] focus-visible:border-[var(--gc-node-accent)] focus-visible:ring-[var(--gc-node-accent)]/40"
+            placeholder={data.mode === "video-edit" ? "修改 @视频1 中的…" : data.mode === "video-extend" ? "向后延长 @视频1…" : "镜头、动作、材质动态与声音…"}
+          />
         </label>
-        <div className="grid grid-cols-2 gap-1">
-          {(["16:9", "9:16"] as const).map((ratio) => <button key={ratio} type="button" onClick={() => updateNodeData(id, { aspectRatio: ratio })} className={`nodrag rounded border py-1 text-[9px] ${data.aspectRatio === ratio ? "border-[var(--gc-node-accent)] bg-[var(--gc-node-accent)] text-white" : "border-[var(--gc-node-border)] text-[var(--gc-node-muted)]"}`}>{ratio === "16:9" ? "横屏 16:9" : "竖屏 9:16"}</button>)}
+
+        <div className="grid grid-cols-2 gap-2">
+          <label className="space-y-1">
+            <span className="block text-[9px] text-[var(--gc-node-muted)]">画幅比例</span>
+            <Select
+              value={ratioLocked ? "adaptive" : data.aspectRatio}
+              disabled={ratioLocked}
+              onValueChange={(value) => updateSettings({ ratio: value as VideoAspectRatio })}
+            >
+              <SelectTrigger size="sm" aria-label="视频画幅比例" className="nodrag w-full border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] text-[10px] text-[var(--gc-node-text)]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start" className="border border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]">
+                {SEEDANCE_RATIOS.map((ratio) => <SelectItem key={ratio} value={ratio} className="min-h-8 text-xs">{ratio}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </label>
+          <div className="space-y-1">
+            <span className="block text-[9px] text-[var(--gc-node-muted)]">时长</span>
+            <div className="flex h-7 items-center">
+              <Button type="button" variant="outline" size="icon-xs" aria-label="减少一秒" disabled={durationLocked || data.seconds === -1 || data.seconds <= 4} onClick={() => changeSeconds(-1)} className="nodrag rounded-r-none border-[var(--gc-node-border)] text-[var(--gc-node-text)]"><MinusIcon /></Button>
+              <Input readOnly aria-label="视频时长（秒）" value={data.seconds === -1 ? "智能" : `${data.seconds} 秒`} className="nodrag h-6 min-w-0 rounded-none border-x-0 border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-1 text-center text-[10px] text-[var(--gc-node-text)] shadow-none" />
+              <Button type="button" variant="outline" size="icon-xs" aria-label="增加一秒" disabled={durationLocked || data.seconds >= capability.maxDuration} onClick={() => changeSeconds(1)} className="nodrag rounded-l-none border-[var(--gc-node-border)] text-[var(--gc-node-text)]"><PlusIcon /></Button>
+            </div>
+          </div>
         </div>
-        <div className="grid grid-cols-3 gap-1">
-          {(["720p", "1080p", "4k"] as const).map((resolution) => <button key={resolution} type="button" disabled={lockedFrames && resolution !== "720p"} onClick={() => setResolution(resolution)} className={`nodrag rounded border py-1 text-[9px] disabled:opacity-35 ${data.resolution === resolution ? "border-[var(--gc-node-accent)] bg-[var(--gc-node-accent)] text-white" : "border-[var(--gc-node-border)] text-[var(--gc-node-muted)]"}`}>{resolution === "4k" ? "4K" : resolution}</button>)}
+
+        <div className="flex items-center justify-between rounded-md border border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-2 py-1.5">
+          <label htmlFor={`video-smart-duration-${id}`} className="text-[10px] text-[var(--gc-node-text)]">智能时长</label>
+          <Switch
+            id={`video-smart-duration-${id}`}
+            checked={data.seconds === -1}
+            disabled={durationLocked}
+            onCheckedChange={(checked) => updateSettings({ duration: checked ? -1 : 5 })}
+            className="nodrag"
+          />
         </div>
-        <div className="grid grid-cols-3 gap-1">
-          {([4, 6, 8] as const).map((seconds) => <button key={seconds} type="button" disabled={lockedFrames || (data.resolution !== "720p" && seconds !== 8)} onClick={() => updateNodeData(id, { seconds })} className={`nodrag rounded border py-1 text-[9px] disabled:opacity-35 ${data.seconds === seconds ? "border-[var(--gc-node-accent)] bg-[var(--gc-node-accent)] text-white" : "border-[var(--gc-node-border)] text-[var(--gc-node-muted)]"}`}>{seconds} 秒</button>)}
+
+        <div role="group" aria-label="视频分辨率" className="grid grid-cols-3 gap-1">
+          {SEEDANCE_RESOLUTIONS.map((resolution) => (
+            <Button
+              key={resolution}
+              type="button"
+              variant="outline"
+              size="xs"
+              disabled={resolution === "1080p" && !capability.supports1080p}
+              aria-pressed={data.resolution === resolution}
+              onClick={() => updateSettings({ resolution })}
+              className={`nodrag rounded-md border-[var(--gc-node-border)] text-[9px] ${data.resolution === resolution ? "border-[var(--gc-node-accent)] bg-[var(--gc-node-accent)] text-[var(--gc-primary-foreground)] hover:bg-[var(--gc-node-accent)]/80" : "bg-[var(--gc-node-inner)] text-[var(--gc-node-muted)]"}`}
+            >
+              {resolution}
+            </Button>
+          ))}
         </div>
-        <div className="grid grid-cols-2 gap-1">
-          {(["fast", "standard"] as const).map((quality) => <button key={quality} type="button" onClick={() => updateNodeData(id, { quality })} className={`nodrag rounded border py-1 text-[9px] ${data.quality === quality ? "border-[var(--gc-node-accent)] bg-[var(--gc-node-accent)] text-white" : "border-[var(--gc-node-border)] text-[var(--gc-node-muted)]"}`}>{quality === "fast" ? "快速" : "质量优先"}</button>)}
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex items-center justify-between rounded-md border border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-2 py-1.5">
+            <label htmlFor={`video-audio-${id}`} className="text-[10px] text-[var(--gc-node-text)]">同步音频</label>
+            <Switch id={`video-audio-${id}`} checked={data.generateAudio} onCheckedChange={(checked) => updateNodeData(id, { generateAudio: checked })} className="nodrag" />
+          </div>
+          <Select
+            value={data.outputFormat}
+            disabled={!capability.supportsMov}
+            onValueChange={(value) => updateSettings({ outputFormat: value as SeedanceOutputFormat })}
+          >
+            <SelectTrigger size="sm" aria-label="视频输出格式" className="nodrag w-full border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] text-[10px] text-[var(--gc-node-text)]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start" className="border border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]">
+              <SelectItem value="mp4" className="min-h-8 text-xs">MP4</SelectItem>
+              <SelectItem value="mov" className="min-h-8 text-xs">MOV</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        {lockedFrames && <p className="text-[8px] text-amber-600">首尾帧通道固定 720p / 8 秒；两张参考图按连线角色排序。</p>}
-        <p className="text-[8px] leading-snug text-amber-600">点击生成会调用 APIYI 视频接口并产生对应费用；模板打开和参数调整不会调用接口。</p>
+
+        {data.mode === "multimodal-reference" && (
+          <p className="text-[8px] leading-snug text-[var(--gc-node-muted)]">
+            上限：{capability.maxImages} 图 / {capability.maxVideos} 视频 / {capability.maxAudios} 音频
+          </p>
+        )}
+        <p className="text-[8px] leading-snug text-amber-600">
+          {data.seconds === -1 ? "智能时长按实际输出计费；" : ""}生成会调用 API易并产生对应费用。
+        </p>
         <RunButton status={data.status} onClick={() => void runNode(id)} label="生成视频" />
         {isNodeRunActive(data.status) && <Developing />}
         {data.outputImages.map((video) => <video key={video} src={video} controls preload="metadata" className="nodrag max-h-44 w-full rounded-md bg-black" />)}
       </NodeFrame>
-      <Handle id="video" type="source" position={Position.Right} title="生成视频" />
+      <Handle id="video" type="source" position={Position.Right} title="视频输出" />
     </>
   );
 }

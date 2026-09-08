@@ -20,6 +20,7 @@ import { thumbnailImageUrl } from "@/lib/images";
 import { maskRedrawReadiness } from "@/lib/maskRedraw";
 import { saveMaskDraft } from "@/lib/maskUpload";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
+import { Switch } from "@/components/ui/switch";
 
 export function MaskRedrawNode({ id, data, selected }: NodeProps<Node<MaskRedrawNodeData>>) {
   const [editing, setEditing] = useState(false);
@@ -29,7 +30,10 @@ export function MaskRedrawNode({ id, data, selected }: NodeProps<Node<MaskRedraw
   const runNode = useFlowStore((state) => state.runNode);
   const readOnly = useFlowStore(selectActiveReadOnly);
   const source = useFlowStore((state) => selectActiveNodeInputImages(state, id)[0]);
+  const inputCount = useFlowStore((state) => selectActiveNodeInputImages(state, id).length);
   const running = isNodeRunActive(data.status);
+  const bypassed = data.executionMode === "bypass";
+  const optionalRepair = data.repairFocus !== "custom";
   const readiness = maskRedrawReadiness({
     source,
     mask: data.mask,
@@ -49,6 +53,7 @@ export function MaskRedrawNode({ id, data, selected }: NodeProps<Node<MaskRedraw
   }, [editorVisible]);
 
   const run = () => {
+    if (bypassed) return;
     if (!readiness.canSubmit) {
       setPromptRequired(true);
       promptRef.current?.focus();
@@ -60,12 +65,49 @@ export function MaskRedrawNode({ id, data, selected }: NodeProps<Node<MaskRedraw
 
   return (
     <>
-      <Handle id="references" type="target" position={Position.Left} title="待重绘图片" />
+      <Handle id="repair-source" type="target" position={Position.Left} title="待修改底图" style={{ top: 86 }} />
+      <Handle id="references" type="target" position={Position.Left} title="细节参考图" style={{ top: 142 }} />
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
+        {optionalRepair && (
+          <div className="flex items-center justify-between rounded-md border border-[var(--gc-border)] bg-[var(--gc-control)] px-2.5 py-2">
+            <div>
+              <p className="text-[10px] font-medium text-[var(--gc-text)]">参与精修</p>
+              <p className="text-[9px] text-[var(--gc-text-muted)]">关闭时零付费透传</p>
+            </div>
+            <Switch
+              checked={!bypassed}
+              disabled={running || readOnly}
+              aria-label={`${data.label}参与精修`}
+              onCheckedChange={(checked) => {
+                if (!checked) setEditing(false);
+                const target = selectActiveDocumentTarget(useFlowStore.getState());
+                updateNodeDataInTab(target, id, checked
+                  ? { executionMode: "repair", status: "idle", error: undefined }
+                  : {
+                      executionMode: "bypass",
+                      status: "idle",
+                      error: undefined,
+                      mask: undefined,
+                      maskSourceRef: undefined,
+                      outputImages: [],
+                    });
+              }}
+            />
+          </div>
+        )}
         <div className="flex items-center justify-between text-[10px]">
           <span className="text-neutral-500">图片模型</span>
           <span className="font-mono text-neutral-300">gpt-image-2</span>
         </div>
+        {data.repairFocus === "accessories" && (
+          <p className="text-[9px] text-[var(--gc-text-muted)]">已选细节参考 {Math.max(0, inputCount - 1)}/6</p>
+        )}
+        {bypassed ? (
+          <div className="rounded-md border border-dashed border-[var(--gc-border)] bg-[var(--gc-control)] px-3 py-4 text-center text-[10px] leading-4 text-[var(--gc-text-muted)]">
+            当前步骤已跳过，下游直接使用上一张有效图片。
+          </div>
+        ) : (
+          <>
         <p className="rounded-md border border-[#2b2b2b] bg-[#111] px-2.5 py-2 text-[9px] leading-4 text-neutral-500">
           涂抹需要修改的大致区域，再描述要添加、替换或调整的内容。涂抹区不是裁切框，新内容会结合整幅服装自动延展并融合。
         </p>
@@ -120,6 +162,8 @@ export function MaskRedrawNode({ id, data, selected }: NodeProps<Node<MaskRedraw
         />
         {running && <Developing />}
         <ImageGrid images={data.outputImages} />
+          </>
+        )}
       </NodeFrame>
       <Handle id="image" type="source" position={Position.Right} title="生成图片" />
       {editing && source && (

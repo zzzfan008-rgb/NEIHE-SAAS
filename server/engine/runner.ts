@@ -29,6 +29,7 @@ import {
   upscaleImageToLongEdge,
 } from "../lib/imagePostProcessing";
 import { buildRecolorPrompt } from "../../src/lib/colors";
+import { imagesForSourceHandle } from "../../src/lib/workflowPorts";
 import {
   DEFAULT_GENERATION_MODEL_ID,
   MASK_REDRAW_MODEL_ID,
@@ -50,7 +51,22 @@ import {
   analyzeSceneReference,
   type SceneAnalyzer,
 } from "../lib/sceneAnalysis";
-import { generateApiYiVideo, type ApiYiVideoTask } from "../providers/apiyiVideo";
+import { createIdentityAnchor, type IdentityAnchorer } from "../lib/identityAnchor";
+import { enhanceTryOnPrompt } from "../lib/promptEnhancement";
+import {
+  selectBestTryOnCandidate,
+  type TryOnCandidateSelection,
+  type TryOnCandidateSelector,
+} from "../lib/tryOnCandidateSelection";
+import { resolveTryOnStyle } from "../lib/tryOnStyle";
+import { tryOnCandidateCount, type TryOnQualityMode } from "../../src/lib/tryOnStylePresets";
+import { isSeedanceVideoModel } from "../../src/lib/seedance";
+import {
+  generateApiYiVideo,
+  type ApiYiVideoReference,
+  type ApiYiVideoReferenceRole,
+  type ApiYiVideoTask,
+} from "../providers/apiyiVideo";
 
 export interface RunFailure {
   prompt?: string;
@@ -67,6 +83,7 @@ interface RunEventMeta {
   /** 上游声明的逐图实际输出尺寸；顺序与 images 一致。 */
   providerOutputSizes?: Array<string | null>;
   failures?: RunFailure[];
+  executionMeta?: Record<string, unknown>;
   startedAt?: number;
   finishedAt?: number;
 }
@@ -101,6 +118,8 @@ export interface StepResult {
   providerOutputSizes?: Array<string | null>;
   failures?: RunFailure[];
   providerRequests: number;
+  candidateSelection?: TryOnCandidateSelection;
+  executionMeta?: Record<string, unknown>;
 }
 
 const DEFAULT_PROMPTS: Partial<Record<NodeExecution["kind"], string>> = {
@@ -133,6 +152,16 @@ const GEMINI_AUTO_ASPECT_RATIOS = [
 
 const VIRTUAL_TRY_ON_NUMBERED_REFERENCE_PATTERN = /(?:参考)?图\s*[一二三四五六七八九十百\d]+/u;
 
+function preservedEnhancedTryOnRequirements(original: string, enhanced: string): string {
+  if (VIRTUAL_TRY_ON_NUMBERED_REFERENCE_PATTERN.test(enhanced)) {
+    throw new ProviderError("提示词增强结果不能重新定义参考图编号", 502, "prompt-enhancer", "invalid_response");
+  }
+  return [
+    original.trim() ? `用户原始要求（必须逐项保留）：${original.trim()}` : "",
+    `结构化增强要求：${enhanced.trim()}`,
+  ].filter(Boolean).join("。\n");
+}
+
 function virtualTryOnPrompt(referenceCount: number, extra: string): string {
   if (VIRTUAL_TRY_ON_NUMBERED_REFERENCE_PATTERN.test(extra)) {
     throw new Error("换装补充要求不能重新定义图1、图2等参考图编号；请只描述最终穿搭效果");
@@ -156,6 +185,10 @@ function stagedVirtualTryOnPrompt(
     .filter(Boolean);
   const one = (role: string) => `参考图${indexes(role)[0]}`;
   const many = (role: string) => indexes(role).map((index) => `参考图${index}`).join("、");
+  const stylePrompt = String(params.resolvedStylePrompt ?? "").trim();
+  const styleReference = indexes("style").length
+    ? `${one("style")}只控制光线方向、镜头、色调与媒介质感，不得复制其中的人物、服装、商品、文字或场景物体。`
+    : "";
 
   if (stage === "scene-stabilize") {
     const accessoryDescriptions = [
@@ -172,7 +205,11 @@ function stagedVirtualTryOnPrompt(
     const detail = indexes("detail").length
       ? `${many("detail")}仅低权重补充主穿搭图中可见的大型服装结构；不得改变主穿搭的整体搭配、颜色与风格，图内人物、背景、配饰及无关服装全部删除、忽略。`
       : "";
-    return `建立第一轮人物场景基准。${one("face-anchor")}是从人物身份图右下角提取的脸部锚点，是脸部恢复唯一正确来源，最高优先级锁定五官结构、脸型和可识别身份；发生任何脸部冲突时只服从该锚点。${one("person")}是完整人物身份图，是人物一致性的唯一来源，只控制同一人物的肤色、发型、体型和身体特征；其中原服装及非身份物体全部忽略，不得进入结果。${one("outfit")}是服装与搭配风格的唯一来源，只控制服装整体版型、上下装比例、层叠、穿着方式、颜色与风格；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度属于必须还原的结构，不得替换为近似设计；图内人物身份、背景及非服装物体全部删除、忽略。原始场景图没有发送给生图模型；以下内容是外部视觉模型过滤后的纯场景描述，只控制背景、光线、镜头、构图、人物位置、身体姿态、手部姿态、神态与视线，不具有身份、服装或物体外观控制权：${sceneDescription ?? "场景分析不可用"}。${accessory}${detail}冲突优先级为“脸部锚点 > 完整人物身份 > 场景文字 > 主穿搭 > 对应类别配饰与局部结构”。本轮保证人物身份、动作神态、肢体、场景构图、服装大轮廓及已提供目标物稳定，不强求针目、蕾丝组织或缝线等微观细节。不得融合参考图中的无关人物、背景、陈列台、包装文字、水印、标记框或错误肢体；目标商品本体上已有的金属装饰图案与五金保持来源外观，禁止虚构或改写。输出一张完整写实的第一轮基准图${extra ? `。补充要求：${extra}` : ""}`;
+    const identityReferences = indexes("person");
+    const optionalIdentity = identityReferences.length > 1
+      ? `${identityReferences.slice(1).map((index) => `参考图${index}`).join("、")}仅补充同一人物在不同角度下的五官、发型和肤色，不得引入第二个人物身份。`
+      : "";
+    return `建立第一轮人物场景基准。${one("face-anchor")}是由视觉定位后从主要人物脸部裁切的身份锚点，是脸部恢复最高优先级来源，锁定五官结构、脸型和可识别身份。${one("person")}是主要完整人物身份图，只控制同一人物的肤色、发型、体型和身体特征；其中原服装及非身份物体全部忽略，不得进入结果。${optionalIdentity}${one("outfit")}是服装与搭配风格的唯一来源，只控制服装整体版型、上下装比例、层叠、穿着方式、颜色与风格；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度属于必须还原的结构，不得替换为近似设计；图内人物身份、背景及非服装物体全部删除、忽略。原始场景图没有发送给生图模型；以下内容是外部视觉模型过滤后的纯场景描述，只控制背景、光线、镜头、构图、人物位置、身体姿态、手部姿态、神态与视线，不具有身份、服装或物体外观控制权：${sceneDescription ?? "场景分析不可用"}。${accessory}${detail}${styleReference}${stylePrompt ? `风格要求：${stylePrompt}。` : ""}冲突优先级为“脸部锚点 > 主要人物身份 > 同一人物补充身份图 > 场景文字 > 主穿搭 > 对应类别配饰与局部结构 > 风格参考”。本轮保证人物身份、动作神态、肢体、场景构图、服装大轮廓及已提供目标物稳定，不强求针目、蕾丝组织或缝线等微观细节。不得融合参考图中的无关人物、背景、陈列台、包装文字、水印、标记框或错误肢体；目标商品本体上已有的金属装饰图案与五金保持来源外观，禁止虚构或改写。输出一张完整写实的第一轮基准图${extra ? `。补充要求：${extra}` : ""}`;
   }
 
   const category = params.garmentCategory === "knit" ? "针织"
@@ -185,7 +222,7 @@ function stagedVirtualTryOnPrompt(
   const details = indexes("detail").length
     ? `${many("detail")}是局部结构参考，只能修正对应领口、门襟、袖型、腰头、褶裥、口袋或五金，不得改变整体廓形。`
     : "没有局部结构参考。";
-  return `完成第二轮服装精修。以${one("baseline")}作为底图做局部服装精修，不得裁剪、缩放、扩图、重新取景或重新生成整个人物。该图是用户已经确认的唯一人物与场景基准，绝对锁定人物身份、五官、肤色、发型、体型、动作、神态、身体姿势、手脚、目标配饰、人物位置、背景、光线、镜头和构图；面部、头发、裸露皮肤、手脚、包袋、鞋履、首饰及其已有金属装饰图案与五金保持不变，不得重画、替换或漂移。${one("outfit")}是主穿搭参考，控制服装整体廓形、领型、袖型、衣长、腰线、松量、层次与搭配；图中清晰可见的腰头、腰袢、系带、褶裥、裤线和裤腿宽度优先于通用设计常识，不得简化为近似扣带或其它结构。服装品类：${category}。材料规格：${material}。结构工艺：${construction}。${materialReference}${details}冲突时严格遵循“已确认人物与场景基准 > 主穿搭整体版型 > 用户文字材料与工艺规格 > 材料参考图 > 对应局部结构参考图”。只允许修改服装覆盖区域，以及服装与身体接触所必需的自然褶皱、遮挡和阴影。准确还原面料纹理、针织或织造结构、缝线、辅料、垂感与厚薄，不得改变已确认的人物、配饰和场景。不要生成参考图中不存在的文字、装饰图案、水印、标记框、错误手指或畸形肢体；目标商品上已经存在的金属装饰图案与五金必须保持原有位置、比例和外观。输出一张完整写实的最终精修图片${extra ? `。补充要求：${extra}` : ""}`;
+  return `完成第二轮服装精修。以${one("baseline")}作为底图做局部服装精修，不得裁剪、缩放、扩图、重新取景或重新生成整个人物。该图是用户已经确认的唯一人物与场景基准，绝对锁定人物身份、五官、肤色、发型、体型、动作、神态、身体姿势、手脚、目标配饰、人物位置、背景、光线、镜头和构图；面部、头发、裸露皮肤、手脚、包袋、鞋履、首饰及其已有金属装饰图案与五金保持不变，不得重画、替换或漂移。${one("outfit")}是主穿搭参考，控制服装整体廓形、领型、袖型、衣长、腰线、松量、层次与搭配；图中清晰可见的腰头、腰袢、系带、褶裥、裤线和裤腿宽度优先于通用设计常识，不得简化为近似扣带或其它结构。服装品类：${category}。材料规格：${material}。结构工艺：${construction}。${materialReference}${details}${stylePrompt ? `延续已确认基准中的${stylePrompt}，不得借此重画场景。` : ""}冲突时严格遵循“已确认人物与场景基准 > 主穿搭整体版型 > 用户文字材料与工艺规格 > 材料参考图 > 对应局部结构参考图”。只允许修改服装覆盖区域，以及服装与身体接触所必需的自然褶皱、遮挡和阴影。准确还原面料纹理、针织或织造结构、缝线、辅料、垂感与厚薄，不得改变已确认的人物、配饰和场景。不要生成参考图中不存在的文字、装饰图案、水印、标记框、错误手指或畸形肢体；目标商品上已经存在的金属装饰图案与五金必须保持原有位置、比例和外观。输出一张完整写实的最终精修图片${extra ? `。补充要求：${extra}` : ""}`;
 }
 
 const SCENE_STABILIZE_REFERENCE_ORDER = [
@@ -200,36 +237,19 @@ interface SceneStabilizePreparation {
   providerRequests: number;
 }
 
-async function createBottomRightFaceAnchor(personReference: string): Promise<string> {
-  const normalized = await sharp(parseDataUrl(personReference).buffer, {
-    animated: false,
-    failOn: "error",
-    limitInputPixels: 40_000_000,
-  }).rotate().png().toBuffer({ resolveWithObject: true });
-  const width = normalized.info.width;
-  const height = normalized.info.height;
-  const left = Math.floor(width / 2);
-  const top = Math.floor(height / 2);
-  const buffer = await sharp(normalized.data).extract({
-    left,
-    top,
-    width: width - left,
-    height: height - top,
-  }).png().toBuffer();
-  return toDataUrl(buffer.toString("base64"), "image/png");
-}
-
 async function prepareSceneStabilizeReferences(
   referenceImages: string[],
   referenceRoles: string[],
   analyzer: SceneAnalyzer,
+  identityAnchorer: IdentityAnchorer,
   beforeProviderCall?: ExecuteStepOptions["beforeProviderCall"],
 ): Promise<SceneStabilizePreparation> {
   const imageFor = (role: string) => referenceImages[referenceRoles.indexOf(role)];
   const sceneReference = imageFor("scene");
   const personReference = imageFor("person");
   const analysis = await analyzer(sceneReference, { beforeProviderCall });
-  const images = [await createBottomRightFaceAnchor(personReference)];
+  const anchor = await identityAnchorer(personReference, { beforeProviderCall });
+  const images = [anchor.image];
   const roles = ["face-anchor"];
   for (const role of SCENE_STABILIZE_REFERENCE_ORDER) {
     for (const [index, candidate] of referenceRoles.entries()) {
@@ -243,7 +263,7 @@ async function prepareSceneStabilizeReferences(
     referenceRoles: roles,
     sceneDescription: analysis.prompt,
     aspectReference: sceneReference,
-    providerRequests: analysis.providerRequests,
+    providerRequests: analysis.providerRequests + anchor.providerRequests,
   };
 }
 
@@ -313,15 +333,33 @@ async function virtualTryOnModelOptions(
     : { aspectRatio: useRequestedRatio ? requested : nearestAspectRatio(width, height), imageSize };
 }
 
-function maskReferenceRolePrompt(userReferenceCount: number): string {
+function maskReferenceRolePrompt(userReferenceCount: number, labels: string[] = []): string {
   const guideIndex = userReferenceCount + 1;
   if (userReferenceCount <= 1) {
     return "参考图1是完整原图；最后一张参考图（参考图2）是区域引导图";
   }
-  const userReferences = userReferenceCount === 2
-    ? "参考图2是用户提供的目标内容参考图"
-    : `参考图2至参考图${userReferenceCount}是用户提供的目标内容参考图`;
+  const namedReferences = labels.slice(1, userReferenceCount).map((label, index) => (
+    `参考图${index + 2}（${label.slice(0, 80)}）`
+  ));
+  const userReferences = namedReferences.length > 0
+    ? `${namedReferences.join("、")}是用户选择的对应细节参考图`
+    : userReferenceCount === 2
+      ? "参考图2是用户提供的目标内容参考图"
+      : `参考图2至参考图${userReferenceCount}是用户提供的目标内容参考图`;
   return `参考图1是完整原图；${userReferences}，用户提示词中的图号始终对应这些用户参考图；最后一张参考图（参考图${guideIndex}）才是区域引导图`;
+}
+
+const MASK_REPAIR_FOCUS_PROMPTS: Record<string, string> = {
+  "upper-garment": "仅修复蒙版覆盖的上衣款型与制作细节：准确恢复领口、领型、肩线、袖窿、袖型、袖口、门襟、闭合结构、衣长、下摆、内外层关系、面料纹理和受力褶皱。锁定人物身份、脸部、发型、肤色、体型、姿势、手脚、裤装、鞋包配饰、背景、构图、镜头和光线，不得重画或漂移。",
+  pants: "仅修复蒙版覆盖的裤装款型与制作细节：准确恢复腰头、腰线、腰袢、门襟、口袋、褶裥、裤线、裆部结构、裤腿宽度、长度、垂坠、面料纹理和受力褶皱。锁定人物身份、脸部、发型、肤色、体型、姿势、手脚、上衣、鞋包配饰、背景、构图、镜头和光线，不得重画或漂移。",
+  accessories: "仅修复蒙版覆盖的人物配饰，可依据所选参考图还原包袋、鞋履、帽子、眼镜、腰带、项链、围巾、戒指、耳环、手镯和手表。只提取参考图中的目标配饰本体，忽略其中的人物、皮肤、服装、背景、陈列台、包装、文字和水印；保持人物身份、身体结构、服装款型、姿势、场景、构图、镜头和光线不变，并重建符合人体接触关系的尺度、透视、遮挡、压痕、反射和阴影。",
+  "logo-text": "仅修复蒙版覆盖且在目标商品参考中真实存在的 Logo、文字、五金或微小结构，保持原有位置、比例、字形、材质和透视；禁止新增、猜测、改写或复制无关文字、商标和水印。锁定人物、服装其它区域、配饰、背景、构图、镜头和光线。",
+};
+
+function focusedMaskRepairPrompt(focus: unknown, userPrompt: string): string {
+  const fixed = typeof focus === "string" ? MASK_REPAIR_FOCUS_PROMPTS[focus] : undefined;
+  if (!fixed) return userPrompt;
+  return `${fixed}${userPrompt ? `用户补充要求（不得覆盖上述锁定规则）：${userPrompt}` : ""}`;
 }
 
 function stagedVirtualTryOnRuntimeError(
@@ -341,8 +379,9 @@ function stagedVirtualTryOnRuntimeError(
     const allowedRoles = new Set(["person", "scene", "outfit", ...SCENE_STABILIZE_REFERENCE_ORDER.slice(2), "detail"]);
     const unsupportedRole = referenceRoles.find((role) => !allowedRoles.has(role));
     if (unsupportedRole !== undefined) return `第一轮不支持输入角色：${unsupportedRole || "未命名"}`;
-    const requiredError = requireOne("person", "人物身份图")
-      ?? requireOne("scene", "场景/表演参考图")
+    const personCount = imagesFor("person").length;
+    if (personCount < 1 || personCount > 3) return "人物身份图必须提供 1 至 3 张";
+    const requiredError = requireOne("scene", "场景/表演参考图")
       ?? requireOne("outfit", "主穿搭图");
     if (requiredError) return requiredError;
     for (const [role, label] of [
@@ -486,10 +525,13 @@ async function executeRun(run: Run): Promise<void> {
 
   for (const step of run.plan.steps) {
     // 运行时解析真实输入：优先本次 Run 上游产出，范围外上游回退到计划期快照
-    const resolvedUpstreams = (step.upstream ?? []).map((upstream) => ({
-      upstream,
-      images: outputs.get(upstream.nodeId) ?? upstream.images,
-    }));
+    const resolvedUpstreams = (step.upstream ?? []).map((upstream) => {
+      const runtimeImages = outputs.get(upstream.nodeId);
+      return {
+        upstream,
+        images: runtimeImages ? imagesForSourceHandle(runtimeImages, upstream.sourceHandle) : upstream.images,
+      };
+    });
     const inputImages = resolvedUpstreams.flatMap(({ images }) => images);
     const referenceRoles = resolvedUpstreams.flatMap(({ upstream, images }) =>
       images.map(() => upstream.targetHandle ?? ""),
@@ -499,6 +541,8 @@ async function executeRun(run: Run): Promise<void> {
       ? MAX_MASK_USER_REFERENCE_IMAGES
       : step.kind === "virtual-try-on"
         ? MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES
+        : step.kind === "video-generate"
+          ? 50
         : MAX_REFERENCE_IMAGES;
     if (NODE_SPECS[step.kind].providerId && inputImages.length > runtimeInputLimit) {
       const message = `Node ${step.nodeId} accepts at most ${runtimeInputLimit}${step.kind === "mask-redraw" ? " user" : ""} reference images`;
@@ -507,8 +551,10 @@ async function executeRun(run: Run): Promise<void> {
     }
 
     // 运行时最终门禁：即使静态计划中的上游节点实际未产图，也绝不退化成无参考图付费生成。
-    if (NODE_SPECS[step.kind].providerId && step.kind !== "sketch-to-render" && inputImages.length === 0) {
-      const message = `Node ${step.nodeId} requires an upstream image`;
+    const permitsNoMedia = step.kind === "sketch-to-render"
+      || (step.kind === "video-generate" && step.params.mode === "text-to-video");
+    if (NODE_SPECS[step.kind].providerId && !permitsNoMedia && inputImages.length === 0) {
+      const message = `Node ${step.nodeId} requires upstream media`;
       await failRun(message, step.nodeId);
       return;
     }
@@ -534,15 +580,33 @@ async function executeRun(run: Run): Promise<void> {
       if (run.recordContext) {
         await registerGeneratedFiles(run.recordContext, run.id, step.nodeId, persisted, Date.now());
       }
-      outputs.set(step.nodeId, persisted);
+      const selectedIndex = result.candidateSelection?.selectedIndex;
+      const hasSelectedCandidate = typeof selectedIndex === "number";
+      const visibleImages = selectedIndex === undefined
+        ? persisted
+        : !hasSelectedCandidate || !persisted[selectedIndex]
+          ? []
+          : [persisted[selectedIndex]];
+      if (result.candidateSelection && visibleImages.length !== 1) {
+        throw new Error("候选择优结果与持久化图片不一致");
+      }
+      const visiblePrompts = selectedIndex === undefined
+        ? result.prompts
+        : hasSelectedCandidate && result.prompts?.[selectedIndex] ? [result.prompts[selectedIndex]] : undefined;
+      const visibleOutputSizes = selectedIndex === undefined
+        ? result.providerOutputSizes
+        : hasSelectedCandidate && result.providerOutputSizes?.[selectedIndex] !== undefined
+          ? [result.providerOutputSizes[selectedIndex]]
+          : undefined;
+      outputs.set(step.nodeId, visibleImages);
       const finishedAt = Date.now();
       providerRequests += result.providerRequests;
       if (result.model) model = result.model;
       if (run.recordContext?.nodeId === step.nodeId) {
         recordResult = {
-          images: persisted,
-          prompts: result.prompts,
-          providerOutputSizes: result.providerOutputSizes,
+          images: visibleImages,
+          prompts: visiblePrompts,
+          providerOutputSizes: visibleOutputSizes,
           failures: result.failures,
         };
       }
@@ -553,12 +617,13 @@ async function executeRun(run: Run): Promise<void> {
         type: "node-status",
         nodeId: step.nodeId,
         status: "success",
-        images: persisted,
+        images: visibleImages,
         error: partialWarning,
         model: result.model,
-        prompts: result.prompts,
-        providerOutputSizes: result.providerOutputSizes,
+        prompts: visiblePrompts,
+        providerOutputSizes: visibleOutputSizes,
         failures: result.failures,
+        executionMeta: result.executionMeta,
         startedAt,
         finishedAt,
       });
@@ -619,28 +684,71 @@ export interface ExecuteStepOptions {
   beforeProviderCall?: (providerRequest: number) => void | Promise<void>;
   referenceRoles?: string[];
   sceneAnalyzer?: SceneAnalyzer;
+  identityAnchorer?: IdentityAnchorer;
+  promptEnhancer?: typeof enhanceTryOnPrompt;
+  candidateSelector?: TryOnCandidateSelector;
   videoTask?: ApiYiVideoTask;
   videoIdempotencyKey?: string;
   onVideoTaskAccepted?: (task: ApiYiVideoTask) => void | Promise<void>;
+}
+
+async function generateIndependentTryOnCandidates(
+  provider: AIProvider,
+  request: Parameters<typeof generateExactImages>[1],
+  count: number,
+  options: Parameters<typeof generateExactImages>[3],
+): Promise<Awaited<ReturnType<typeof generateExactImages>>> {
+  const settled = await Promise.allSettled(Array.from({ length: count }, () => (
+    generateExactImages(provider, { ...request, batchSize: 1 }, 1, options)
+  )));
+  const successful = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  if (successful.length === 0) {
+    const firstFailure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    throw firstFailure?.reason instanceof Error ? firstFailure.reason : new Error("候选图片全部生成失败");
+  }
+  return {
+    images: successful.flatMap((result) => result.images),
+    model: successful.at(-1)?.model ?? provider.id,
+    providerRequests: successful.reduce((sum, result) => sum + result.providerRequests, 0),
+    providerOutputSizes: successful.flatMap((result) => result.providerOutputSizes ?? result.images.map(() => null)),
+    failures: [
+      ...successful.flatMap((result) => result.failures),
+      ...settled.flatMap((result) => result.status === "rejected" ? [publicProviderErrorMessage(result.reason)] : []),
+    ],
+  };
 }
 
 function orderedVideoReferences(
   mode: unknown,
   inputImages: string[],
   referenceRoles: string[],
-): string[] {
-  if (mode !== "keyframes-to-video" && mode !== "multi-image-video") return inputImages;
+): ApiYiVideoReference[] {
+  if (inputImages.length === 0) return [];
   if (referenceRoles.length !== inputImages.length) {
-    throw new ProviderError("视频参考帧角色信息不完整", 400, "apiyi-video", "invalid_request");
+    throw new ProviderError("视频参考素材角色信息不完整", 400, "apiyi-video", "invalid_request");
   }
-  const references = ["first-frame", "last-frame"].map((role) => {
+  const one = (role: ApiYiVideoReferenceRole): ApiYiVideoReference => {
     const matches = inputImages.filter((_, index) => referenceRoles[index] === role);
     if (matches.length !== 1) {
-      throw new ProviderError("首帧和尾帧必须各提供 1 张图片", 400, "apiyi-video", "invalid_request");
+      throw new ProviderError(`视频输入 ${role} 必须且只能连接 1 个来源`, 400, "apiyi-video", "invalid_request");
     }
-    return matches[0];
-  });
-  return references;
+    return { role, url: matches[0] };
+  };
+  if (mode === "first-frame-to-video") return [one("first-frame")];
+  if (mode === "keyframes-to-video") return [one("first-frame"), one("last-frame")];
+  if (mode === "video-edit" || mode === "video-extend") return [one("source-video")];
+  if (mode === "multimodal-reference") {
+    const allowed = new Set<ApiYiVideoReferenceRole>(["reference-image", "reference-video", "reference-audio"]);
+    return inputImages.map((url, index) => {
+      const role = referenceRoles[index] as ApiYiVideoReferenceRole;
+      if (!allowed.has(role)) {
+        throw new ProviderError(`多模态视频输入角色无效：${referenceRoles[index] || "未指定"}`, 400, "apiyi-video", "invalid_request");
+      }
+      return { role, url };
+    });
+  }
+  if (mode === "text-to-video") return [];
+  throw new ProviderError("视频生成模式无效", 400, "apiyi-video", "invalid_request");
 }
 
 export async function executeStep(
@@ -660,6 +768,10 @@ export async function executeStep(
     case "video-input": {
       const videoUrl = step.params.videoUrl as string | undefined;
       return { images: videoUrl ? [videoUrl] : [], providerRequests: 0 };
+    }
+    case "audio-input": {
+      const audioUrl = step.params.audioUrl as string | undefined;
+      return { images: audioUrl ? [audioUrl] : [], providerRequests: 0 };
     }
     case "text-input":
     case "color-palette":
@@ -682,20 +794,41 @@ export async function executeStep(
         inputImages,
         options.referenceRoles ?? [],
       );
+      if (!isSeedanceVideoModel(step.params.videoModel)) {
+        throw new ProviderError("视频节点模型无效", 400, "apiyi-video", "invalid_request");
+      }
       const result = await generateApiYiVideo({
         mode: step.params.mode as never,
+        model: step.params.videoModel,
         prompt: String(step.params.prompt ?? ""),
-        quality: step.params.quality === "standard" ? "standard" : "fast",
-        aspectRatio: step.params.aspectRatio === "9:16" ? "9:16" : "16:9",
-        resolution: step.params.resolution === "1080p" || step.params.resolution === "4k" ? step.params.resolution : "720p",
-        seconds: step.params.seconds === 4 || step.params.seconds === 6 ? step.params.seconds : 8,
+        aspectRatio: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"].includes(String(step.params.aspectRatio))
+          ? step.params.aspectRatio as never : "16:9",
+        resolution: step.params.resolution === "480p" || step.params.resolution === "1080p"
+          ? step.params.resolution : "720p",
+        seconds: Number.isSafeInteger(step.params.seconds) ? Number(step.params.seconds) : 5,
+        generateAudio: step.params.generateAudio !== false,
+        outputFormat: step.params.outputFormat === "mov" ? "mov" : "mp4",
         references,
         idempotencyKey: options.videoIdempotencyKey,
         resumeTask: options.videoTask,
         beforeProviderCall: options.beforeProviderCall,
         onTaskAccepted: options.onVideoTaskAccepted,
       });
-      return { images: [result.video], model: result.model, providerRequests: result.providerRequests, prompts: [String(step.params.prompt ?? "")] };
+      return {
+        images: [result.video],
+        model: result.model,
+        providerRequests: result.providerRequests,
+        prompts: [String(step.params.prompt ?? "")],
+        executionMeta: {
+          seedanceTaskId: result.taskId,
+          completionTokens: result.usage.completionTokens,
+          totalTokens: result.usage.totalTokens,
+          actualDuration: result.usage.duration,
+          actualResolution: result.usage.resolution,
+          actualRatio: result.usage.ratio,
+          seed: result.usage.seed,
+        },
+      };
     }
     case "sketch-to-render":
     case "ai-modify":
@@ -726,6 +859,11 @@ export async function executeStep(
       let sceneDescription: string | undefined;
       let virtualTryOnAspectReference = referenceImages[0];
       let preliminaryProviderRequests = 0;
+      let providerCallOrdinal = 0;
+      const beforeTryOnProviderCall = async () => {
+        providerCallOrdinal += 1;
+        await options.beforeProviderCall?.(providerCallOrdinal);
+      };
 
       const stagedError = stagedVirtualTryOnRuntimeError(step, inputImages, referenceRoles);
       if (stagedError) throw new Error(stagedError);
@@ -751,7 +889,8 @@ export async function executeStep(
           referenceImages,
           referenceRoles,
           options.sceneAnalyzer ?? analyzeSceneReference,
-          options.beforeProviderCall,
+          options.identityAnchorer ?? createIdentityAnchor,
+          beforeTryOnProviderCall,
         );
         referenceImages = prepared.referenceImages;
         referenceRoles = prepared.referenceRoles;
@@ -853,8 +992,55 @@ export async function executeStep(
       }
 
       const maskReferenceRoles = step.kind === "mask-redraw"
-        ? maskReferenceRolePrompt(referenceImages.length)
+        ? maskReferenceRolePrompt(
+            referenceImages.length,
+            Array.isArray(step.params.referenceLabels)
+              ? step.params.referenceLabels.filter((value): value is string => typeof value === "string")
+              : [],
+          )
         : undefined;
+      const isStagedTryOn = step.kind === "virtual-try-on" && (
+        step.params.workflowStage === "scene-stabilize" || step.params.workflowStage === "garment-refine"
+      );
+      const style = isStagedTryOn ? await resolveTryOnStyle(step.params) : undefined;
+      if (style?.referenceImage && step.params.workflowStage === "scene-stabilize") {
+        referenceImages.push(style.referenceImage);
+        referenceRoles.push("style");
+      }
+      if (referenceImages.length > maxReferences) {
+        throw new Error(`Node ${step.nodeId} accepts at most ${maxReferences} reference images for ${modelId}`);
+      }
+      let enhancedExtra = extra;
+      let safeExtra = extra;
+      let promptEnhancementMeta: Record<string, unknown> | undefined;
+      if (isStagedTryOn && step.params.promptEnhancement === true && (
+        extra || String(step.params.materialSpec ?? "").trim() || String(step.params.constructionSpec ?? "").trim()
+      )) {
+        try {
+          const enhancement = await (options.promptEnhancer ?? enhanceTryOnPrompt)({
+            stage: step.params.workflowStage as "scene-stabilize" | "garment-refine",
+            prompt: extra || "保持系统定义的换装目标",
+            materialSpec: String(step.params.materialSpec ?? "").trim() || undefined,
+            constructionSpec: String(step.params.constructionSpec ?? "").trim() || undefined,
+            stylePrompt: style?.prompt,
+          }, { beforeProviderCall: beforeTryOnProviderCall });
+          enhancedExtra = preservedEnhancedTryOnRequirements(extra, enhancement.enhancedPrompt);
+          safeExtra = enhancement.safePrompt;
+          preliminaryProviderRequests += enhancement.providerRequests;
+          promptEnhancementMeta = {
+            enabled: true,
+            model: enhancement.model,
+            cacheHit: enhancement.cacheHit,
+          };
+        } catch (error) {
+          promptEnhancementMeta = {
+            enabled: true,
+            fallbackToOriginal: true,
+            error: publicProviderErrorMessage(error),
+          };
+        }
+      }
+      const promptParams = style ? { ...step.params, resolvedStylePrompt: style.prompt } : step.params;
       const prompt =
         step.kind === "upscale"
           ? "将这张服装效果图放大为超高清版本，增强面料纹理、走线与边缘细节，保持原有构图、色彩和光影完全不变"
@@ -868,13 +1054,13 @@ export async function executeStep(
                 ? stagedVirtualTryOnPrompt(
                     step.params.workflowStage,
                     referenceRoles,
-                    extra,
-                    step.params,
+                    enhancedExtra,
+                    promptParams,
                     sceneDescription,
                   )
                 : virtualTryOnPrompt(referenceImages.length, extra)
             : step.kind === "mask-redraw"
-              ? `目标修改：${extra}。${maskReferenceRoles}，其中红色表示用户涂抹的修改核心，红色已完全遮住旧内容，只用于表达位置；金色表示仅供完整轮廓延展和边缘融合的缓冲区；两者都是修改范围，不是裁切框。请根据用户说明在红色核心内添加、替换、删除或调整内容。凡用户要求替换、删除或改变既有对象时，必须先彻底清除与目标冲突的旧对象、旧包带、旧颜色、旧阴影、旧反光、旧纹理和残留边线，再依据周围连续的面料纹理、颜色、褶皱、缝线和光照完整重建被遮挡的底层服装或背景，然后放入新内容；禁止用模糊、暗斑、色块、漂浮投影或半透明残影遮盖清理区域。只有与新内容真实接触并符合整幅画面光源方向的阴影才可保留。不需要修改的服装结构、面料纹理和光影必须保持。结合整幅画面的构图、服装比例和视觉重量，新内容默认继承目标区域的中心位置与近似占位，除非用户明确要求，不得明显放大、缩小或偏移。只有完整轮廓、褶皱、缝线、阴影、反光和自然遮挡所必需的部分可以进入金色缓冲区，不得沿红色边缘截断，也不得覆盖缓冲区内的文字、独立图案、配饰或其他服装结构。交接处必须匹配原图的面料材质、纹理方向、褶皱、光影、透视、遮挡和清晰度，不得出现重影、透色、硬边或颜色污染。返回与整幅画面同尺寸、同坐标的 PNG 完整最终图片；修改范围以外的画面保持原状。`
+              ? `目标修改：${focusedMaskRepairPrompt(step.params.repairFocus, extra)}。${maskReferenceRoles}，其中红色表示用户涂抹的修改核心，红色已完全遮住旧内容，只用于表达位置；金色表示仅供完整轮廓延展和边缘融合的缓冲区；两者都是修改范围，不是裁切框。请根据用户说明在红色核心内添加、替换、删除或调整内容。凡用户要求替换、删除或改变既有对象时，必须先彻底清除与目标冲突的旧对象、旧包带、旧颜色、旧阴影、旧反光、旧纹理和残留边线，再依据周围连续的面料纹理、颜色、褶皱、缝线和光照完整重建被遮挡的底层服装或背景，然后放入新内容；禁止用模糊、暗斑、色块、漂浮投影或半透明残影遮盖清理区域。只有与新内容真实接触并符合整幅画面光源方向的阴影才可保留。不需要修改的服装结构、面料纹理和光影必须保持。结合整幅画面的构图、服装比例和视觉重量，新内容默认继承目标区域的中心位置与近似占位，除非用户明确要求，不得明显放大、缩小或偏移。只有完整轮廓、褶皱、缝线、阴影、反光和自然遮挡所必需的部分可以进入金色缓冲区，不得沿红色边缘截断，也不得覆盖缓冲区内的文字、独立图案、配饰或其他服装结构。交接处必须匹配原图的面料材质、纹理方向、褶皱、光影、透视、遮挡和清晰度，不得出现重影、透色、硬边或颜色污染。返回与整幅画面同尺寸、同坐标的 PNG 完整最终图片；修改范围以外的画面保持原状。`
               : extra || DEFAULT_PROMPTS[step.kind] || NODE_SPECS[step.kind].description;
       if (step.kind === "mask-redraw" && !extra) {
         throw new Error("局部修改必须填写修改说明");
@@ -909,23 +1095,58 @@ export async function executeStep(
         batchSize: step.params.batchSize as number | undefined,
         imageSize: step.kind === "upscale" ? normalizeUpscaleSize(step.params.imageSize) : undefined,
         modelOptions: preparedMask ? { ...resolvedModelOptions, size: preparedMask.size } : resolvedModelOptions,
-        mask: providerMask,
+        // API易's live gpt-image-2 gateway currently rejects the documented multipart mask field.
+        // The derived region guide still constrains generation, and final compositing below enforces
+        // the user's original alpha mask pixel-for-pixel outside the editable region.
+        mask: step.kind === "mask-redraw" ? undefined : providerMask,
       };
       const requestedCount = step.kind === "sketch-to-render" || step.kind === "ai-modify"
         ? Math.max(1, Math.min(8, Number(step.params.batchSize) || 1))
         : 1;
-      const result = await generateExactImages(
-        provider,
-        request,
-        requestedCount,
-        {
-          ...options,
-          nodeId: step.nodeId,
-          beforeProviderCall: async (providerRequest) => {
-            await options.beforeProviderCall?.(preliminaryProviderRequests + providerRequest);
-          },
-        },
-      );
+      let safetyFallbackUsed = false;
+      let usedPrompt = prompt;
+      const generationOptions = {
+        ...options,
+        nodeId: step.nodeId,
+        beforeProviderCall: isStagedTryOn
+          ? beforeTryOnProviderCall
+          : async (providerRequest: number) => {
+              await options.beforeProviderCall?.(preliminaryProviderRequests + providerRequest);
+            },
+      };
+      const candidateCount = isStagedTryOn
+        ? tryOnCandidateCount(
+            step.params.workflowStage as "scene-stabilize" | "garment-refine",
+            (["fast", "balanced", "best"].includes(String(step.params.qualityMode))
+              ? step.params.qualityMode
+              : "fast") as TryOnQualityMode,
+          )
+        : requestedCount;
+      let result: Awaited<ReturnType<typeof generateExactImages>>;
+      try {
+        result = isStagedTryOn
+          ? await generateIndependentTryOnCandidates(provider, request, candidateCount, generationOptions)
+          : await generateExactImages(provider, request, requestedCount, generationOptions);
+      } catch (error) {
+        if (!(isStagedTryOn && step.params.safetyFallback === true && error instanceof ProviderError && error.category === "content_refused")) {
+          throw error;
+        }
+        safetyFallbackUsed = true;
+        const safePrompt = stagedVirtualTryOnPrompt(
+          step.params.workflowStage as "scene-stabilize" | "garment-refine",
+          referenceRoles,
+          safeExtra,
+          promptParams,
+          sceneDescription,
+        );
+        usedPrompt = safePrompt;
+        result = await generateIndependentTryOnCandidates(
+          provider,
+          { ...request, prompt: safePrompt },
+          candidateCount,
+          generationOptions,
+        );
+      }
       const providerImages = step.kind === "mask-redraw"
         ? await Promise.all(result.images.map((image) => (
             compositeMaskedEdit(referenceImages[0], mask!, image)
@@ -935,13 +1156,54 @@ export async function executeStep(
       const providerOutputSizes = step.kind === "virtual-try-on"
         ? await Promise.all(providerImages.map(outputImageSize))
         : result.providerOutputSizes;
+      let candidateSelection: TryOnCandidateSelection | undefined;
+      let candidateSelectionWarning: string | undefined;
+      if (isStagedTryOn) {
+        try {
+          candidateSelection = await (options.candidateSelector ?? selectBestTryOnCandidate)({
+            stage: step.params.workflowStage as "scene-stabilize" | "garment-refine",
+            candidates: images,
+            referenceImages,
+            referenceRoles,
+            prompt: usedPrompt,
+            beforeProviderCall: beforeTryOnProviderCall,
+          });
+          preliminaryProviderRequests += candidateSelection.providerRequests;
+        } catch (error) {
+          candidateSelectionWarning = "候选自动评审不可用，已回退到第一张成功图片";
+          candidateSelection = {
+            selectedIndex: 0,
+            scores: [],
+            model: "judge-unavailable",
+            providerRequests: 0,
+            allHardFail: false,
+          };
+        }
+        if (candidateSelection.selectedIndex === null) {
+          throw new ProviderError("本轮候选图均未通过身份、肢体或穿搭完整性检查", 422, candidateSelection.model, "invalid_response");
+        }
+      }
       return {
         images,
         model: result.model,
-        prompts: images.map(() => prompt),
-        providerRequests: preliminaryProviderRequests + result.providerRequests,
+        prompts: images.map(() => usedPrompt),
+        providerRequests: isStagedTryOn
+          ? Math.max(providerCallOrdinal, preliminaryProviderRequests + result.providerRequests)
+          : preliminaryProviderRequests + result.providerRequests,
         providerOutputSizes,
         failures: result.failures.length ? result.failures.map((error) => ({ prompt, error })) : undefined,
+        candidateSelection,
+        executionMeta: isStagedTryOn ? {
+          tryOn: {
+            stage: step.params.workflowStage,
+            qualityMode: step.params.qualityMode,
+            style: style ? { id: style.id, name: style.name, hasReference: Boolean(style.referenceImage) } : undefined,
+            promptEnhancement: promptEnhancementMeta ?? { enabled: false },
+            safetyFallbackUsed,
+            candidateSelection,
+            candidateSelectionWarning,
+          },
+        } : undefined,
       };
     }
   }

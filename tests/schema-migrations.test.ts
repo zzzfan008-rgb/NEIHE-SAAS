@@ -35,8 +35,20 @@ assert.deepEqual(versions, [
   { version: 12, name: "initial_draft_project_lifecycle" },
   { version: 13, name: "drawing_document_versions" },
   { version: 14, name: "generation_video_provider_task_state" },
+  { version: 15, name: "try_on_quality_pipeline" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
+
+const tryOnQualityColumns = await query<{ table_name: string; column_name: string }>(`
+  SELECT table_name, column_name FROM information_schema.columns
+  WHERE table_schema = 'public' AND (
+    (table_name = 'generation_run_steps' AND column_name = 'execution_meta_json') OR
+    (table_name = 'try_on_style_presets' AND column_name IN ('owner_id','name','prompt','reference_image','deleted_at'))
+  )
+  ORDER BY table_name, column_name
+`);
+assert.equal(tryOnQualityColumns.length, 6);
+console.log("  ✓ 换装评审元数据与私有风格预设表已建立");
 
 const tutorialReceiptColumns = await query<{ column_name: string }>(`
   SELECT column_name FROM information_schema.columns

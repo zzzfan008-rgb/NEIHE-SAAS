@@ -37,8 +37,10 @@ assert.match(toolbar, /2K/);
 assert.match(toolbar, /4K/);
 assert.match(toolbar, /\/api\/prompt-optimize/);
 const promptOptimizer = read("server/routes/promptOptimize.ts");
-assert.match(promptOptimizer, /gpt-5\.6-terra/);
-assert.match(promptOptimizer, /\/v1\/chat\/completions/);
+const promptEnhancement = read("server/lib/promptEnhancement.ts");
+assert.match(promptOptimizer, /optimizePromptText/);
+assert.match(promptEnhancement, /gpt-5\.6-terra/);
+assert.match(promptEnhancement, /\/v1\/chat\/completions/);
 
 const store = read("src/store/flowStore.ts");
 assert.match(store, /ensureGeneratedResultNode/);
@@ -56,10 +58,11 @@ for (const name of [
 
 assert.equal(items.find((item) => item.name === "本地上传视频")?.creationIntent?.type, "node");
 assert.deepEqual(VIDEO_CAPABILITIES.map((item) => item.id), [
-  "text-to-video", "keyframes-to-video", "multi-image-video", "video-to-video",
+  "text-to-video", "first-frame-to-video", "keyframes-to-video",
+  "multimodal-reference", "video-edit", "video-extend",
 ]);
 for (const item of videoCapabilityToolItems()) {
-  assert.equal(item.availability, "available", "用户确认后四个真实视频工具必须可用");
+  assert.equal(item.availability, "available", "用户确认后六个真实视频工具必须可用");
   assert.equal(item.creationIntent?.type, "workflow-template", "视频工具必须启动完整工作流");
   assert.equal(item.capabilityGate?.approvalState, "approved");
 }
@@ -75,10 +78,18 @@ assert.match(fabricRecolor, /from "@\/components\/ui\/input"/);
 assert.match(fabricRecolor, /aria-label="自定义取色"/);
 
 const videoProvider = read("server/providers/apiyiVideo.ts");
-assert.match(videoProvider, /\/v1\/videos/);
-assert.match(videoProvider, /input_reference/);
-assert.match(videoProvider, /\/content/);
+const seedanceContract = read("src/lib/seedance.ts");
+assert.match(videoProvider, /\/seedance\/api\/v3\/contents\/generations\/tasks/);
+assert.match(videoProvider, /doubao-seedance-2-5-260628/);
+assert.match(seedanceContract, /doubao-seedance-2-0-mini-260615/);
+assert.match(videoProvider, /reference_image/);
+assert.match(videoProvider, /content\?\.video_url/);
+assert.match(videoProvider, /Accept-Encoding/);
+assert.doesNotMatch(videoProvider, /\/v1\/videos/);
 const videoNode = read("src/components/nodes/VideoGenerateNode.tsx");
 assert.match(videoNode, /产生对应费用/);
+assert.match(videoNode, /SEEDANCE_MODEL_CAPABILITIES/);
+assert.match(seedanceContract, /Seedance 2\.5/);
+assert.match(seedanceContract, /Seedance 2\.0/);
 
 console.log("工作台二次整改契约测试通过");

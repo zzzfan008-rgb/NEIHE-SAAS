@@ -200,6 +200,165 @@ await test("图片赋值与模板自动连接原子提交，重复和过期写�
   assert.deepEqual(activeDocument(), beforeStaleWrite);
 });
 
+await test("视频模式切换原子清理失效入边，一次撤销恢复设置和连线", () => {
+  const frame = imageNode("video-frame", "视频首帧");
+  const video: FlowNode = {
+    id: "video-settings",
+    type: "video-generate",
+    position: { x: 320, y: 0 },
+    data: {
+      kind: "video-generate",
+      label: "首帧生视频",
+      status: "idle",
+      prompt: "镜头缓慢推进",
+      mode: "first-frame-to-video",
+      videoModel: "doubao-seedance-2-5-260628",
+      seconds: 4,
+      aspectRatio: "adaptive",
+      resolution: "480p",
+      generateAudio: false,
+      outputFormat: "mp4",
+      outputImages: [],
+    },
+  };
+  useFlowStore.getState().loadFlow({
+    projectId: "video-setting-history",
+    projectName: "视频设置历史",
+    nodes: [frame, video],
+    edges: [{ id: "video-frame-edge", source: frame.id, target: video.id, targetHandle: "first-frame" }],
+  });
+  useFlowStore.temporal.getState().clear();
+
+  useFlowStore.getState().updateVideoNodeSettings(video.id, {
+    mode: "text-to-video",
+    outputImages: [],
+  });
+  const updated = activeDocument().nodes.find((node) => node.id === video.id);
+  assert.equal(updated?.data.kind === "video-generate" && updated.data.mode, "text-to-video");
+  assert.equal(activeDocument().edges.length, 0);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 1);
+
+  useFlowStore.getState().undo();
+  const restored = activeDocument().nodes.find((node) => node.id === video.id);
+  assert.equal(restored?.data.kind === "video-generate" && restored.data.mode, "first-frame-to-video");
+  assert.equal(activeDocument().edges[0]?.targetHandle, "first-frame");
+});
+
+await test("浏览器旧视频草稿迁移到 Seedance v11 模型、模式和端口", () => {
+  const restored = normalizeTabSessionValue({
+    schemaVersion: 1,
+    activeTabId: "legacy-video-tab",
+    tabs: [{
+      id: "legacy-video-tab",
+      projectId: "legacy-video-project",
+      projectName: "旧视频草稿",
+      revision: 1,
+      nodes: [
+        imageNode("legacy-first", "参考图一"),
+        imageNode("legacy-last", "参考图二"),
+        {
+          id: "legacy-video",
+          type: "video-generate",
+          position: { x: 320, y: 0 },
+          data: {
+            kind: "video-generate",
+            label: "旧多图视频",
+            status: "idle",
+            mode: "multi-image-video",
+            prompt: "展示服装动态",
+            videoModel: "seedance-2.5",
+            aspectRatio: "16:9",
+            resolution: "4k",
+            seconds: 40,
+            generateAudio: false,
+            outputImages: [],
+          },
+        },
+      ],
+      edges: [
+        { id: "legacy-first-edge", source: "legacy-first", target: "legacy-video", targetHandle: "first-frame" },
+        { id: "legacy-last-edge", source: "legacy-last", target: "legacy-video", targetHandle: "last-frame" },
+      ],
+    }],
+  });
+  assert.ok(restored);
+  const video = restored.tabs[0].nodes.find((node) => node.id === "legacy-video");
+  assert.equal(video?.data.kind === "video-generate" && video.data.videoModel, "doubao-seedance-2-5-260628");
+  assert.equal(video?.data.kind === "video-generate" && video.data.mode, "multimodal-reference");
+  assert.equal(video?.data.kind === "video-generate" && video.data.resolution, "1080p");
+  assert.equal(video?.data.kind === "video-generate" && video.data.seconds, 30);
+  assert.deepEqual(restored.tabs[0].edges.map((edge) => edge.targetHandle), ["reference-image", "reference-image"]);
+});
+
+await test("配饰精修自动选择最多六张参考图且不覆盖已选连接", () => {
+  const source = aiNode("repair-source", "第二轮成片");
+  const repair: FlowNode = {
+    id: "accessory-repair", type: "mask-redraw", position: { x: 640, y: 0 },
+    data: {
+      kind: "mask-redraw", label: "人物配饰精修", status: "idle", repairFocus: "accessories",
+      executionMode: "bypass", prompt: "修复配饰", outputImages: [], modelId: "gpt-image-2", modelOptions: {},
+    },
+  };
+  const candidates = Array.from({ length: 7 }, (_, index) => {
+    const node = imageNode(`accessory-${index + 1}`, `配饰 ${index + 1}`);
+    if (node.data.kind !== "image-input") throw new Error("测试图片节点错误");
+    node.data.autoConnectTargets = [{ targetNodeId: repair.id, targetHandle: "references" }];
+    return node;
+  });
+  useFlowStore.getState().loadFlow({
+    projectId: "accessory-reference-limit",
+    projectName: "配饰参考上限",
+    nodes: [source, repair, ...candidates],
+    edges: [{
+      id: "repair-source-edge", source: source.id, sourceHandle: "image",
+      target: repair.id, targetHandle: "repair-source",
+    }],
+  });
+  const target = selectActiveDocumentTarget(useFlowStore.getState());
+  for (const [index, candidate] of candidates.entries()) {
+    useFlowStore.getState().assignImageInputInTab(target, candidate.id, `/api/files/accessory-${index + 1}.png`);
+  }
+  const references = activeDocument().edges.filter((edge) => (
+    edge.target === repair.id && edge.targetHandle === "references"
+  ));
+  assert.equal(references.length, 6);
+  assert.deepEqual(references.map((edge) => edge.source), candidates.slice(0, 6).map((node) => node.id));
+  const seventh = activeDocument().nodes.find((node) => node.id === candidates[6].id);
+  assert.equal(seventh?.data.kind === "image-input" && seventh.data.imageUrl, "/api/files/accessory-7.png");
+});
+
+await test("跳过的局部精修不会提交网络请求或创建最近生成记录", async () => {
+  const source = aiNode("bypass-source", "第二轮成片");
+  const bypass: FlowNode = {
+    id: "bypass-repair", type: "mask-redraw", position: { x: 640, y: 0 },
+    data: {
+      kind: "mask-redraw", label: "上衣精修", status: "idle", repairFocus: "upper-garment",
+      executionMode: "bypass", prompt: "修复上衣", outputImages: [], modelId: "gpt-image-2", modelOptions: {},
+    },
+  };
+  useFlowStore.getState().loadFlow({
+    projectId: "bypass-run",
+    projectName: "跳过精修",
+    nodes: [source, bypass],
+    edges: [{ id: "bypass-source-edge", source: source.id, target: bypass.id, targetHandle: "repair-source" }],
+  });
+  const beforeResults = useFlowStore.getState().recentResults.length;
+  let networkCalls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    networkCalls += 1;
+    return Response.json({ ok: true });
+  };
+  try {
+    await useFlowStore.getState().runNode(bypass.id);
+    assert.equal(networkCalls, 0);
+    assert.equal(useFlowStore.getState().recentResults.length, beforeResults);
+    assert.deepEqual(selectNodeInputImages(activeDocument(), bypass.id), ["/api/files/previous.png"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 type ConnectionDraftState = FlowState & {
   pendingConnectionDraft: ConnectionDraft | null;
   connectionDraftError: string | null;
@@ -587,20 +746,55 @@ await test("快捷建图原子新增节点与合法连线，一次撤销完整�
   const beforeRevision = activeDocument().revision;
   const addedId = useFlowStore.getState().addConnectedNode(
     anchor.id,
-    "sketch-to-render",
+    "upscale",
     "downstream",
+    { sourceHandle: "image", targetHandle: "references", preset: { imageSize: "4K" } },
   );
   assert.ok(addedId);
   assert.equal(activeDocument().nodes.length, 2);
   assert.equal(activeDocument().edges.length, 1);
   assert.equal(activeDocument().edges[0].source, anchor.id);
   assert.equal(activeDocument().edges[0].target, addedId);
+  assert.equal(activeDocument().edges[0].sourceHandle, "image");
+  assert.equal(activeDocument().edges[0].targetHandle, "references");
+  const added = activeDocument().nodes.find((node) => node.id === addedId);
+  assert.equal(added?.data.kind === "upscale" && added.data.imageSize, "4K");
   assert.equal(activeDocument().selectedNodeId, addedId);
   assert.equal(activeDocument().revision, beforeRevision + 1);
 
   useFlowStore.getState().undo();
   assert.deepEqual(activeDocument().nodes.map((node) => node.id), [anchor.id]);
   assert.equal(activeDocument().edges.length, 0);
+});
+
+await test("多图结果快捷建图只把用户选中的图片连接给下游", () => {
+  const result: FlowNode = {
+    id: "multi-result",
+    type: "result",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "result",
+      label: "多图结果",
+      status: "success",
+      images: ["/api/files/first.png", "/api/files/second.png"],
+    },
+  };
+  useFlowStore.getState().openFlowTab({
+    projectId: "selected-result-connect",
+    projectName: "选中结果图",
+    nodes: [result],
+    edges: [],
+  });
+  const addedId = useFlowStore.getState().addConnectedNode(
+    result.id,
+    "mask-redraw",
+    "downstream",
+    { sourceHandle: "image:1", targetHandle: "repair-source" },
+  );
+  assert.ok(addedId);
+  assert.equal(activeDocument().edges[0].sourceHandle, "image:1");
+  assert.equal(activeDocument().edges[0].targetHandle, "repair-source");
+  assert.deepEqual(selectNodeInputImages(activeDocument(), addedId), ["/api/files/second.png"]);
 });
 
 await test("快捷建图复用输入上限与只读门禁", () => {

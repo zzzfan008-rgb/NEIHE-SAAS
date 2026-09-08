@@ -20,7 +20,12 @@ import { asyncHandler } from "../lib/asyncHandler";
 import { transaction } from "../lib/database";
 import { lockActiveOwner, lockActiveOwnerMutation } from "../lib/ownerMutation";
 import { purgeExpiredUserTemplates } from "../lib/userTemplateLifecycle";
-import { WORKFLOW_SCHEMA_VERSION, type PersistedWorkflow, type WorkflowTemplate } from "../../src/types/workflow";
+import {
+  WORKFLOW_SCHEMA_VERSION,
+  type PersistedWorkflow,
+  type VideoGenerationMode,
+  type WorkflowTemplate,
+} from "../../src/types/workflow";
 import {
   DEFAULT_GENERATION_MODEL_ID,
   defaultImageModelOptions,
@@ -40,6 +45,8 @@ function sanitizeTemplateFlow(flow: PersistedWorkflow): PersistedWorkflow {
       const data = { ...node.data } as Record<string, unknown>;
       delete data.error;
       if (node.data.kind === "image-input") delete data.imageUrl;
+      if (node.data.kind === "video-input") delete data.videoUrl;
+      if (node.data.kind === "audio-input") delete data.audioUrl;
       if (node.data.kind === "drawing-board") {
         delete data.contentRef;
         delete data.previewImageRef;
@@ -91,56 +98,92 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
         {
           id: "person",
           type: "image-input",
+          position: { x: 0, y: -820 },
+          data: { kind: "image-input", label: "主要人物身份图（必需）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "person" }] },
+        },
+        {
+          id: "identity-secondary-1",
+          type: "image-input",
           position: { x: 0, y: -560 },
-          data: { kind: "image-input", label: "人物身份图（必需）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "person" }] },
+          data: { kind: "image-input", label: "补充身份图 1（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "person" }] },
+        },
+        {
+          id: "identity-secondary-2",
+          type: "image-input",
+          position: { x: 0, y: -300 },
+          data: { kind: "image-input", label: "补充身份图 2（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "person" }] },
         },
         {
           id: "scene",
           type: "image-input",
-          position: { x: 0, y: -300 },
+          position: { x: 0, y: -40 },
           data: { kind: "image-input", label: "场景/表演参考图（必需）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "scene" }] },
         },
         {
           id: "outfit",
           type: "image-input",
-          position: { x: 0, y: -40 },
-          data: { kind: "image-input", label: "主穿搭图（必需）", status: "idle", imageRole: "garment", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "outfit" }, { targetNodeId: "refine", targetHandle: "outfit" }] },
+          position: { x: 0, y: 220 },
+          data: { kind: "image-input", label: "主穿搭图（必需）", status: "idle", imageRole: "garment", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "outfit" }, { targetNodeId: "refine", targetHandle: "outfit" }, { targetNodeId: "upper-repair", targetHandle: "references" }, { targetNodeId: "pants-repair", targetHandle: "references" }] },
         },
         {
           id: "bag",
           type: "image-input",
           position: { x: 300, y: -560 },
-          data: { kind: "image-input", label: "包袋参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bag" }] },
+          data: { kind: "image-input", label: "包袋参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bag" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
         },
         {
           id: "shoes",
           type: "image-input",
           position: { x: 300, y: -300 },
-          data: { kind: "image-input", label: "鞋履参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "shoes" }] },
+          data: { kind: "image-input", label: "鞋履参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "shoes" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
         },
         {
           id: "hat",
           type: "image-input",
           position: { x: 300, y: -40 },
-          data: { kind: "image-input", label: "帽子参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "hat" }] },
+          data: { kind: "image-input", label: "帽子参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "hat" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
         },
         {
           id: "ring",
           type: "image-input",
           position: { x: 300, y: 220 },
-          data: { kind: "image-input", label: "戒指参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "ring" }] },
+          data: { kind: "image-input", label: "戒指参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "ring" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
         },
         {
           id: "earrings",
           type: "image-input",
-          position: { x: 300, y: 480 },
-          data: { kind: "image-input", label: "耳环参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "earrings" }] },
+          position: { x: 0, y: 480 },
+          data: { kind: "image-input", label: "耳环参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "earrings" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
         },
         {
           id: "bracelet",
           type: "image-input",
+          position: { x: 300, y: 480 },
+          data: { kind: "image-input", label: "手镯参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bracelet" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
+        },
+        {
+          id: "eyewear",
+          type: "image-input",
+          position: { x: 600, y: 480 },
+          data: { kind: "image-input", label: "眼镜参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "accessory-repair", targetHandle: "references" }] },
+        },
+        {
+          id: "neckwear",
+          type: "image-input",
+          position: { x: 0, y: 740 },
+          data: { kind: "image-input", label: "项链 / 围巾参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "accessory-repair", targetHandle: "references" }] },
+        },
+        {
+          id: "belt",
+          type: "image-input",
           position: { x: 300, y: 740 },
-          data: { kind: "image-input", label: "手镯参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bracelet" }] },
+          data: { kind: "image-input", label: "腰带参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "accessory-repair", targetHandle: "references" }] },
+        },
+        {
+          id: "watch",
+          type: "image-input",
+          position: { x: 600, y: 740 },
+          data: { kind: "image-input", label: "手表 / 其他穿戴参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "accessory-repair", targetHandle: "references" }] },
         },
         {
           id: "stabilize",
@@ -157,6 +200,10 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
             imageSize: "2K",
             aspectRatio: "3:4",
             basisRevision: 0,
+            promptEnhancement: true,
+            qualityMode: "best",
+            safetyFallback: true,
+            stylePresetId: "faithful",
             outputImages: [],
           },
         },
@@ -174,14 +221,14 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
         {
           id: "material",
           type: "image-input",
-          position: { x: 720, y: 420 },
-          data: { kind: "image-input", label: "第二轮 · 面料/纱线参考（可选）", status: "idle", imageRole: "fabric", autoConnectTargets: [{ targetNodeId: "refine", targetHandle: "material" }] },
+          position: { x: 940, y: 420 },
+          data: { kind: "image-input", label: "第二轮 · 面料/纱线参考（可选）", status: "idle", imageRole: "fabric", autoConnectTargets: [{ targetNodeId: "refine", targetHandle: "material" }, { targetNodeId: "upper-repair", targetHandle: "references" }, { targetNodeId: "pants-repair", targetHandle: "references" }] },
         },
         {
           id: "garment-detail",
           type: "image-input",
-          position: { x: 720, y: 680 },
-          data: { kind: "image-input", label: "第二轮 · 服装局部结构参考（可选）", status: "idle", imageRole: "garment", autoConnectTargets: [{ targetNodeId: "refine", targetHandle: "detail" }] },
+          position: { x: 940, y: 680 },
+          data: { kind: "image-input", label: "第二轮 · 服装局部结构参考（可选）", status: "idle", imageRole: "garment", autoConnectTargets: [{ targetNodeId: "refine", targetHandle: "detail" }, { targetNodeId: "upper-repair", targetHandle: "references" }, { targetNodeId: "pants-repair", targetHandle: "references" }] },
         },
         {
           id: "refine",
@@ -200,24 +247,96 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
             garmentCategory: "knit",
             materialSpec: "",
             constructionSpec: "",
+            promptEnhancement: true,
+            qualityMode: "best",
+            safetyFallback: true,
+            stylePresetId: "faithful",
+            outputImages: [],
+          },
+        },
+        {
+          id: "upper-repair",
+          type: "mask-redraw",
+          position: { x: 1660, y: -120 },
+          data: {
+            kind: "mask-redraw",
+            label: "可选 · 上衣款型精修",
+            status: "idle",
+            modelId: "gpt-image-2",
+            modelOptions: { quality: "medium" },
+            repairFocus: "upper-garment",
+            executionMode: "bypass",
+            prompt: "依据主穿搭、面料和局部结构参考，精确恢复目标上衣的实际款型与制作细节。",
+            outputImages: [],
+          },
+        },
+        {
+          id: "pants-repair",
+          type: "mask-redraw",
+          position: { x: 2000, y: -120 },
+          data: {
+            kind: "mask-redraw",
+            label: "可选 · 裤装款型精修",
+            status: "idle",
+            modelId: "gpt-image-2",
+            modelOptions: { quality: "medium" },
+            repairFocus: "pants",
+            executionMode: "bypass",
+            prompt: "依据主穿搭、面料和局部结构参考，精确恢复目标裤装的实际版型、结构与垂坠。",
+            outputImages: [],
+          },
+        },
+        {
+          id: "accessory-repair",
+          type: "mask-redraw",
+          position: { x: 2340, y: -120 },
+          data: {
+            kind: "mask-redraw",
+            label: "可选 · 人物配饰精修",
+            status: "idle",
+            modelId: "gpt-image-2",
+            modelOptions: { quality: "medium" },
+            repairFocus: "accessories",
+            executionMode: "bypass",
+            prompt: "依据已选择的配饰参考，精确恢复对应配饰的形状、材质、五金、穿戴位置和真实接触关系。",
+            outputImages: [],
+          },
+        },
+        {
+          id: "logo-correct",
+          type: "mask-redraw",
+          position: { x: 2680, y: -120 },
+          data: {
+            kind: "mask-redraw",
+            label: "可选 · Logo / 文字局部校正",
+            status: "idle",
+            modelId: "gpt-image-2",
+            modelOptions: { quality: "medium" },
+            repairFocus: "logo-text",
+            executionMode: "bypass",
+            prompt: "仅按蒙版修复目标商品上真实存在的 Logo、文字、五金或细小结构；保持人物、服装其它区域、配饰、构图、光线和背景不变，不得新增或改写无关文字。",
             outputImages: [],
           },
         },
         {
           id: "guide",
           type: "text-input",
-          position: { x: 1080, y: 430 },
+          position: { x: 1320, y: 500 },
           data: {
             kind: "text-input",
             label: "使用步骤",
             status: "idle",
-            text: "① 上传人物、场景和主穿搭必需图，图片会自动连接对应阶段。② 按需上传包、鞋、帽子、戒指、耳环、手镯；未提供的类别不会写入约束。③ 运行第一轮并在独立节点确认基准。④ 在右侧属性中选择针织/梭织/其他，填写材料规格与结构工艺。⑤ 面料和服装局部图只供第二轮使用，确认后运行 GPT 精修。",
+            text: "① 上传人物、场景和主穿搭，按需补充身份、服装和配饰参考。② 运行第一轮并确认人物与场景基准。③ 填写材料与结构工艺后运行第二轮服装精修。④ 从上衣、裤装、人物配饰、Logo/文字中只启用实际需要的局部步骤；跳过步骤不生成、不计费。⑤ 每个启用步骤都要基于当前底图重新绘制蒙版，再按从大结构到小细节的顺序运行。配饰精修最多选择 6 张已上传参考图。",
           },
         },
       ],
       edges: [
         { id: "stabilize-approval", source: "stabilize", target: "approval", sourceHandle: "image", targetHandle: "baseline-candidate" },
         { id: "approval-refine", source: "approval", target: "refine", sourceHandle: "image", targetHandle: "baseline" },
+        { id: "refine-upper-repair", source: "refine", target: "upper-repair", sourceHandle: "image", targetHandle: "repair-source" },
+        { id: "upper-pants-repair", source: "upper-repair", target: "pants-repair", sourceHandle: "image", targetHandle: "repair-source" },
+        { id: "pants-accessory-repair", source: "pants-repair", target: "accessory-repair", sourceHandle: "image", targetHandle: "repair-source" },
+        { id: "accessory-logo-correct", source: "accessory-repair", target: "logo-correct", sourceHandle: "image", targetHandle: "repair-source" },
       ],
     },
   };
@@ -229,6 +348,14 @@ function toolWorkflowTemplates(): WorkflowTemplate[] {
   });
   const text = (id: string, label: string, x: number, y: number, value = "") => ({
     id, type: "text-input" as const, position: { x, y }, data: { kind: "text-input" as const, label, status: "idle" as const, text: value },
+  });
+  const video = (id: string, label: string, x: number, y: number) => ({
+    id, type: "video-input" as const, position: { x, y },
+    data: { kind: "video-input" as const, label, status: "idle" as const },
+  });
+  const audio = (id: string, label: string, x: number, y: number) => ({
+    id, type: "audio-input" as const, position: { x, y },
+    data: { kind: "audio-input" as const, label, status: "idle" as const },
   });
   const imageGenerator = (id: string, kind: "sketch-to-render" | "ai-modify" | "print-extract" | "print-mutate", label: string, x: number, y: number, prompt = "") => ({
     id, type: kind as typeof kind, position: { x, y }, data: kind === "sketch-to-render"
@@ -243,8 +370,21 @@ function toolWorkflowTemplates(): WorkflowTemplate[] {
     schemaVersion: WORKFLOW_SCHEMA_VERSION, id, name, description, builtIn: true, createdAt: "2026-09-03T08:00:00.000Z",
     flow: { schemaVersion: WORKFLOW_SCHEMA_VERSION, nodes, edges },
   });
-  const videoGenerator = (id: string, label: string, mode: "text-to-video" | "keyframes-to-video" | "multi-image-video" | "video-to-video", x = 760, y = 0) => ({
-    id, type: "video-generate" as const, position: { x, y }, data: { kind: "video-generate" as const, label, status: "idle" as const, mode, prompt: "", videoModel: "veo-3.1" as const, quality: "fast" as const, aspectRatio: "16:9" as const, resolution: "720p" as const, seconds: 8 as const, outputImages: [] },
+  const videoGenerator = (id: string, label: string, mode: VideoGenerationMode, x = 760, y = 0) => ({
+    id, type: "video-generate" as const, position: { x, y }, data: {
+      kind: "video-generate" as const,
+      label,
+      status: "idle" as const,
+      mode,
+      prompt: "",
+      videoModel: "doubao-seedance-2-5-260628" as const,
+      aspectRatio: ["first-frame-to-video", "keyframes-to-video", "video-edit", "video-extend"].includes(mode) ? "adaptive" as const : "16:9" as const,
+      resolution: "720p" as const,
+      seconds: mode === "video-edit" ? -1 : 5,
+      generateAudio: true,
+      outputFormat: "mp4" as const,
+      outputImages: [],
+    },
   });
   return [
     template("builtin-tool-sketch-render", "草图到效果图", "上传草图并渲染；成功后自动创建结果节点。", [image("sketch", "服装草图", 0, 0, "sketch"), imageGenerator("generate", "sketch-to-render", "草图渲染", 380, 0)], [{ id: "sketch-generate", source: "sketch", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
@@ -256,9 +396,11 @@ function toolWorkflowTemplates(): WorkflowTemplate[] {
     template("builtin-tool-white-background", "白底图制作", "上传主体后制作纯白背景图。", [image("source", "商品或模特图", 0, 0), imageGenerator("generate", "ai-modify", "白底图制作", 380, 0, "保持主体外观、人物身份、服装和配饰细节，移除原背景，生成干净均匀的纯白背景与自然接触阴影。")], [{ id: "source-generate", source: "source", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
     template("builtin-tool-style-transfer", "风格迁移", "主体、风格参考和可选要求已连接。", [image("source", "目标主体图", 0, -180), image("style", "风格参考图", 0, 80), text("prompt", "补充要求", 0, 340), imageGenerator("generate", "ai-modify", "风格迁移", 430, 0, "只迁移参考图的视觉语言、材质、色彩与光影；保持目标主体的身份、结构和构图，不复制风格图中的人物、服装或配饰。")], [{ id: "source-generate", source: "source", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "style-generate", source: "style", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
     template("builtin-tool-text-to-video", "文生视频", "文字提示连接真实视频生成节点。", [text("prompt", "视频提示词", 0, 0), videoGenerator("generate", "文生视频", "text-to-video", 420, 0)], [{ id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
+    template("builtin-tool-first-frame-to-video", "首帧生视频", "首帧和提示词按角色连接。", [image("first", "首帧", 0, -140), text("prompt", "视频提示词", 0, 180), videoGenerator("generate", "首帧生视频", "first-frame-to-video", 430, 0)], [{ id: "first-generate", source: "first", sourceHandle: "image", target: "generate", targetHandle: "first-frame" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
     template("builtin-tool-keyframes-to-video", "首尾帧生视频", "首帧、尾帧和提示词按角色连接。", [image("first", "首帧", 0, -220), image("last", "尾帧", 0, 60), text("prompt", "视频提示词", 0, 340), videoGenerator("generate", "首尾帧生视频", "keyframes-to-video", 430, 0)], [{ id: "first-generate", source: "first", sourceHandle: "image", target: "generate", targetHandle: "first-frame" }, { id: "last-generate", source: "last", sourceHandle: "image", target: "generate", targetHandle: "last-frame" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
-    template("builtin-tool-multi-image-video", "多图参考生视频", "当前真实通道使用两张有序参考图建立连续性。", [image("first", "参考图一", 0, -220), image("last", "参考图二", 0, 60), text("prompt", "视频提示词", 0, 340), videoGenerator("generate", "多图参考生视频", "multi-image-video", 430, 0)], [{ id: "first-generate", source: "first", sourceHandle: "image", target: "generate", targetHandle: "first-frame" }, { id: "last-generate", source: "last", sourceHandle: "image", target: "generate", targetHandle: "last-frame" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
-    template("builtin-tool-video-to-video", "视频生视频", "上传源视频并通过首帧重制生成新镜头。", [{ id: "source", type: "video-input", position: { x: 0, y: -100 }, data: { kind: "video-input", label: "源视频", status: "idle" } }, text("prompt", "重制要求", 0, 220), videoGenerator("generate", "视频生视频", "video-to-video", 430, 0)], [{ id: "source-generate", source: "source", sourceHandle: "video", target: "generate", targetHandle: "source-video" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
+    template("builtin-tool-multimodal-reference", "多模态参考生视频", "图片、视频、音频和提示词按独立角色连接。", [image("image", "参考图片", 0, -300), video("video", "参考视频", 0, -40), audio("audio", "参考音频", 0, 220), text("prompt", "视频提示词", 0, 470), videoGenerator("generate", "多模态参考生视频", "multimodal-reference", 430, 20)], [{ id: "image-generate", source: "image", sourceHandle: "image", target: "generate", targetHandle: "reference-image" }, { id: "video-generate", source: "video", sourceHandle: "video", target: "generate", targetHandle: "reference-video" }, { id: "audio-generate", source: "audio", sourceHandle: "audio", target: "generate", targetHandle: "reference-audio" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
+    template("builtin-tool-video-edit", "视频编辑", "源视频与编辑指令连接到 Seedance 2.5 编辑任务。", [video("source", "待编辑视频", 0, -100), text("prompt", "编辑要求", 0, 220, "修改 @视频1 中的目标内容，同时保持其它画面不变。"), videoGenerator("generate", "视频编辑", "video-edit", 430, 0)], [{ id: "source-generate", source: "source", sourceHandle: "video", target: "generate", targetHandle: "source-video" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
+    template("builtin-tool-video-extend", "视频延长", "源视频与延长指令连接到 Seedance 2.5 延长任务。", [video("source", "待延长视频", 0, -100), text("prompt", "延长要求", 0, 220, "向后延长 @视频1，延续原有镜头运动、主体动作和光线。"), videoGenerator("generate", "视频延长", "video-extend", 430, 0)], [{ id: "source-generate", source: "source", sourceHandle: "video", target: "generate", targetHandle: "source-video" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
   ];
 }
 
@@ -638,6 +780,16 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
       return raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION
         || named.name !== "一键换装";
     }
+    if ([
+      "builtin-tool-text-to-video",
+      "builtin-tool-first-frame-to-video",
+      "builtin-tool-keyframes-to-video",
+      "builtin-tool-multimodal-reference",
+      "builtin-tool-video-edit",
+      "builtin-tool-video-extend",
+    ].includes(templateId)) {
+      return raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION;
+    }
     return false;
   } catch {
     return true;
@@ -649,6 +801,8 @@ export function ensureBuiltinTemplates(): void {
   // 旧内置模板属于部署数据；用户项目与用户模板不受清理影响。
   fs.rmSync(templatePath("builtin", "builtin-style-transfer"), { force: true });
   fs.rmSync(templatePath("builtin", "builtin-dual-model-staged-try-on"), { force: true });
+  fs.rmSync(templatePath("builtin", "builtin-tool-multi-image-video"), { force: true });
+  fs.rmSync(templatePath("builtin", "builtin-tool-video-to-video"), { force: true });
   for (const tpl of builtinTemplates()) {
     const filePath = templatePath("builtin", tpl.id);
     if (!fs.existsSync(filePath) || !builtinTemplateIsReadable(filePath) || managedBuiltinNeedsRefresh(filePath, tpl.id)) {
@@ -678,7 +832,12 @@ function readTemplates(sub: "builtin" | "user"): StoredWorkflowTemplate[] {
 
 function readTemplateFile(filePath: string): StoredWorkflowTemplate {
   const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>;
-  const isLegacyVersion = raw.schemaVersion === undefined || raw.schemaVersion === 0 || raw.schemaVersion === 1 || raw.schemaVersion === 2 || raw.schemaVersion === 3 || raw.schemaVersion === 4 || raw.schemaVersion === 5 || raw.schemaVersion === 6;
+  const isLegacyVersion = raw.schemaVersion === undefined || (
+    typeof raw.schemaVersion === "number"
+    && Number.isInteger(raw.schemaVersion)
+    && raw.schemaVersion >= 0
+    && raw.schemaVersion < WORKFLOW_SCHEMA_VERSION
+  );
   if (!isLegacyVersion && raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION) {
     throw new WorkflowValidationError(`unsupported template schemaVersion: ${String(raw.schemaVersion)}`);
   }

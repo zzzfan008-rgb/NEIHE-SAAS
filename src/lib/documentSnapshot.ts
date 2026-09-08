@@ -14,6 +14,11 @@ import {
   type ColorSwatch,
   type NodeKind,
   type PersistedWorkflow,
+  type SeedanceOutputFormat,
+  type SeedanceVideoModelId,
+  type VideoAspectRatio,
+  type VideoGenerationMode,
+  type VideoResolution,
   type WorkflowInputRole,
   type WorkflowNodeData,
 } from "../types/workflow";
@@ -72,15 +77,22 @@ export type DocumentNodeData =
       mimeType?: "video/mp4" | "video/webm" | "video/quicktime";
     }
   | {
+      kind: "audio-input";
+      label: string;
+      audioUrl?: string;
+      mimeType?: "audio/mpeg" | "audio/wav" | "audio/mp4" | "audio/ogg";
+    }
+  | {
       kind: "video-generate";
       label: string;
-      mode: "text-to-video" | "keyframes-to-video" | "multi-image-video" | "video-to-video";
+      mode: VideoGenerationMode;
       prompt: string;
-      videoModel: "veo-3.1";
-      quality: "fast" | "standard";
-      aspectRatio: "16:9" | "9:16";
-      resolution: "720p" | "1080p" | "4k";
-      seconds: 4 | 6 | 8;
+      videoModel: SeedanceVideoModelId;
+      aspectRatio: VideoAspectRatio;
+      resolution: VideoResolution;
+      seconds: number;
+      generateAudio: boolean;
+      outputFormat: SeedanceOutputFormat;
       outputImages: string[];
     }
   | ({
@@ -138,6 +150,13 @@ export type DocumentNodeData =
       garmentCategory?: "knit" | "woven" | "other";
       materialSpec?: string;
       constructionSpec?: string;
+      promptEnhancement: boolean;
+      qualityMode: "fast" | "balanced" | "best";
+      safetyFallback: boolean;
+      stylePresetId: string;
+      stylePresetName?: string;
+      stylePrompt?: string;
+      styleReferenceImage?: string;
       basisRevision?: number;
       outputImages: string[];
       modelId: VirtualTryOnModelId;
@@ -146,6 +165,8 @@ export type DocumentNodeData =
   | {
       kind: "mask-redraw";
       label: string;
+      repairFocus: "custom" | "upper-garment" | "pants" | "accessories" | "logo-text";
+      executionMode: "repair" | "bypass";
       prompt: string;
       mask?: string;
       maskSourceRef?: string;
@@ -199,7 +220,7 @@ interface EdgeLike {
 const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
   "person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet",
   "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
-  "first-frame", "last-frame", "source-video",
+  "first-frame", "last-frame", "source-video", "repair-source", "eyewear", "neckwear", "belt", "watch",
 ];
 
 function documentTargetHandle(value: string | null | undefined): WorkflowInputRole | null | undefined {
@@ -303,6 +324,13 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         ...optionalString("videoUrl", data.videoUrl),
         ...(data.mimeType ? { mimeType: data.mimeType } : {}),
       };
+    case "audio-input":
+      return {
+        kind: data.kind,
+        label: data.label,
+        ...optionalString("audioUrl", data.audioUrl),
+        ...(data.mimeType ? { mimeType: data.mimeType } : {}),
+      };
     case "video-generate":
       return {
         kind: data.kind,
@@ -310,10 +338,11 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         mode: data.mode,
         prompt: data.prompt,
         videoModel: data.videoModel,
-        quality: data.quality,
         aspectRatio: data.aspectRatio,
         resolution: data.resolution,
         seconds: data.seconds,
+        generateAudio: data.generateAudio,
+        outputFormat: data.outputFormat,
         outputImages: [...data.outputImages],
       };
     case "sketch-to-render":
@@ -385,6 +414,13 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         ...(data.garmentCategory ? { garmentCategory: data.garmentCategory } : {}),
         ...optionalString("materialSpec", data.materialSpec),
         ...optionalString("constructionSpec", data.constructionSpec),
+        promptEnhancement: data.promptEnhancement,
+        qualityMode: data.qualityMode,
+        safetyFallback: data.safetyFallback,
+        stylePresetId: data.stylePresetId,
+        ...optionalString("stylePresetName", data.stylePresetName),
+        ...optionalString("stylePrompt", data.stylePrompt),
+        ...optionalString("styleReferenceImage", data.styleReferenceImage),
         outputImages: [...data.outputImages],
         ...virtualTryOnModelFields(data.modelId, data.modelOptions, data.imageSize),
       };
@@ -392,6 +428,8 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
       return {
         kind: data.kind,
         label: data.label,
+        repairFocus: data.repairFocus,
+        executionMode: data.executionMode,
         prompt: data.prompt,
         ...optionalString("mask", data.mask),
         ...optionalString("maskSourceRef", data.maskSourceRef),

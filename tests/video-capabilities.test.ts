@@ -10,11 +10,13 @@ console.log("视频能力安全门禁测试");
 
 assert.deepEqual(VIDEO_CAPABILITIES.map(({ id, name }) => ({ id, name })), [
   { id: "text-to-video", name: "文生视频" },
+  { id: "first-frame-to-video", name: "首帧生视频" },
   { id: "keyframes-to-video", name: "首尾帧生视频" },
-  { id: "multi-image-video", name: "多图参考生视频" },
-  { id: "video-to-video", name: "视频生视频" },
+  { id: "multimodal-reference", name: "多模态参考生视频" },
+  { id: "video-edit", name: "视频编辑" },
+  { id: "video-extend", name: "视频延长" },
 ]);
-assert.equal(new Set(VIDEO_CAPABILITIES.map((item) => item.disabledReason)).size, 4, "每项能力需要具体、可区分的禁用原因");
+assert.equal(new Set(VIDEO_CAPABILITIES.map((item) => item.disabledReason)).size, 6, "每项能力需要具体、可区分的禁用原因");
 
 const current = videoCapabilityToolItems();
 for (const item of current) {
@@ -24,6 +26,7 @@ for (const item of current) {
   assert.match(item.creationIntent?.templateId ?? "", /^builtin-tool-/);
 }
 assert.ok(VIDEO_CAPABILITY_APPROVAL.acceptanceRecordId.includes("2026-09-03"));
+assert.equal(VIDEO_CAPABILITY_APPROVAL.generationContractId, "apiyi-seedance-2.5-2.0-v2");
 
 const descriptor = VIDEO_CAPABILITIES[0];
 const implementation = { type: "future-video-node", capabilityId: descriptor.id } as const;

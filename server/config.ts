@@ -43,6 +43,9 @@ export const config = {
   /** API易图片接口；路径由本地模型知识库逐模型声明。 */
   apiyiBaseUrl: () => (process.env.APIYI_BASE_URL ?? "https://api.apiyi.com").replace(/\/+$/, ""),
   apiyiApiKey: () => required("APIYI_API_KEY"),
+  /** Seedance 视频接口使用独立网关和凭据，不与图片模型共享令牌。 */
+  seedanceApiBaseUrl: () => required("SEEDANCE_API_BASE_URL").replace(/\/+$/, ""),
+  seedanceApiKey: () => required("SEEDANCE_API_KEY"),
 
   port: () => Number(process.env.PORT ?? 3001),
   dataDir: () => path.resolve(ROOT_DIR, process.env.DATA_DIR ?? "./data"),
@@ -67,6 +70,9 @@ export const config = {
   aiTimeoutMs: (fallback = 300_000) => Number(process.env.AI_TIMEOUT_MS ?? fallback),
   /** 第一轮场景图只做视觉理解，不把原图发送给生图模型。 */
   sceneAnalysisModel: () => process.env.SCENE_ANALYSIS_MODEL?.trim() || "gemini-3-flash-preview",
+  /** 换装候选择优和身份框定位使用的视觉模型。 */
+  tryOnJudgeModel: () => process.env.TRY_ON_JUDGE_MODEL?.trim() || config.sceneAnalysisModel(),
+  identityAnalysisModel: () => process.env.IDENTITY_ANALYSIS_MODEL?.trim() || config.sceneAnalysisModel(),
 
   /** 不发外部请求的 AI 配置就绪检查，供 readiness 使用。 */
   aiConfigReady: () => {

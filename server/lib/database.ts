@@ -625,6 +625,32 @@ async function migrate(): Promise<void> {
       );
     }
 
+    if (!applied.has(15)) {
+      await client.query(`
+        ALTER TABLE generation_run_steps
+          ADD COLUMN IF NOT EXISTS execution_meta_json TEXT NOT NULL DEFAULT '{}';
+
+        CREATE TABLE IF NOT EXISTS try_on_style_presets (
+          id TEXT PRIMARY KEY,
+          owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          prompt TEXT NOT NULL,
+          reference_image TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS try_on_style_presets_owner_idx
+          ON try_on_style_presets(owner_id, updated_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS try_on_style_presets_owner_name_unique
+          ON try_on_style_presets(owner_id, lower(name)) WHERE deleted_at IS NULL;
+      `);
+      await client.query(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (15, $1, $2)",
+        ["try_on_quality_pipeline", new Date().toISOString()],
+      );
+    }
+
     return imported;
   });
   if (importedRows !== undefined) {

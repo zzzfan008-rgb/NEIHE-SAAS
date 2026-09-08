@@ -13,6 +13,7 @@ import { apiyiProviders } from "../server/providers/apiyi";
 import {
   AcceptedVideoTaskPersistenceError,
   generateApiYiVideo,
+  SEEDANCE_25_MODEL,
 } from "../server/providers/apiyiVideo";
 import { executeStep } from "../server/engine/runner";
 import { fetchWithRetry, ProviderError } from "../server/providers/base";
@@ -135,36 +136,48 @@ async function main(): Promise<void> {
   console.log("API易 Provider 契约测试");
   const restoreBase = setEnv("APIYI_BASE_URL", "https://gateway.example");
   const restoreKey = setEnv("APIYI_API_KEY", "apiyi-test-key");
+  const restoreSeedanceBase = setEnv("SEEDANCE_API_BASE_URL", "https://video-gateway.example");
+  const restoreSeedanceKey = setEnv("SEEDANCE_API_KEY", "seedance-test-key");
   const white = await imageDataUrl(4, 2, { r: 255, g: 255, b: 255 });
   const blue = await imageDataUrl(4, 2, { r: 20, g: 80, b: 220 });
   const red = await imageDataUrl(4, 2, { r: 220, g: 30, b: 30 });
+  const videoWhite = await imageDataUrl(512, 512, { r: 255, g: 255, b: 255 });
+  const videoBlue = await imageDataUrl(512, 512, { r: 20, g: 80, b: 220 });
+  const videoRed = await imageDataUrl(512, 512, { r: 220, g: 30, b: 30 });
   const mask = await halfEditableMask(4, 2);
 
   try {
-    await test("视频双帧模式在付费调用前拒绝非两张参考图", async () => {
+    await test("视频首尾帧在付费调用前拒绝缺失或多余参考图", async () => {
       let calls = 0;
       const restoreFetch = installFetchMock(() => {
         calls += 1;
         return Response.json({ task_id: "must-not-submit" });
       });
       try {
-        for (const mode of ["keyframes-to-video", "multi-image-video"] as const) {
-          for (const references of [[white], [white, blue, red]]) {
+        for (const references of [
+          [{ role: "first-frame", url: videoWhite }],
+          [
+            { role: "first-frame", url: videoWhite },
+            { role: "last-frame", url: videoBlue },
+            { role: "reference-image", url: videoRed },
+          ],
+        ] as const) {
             await assert.rejects(
               () => generateApiYiVideo({
-                mode,
+                mode: "keyframes-to-video",
+                model: SEEDANCE_25_MODEL,
                 prompt: "服装动态展示",
-                quality: "standard",
-                aspectRatio: "16:9",
+                aspectRatio: "adaptive",
                 resolution: "720p",
-                seconds: 8,
-                references,
+                seconds: 5,
+                generateAudio: true,
+                outputFormat: "mp4",
+                references: [...references],
               }),
               (error: unknown) => error instanceof ProviderError &&
                 error.status === 400 && error.category === "invalid_request" &&
-                error.message === "首尾帧或多图参考必须使用 2 张图片",
+                /首帧和尾帧/.test(error.message),
             );
-          }
         }
         assert.equal(calls, 0);
       } finally {
@@ -173,15 +186,22 @@ async function main(): Promise<void> {
     });
 
     await test("视频首尾帧按角色排序，不受边插入顺序影响", async () => {
-      let submittedForm: FormData | undefined;
+      let submittedBody: Record<string, unknown> | undefined;
       const restoreFetch = installFetchMock((input, init) => {
         const url = String(input);
         if (init?.method === "POST") {
-          submittedForm = init.body as FormData;
-          return Response.json({ task_id: "role-ordered-task" });
+          assert.equal(url, "https://video-gateway.example/seedance/api/v3/contents/generations/tasks");
+          const headers = new Headers(init.headers);
+          assert.equal(headers.get("authorization"), "Bearer seedance-test-key");
+          assert.equal(headers.get("accept-encoding"), "identity");
+          submittedBody = jsonBody(init);
+          return Response.json({ id: "role-ordered-task" });
         }
-        if (url.endsWith("/content")) return new Response(mp4Payload());
-        return Response.json({ status: "completed" });
+        if (url === "https://cdn.example/role-ordered.mp4") {
+          assert.equal(new Headers(init?.headers).has("authorization"), false);
+          return new Response(mp4Payload());
+        }
+        return Response.json({ status: "succeeded", content: { video_url: "https://cdn.example/role-ordered.mp4" } });
       });
       try {
         await withoutTimerDelay(() => executeStep({
@@ -190,19 +210,119 @@ async function main(): Promise<void> {
           inputImages: [],
           params: {
             mode: "keyframes-to-video",
+            videoModel: SEEDANCE_25_MODEL,
             prompt: "服装从静止到转身",
-            quality: "standard",
-            aspectRatio: "16:9",
+            aspectRatio: "adaptive",
             resolution: "720p",
-            seconds: 8,
+            seconds: 5,
+            generateAudio: false,
+            outputFormat: "mp4",
           },
-        }, [blue, white], undefined, {
+        }, [videoBlue, videoWhite], undefined, {
           referenceRoles: ["last-frame", "first-frame"],
         }));
-        const files = submittedForm?.getAll("input_reference") as File[] | undefined;
-        assert.equal(files?.length, 2);
-        assert.deepEqual(Buffer.from(await files![0].arrayBuffer()), Buffer.from(white.split(",")[1], "base64"));
-        assert.deepEqual(Buffer.from(await files![1].arrayBuffer()), Buffer.from(blue.split(",")[1], "base64"));
+        assert.equal(submittedBody?.model, SEEDANCE_25_MODEL);
+        assert.equal(submittedBody?.ratio, "adaptive");
+        assert.equal(submittedBody?.duration, 5);
+        assert.equal(submittedBody?.generate_audio, false);
+        assert.equal(submittedBody?.watermark, false);
+        assert.equal(submittedBody?.output_format, "mp4");
+        const content = submittedBody?.content as Array<Record<string, unknown>>;
+        assert.deepEqual(content.map((item) => item.role ?? item.type), ["text", "first_frame", "last_frame"]);
+        assert.deepEqual((content[1].image_url as { url: string }).url, videoWhite);
+        assert.deepEqual((content[2].image_url as { url: string }).url, videoBlue);
+      } finally {
+        restoreFetch();
+      }
+    });
+
+    await test("Seedance 2.5 多模态按图片、视频、音频角色提交并保留用量", async () => {
+      let submittedBody: Record<string, unknown> | undefined;
+      const restoreFetch = installFetchMock((input, init) => {
+        if (init?.method === "POST") {
+          submittedBody = jsonBody(init);
+          return Response.json({ id: "reference-task" });
+        }
+        if (String(input) === "https://cdn.example/reference.mp4") return new Response(mp4Payload());
+        return Response.json({
+          status: "succeeded",
+          content: { video_url: "https://cdn.example/reference.mp4" },
+          usage: { completion_tokens: 38_830, total_tokens: 38_830 },
+          duration: 4,
+          resolution: "480p",
+          ratio: "16:9",
+          seed: 17,
+        });
+      });
+      try {
+        const result = await withoutTimerDelay(() => generateApiYiVideo({
+          mode: "multimodal-reference",
+          model: SEEDANCE_25_MODEL,
+          prompt: "保持服装身份并生成自然转身",
+          aspectRatio: "3:4",
+          resolution: "1080p",
+          seconds: 12,
+          generateAudio: true,
+          outputFormat: "mov",
+          references: [
+            { role: "reference-image", url: "asset://image-reference" },
+            { role: "reference-video", url: "https://media.example/reference.mp4" },
+            { role: "reference-audio", url: "asset://audio-reference" },
+          ],
+        }));
+        const content = submittedBody?.content as Array<Record<string, unknown>>;
+        assert.deepEqual(content.map((item) => item.role ?? item.type), ["text", "reference_image", "reference_video", "reference_audio"]);
+        assert.equal(submittedBody?.resolution, "1080p");
+        assert.equal(submittedBody?.ratio, "3:4");
+        assert.equal(submittedBody?.duration, 12);
+        assert.equal(submittedBody?.output_format, "mov");
+        assert.equal(result.usage.completionTokens, 38_830);
+        assert.equal(result.usage.seed, 17);
+      } finally {
+        restoreFetch();
+      }
+    });
+
+    await test("Seedance 模型矩阵和视频编辑硬约束在提交前生效", async () => {
+      let calls = 0;
+      const restoreFetch = installFetchMock((input, init) => {
+        calls += 1;
+        if (init?.method === "POST") {
+          const body = jsonBody(init);
+          assert.equal(body.omni_reference_task_type, "edit");
+          assert.equal(body.duration, -1);
+          assert.equal(body.ratio, "adaptive");
+          return Response.json({ id: "edit-task" });
+        }
+        if (String(input) === "https://cdn.example/edit.mp4") return new Response(mp4Payload());
+        return Response.json({ status: "succeeded", content: { video_url: "https://cdn.example/edit.mp4" } });
+      });
+      try {
+        await assert.rejects(() => generateApiYiVideo({
+          mode: "text-to-video",
+          model: "doubao-seedance-2-0-mini-260615",
+          prompt: "越界时长",
+          aspectRatio: "16:9",
+          resolution: "1080p",
+          seconds: 4,
+          generateAudio: false,
+          outputFormat: "mp4",
+          references: [],
+        }), /不支持 1080p/);
+        assert.equal(calls, 0);
+
+        await withoutTimerDelay(() => generateApiYiVideo({
+          mode: "video-edit",
+          model: SEEDANCE_25_MODEL,
+          prompt: "修改 @视频1 中的天空颜色，同时保持主体动作不变",
+          aspectRatio: "adaptive",
+          resolution: "480p",
+          seconds: -1,
+          generateAudio: true,
+          outputFormat: "mp4",
+          references: [{ role: "source-video", url: "https://media.example/source.mp4" }],
+        }));
+        assert.equal(calls, 3);
       } finally {
         restoreFetch();
       }
@@ -214,19 +334,24 @@ async function main(): Promise<void> {
       let acceptedCalls = 0;
       const restoreFetch = installFetchMock((input, init) => {
         methods.push(init?.method ?? "GET");
-        if (String(input).endsWith("/content")) return new Response(mp4Payload());
-        return Response.json({ status: "completed" });
+        if (String(input) === "https://cdn.example/resumed.mp4") {
+          assert.equal(new Headers(init?.headers).has("authorization"), false);
+          return new Response(mp4Payload());
+        }
+        return Response.json({ status: "succeeded", content: { video_url: "https://cdn.example/resumed.mp4" } });
       });
       try {
         const result = await withoutTimerDelay(() => generateApiYiVideo({
           mode: "text-to-video",
+          model: SEEDANCE_25_MODEL,
           prompt: "服装走秀",
-          quality: "fast",
           aspectRatio: "16:9",
           resolution: "720p",
-          seconds: 8,
+          seconds: 5,
+          generateAudio: true,
+          outputFormat: "mp4",
           references: [],
-          resumeTask: { id: "accepted-video-task", model: "veo-3.1-fast-generate-preview" },
+          resumeTask: { id: "accepted-video-task", model: SEEDANCE_25_MODEL },
           beforeProviderCall: () => { beforeCalls += 1; },
           onTaskAccepted: () => { acceptedCalls += 1; },
         }));
@@ -244,17 +369,19 @@ async function main(): Promise<void> {
       const restoreFetch = installFetchMock((_input, init) => {
         calls += 1;
         assert.equal(init?.method, "POST");
-        return Response.json({ task_id: "accepted-but-untracked" });
+        return Response.json({ id: "accepted-but-untracked" });
       });
       try {
         await assert.rejects(
           () => generateApiYiVideo({
             mode: "text-to-video",
+            model: SEEDANCE_25_MODEL,
             prompt: "服装走秀",
-            quality: "fast",
             aspectRatio: "16:9",
             resolution: "720p",
-            seconds: 8,
+            seconds: 5,
+            generateAudio: true,
+            outputFormat: "mp4",
             references: [],
             onTaskAccepted: () => { throw new Error("database unavailable"); },
           }),
@@ -305,6 +432,18 @@ async function main(): Promise<void> {
         restoreHttp();
       }
       assert.equal(config.aiConfigReady(), true);
+    });
+
+    await test("Seedance 视频配置与图片 API 凭据完全隔离", () => {
+      assert.equal(config.seedanceApiBaseUrl(), "https://video-gateway.example");
+      assert.equal(config.seedanceApiKey(), "seedance-test-key");
+      const restoreMissingVideoKey = setEnv("SEEDANCE_API_KEY", undefined);
+      try {
+        assert.throws(() => config.seedanceApiKey(), /SEEDANCE_API_KEY/);
+        assert.equal(config.apiyiApiKey(), "apiyi-test-key");
+      } finally {
+        restoreMissingVideoKey();
+      }
     });
 
     await test("公共请求出口拒绝非 HTTPS 且不会发送 Bearer 请求", async () => {
@@ -984,6 +1123,8 @@ async function main(): Promise<void> {
       }
     });
   } finally {
+    restoreSeedanceKey();
+    restoreSeedanceBase();
     restoreKey();
     restoreBase();
   }

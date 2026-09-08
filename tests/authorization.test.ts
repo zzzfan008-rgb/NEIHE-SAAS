@@ -33,6 +33,7 @@ const {
 const { usageRouter } = await import("../server/routes/usage");
 const { historyRouter } = await import("../server/routes/history");
 const { templatesRouter } = await import("../server/routes/templates");
+const { tryOnStylePresetsRouter } = await import("../server/routes/tryOnStylePresets");
 const {
   migrateLegacyUserTemplateOwners,
   prepareUserTemplateAccountMutation,
@@ -204,6 +205,7 @@ app.use("/drawing-boards", drawingBoardsRouter);
 app.use("/usage", usageRouter);
 app.use("/history", historyRouter);
 app.use("/templates", templatesRouter);
+app.use("/try-on-style-presets", tryOnStylePresetsRouter);
 
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve, reject) => {
@@ -497,6 +499,29 @@ await test("所有鉴权图片禁止缓存，撤回共享后立即恢复访问�
     assert.match(ownerResponse.headers.get("vary") ?? "", /(?:^|,\s*)Cookie(?:,|$)/i);
     await ownerResponse.arrayBuffer();
   }
+});
+
+await test("私有换装风格预设按账号隔离并校验参考图权限", async () => {
+  const upload = await request("/files", "owner", {
+    method: "POST",
+    body: JSON.stringify({ dataUrl: PNG_DATA_URL }),
+  });
+  const uploaded = await upload.json() as { url: string; error?: string };
+  assert.equal(upload.status, 200, uploaded.error);
+  const create = await request("/try-on-style-presets", "owner", {
+    method: "POST",
+    body: JSON.stringify({ name: "我的硬光", prompt: "单一左侧硬光，低饱和色调", referenceImage: uploaded.url }),
+  });
+  const created = await create.json() as { id?: string; error?: string };
+  assert.equal(create.status, 201, created.error);
+  assert.ok(created.id);
+
+  const ownerPresets = await (await request("/try-on-style-presets", "owner")).json() as Array<{ id: string; builtIn: boolean }>;
+  const otherPresets = await (await request("/try-on-style-presets", "other")).json() as Array<{ id: string; builtIn: boolean }>;
+  assert.ok(ownerPresets.some((preset) => preset.id === created.id && preset.builtIn === false));
+  assert.equal(otherPresets.some((preset) => preset.id === created.id), false);
+  assert.equal((await request(`/try-on-style-presets/${created.id}`, "other", { method: "DELETE" })).status, 404);
+  assert.equal((await request(`/try-on-style-presets/${created.id}`, "owner", { method: "DELETE" })).status, 200);
 });
 
 await test("没有 files 元数据的物理孤儿文件拒绝所有账号读取", async () => {

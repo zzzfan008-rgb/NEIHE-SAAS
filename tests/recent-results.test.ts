@@ -203,6 +203,7 @@ test("成功后主卡保留原 id，批量图片追加独立可查看卡片", ()
     status: "success",
     images: ["/api/files/one", "/api/files/two"],
     prompts: ["提示词 1", "提示词 2"],
+    executionMeta: { tryOn: { qualityMode: "best", selectedIndex: 1 } },
     finishedAt: 3_000,
   });
   assert.equal(result.length, 2);
@@ -216,6 +217,8 @@ test("成功后主卡保留原 id，批量图片追加独立可查看卡片", ()
     ["/api/files/one", "/api/files/two"],
   );
   assert.equal(result[1].prompt, "提示词 2");
+  assert.deepEqual(result[0].executionMeta, { tryOn: { qualityMode: "best", selectedIndex: 1 } });
+  assert.deepEqual(result[1].executionMeta, { tryOn: { qualityMode: "best", selectedIndex: 1 } });
 });
 
 test("生成失败也保留点击时的卡片和错误信息", () => {
@@ -352,6 +355,29 @@ test("缺少 images 的成功事件被归一为空数组而不是 undefined", ()
     throw new Error("expected success event");
   }
   assert.deepEqual(event.images, []);
+});
+
+test("成功事件只接受对象形式的换装执行元数据", () => {
+  const valid = normalizeRunEvent({
+    type: "node-status",
+    nodeId: "node-1",
+    status: "success",
+    images: ["/api/files/result.png"],
+    executionMeta: { tryOn: { style: "commerce" } },
+  });
+  assert.equal(valid.type, "node-status");
+  if (valid.type !== "node-status") throw new Error("expected node status event");
+  assert.deepEqual(valid.executionMeta, { tryOn: { style: "commerce" } });
+
+  const invalid = normalizeRunEvent({
+    type: "node-status",
+    nodeId: "node-1",
+    status: "success",
+    executionMeta: ["unexpected"],
+  });
+  assert.equal(invalid.type, "node-status");
+  if (invalid.type !== "node-status") throw new Error("expected node status event");
+  assert.equal(invalid.executionMeta, undefined);
 });
 
 test("图片网格收到损坏的 undefined 数据时显示空状态而不抛错", () => {

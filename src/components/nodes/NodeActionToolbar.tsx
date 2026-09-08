@@ -78,10 +78,17 @@ function deleteNode(nodeId: string) {
   useFlowStore.getState().onNodesChange([{ id: nodeId, type: "remove" }]);
 }
 
-function connectTransform(nodeId: string, kind: "ai-modify" | "mask-redraw" | "upscale", patch?: Record<string, unknown>) {
-  const state = useFlowStore.getState();
-  const newId = state.addConnectedNode(nodeId, kind, "downstream");
-  if (newId && patch) useFlowStore.getState().updateNodeData(newId, patch);
+function connectTransform(
+  nodeId: string,
+  kind: "ai-modify" | "mask-redraw" | "upscale",
+  sourceHandle: string,
+  preset?: Record<string, unknown>,
+) {
+  useFlowStore.getState().addConnectedNode(nodeId, kind, "downstream", {
+    sourceHandle,
+    targetHandle: kind === "mask-redraw" ? "repair-source" : "references",
+    preset,
+  });
 }
 
 export function TextNodeActionToolbar({ nodeId, text }: { nodeId: string; text: string }) {
@@ -123,21 +130,32 @@ export function TextNodeActionToolbar({ nodeId, text }: { nodeId: string; text: 
   );
 }
 
-export function MediaNodeActionToolbar({ nodeId, imageActions = true }: { nodeId: string; imageActions?: boolean }) {
+export function MediaNodeActionToolbar({
+  nodeId,
+  imageActions = true,
+  hasImage = true,
+  sourceHandle = "image",
+}: {
+  nodeId: string;
+  imageActions?: boolean;
+  hasImage?: boolean;
+  sourceHandle?: string;
+}) {
   const toolbarDisabled = useToolbarDisabled(nodeId);
+  const transformDisabled = toolbarDisabled || !hasImage;
   return (
     <div role="toolbar" aria-label="媒体节点操作" className="flex h-9 items-center gap-0.5 rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] p-1 shadow-xl">
       {imageActions && (
         <>
-          <Button type="button" variant="ghost" size="sm" disabled={toolbarDisabled} onClick={() => connectTransform(nodeId, "ai-modify", { prompt: "在保持主体可辨识和构图稳定的前提下，完成目标风格转绘" })} className="text-[10px] text-[var(--gc-text-muted)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-text)]">
+          <Button type="button" variant="ghost" size="sm" disabled={transformDisabled} onClick={() => connectTransform(nodeId, "ai-modify", sourceHandle, { prompt: "在保持主体可辨识和构图稳定的前提下，完成目标风格转绘" })} className="text-[10px] text-[var(--gc-text-muted)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-text)]">
             <PaintbrushIcon aria-hidden="true" className="size-3.5" />风格转绘
           </Button>
-          <Button type="button" variant="ghost" size="sm" disabled={toolbarDisabled} onClick={() => connectTransform(nodeId, "mask-redraw")} className="text-[10px] text-[var(--gc-text-muted)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-text)]">
+          <Button type="button" variant="ghost" size="sm" disabled={transformDisabled} onClick={() => connectTransform(nodeId, "mask-redraw", sourceHandle)} className="text-[10px] text-[var(--gc-text-muted)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-text)]">
             <CropIcon aria-hidden="true" className="size-3.5" />局部重绘
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger
-              disabled={toolbarDisabled}
+              disabled={transformDisabled}
               render={(
                 <Button type="button" variant="ghost" size="sm" aria-label="高清放大" className="text-[10px] text-[var(--gc-text-muted)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-text)]">
                   <SparklesIcon aria-hidden="true" className="size-3.5" />高清放大
@@ -146,7 +164,7 @@ export function MediaNodeActionToolbar({ nodeId, imageActions = true }: { nodeId
             />
             <DropdownMenuContent side="bottom" align="start" className="w-24 min-w-24 border border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)] ring-0">
               {(["2K", "4K"] as const).map((size) => (
-                <DropdownMenuItem key={size} onClick={() => connectTransform(nodeId, "upscale", { imageSize: size })} className="min-h-8 text-xs">
+                <DropdownMenuItem key={size} onClick={() => connectTransform(nodeId, "upscale", sourceHandle, { imageSize: size })} className="min-h-8 text-xs">
                   {size}
                 </DropdownMenuItem>
               ))}

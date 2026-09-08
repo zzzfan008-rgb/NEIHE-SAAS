@@ -1,39 +1,24 @@
 {
   "schemaVersion": 11,
-  "id": "builtin-tool-keyframes-to-video",
-  "name": "首尾帧生视频",
-  "description": "首帧、尾帧和提示词按角色连接。",
+  "id": "builtin-tool-video-extend",
+  "name": "视频延长",
+  "description": "源视频与延长指令连接到 Seedance 2.5 延长任务。",
   "builtIn": true,
   "createdAt": "2026-09-03T08:00:00.000Z",
   "flow": {
     "schemaVersion": 11,
     "nodes": [
       {
-        "id": "first",
-        "type": "image-input",
+        "id": "source",
+        "type": "video-input",
         "position": {
           "x": 0,
-          "y": -220
+          "y": -100
         },
         "data": {
-          "kind": "image-input",
-          "label": "首帧",
-          "status": "idle",
-          "imageRole": "reference"
-        }
-      },
-      {
-        "id": "last",
-        "type": "image-input",
-        "position": {
-          "x": 0,
-          "y": 60
-        },
-        "data": {
-          "kind": "image-input",
-          "label": "尾帧",
-          "status": "idle",
-          "imageRole": "reference"
+          "kind": "video-input",
+          "label": "待延长视频",
+          "status": "idle"
         }
       },
       {
@@ -41,13 +26,13 @@
         "type": "text-input",
         "position": {
           "x": 0,
-          "y": 340
+          "y": 220
         },
         "data": {
           "kind": "text-input",
-          "label": "视频提示词",
+          "label": "延长要求",
           "status": "idle",
-          "text": ""
+          "text": "向后延长 @视频1，延续原有镜头运动、主体动作和光线。"
         }
       },
       {
@@ -59,9 +44,9 @@
         },
         "data": {
           "kind": "video-generate",
-          "label": "首尾帧生视频",
+          "label": "视频延长",
           "status": "idle",
-          "mode": "keyframes-to-video",
+          "mode": "video-extend",
           "prompt": "",
           "videoModel": "doubao-seedance-2-5-260628",
           "aspectRatio": "adaptive",
@@ -75,18 +60,11 @@
     ],
     "edges": [
       {
-        "id": "first-generate",
-        "source": "first",
-        "sourceHandle": "image",
+        "id": "source-generate",
+        "source": "source",
+        "sourceHandle": "video",
         "target": "generate",
-        "targetHandle": "first-frame"
-      },
-      {
-        "id": "last-generate",
-        "source": "last",
-        "sourceHandle": "image",
-        "target": "generate",
-        "targetHandle": "last-frame"
+        "targetHandle": "source-video"
       },
       {
         "id": "prompt-generate",

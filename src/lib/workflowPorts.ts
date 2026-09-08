@@ -1,4 +1,5 @@
 import {
+  MAX_MASK_USER_REFERENCE_IMAGES,
   MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES,
   NODE_SPECS,
   type NodePortSpec,
@@ -6,12 +7,14 @@ import {
   type WorkflowInputRole,
   type WorkflowNodeData,
 } from "../types/workflow";
+import { SEEDANCE_MODEL_CAPABILITIES } from "./seedance";
 
 export type WorkflowPortPayload =
   | { valueKind: "image"; images: string[] }
   | { valueKind: "text"; text: string }
   | { valueKind: "colors"; colors: string[] }
   | { valueKind: "video"; videos: string[] }
+  | { valueKind: "audio"; audios: string[] }
   | { valueKind: "none" };
 
 const input = (
@@ -23,7 +26,7 @@ const input = (
 ): NodePortSpec => ({ id, label, direction: "input", valueKind, required, maxSources });
 
 const SCENE_STABILIZE_PORTS: readonly NodePortSpec[] = [
-  input("person", "人物身份图", "image", true, 1),
+  input("person", "人物身份参考", "image", true, 3),
   input("scene", "场景或表演参考图", "image", true, 1),
   input("outfit", "主穿搭图", "image", true, 1),
   input("bag", "包袋参考图", "image", false, 1),
@@ -40,6 +43,11 @@ const GARMENT_REFINE_PORTS: readonly NodePortSpec[] = [
   input("outfit", "主穿搭图", "image", true, 1),
   input("material", "面料参考图", "image", false, 1),
   input("detail", "局部结构参考图", "image", false, MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES - 3),
+];
+
+const MASK_REPAIR_PORTS: readonly NodePortSpec[] = [
+  input("repair-source", "待修改底图", "image", true, 1),
+  input("references", "细节参考图", "image", false, MAX_MASK_USER_REFERENCE_IMAGES - 1),
 ];
 
 export const STAGED_ROLE_LABELS: Readonly<Partial<Record<WorkflowInputRole, string>>> = {
@@ -61,6 +69,9 @@ export const STAGED_ROLE_LABELS: Readonly<Partial<Record<WorkflowInputRole, stri
   "first-frame": "首帧 / 参考图一",
   "last-frame": "尾帧 / 参考图二",
   "source-video": "源视频",
+  "reference-image": "参考图片",
+  "reference-video": "参考视频",
+  "reference-audio": "参考音频",
 };
 
 export function isStagedTryOnData(data: WorkflowNodeData): boolean {
@@ -86,21 +97,30 @@ export function compatibleUnusedInputRoles(options: {
 export function inputPortSpecs(data: WorkflowNodeData): readonly NodePortSpec[] {
   if (data.kind === "video-generate") {
     const prompt = input("prompt", "视频提示词", "text", true, 1);
+    const capability = SEEDANCE_MODEL_CAPABILITIES[data.videoModel];
     if (data.mode === "text-to-video") return [prompt];
-    if (data.mode === "video-to-video") return [
-      input("source-video", "源视频", "video", true, 1),
+    if (data.mode === "first-frame-to-video") return [
+      input("first-frame", "首帧", "image", true, 1),
       prompt,
     ];
-    return [
-      input("first-frame", data.mode === "multi-image-video" ? "参考图一" : "首帧", "image", true, 1),
-      input("last-frame", data.mode === "multi-image-video" ? "参考图二" : "尾帧", "image", true, 1),
+    if (data.mode === "keyframes-to-video") return [
+      input("first-frame", "首帧", "image", true, 1),
+      input("last-frame", "尾帧", "image", true, 1),
       prompt,
     ];
+    if (data.mode === "multimodal-reference") return [
+      input("reference-image", "参考图片", "image", false, capability.maxImages),
+      input("reference-video", "参考视频", "video", false, capability.maxVideos),
+      input("reference-audio", "参考音频", "audio", false, capability.maxAudios),
+      prompt,
+    ];
+    return [input("source-video", data.mode === "video-edit" ? "待编辑视频" : "待延长视频", "video", true, 1), prompt];
   }
   if (data.kind === "virtual-try-on") {
     if (data.workflowStage === "scene-stabilize") return SCENE_STABILIZE_PORTS;
     if (data.workflowStage === "garment-refine") return GARMENT_REFINE_PORTS;
   }
+  if (data.kind === "mask-redraw") return MASK_REPAIR_PORTS;
   return NODE_SPECS[data.kind].inputPorts;
 }
 
@@ -122,7 +142,15 @@ export function outputPortFor(
   sourceHandle?: string | null,
 ): NodePortSpec | undefined {
   const ports = outputPortSpecs(data);
-  if (sourceHandle) return ports.find((port) => port.id === sourceHandle);
+  if (sourceHandle) {
+    const exact = ports.find((port) => port.id === sourceHandle);
+    if (exact) return exact;
+    if (data.kind === "result" && /^image:\d+$/.test(sourceHandle)) {
+      const imagePort = ports.find((port) => port.valueKind === "image");
+      return imagePort ? { ...imagePort, id: sourceHandle } : undefined;
+    }
+    return undefined;
+  }
   return ports.length === 1 ? ports[0] : undefined;
 }
 
@@ -149,6 +177,11 @@ export function connectionCompatibilityError(options: {
 }): string | undefined {
   const { source, target, sourceHandle, targetHandle, existingEdges = [] } = options;
   if (source.id === target.id) return "节点不能连接到自身";
+  if (
+    source.data.kind === "image-input"
+    && source.data.imageUrl?.startsWith("asset://")
+    && target.data.kind !== "video-generate"
+  ) return "asset:// 图片素材只能连接 Seedance 视频节点";
   const sourcePort = outputPortFor(source.data, sourceHandle);
   if (!sourcePort) return "来源节点没有可用的输出端口";
   const targetPort = inputPortFor(target.data, targetHandle);
@@ -179,4 +212,12 @@ export function connectionCompatibilityError(options: {
 
 export function portPayloadKind(payload: WorkflowPortPayload): PortValueKind {
   return payload.valueKind;
+}
+
+/** Result nodes expose one stable image handle per thumbnail. Other handles keep all outputs. */
+export function imagesForSourceHandle(images: readonly string[], sourceHandle?: string | null): string[] {
+  const match = sourceHandle?.match(/^image:(\d+)$/);
+  if (!match) return [...images];
+  const selected = images[Number(match[1])];
+  return selected ? [selected] : [];
 }

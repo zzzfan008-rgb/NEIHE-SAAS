@@ -8,6 +8,7 @@ const KIND_COLOR: Record<NodeKind, string> = {
   "color-palette": "#C87A9A",
   "stage-approval": "#C9953D",
   "video-input": "#4B7E9B",
+  "audio-input": "#4E9C72",
   "video-generate": "#7C6DD0",
   "sketch-to-render": "#C9A66B",
   "ai-modify": "#9B72CF",

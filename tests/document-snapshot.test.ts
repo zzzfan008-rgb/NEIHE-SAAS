@@ -151,6 +151,8 @@ const source = {
         kind: "mask-redraw",
         label: "蒙版重绘",
         status: "cancel_requested",
+        repairFocus: "custom",
+        executionMode: "repair",
         prompt: "袖口改成银色",
         mask: "/api/files/mask.png",
         maskSourceRef: "/api/files/source.png",
@@ -309,6 +311,8 @@ assert.deepEqual(snapshot, {
       data: {
         kind: "mask-redraw",
         label: "蒙版重绘",
+        repairFocus: "custom",
+        executionMode: "repair",
         prompt: "袖口改成银色",
         mask: "/api/files/mask.png",
         maskSourceRef: "/api/files/source.png",

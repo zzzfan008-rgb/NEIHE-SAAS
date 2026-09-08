@@ -30,6 +30,18 @@ import {
   connectionCompatibilityError,
   inputPortFor,
 } from "../../src/lib/workflowPorts";
+import { MASK_REPAIR_FOCUSES } from "../../src/lib/maskRepair";
+import {
+  SEEDANCE_MODEL_CAPABILITIES,
+  SEEDANCE_OUTPUT_FORMATS,
+  SEEDANCE_RATIOS,
+  SEEDANCE_RESOLUTIONS,
+  SEEDANCE_VIDEO_MODES,
+  SEEDANCE_VIDEO_MODELS,
+  isSeedanceVideoModel,
+  normalizedSeedanceSettings,
+  seedanceModeRequiresAdaptive,
+} from "../../src/lib/seedance";
 
 const NODE_KINDS: readonly NodeKind[] = [
   "image-input",
@@ -38,6 +50,7 @@ const NODE_KINDS: readonly NodeKind[] = [
   "color-palette",
   "stage-approval",
   "video-input",
+  "audio-input",
   "video-generate",
   "sketch-to-render",
   "ai-modify",
@@ -58,13 +71,16 @@ const ASPECT_RATIOS = ["1:1", "4:5", "3:4", "4:3", "2:3", "9:16", "16:9"] as con
 const IMAGE_SIZES = ["2K", "4K"] as const;
 const VIRTUAL_TRY_ON_STAGES = ["standard", "scene-stabilize", "garment-refine"] as const;
 const GARMENT_CATEGORIES = ["knit", "woven", "other"] as const;
+const TRY_ON_QUALITY_MODES = ["fast", "balanced", "best"] as const;
 const FABRIC_OPERATION_MODES = ["combined", "fabric", "color"] as const;
 const COLOR_SWATCH_SOURCES = ["quick", "custom", "recent", "favorite", "eyedropper"] as const;
 const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
   "person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet",
   "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
-  "first-frame", "last-frame", "source-video",
+  "first-frame", "last-frame", "source-video", "repair-source", "eyewear", "neckwear", "belt", "watch",
+  "reference-image", "reference-video", "reference-audio",
 ];
+const MASK_REPAIR_EXECUTION_MODES = ["repair", "bypass"] as const;
 const BOARD_MIN_SIDE = 256;
 const BOARD_MAX_SIDE = 4096;
 export const MAX_WORKFLOW_NODES = 500;
@@ -74,6 +90,7 @@ const MAX_IMAGE_REFERENCE_LENGTH = 20_000;
 const MAX_IMAGE_REFS = 100;
 const MAX_AUTO_CONNECT_TARGETS = 16;
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const ASSET_REFERENCE = /^asset:\/\/[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const MASK_DATA_URL_CONTRACT = (() => {
   const contract = getImageModelContract(MASK_REDRAW_MODEL_ID).edit.mask;
   if (!contract) throw new Error(`${MASK_REDRAW_MODEL_ID} 缺少蒙版契约`);
@@ -96,6 +113,11 @@ function record(value: unknown, path: string): Record<string, unknown> {
     fail(path, "must be an object");
   }
   return value as Record<string, unknown>;
+}
+
+function booleanValue(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") fail(path, "must be a boolean");
+  return value;
 }
 
 function stringValue(value: unknown, path: string, opts?: { nonEmpty?: boolean }): string {
@@ -134,8 +156,8 @@ function imageReference(value: unknown, path: string, opts?: ImageReferenceOptio
     fail(path, `must be at most ${MAX_IMAGE_REFERENCE_LENGTH} characters`);
   }
   const isRemote = /^https?:\/\//i.test(ref);
-  if (!isLocalImageReference(ref) && !isRemote) {
-    fail(path, "must be an image dataURL, local /api/files reference, or http(s) URL");
+  if (!isLocalImageReference(ref) && !isRemote && !ASSET_REFERENCE.test(ref)) {
+    fail(path, "must be an image dataURL, local /api/files reference, http(s) URL, or asset:// reference");
   }
   return ref;
 }
@@ -198,6 +220,15 @@ function mediaReference(value: unknown, path: string): string {
   return imageReference(value, path);
 }
 
+function seedanceRemoteMediaReference(value: unknown, path: string): string {
+  const ref = stringValue(value, path, { nonEmpty: true });
+  if (ref.length > MAX_IMAGE_REFERENCE_LENGTH) fail(path, `must be at most ${MAX_IMAGE_REFERENCE_LENGTH} characters`);
+  if (!/^https:\/\//i.test(ref) && !ASSET_REFERENCE.test(ref) && !isLocalMediaReference(ref)) {
+    fail(path, "must be a local media reference, HTTPS URL, or asset:// reference");
+  }
+  return ref;
+}
+
 function mediaReferenceArray(value: unknown, path: string, max = MAX_IMAGE_REFS): string[] {
   if (!Array.isArray(value)) fail(path, "must be an array");
   if (value.length > max) fail(path, `must contain at most ${max} items`);
@@ -241,8 +272,49 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
       return { approvalKind: "scene-baseline", ...raw };
     case "video-input":
       return { ...raw };
-    case "video-generate":
-      return { mode: "text-to-video", prompt: "", videoModel: "veo-3.1", quality: "fast", aspectRatio: "16:9", resolution: "720p", seconds: 8, outputImages: [], ...raw };
+    case "audio-input":
+      return { ...raw };
+    case "video-generate": {
+      const { quality: _legacyQuality, ...videoData } = raw;
+      const mode = raw.mode === "multi-image-video"
+        ? "multimodal-reference"
+        : raw.mode === "video-to-video"
+          ? "video-edit"
+          : SEEDANCE_VIDEO_MODES.includes(raw.mode as never) ? raw.mode : "text-to-video";
+      const model = isSeedanceVideoModel(raw.videoModel)
+        ? raw.videoModel
+        : "doubao-seedance-2-5-260628";
+      const ratio = ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"].includes(String(raw.aspectRatio))
+        ? raw.aspectRatio : "16:9";
+      const resolution = raw.resolution === "480p"
+        ? "480p"
+        : raw.resolution === "1080p" || raw.resolution === "4k" ? "1080p" : "720p";
+      const duration = raw.seconds === -1 || (
+        Number.isSafeInteger(raw.seconds)
+        && Number(raw.seconds) >= 4
+        && Number(raw.seconds) <= SEEDANCE_MODEL_CAPABILITIES[model].maxDuration
+      ) ? Number(raw.seconds) : 5;
+      const normalized = normalizedSeedanceSettings({
+        model,
+        mode: mode as never,
+        resolution,
+        ratio: String(ratio),
+        duration,
+        outputFormat: raw.outputFormat === "mov" ? "mov" : "mp4",
+      });
+      return {
+        ...videoData,
+        mode: normalized.mode,
+        prompt: typeof raw.prompt === "string" ? raw.prompt : "",
+        videoModel: normalized.model,
+        aspectRatio: normalized.ratio,
+        resolution: normalized.resolution,
+        seconds: normalized.duration,
+        generateAudio: typeof raw.generateAudio === "boolean" ? raw.generateAudio : true,
+        outputFormat: normalized.outputFormat,
+        outputImages: Array.isArray(raw.outputImages) ? raw.outputImages : [],
+      };
+    }
     case "sketch-to-render":
       return {
         prompt: "", aspectRatio: "3:4", batchSize: 1, outputImages: [],
@@ -264,13 +336,14 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
     case "virtual-try-on":
       return {
         workflowStage: "standard", prompt: "", imageSize: "2K", aspectRatio: "3:4", outputImages: [],
+        promptEnhancement: false, qualityMode: "fast", safetyFallback: false, stylePresetId: "faithful",
         ...(raw.workflowStage === "scene-stabilize" ? { basisRevision: 0 } : {}),
         ...raw, ...migratedModelFields(kind, raw),
       };
     case "mask-redraw": {
       const { maskMode: _legacyMaskMode, ...migratedMaskData } = raw;
       return {
-        prompt: "", outputImages: [], ...migratedMaskData,
+        prompt: "", outputImages: [], repairFocus: "custom", executionMode: "repair", ...migratedMaskData,
         modelId: MASK_REDRAW_MODEL_ID,
         modelOptions: defaultImageModelOptions(MASK_REDRAW_MODEL_ID),
       };
@@ -376,15 +449,44 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       if (raw.videoUrl !== undefined) mediaReference(raw.videoUrl, `${path}.videoUrl`);
       if (raw.mimeType !== undefined) oneOf(raw.mimeType, ["video/mp4", "video/webm", "video/quicktime"] as const, `${path}.mimeType`);
       break;
+    case "audio-input":
+      if (raw.audioUrl !== undefined) seedanceRemoteMediaReference(raw.audioUrl, `${path}.audioUrl`);
+      if (raw.mimeType !== undefined) oneOf(raw.mimeType, ["audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg"] as const, `${path}.mimeType`);
+      break;
     case "video-generate":
-      oneOf(raw.mode, ["text-to-video", "keyframes-to-video", "multi-image-video", "video-to-video"] as const, `${path}.mode`);
+      oneOf(raw.mode, SEEDANCE_VIDEO_MODES, `${path}.mode`);
       stringValue(raw.prompt, `${path}.prompt`);
-      oneOf(raw.videoModel, ["veo-3.1"] as const, `${path}.videoModel`);
-      oneOf(raw.quality, ["fast", "standard"] as const, `${path}.quality`);
-      oneOf(raw.aspectRatio, ["16:9", "9:16"] as const, `${path}.aspectRatio`);
-      oneOf(raw.resolution, ["720p", "1080p", "4k"] as const, `${path}.resolution`);
-      oneOf(raw.seconds, [4, 6, 8] as const, `${path}.seconds`);
-      if (raw.resolution !== "720p" && raw.seconds !== 8) fail(`${path}.seconds`, "must be 8 for 1080p or 4k");
+      oneOf(raw.videoModel, SEEDANCE_VIDEO_MODELS, `${path}.videoModel`);
+      oneOf(raw.aspectRatio, SEEDANCE_RATIOS, `${path}.aspectRatio`);
+      oneOf(raw.resolution, SEEDANCE_RESOLUTIONS, `${path}.resolution`);
+      if (raw.seconds !== -1) {
+        boundedInteger(
+          raw.seconds,
+          `${path}.seconds`,
+          4,
+          SEEDANCE_MODEL_CAPABILITIES[raw.videoModel as typeof SEEDANCE_VIDEO_MODELS[number]].maxDuration,
+        );
+      }
+      booleanValue(raw.generateAudio, `${path}.generateAudio`);
+      oneOf(raw.outputFormat, SEEDANCE_OUTPUT_FORMATS, `${path}.outputFormat`);
+      if (!SEEDANCE_MODEL_CAPABILITIES[raw.videoModel as typeof SEEDANCE_VIDEO_MODELS[number]].supports1080p && raw.resolution === "1080p") {
+        fail(`${path}.resolution`, "1080p is only supported by Seedance 2.5 and 2.0 standard");
+      }
+      if (!SEEDANCE_MODEL_CAPABILITIES[raw.videoModel as typeof SEEDANCE_VIDEO_MODELS[number]].supportsMov && raw.outputFormat !== "mp4") {
+        fail(`${path}.outputFormat`, "mov is only supported by Seedance 2.5");
+      }
+      if ((raw.mode === "video-edit" || raw.mode === "video-extend") && raw.videoModel !== "doubao-seedance-2-5-260628") {
+        fail(`${path}.mode`, "video edit and extension require Seedance 2.5");
+      }
+      if (seedanceModeRequiresAdaptive(
+        raw.videoModel as typeof SEEDANCE_VIDEO_MODELS[number],
+        raw.mode as typeof SEEDANCE_VIDEO_MODES[number],
+      ) && raw.aspectRatio !== "adaptive") {
+        fail(`${path}.aspectRatio`, "must be adaptive for this Seedance 2.5 task type");
+      }
+      if (raw.mode === "video-edit" && raw.seconds !== -1) {
+        fail(`${path}.seconds`, "must be -1 for Seedance 2.5 video editing");
+      }
       mediaReferenceArray(raw.outputImages, `${path}.outputImages`);
       break;
     case "sketch-to-render":
@@ -431,6 +533,13 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       }
       optionalString(raw.materialSpec, `${path}.materialSpec`);
       optionalString(raw.constructionSpec, `${path}.constructionSpec`);
+      booleanValue(raw.promptEnhancement, `${path}.promptEnhancement`);
+      oneOf(raw.qualityMode, TRY_ON_QUALITY_MODES, `${path}.qualityMode`);
+      booleanValue(raw.safetyFallback, `${path}.safetyFallback`);
+      stringValue(raw.stylePresetId, `${path}.stylePresetId`, { nonEmpty: true });
+      optionalString(raw.stylePresetName, `${path}.stylePresetName`);
+      optionalString(raw.stylePrompt, `${path}.stylePrompt`);
+      optionalImageReference(raw.styleReferenceImage, `${path}.styleReferenceImage`);
       optionalNonNegativeInteger(raw.basisRevision, `${path}.basisRevision`);
       if (raw.workflowStage === "scene-stabilize" && raw.basisRevision === undefined) {
         fail(`${path}.basisRevision`, "is required for scene-stabilize");
@@ -444,6 +553,8 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       imageReferenceArray(raw.outputImages, `${path}.outputImages`);
       break;
     case "mask-redraw":
+      oneOf(raw.repairFocus, MASK_REPAIR_FOCUSES, `${path}.repairFocus`);
+      oneOf(raw.executionMode, MASK_REPAIR_EXECUTION_MODES, `${path}.executionMode`);
       stringValue(raw.prompt, `${path}.prompt`);
       optionalMaskReference(raw.mask, `${path}.mask`);
       optionalImageReference(raw.maskSourceRef, `${path}.maskSourceRef`);
@@ -494,6 +605,25 @@ function validateEdge(value: unknown, index: number): PersistedWorkflowEdge {
     oneOf(raw.targetHandle, WORKFLOW_INPUT_ROLES, `${path}.targetHandle`);
   }
   return { ...raw, id, source, target } as PersistedWorkflowEdge;
+}
+
+function migrateMaskRepairEdges(nodeValues: unknown[], edgeValues: unknown[]): unknown[] {
+  const maskNodeIds = new Set(nodeValues.flatMap((value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+    const node = value as Record<string, unknown>;
+    return node.type === "mask-redraw" && typeof node.id === "string" ? [node.id] : [];
+  }));
+  const claimedSource = new Set<string>();
+  return edgeValues.map((value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+    const edge = value as Record<string, unknown>;
+    if (typeof edge.target !== "string" || !maskNodeIds.has(edge.target)) return value;
+    if (!claimedSource.has(edge.target)) {
+      claimedSource.add(edge.target);
+      return { ...edge, targetHandle: "repair-source" };
+    }
+    return { ...edge, targetHandle: "references" };
+  });
 }
 
 /**
@@ -642,10 +772,32 @@ function normalizeLegacyEdgeHandles(edgeValues: unknown[]): unknown[] {
     const targetHandle = typeof edge.targetHandle === "string" && WORKFLOW_INPUT_ROLES.includes(edge.targetHandle as WorkflowInputRole)
       ? edge.targetHandle
       : null;
-    const sourceHandle = typeof edge.sourceHandle === "string" && ["image", "text", "colors", "video"].includes(edge.sourceHandle)
+    const sourceHandle = typeof edge.sourceHandle === "string" && (
+      ["image", "text", "colors", "video", "audio"].includes(edge.sourceHandle) || /^image:\d+$/.test(edge.sourceHandle)
+    )
       ? edge.sourceHandle
       : null;
     return { ...edge, sourceHandle, targetHandle };
+  });
+}
+
+function migrateLegacyVideoEdges(nodeValues: unknown[], edgeValues: unknown[]): unknown[] {
+  const legacyMultimodalIds = new Set(nodeValues.flatMap((value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+    const node = value as Record<string, unknown>;
+    if (node.type !== "video-generate" || typeof node.id !== "string") return [];
+    const data = typeof node.data === "object" && node.data !== null && !Array.isArray(node.data)
+      ? node.data as Record<string, unknown>
+      : undefined;
+    return data?.mode === "multi-image-video" ? [node.id] : [];
+  }));
+  return edgeValues.map((value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+    const edge = value as Record<string, unknown>;
+    if (!legacyMultimodalIds.has(String(edge.target))) return value;
+    return edge.targetHandle === "first-frame" || edge.targetHandle === "last-frame"
+      ? { ...edge, targetHandle: "reference-image" }
+      : value;
   });
 }
 
@@ -762,11 +914,13 @@ function migrateV4StageApprovals(
   return { nodes: [...nodes, ...insertedNodes], edges };
 }
 
-/** Validate untrusted JSON and migrate supported unversioned/v0-v6 formats to v7. */
+/** Validate untrusted JSON and migrate supported unversioned/v0-v10 formats to v11. */
 export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
   const raw = record(value, "flow");
   const version = raw.schemaVersion;
-  const migrateLegacy = version === undefined || version === 0 || version === 1 || version === 2 || version === 3 || version === 4 || version === 5 || version === 6;
+  const migrateLegacy = version === undefined || (
+    typeof version === "number" && Number.isInteger(version) && version >= 0 && version < WORKFLOW_SCHEMA_VERSION
+  );
   if (!migrateLegacy && version !== WORKFLOW_SCHEMA_VERSION) {
     fail("flow.schemaVersion", `unsupported version ${String(version)}; current version is ${WORKFLOW_SCHEMA_VERSION}`);
   }
@@ -776,7 +930,13 @@ export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
     ? migrateLegacyDualModelAccessorySlot(raw.nodes, raw.edges)
     : { nodes: raw.nodes, edges: raw.edges };
   const normalizedLegacy = migrateLegacy
-    ? { nodes: legacyAccessories.nodes, edges: normalizeLegacyEdgeHandles(legacyAccessories.edges) }
+    ? {
+        nodes: legacyAccessories.nodes,
+        edges: migrateLegacyVideoEdges(
+          legacyAccessories.nodes,
+          normalizeLegacyEdgeHandles(legacyAccessories.edges),
+        ),
+      }
     : legacyAccessories;
 
   const legacyIncomingRoles = new Map<string, Set<string>>();
@@ -791,9 +951,12 @@ export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
   const recoveredLegacyNodes = normalizedLegacy.nodes.map((node) => (
     migrateLegacy ? recoverStagedTryOnNode(node, legacyIncomingRoles) : node
   ));
-  const upgraded = migrateLegacy
+  const approvalUpgraded = migrateLegacy
     ? migrateV4StageApprovals(recoveredLegacyNodes, normalizedLegacy.edges)
     : { nodes: recoveredLegacyNodes, edges: normalizedLegacy.edges };
+  const upgraded = migrateLegacy
+    ? { ...approvalUpgraded, edges: migrateMaskRepairEdges(approvalUpgraded.nodes, approvalUpgraded.edges) }
+    : approvalUpgraded;
   if (upgraded.nodes.length > MAX_WORKFLOW_NODES) {
     fail("flow.nodes", `must contain at most ${MAX_WORKFLOW_NODES} nodes`);
   }
@@ -852,6 +1015,13 @@ export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
     ) {
       fail("flow.edges", `edge ${edge.id}: 已确认第一轮基准必须来自独立确认节点`);
     }
+    if (
+      sourceNode.data.kind === "image-input"
+      && sourceNode.data.imageUrl?.startsWith("asset://")
+      && targetNode.data.kind !== "video-generate"
+    ) {
+      fail("flow.edges", `edge ${edge.id}: asset:// 图片素材只能连接 Seedance 视频节点`);
+    }
     acceptedEdges.push(edge);
   }
   for (const node of nodes) {
@@ -873,6 +1043,7 @@ export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
     if (
       NODE_SPECS[node.type].providerId
       && node.type !== "virtual-try-on"
+      && node.type !== "video-generate"
       && incomingImageCount > MAX_REFERENCE_IMAGES
     ) {
       fail("flow.edges", `node ${node.id} accepts at most ${MAX_REFERENCE_IMAGES} reference images`);

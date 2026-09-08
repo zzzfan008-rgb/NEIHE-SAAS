@@ -4,6 +4,7 @@ import type { PoolClient } from "pg";
 import { nanoid } from "nanoid";
 import type { ExecutionPlan, NodeExecution } from "../../src/types/workflow";
 import { isImageModelId } from "../../src/types/imageModels";
+import { imagesForSourceHandle } from "../../src/lib/workflowPorts";
 import { config } from "../config";
 import { db, query, queryOne, transaction } from "../lib/database";
 import {
@@ -12,7 +13,9 @@ import {
   type PersistedImageReceipt,
 } from "../lib/fileStore";
 import type { GenerationRecordContext } from "../lib/generationRecords";
+import type { IdentityAnchorer } from "../lib/identityAnchor";
 import type { SceneAnalyzer } from "../lib/sceneAnalysis";
+import type { TryOnCandidateSelector } from "../lib/tryOnCandidateSelection";
 import { ACTIVE_RUN_LIMIT } from "../lib/generationLimits";
 import { lockActiveOwner } from "../lib/ownerMutation";
 import { getProvider } from "../providers";
@@ -25,7 +28,13 @@ import {
   publicProviderErrorMessage,
   sanitizedProviderDiagnostic,
 } from "../providers/base";
-import { executeStep, type ProviderResolver, type RunEvent, type StepResult } from "./runner";
+import {
+  executeStep,
+  type ExecuteStepOptions,
+  type ProviderResolver,
+  type RunEvent,
+  type StepResult,
+} from "./runner";
 
 export type DurableRunStatus =
   | "queued"
@@ -128,6 +137,9 @@ interface JobLockRow {
 export interface ProcessGenerationJobOptions {
   resolveProvider?: ProviderResolver;
   sceneAnalyzer?: SceneAnalyzer;
+  identityAnchorer?: IdentityAnchorer;
+  promptEnhancer?: ExecuteStepOptions["promptEnhancer"];
+  candidateSelector?: TryOnCandidateSelector;
   now?: () => number;
   retryDelaysMs?: readonly number[];
   random?: () => number;
@@ -377,7 +389,7 @@ export async function claimNextJob(
       startedAt: now,
       idempotencyKey: row.idempotency_key,
       videoTask: row.provider_task_id && row.provider_model
-        ? { id: row.provider_task_id, model: row.provider_model }
+        ? { id: row.provider_task_id, model: row.provider_model as ApiYiVideoTask["model"] }
         : undefined,
     };
   });
@@ -398,7 +410,10 @@ async function inputImagesForStep(runId: string, step: NodeExecution): Promise<S
   const images: string[] = [];
   const referenceRoles: string[] = [];
   for (const upstream of step.upstream) {
-    const resolvedImages = outputs.get(upstream.nodeId) ?? upstream.images;
+    const runtimeImages = outputs.get(upstream.nodeId);
+    const resolvedImages = runtimeImages
+      ? imagesForSourceHandle(runtimeImages, upstream.sourceHandle)
+      : upstream.images;
     images.push(...resolvedImages);
     referenceRoles.push(...resolvedImages.map(() => upstream.targetHandle ?? ""));
   }
@@ -622,7 +637,28 @@ async function completeJobSuccess(
   persistedImages: PersistedImageReceipt[],
   finishedAt: number,
 ): Promise<void> {
-  const imageUrls = persistedImages.map((image) => image.url);
+  const allImageUrls = persistedImages.map((image) => image.url);
+  const selectedIndex = result.candidateSelection?.selectedIndex;
+  const visibleImages = selectedIndex === undefined
+    ? allImageUrls
+    : selectedIndex === null || !allImageUrls[selectedIndex]
+      ? []
+      : [allImageUrls[selectedIndex]];
+  const visiblePrompts = selectedIndex === undefined
+    ? result.prompts
+    : selectedIndex === null
+      ? []
+      : result.prompts?.[selectedIndex] ? [result.prompts[selectedIndex]] : undefined;
+  const visibleOutputSizes = selectedIndex === undefined
+    ? result.providerOutputSizes
+    : selectedIndex === null
+      ? []
+      : result.providerOutputSizes?.[selectedIndex] !== undefined
+        ? [result.providerOutputSizes[selectedIndex]]
+        : undefined;
+  if (result.candidateSelection && visibleImages.length !== 1) {
+    throw new Error("候选择优结果与持久化图片不一致");
+  }
   await transaction(async (client) => {
     const locked = (await client.query<{ status: DurableRunStatus; worker_id: string | null }>(
       "SELECT status, worker_id FROM generation_jobs WHERE id = $1 FOR UPDATE",
@@ -645,12 +681,12 @@ async function completeJobSuccess(
     await client.query(`
       UPDATE generation_run_steps SET status = 'succeeded', model = $1, output_images_json = $2,
         prompts_json = $3, provider_output_sizes_json = $4, failures_json = $5,
-        error = $6, finished_at = $7
-      WHERE id = $8
+        execution_meta_json = $6, error = $7, finished_at = $8
+      WHERE id = $9
     `, [
-      result.model ?? null, JSON.stringify(imageUrls), JSON.stringify(result.prompts ?? []),
-      JSON.stringify(result.providerOutputSizes ?? []), JSON.stringify(result.failures ?? []),
-      cancellationWarning ?? null, finishedAt, job.stepId,
+      result.model ?? null, JSON.stringify(visibleImages), JSON.stringify(visiblePrompts ?? []),
+      JSON.stringify(visibleOutputSizes ?? []), JSON.stringify(result.failures ?? []),
+      JSON.stringify(result.executionMeta ?? {}), cancellationWarning ?? null, finishedAt, job.stepId,
     ]);
     for (const image of persistedImages) {
       if (!image.url.startsWith("/api/files/")) continue;
@@ -664,11 +700,12 @@ async function completeJobSuccess(
       type: "node-status",
       nodeId: job.nodeId,
       status: "success",
-      images: imageUrls,
+      images: visibleImages,
       model: result.model,
-      prompts: result.prompts,
-      providerOutputSizes: result.providerOutputSizes,
+      prompts: visiblePrompts,
+      providerOutputSizes: visibleOutputSizes,
       failures: result.failures,
+      executionMeta: result.executionMeta,
       error: cancellationWarning ?? partialWarning,
       startedAt: job.startedAt,
       finishedAt,
@@ -970,6 +1007,9 @@ export async function processNextGenerationJob(
         runId: job.runId,
         referenceRoles: input.referenceRoles,
         sceneAnalyzer: options.sceneAnalyzer,
+        identityAnchorer: options.identityAnchorer,
+        promptEnhancer: options.promptEnhancer,
+        candidateSelector: options.candidateSelector,
         videoTask: job.videoTask,
         videoIdempotencyKey: job.idempotencyKey,
         onVideoTaskAccepted: async (task) => {

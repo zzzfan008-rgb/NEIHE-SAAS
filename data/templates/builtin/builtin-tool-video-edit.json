@@ -1,12 +1,12 @@
 {
-  "schemaVersion": 6,
-  "id": "builtin-tool-video-to-video",
-  "name": "视频生视频",
-  "description": "上传源视频并通过首帧重制生成新镜头。",
+  "schemaVersion": 11,
+  "id": "builtin-tool-video-edit",
+  "name": "视频编辑",
+  "description": "源视频与编辑指令连接到 Seedance 2.5 编辑任务。",
   "builtIn": true,
   "createdAt": "2026-09-03T08:00:00.000Z",
   "flow": {
-    "schemaVersion": 6,
+    "schemaVersion": 11,
     "nodes": [
       {
         "id": "source",
@@ -17,7 +17,7 @@
         },
         "data": {
           "kind": "video-input",
-          "label": "源视频",
+          "label": "待编辑视频",
           "status": "idle"
         }
       },
@@ -30,9 +30,9 @@
         },
         "data": {
           "kind": "text-input",
-          "label": "重制要求",
+          "label": "编辑要求",
           "status": "idle",
-          "text": ""
+          "text": "修改 @视频1 中的目标内容，同时保持其它画面不变。"
         }
       },
       {
@@ -44,15 +44,16 @@
         },
         "data": {
           "kind": "video-generate",
-          "label": "视频生视频",
+          "label": "视频编辑",
           "status": "idle",
-          "mode": "video-to-video",
+          "mode": "video-edit",
           "prompt": "",
-          "videoModel": "veo-3.1",
-          "quality": "fast",
-          "aspectRatio": "16:9",
+          "videoModel": "doubao-seedance-2-5-260628",
+          "aspectRatio": "adaptive",
           "resolution": "720p",
-          "seconds": 8,
+          "seconds": -1,
+          "generateAudio": true,
+          "outputFormat": "mp4",
           "outputImages": []
         }
       }

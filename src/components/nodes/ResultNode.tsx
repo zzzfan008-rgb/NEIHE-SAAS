@@ -138,6 +138,10 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
   const images = useFlowStore(useShallow((s) => selectResultImages(s, id)));
   const videos = images.filter((ref) => /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(ref) || ref.startsWith("data:video/"));
   const stillImages = images.filter((ref) => !videos.includes(ref));
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  useEffect(() => {
+    if (selectedImageIndex >= stillImages.length) setSelectedImageIndex(Math.max(0, stillImages.length - 1));
+  }, [selectedImageIndex, stillImages.length]);
   const noteEdit = useCoalescedTextEdit(
     { kind: "node-data", nodeId: id, field: "note" },
     { multiline: true },
@@ -146,8 +150,8 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
   return (
     <>
       <Handle id="references" type="target" position={Position.Left} title="媒体输入" />
-      <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={<MediaNodeActionToolbar nodeId={id} imageActions={videos.length === 0} />}>
-        <ImageGrid images={stillImages} empty={videos.length ? "" : "连接上游节点后自动汇总媒体"} />
+      <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={<MediaNodeActionToolbar nodeId={id} imageActions={videos.length === 0} hasImage={stillImages.length > 0} sourceHandle={`image:${selectedImageIndex}`} />}>
+        <ImageGrid images={stillImages} empty={videos.length ? "" : "连接上游节点后自动汇总媒体"} selectedIndex={selectedImageIndex} onSelect={(_, index) => setSelectedImageIndex(index)} />
         {videos.map((video) => <video key={video} src={video} controls preload="metadata" className="nodrag max-h-52 w-full rounded-md bg-black" />)}
         {stillImages.length > 0 && (
           <>
@@ -181,6 +185,16 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
           />
         </label>
       </NodeFrame>
+      {stillImages.map((_, index) => (
+        <Handle
+          key={`image:${index}`}
+          id={`image:${index}`}
+          type="source"
+          position={Position.Right}
+          title={`生成结果 ${index + 1}`}
+          style={{ top: `${((index + 1) / (stillImages.length + 1)) * 100}%` }}
+        />
+      ))}
     </>
   );
 }
