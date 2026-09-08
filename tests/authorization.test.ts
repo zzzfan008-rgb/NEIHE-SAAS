@@ -692,6 +692,16 @@ await test("管理员创建通用素材时解除底层文件的个人归属", as
   const removedReference = await request(`/assets/${otherAsset.id}`, "other", { method: "DELETE" });
   assert.equal(removedReference.status, 200, await removedReference.text());
 
+  const blockedRecoverable = await request(`/assets/${created.id}`, "admin", {
+    method: "PATCH",
+    body: JSON.stringify({ scope: "private" }),
+  });
+  assert.equal(blockedRecoverable.status, 409, await blockedRecoverable.text());
+  const restoredReference = await request(`/assets/${otherAsset.id}/restore`, "other", { method: "POST" });
+  assert.equal(restoredReference.status, 200, await restoredReference.text());
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
+  await query("DELETE FROM assets WHERE id = $1", [otherAsset.id]);
+
   const privatized = await request(`/assets/${created.id}`, "admin", {
     method: "PATCH",
     body: JSON.stringify({ scope: "private" }),

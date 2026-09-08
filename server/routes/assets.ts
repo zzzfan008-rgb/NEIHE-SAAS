@@ -204,7 +204,7 @@ assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
     if (scope !== undefined && scope !== row.scope && isLocalImageReference(row.image)) {
       const sharedReference = await queryOne<{ id: string }>(`
         SELECT id FROM assets
-        WHERE image = $1 AND id <> $2 AND deleted_at IS NULL
+        WHERE image = $1 AND id <> $2
         LIMIT 1
         FOR SHARE
       `, [row.image, req.params.id], client);
