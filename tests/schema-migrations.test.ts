@@ -346,6 +346,18 @@ await query(`
   VALUES ('migration-mask-placeholder', NULL, 'global', '历史素材-migration-mask-draft', 'reference',
     '/api/files/migration-mask-draft.png', '从升级前服务器文件迁移', $1)
 `, [now]);
+for (const sourceType of ["upload", "generated"] as const) {
+  const id = `migration-${sourceType}.png`;
+  fs.writeFileSync(path.join(temp, "uploads", id), sourceType);
+  await query(`
+    INSERT INTO files (id, owner_id, source_type, created_at)
+    VALUES ($1, $2, $3, $4)
+  `, [id, admin.id, sourceType, now]);
+  await query(`
+    INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
+    VALUES ($1, NULL, 'global', $2, 'reference', $3, '从升级前服务器文件迁移', $4)
+  `, [`migration-${sourceType}-placeholder`, `历史素材-migration-${sourceType}`, `/api/files/${id}`, now]);
+}
 fs.writeFileSync(path.join(temp, "uploads", "valid-shared-mask.png"), "valid-shared-mask");
 await query(`
   INSERT INTO files (id, owner_id, source_type, project_id, node_id, created_at)
@@ -410,6 +422,24 @@ assert.deepEqual({
   purge_after: null,
 }, "公开蒙版占位素材必须隔离到文件所有者且不自动删除");
 assert.ok(quarantinedMaskAsset?.deleted_at, "隔离蒙版占位素材必须从可见素材库移除");
+for (const sourceType of ["upload", "generated"] as const) {
+  const quarantinedOwnerFile = await queryOne<{
+    owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
+  }>(`
+    SELECT owner_id, scope, deleted_at, purge_after FROM assets
+    WHERE id = $1
+  `, [`migration-${sourceType}-placeholder`]);
+  assert.deepEqual({
+    owner_id: quarantinedOwnerFile?.owner_id,
+    scope: quarantinedOwnerFile?.scope,
+    purge_after: quarantinedOwnerFile?.purge_after,
+  }, {
+    owner_id: admin.id,
+    scope: "private",
+    purge_after: null,
+  }, `公开 ${sourceType} 占位素材必须隔离到文件所有者`);
+  assert.ok(quarantinedOwnerFile?.deleted_at, `隔离 ${sourceType} 占位素材必须从可见素材库移除`);
+}
 assert.deepEqual(await queryOne<{
   owner_id: string | null; scope: string; deleted_at: string | null;
 }>(`

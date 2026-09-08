@@ -539,7 +539,7 @@ await test("没有 files 元数据的物理孤儿文件拒绝所有账号读取"
   deleteStoredImage(orphanId);
 });
 
-await test("旧版公开蒙版占位素材会被隔离且不再跨账号暴露", async () => {
+await test("旧版公开占位素材会被隔离且不再跨账号暴露", async () => {
   const maskId = "legacy-public-mask.png";
   const maskUrl = `/api/files/${maskId}`;
   fs.writeFileSync(
@@ -555,6 +555,25 @@ await test("旧版公开蒙版占位素材会被隔离且不再跨账号暴露",
     VALUES ('legacy-public-mask-asset', NULL, 'global', '历史素材-legacy-public-mask',
       'reference', $1, '从升级前服务器文件迁移', $2)
   `, [maskUrl, now]);
+  const leakedOwnerFiles = [
+    { id: "legacy-public-upload.png", assetId: "legacy-public-upload-asset", sourceType: "upload" },
+    { id: "legacy-public-generated.png", assetId: "legacy-public-generated-asset", sourceType: "generated" },
+    { id: "legacy-public-video-upload.png", assetId: "legacy-public-video-upload-asset", sourceType: "video-upload" },
+  ];
+  for (const leaked of leakedOwnerFiles) {
+    fs.writeFileSync(
+      path.join(uploadsDir(), leaked.id),
+      Buffer.from(PNG_DATA_URL.slice(PNG_DATA_URL.indexOf(",") + 1), "base64"),
+    );
+    await query(`
+      INSERT INTO files (id, owner_id, source_type, mime_type, created_at)
+      VALUES ($1, $2, $3, 'image/png', $4)
+    `, [leaked.id, users.owner.id, leaked.sourceType, now]);
+    await query(`
+      INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
+      VALUES ($1, NULL, 'global', $2, 'reference', $3, '从升级前服务器文件迁移', $4)
+    `, [leaked.assetId, `历史素材-${path.parse(leaked.id).name}`, `/api/files/${leaked.id}`, now]);
+  }
   const sharedMaskId = "valid-shared-mask.png";
   const sharedMaskUrl = `/api/files/${sharedMaskId}`;
   fs.writeFileSync(
@@ -571,15 +590,25 @@ await test("旧版公开蒙版占位素材会被隔离且不再跨账号暴露",
   `, [users.owner.id, sharedMaskUrl, now]);
 
   assert.equal((await request(`/files/${maskId}`, "other")).status, 200);
+  for (const leaked of leakedOwnerFiles) {
+    assert.equal((await request(`/files/${leaked.id}`, "other")).status, 200);
+  }
   await migrateLegacyData();
 
   for (const actor of ["owner", "other", "admin"] as const) {
     const assets = await (await request("/assets", actor)).json() as Array<{ id: string }>;
     assert.equal(assets.some((asset) => asset.id === "legacy-public-mask-asset"), false);
+    for (const leaked of leakedOwnerFiles) {
+      assert.equal(assets.some((asset) => asset.id === leaked.assetId), false);
+    }
     assert.equal(assets.some((asset) => asset.id === "valid-shared-mask-asset"), true);
   }
   assert.equal((await request(`/files/${maskId}`, "other")).status, 403);
   assert.equal((await request(`/files/${maskId}`, "owner")).status, 200);
+  for (const leaked of leakedOwnerFiles) {
+    assert.equal((await request(`/files/${leaked.id}`, "other")).status, 403);
+    assert.equal((await request(`/files/${leaked.id}`, "owner")).status, 200);
+  }
   assert.equal((await request(`/files/${sharedMaskId}`, "other")).status, 200);
   const quarantined = await queryOne<{
     owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
@@ -597,6 +626,23 @@ await test("旧版公开蒙版占位素材会被隔离且不再跨账号暴露",
     purge_after: null,
   });
   assert.ok(quarantined?.deleted_at);
+  for (const leaked of leakedOwnerFiles) {
+    const quarantinedOwnerFile = await queryOne<{
+      owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
+    }>(`
+      SELECT owner_id, scope, deleted_at, purge_after FROM assets WHERE id = $1
+    `, [leaked.assetId]);
+    assert.deepEqual({
+      owner_id: quarantinedOwnerFile?.owner_id,
+      scope: quarantinedOwnerFile?.scope,
+      purge_after: quarantinedOwnerFile?.purge_after,
+    }, {
+      owner_id: users.owner.id,
+      scope: "private",
+      purge_after: null,
+    });
+    assert.ok(quarantinedOwnerFile?.deleted_at);
+  }
   assert.deepEqual(await queryOne<{
     owner_id: string | null; scope: string; deleted_at: string | null;
   }>(`

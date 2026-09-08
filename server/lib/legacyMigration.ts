@@ -97,6 +97,7 @@ export async function migrateLegacyData(): Promise<void> {
     });
   }
 
+  // 当前接口创建全局素材时会同步清空文件所有者；反向组合只能来自旧占位泄漏。
   await transaction(async (client) => {
     await client.query(`
       UPDATE assets AS asset
@@ -106,7 +107,6 @@ export async function migrateLegacyData(): Promise<void> {
           purge_after = NULL
       FROM files AS stored_file
       WHERE asset.image = '/api/files/' || stored_file.id
-        AND stored_file.source_type IN ('mask-draft', 'mask')
         AND stored_file.owner_id IS NOT NULL
         AND asset.owner_id IS NULL
         AND asset.scope = 'global'
