@@ -346,6 +346,26 @@ await query(`
   VALUES ('migration-mask-placeholder', NULL, 'global', '历史素材-migration-mask-draft', 'reference',
     '/api/files/migration-mask-draft.png', '从升级前服务器文件迁移', $1)
 `, [now]);
+fs.writeFileSync(path.join(temp, "uploads", "valid-shared-mask.png"), "valid-shared-mask");
+await query(`
+  INSERT INTO files (id, owner_id, source_type, project_id, node_id, created_at)
+  VALUES ('valid-shared-mask.png', $1, 'mask', 'mask-project', 'shared-mask-node', $2)
+`, [admin.id, now]);
+await query(`
+  INSERT INTO assets (id, owner_id, scope, name, category, image, created_at)
+  VALUES ('valid-shared-mask-asset', $1, 'shared', '主动共享蒙版', 'reference',
+    '/api/files/valid-shared-mask.png', $2)
+`, [admin.id, now]);
+fs.writeFileSync(path.join(temp, "uploads", "valid-global-mask.png"), "valid-global-mask");
+await query(`
+  INSERT INTO files (id, owner_id, source_type, project_id, node_id, created_at)
+  VALUES ('valid-global-mask.png', NULL, 'mask', 'mask-project', 'global-mask-node', $1)
+`, [now]);
+await query(`
+  INSERT INTO assets (id, owner_id, scope, name, category, image, created_at)
+  VALUES ('valid-global-mask-asset', NULL, 'global', '主动发布蒙版', 'reference',
+    '/api/files/valid-global-mask.png', $1)
+`, [now]);
 await query(`
   INSERT INTO projects (id, owner_id, name, flow_json, updated_at, created_at)
   VALUES ('migration-project', $1, '蒙版引用项目', '{"schemaVersion":1,"nodes":[],"edges":[]}', $2, $2)
@@ -390,6 +410,24 @@ assert.deepEqual({
   purge_after: null,
 }, "公开蒙版占位素材必须隔离到文件所有者且不自动删除");
 assert.ok(quarantinedMaskAsset?.deleted_at, "隔离蒙版占位素材必须从可见素材库移除");
+assert.deepEqual(await queryOne<{
+  owner_id: string | null; scope: string; deleted_at: string | null;
+}>(`
+  SELECT owner_id, scope, deleted_at FROM assets WHERE id = 'valid-shared-mask-asset'
+`), {
+  owner_id: admin.id,
+  scope: "shared",
+  deleted_at: null,
+}, "用户主动创建的共享蒙版素材不得被启动迁移隔离");
+assert.deepEqual(await queryOne<{
+  owner_id: string | null; scope: string; deleted_at: string | null;
+}>(`
+  SELECT owner_id, scope, deleted_at FROM assets WHERE id = 'valid-global-mask-asset'
+`), {
+  owner_id: null,
+  scope: "global",
+  deleted_at: null,
+}, "正常全局蒙版素材不得被启动迁移隔离");
 assert.deepEqual(await queryOne<{ project_id: string; asset_id: string }>(`
   SELECT project_id, asset_id FROM project_asset_refs
   WHERE asset_id = 'migration-mask-placeholder'

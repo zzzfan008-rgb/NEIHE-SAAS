@@ -555,6 +555,20 @@ await test("旧版公开蒙版占位素材会被隔离且不再跨账号暴露",
     VALUES ('legacy-public-mask-asset', NULL, 'global', '历史素材-legacy-public-mask',
       'reference', $1, '从升级前服务器文件迁移', $2)
   `, [maskUrl, now]);
+  const sharedMaskId = "valid-shared-mask.png";
+  const sharedMaskUrl = `/api/files/${sharedMaskId}`;
+  fs.writeFileSync(
+    path.join(uploadsDir(), sharedMaskId),
+    Buffer.from(PNG_DATA_URL.slice(PNG_DATA_URL.indexOf(",") + 1), "base64"),
+  );
+  await query(`
+    INSERT INTO files (id, owner_id, source_type, project_id, node_id, mime_type, created_at)
+    VALUES ($1, $2, 'mask', 'mask-project', 'shared-mask-node', 'image/png', $3)
+  `, [sharedMaskId, users.owner.id, now]);
+  await query(`
+    INSERT INTO assets (id, owner_id, scope, name, category, image, created_at)
+    VALUES ('valid-shared-mask-asset', $1, 'shared', '用户主动共享的蒙版素材', 'reference', $2, $3)
+  `, [users.owner.id, sharedMaskUrl, now]);
 
   assert.equal((await request(`/files/${maskId}`, "other")).status, 200);
   await migrateLegacyData();
@@ -562,9 +576,11 @@ await test("旧版公开蒙版占位素材会被隔离且不再跨账号暴露",
   for (const actor of ["owner", "other", "admin"] as const) {
     const assets = await (await request("/assets", actor)).json() as Array<{ id: string }>;
     assert.equal(assets.some((asset) => asset.id === "legacy-public-mask-asset"), false);
+    assert.equal(assets.some((asset) => asset.id === "valid-shared-mask-asset"), true);
   }
   assert.equal((await request(`/files/${maskId}`, "other")).status, 403);
   assert.equal((await request(`/files/${maskId}`, "owner")).status, 200);
+  assert.equal((await request(`/files/${sharedMaskId}`, "other")).status, 200);
   const quarantined = await queryOne<{
     owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
   }>(`
@@ -581,6 +597,16 @@ await test("旧版公开蒙版占位素材会被隔离且不再跨账号暴露",
     purge_after: null,
   });
   assert.ok(quarantined?.deleted_at);
+  assert.deepEqual(await queryOne<{
+    owner_id: string | null; scope: string; deleted_at: string | null;
+  }>(`
+    SELECT owner_id, scope, deleted_at FROM assets
+    WHERE id = 'valid-shared-mask-asset'
+  `), {
+    owner_id: users.owner.id,
+    scope: "shared",
+    deleted_at: null,
+  });
 });
 
 await test("管理员创建通用素材时解除底层文件的个人归属", async () => {

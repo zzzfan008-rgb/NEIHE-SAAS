@@ -107,7 +107,9 @@ export async function migrateLegacyData(): Promise<void> {
       FROM files AS stored_file
       WHERE asset.image = '/api/files/' || stored_file.id
         AND stored_file.source_type IN ('mask-draft', 'mask')
-        AND asset.scope IN ('global', 'shared')
+        AND stored_file.owner_id IS NOT NULL
+        AND asset.owner_id IS NULL
+        AND asset.scope = 'global'
     `, [now]);
   });
 
