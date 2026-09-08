@@ -103,6 +103,17 @@ export async function migrateLegacyData(): Promise<void> {
       for (const file of uploadFiles) {
         const id = path.basename(file);
         const image = `/api/files/${id}`;
+        const storedFile = await queryOne<{ source_type: string }>(
+          "SELECT source_type FROM files WHERE id = $1",
+          [id],
+          client,
+        );
+        if (storedFile?.source_type !== "legacy") {
+          // 蒙版、生成结果等已登记文件不是升级前孤立上传，不能进入素材库。
+          // 旧占位记录没有不可伪造的来源标记，因此不能在启动时启发式删除。
+          continue;
+        }
+        const placeholderName = `历史素材-${path.parse(id).name}`;
         const existing = await queryOne<{ id: string }>(
           "SELECT id FROM assets WHERE image = $1 LIMIT 1",
           [image],
@@ -112,7 +123,7 @@ export async function migrateLegacyData(): Promise<void> {
           await client.query(`
             INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
             VALUES ($1, NULL, 'global', $2, 'reference', $3, $4, $5)
-          `, [nanoid(10), `历史素材-${path.parse(id).name}`, image, LEGACY_PLACEHOLDER_NOTE, now]);
+          `, [nanoid(10), placeholderName, image, LEGACY_PLACEHOLDER_NOTE, now]);
         }
       }
     });

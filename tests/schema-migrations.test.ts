@@ -336,6 +336,56 @@ fs.writeFileSync(path.join(temp, "assets", "legacy-placeholder.json"), JSON.stri
   id: "legacy-placeholder-original", name: "旧版原始印花", category: "print",
   image: "/api/files/legacy-placeholder.png", sourceNote: "旧版原始备注", createdAt: now,
 }));
+fs.writeFileSync(path.join(temp, "uploads", "migration-mask-draft.png"), "mask-draft");
+await query(`
+  INSERT INTO files (id, owner_id, source_type, project_id, node_id, created_at)
+  VALUES ('migration-mask-draft.png', $1, 'mask-draft', 'mask-project', 'mask-node', $2)
+`, [admin.id, now]);
+await query(`
+  INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
+  VALUES ('migration-mask-placeholder', NULL, 'global', '历史素材-migration-mask-draft', 'reference',
+    '/api/files/migration-mask-draft.png', '从升级前服务器文件迁移', $1)
+`, [now]);
+for (const sourceType of ["upload", "generated"] as const) {
+  const id = `migration-${sourceType}.png`;
+  fs.writeFileSync(path.join(temp, "uploads", id), sourceType);
+  await query(`
+    INSERT INTO files (id, owner_id, source_type, created_at)
+    VALUES ($1, $2, $3, $4)
+  `, [id, admin.id, sourceType, now]);
+  await query(`
+    INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
+    VALUES ($1, NULL, 'global', $2, 'reference', $3, '从升级前服务器文件迁移', $4)
+  `, [`migration-${sourceType}-placeholder`, `历史素材-migration-${sourceType}`, `/api/files/${id}`, now]);
+}
+fs.writeFileSync(path.join(temp, "uploads", "valid-shared-mask.png"), "valid-shared-mask");
+await query(`
+  INSERT INTO files (id, owner_id, source_type, project_id, node_id, created_at)
+  VALUES ('valid-shared-mask.png', $1, 'mask', 'mask-project', 'shared-mask-node', $2)
+`, [admin.id, now]);
+await query(`
+  INSERT INTO assets (id, owner_id, scope, name, category, image, created_at)
+  VALUES ('valid-shared-mask-asset', $1, 'shared', '主动共享蒙版', 'reference',
+    '/api/files/valid-shared-mask.png', $2)
+`, [admin.id, now]);
+fs.writeFileSync(path.join(temp, "uploads", "valid-global-mask.png"), "valid-global-mask");
+await query(`
+  INSERT INTO files (id, owner_id, source_type, project_id, node_id, created_at)
+  VALUES ('valid-global-mask.png', NULL, 'mask', 'mask-project', 'global-mask-node', $1)
+`, [now]);
+await query(`
+  INSERT INTO assets (id, owner_id, scope, name, category, image, created_at)
+  VALUES ('valid-global-mask-asset', NULL, 'global', '主动发布蒙版', 'reference',
+    '/api/files/valid-global-mask.png', $1)
+`, [now]);
+await query(`
+  INSERT INTO projects (id, owner_id, name, flow_json, updated_at, created_at)
+  VALUES ('migration-project', $1, '蒙版引用项目', '{"schemaVersion":1,"nodes":[],"edges":[]}', $2, $2)
+`, [admin.id, now]);
+await query(`
+  INSERT INTO project_asset_refs (project_id, asset_id, created_at)
+  VALUES ('migration-project', 'migration-mask-placeholder', $1)
+`, [now]);
 await query(`
   INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
   VALUES ('legacy-placeholder-row', NULL, 'global', '历史素材-legacy-placeholder', 'reference',
@@ -354,6 +404,81 @@ assert.deepEqual(await queryOne<Record<string, unknown>>(`
   category: "print",
   source_note: "旧版原始备注",
 });
+const preservedMaskAsset = await queryOne<{
+  id: string; owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
+}>(`
+  SELECT id, owner_id, scope, deleted_at, purge_after FROM assets
+  WHERE image = '/api/files/migration-mask-draft.png'
+`);
+assert.deepEqual({
+  id: preservedMaskAsset?.id,
+  owner_id: preservedMaskAsset?.owner_id,
+  scope: preservedMaskAsset?.scope,
+  deleted_at: preservedMaskAsset?.deleted_at,
+  purge_after: preservedMaskAsset?.purge_after,
+}, {
+  id: "migration-mask-placeholder",
+  owner_id: null,
+  scope: "global",
+  deleted_at: null,
+  purge_after: null,
+}, "升级前已存在的公开素材归属含糊时必须保持可见性");
+for (const sourceType of ["upload", "generated"] as const) {
+  const preservedOwnerFile = await queryOne<{
+    owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
+  }>(`
+    SELECT owner_id, scope, deleted_at, purge_after FROM assets
+    WHERE id = $1
+  `, [`migration-${sourceType}-placeholder`]);
+  assert.deepEqual({
+    owner_id: preservedOwnerFile?.owner_id,
+    scope: preservedOwnerFile?.scope,
+    deleted_at: preservedOwnerFile?.deleted_at,
+    purge_after: preservedOwnerFile?.purge_after,
+  }, {
+    owner_id: null,
+    scope: "global",
+    deleted_at: null,
+    purge_after: null,
+  }, `升级前公开 ${sourceType} 素材归属含糊时必须保持可见性`);
+}
+assert.deepEqual(await queryOne<{
+  owner_id: string | null; scope: string; deleted_at: string | null;
+}>(`
+  SELECT owner_id, scope, deleted_at FROM assets WHERE id = 'valid-shared-mask-asset'
+`), {
+  owner_id: admin.id,
+  scope: "shared",
+  deleted_at: null,
+}, "用户主动创建的共享蒙版素材不得被启动迁移隔离");
+assert.deepEqual(await queryOne<{
+  owner_id: string | null; scope: string; deleted_at: string | null;
+}>(`
+  SELECT owner_id, scope, deleted_at FROM assets WHERE id = 'valid-global-mask-asset'
+`), {
+  owner_id: null,
+  scope: "global",
+  deleted_at: null,
+}, "正常全局蒙版素材不得被启动迁移隔离");
+assert.deepEqual(await queryOne<{ project_id: string; asset_id: string }>(`
+  SELECT project_id, asset_id FROM project_asset_refs
+  WHERE asset_id = 'migration-mask-placeholder'
+`), {
+  project_id: "migration-project",
+  asset_id: "migration-mask-placeholder",
+}, "既有公开素材必须保留项目引用");
+assert.equal((await queryOne<{ source_type: string }>(
+  "SELECT source_type FROM files WHERE id = 'migration-mask-draft.png'",
+))?.source_type, "mask-draft", "迁移器不得改变蒙版文件类型");
+fs.writeFileSync(path.join(temp, "uploads", "new-mask-draft.png"), "new-mask-draft");
+await query(`
+  INSERT INTO files (id, owner_id, source_type, project_id, node_id, created_at)
+  VALUES ('new-mask-draft.png', $1, 'mask-draft', 'mask-project', 'mask-node', $2)
+`, [admin.id, now]);
+await migrateLegacyData();
+assert.equal(await queryOne(
+  "SELECT id FROM assets WHERE image = '/api/files/new-mask-draft.png'",
+), undefined, "蒙版草稿不得被迁移器新增到资产库中");
 console.log("  ✓ legacy 素材 JSON 优先于上传目录占位记录且重复启动保持幂等");
 
 const preserved = await queryOne<Record<string, unknown>>(

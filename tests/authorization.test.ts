@@ -34,6 +34,7 @@ const { usageRouter } = await import("../server/routes/usage");
 const { historyRouter } = await import("../server/routes/history");
 const { templatesRouter } = await import("../server/routes/templates");
 const { tryOnStylePresetsRouter } = await import("../server/routes/tryOnStylePresets");
+const { migrateLegacyData } = await import("../server/lib/legacyMigration");
 const {
   migrateLegacyUserTemplateOwners,
   prepareUserTemplateAccountMutation,
@@ -538,6 +539,112 @@ await test("没有 files 元数据的物理孤儿文件拒绝所有账号读取"
   deleteStoredImage(orphanId);
 });
 
+await test("启动迁移保留归属含糊的既有公开素材", async () => {
+  const maskId = "legacy-public-mask.png";
+  const maskUrl = `/api/files/${maskId}`;
+  fs.writeFileSync(
+    path.join(uploadsDir(), maskId),
+    Buffer.from(PNG_DATA_URL.slice(PNG_DATA_URL.indexOf(",") + 1), "base64"),
+  );
+  await query(`
+    INSERT INTO files (id, owner_id, source_type, project_id, node_id, mime_type, created_at)
+    VALUES ($1, $2, 'mask-draft', 'mask-project', 'mask-node', 'image/png', $3)
+  `, [maskId, users.owner.id, now]);
+  await query(`
+    INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
+    VALUES ('legacy-public-mask-asset', NULL, 'global', '历史素材-legacy-public-mask',
+      'reference', $1, '从升级前服务器文件迁移', $2)
+  `, [maskUrl, now]);
+  const leakedOwnerFiles = [
+    { id: "legacy-public-upload.png", assetId: "legacy-public-upload-asset", sourceType: "upload" },
+    { id: "legacy-public-generated.png", assetId: "legacy-public-generated-asset", sourceType: "generated" },
+    { id: "legacy-public-video-upload.png", assetId: "legacy-public-video-upload-asset", sourceType: "video-upload" },
+  ];
+  for (const leaked of leakedOwnerFiles) {
+    fs.writeFileSync(
+      path.join(uploadsDir(), leaked.id),
+      Buffer.from(PNG_DATA_URL.slice(PNG_DATA_URL.indexOf(",") + 1), "base64"),
+    );
+    await query(`
+      INSERT INTO files (id, owner_id, source_type, mime_type, created_at)
+      VALUES ($1, $2, $3, 'image/png', $4)
+    `, [leaked.id, users.owner.id, leaked.sourceType, now]);
+    await query(`
+      INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
+      VALUES ($1, NULL, 'global', $2, 'reference', $3, '从升级前服务器文件迁移', $4)
+    `, [leaked.assetId, `历史素材-${path.parse(leaked.id).name}`, `/api/files/${leaked.id}`, now]);
+  }
+  const sharedMaskId = "valid-shared-mask.png";
+  const sharedMaskUrl = `/api/files/${sharedMaskId}`;
+  fs.writeFileSync(
+    path.join(uploadsDir(), sharedMaskId),
+    Buffer.from(PNG_DATA_URL.slice(PNG_DATA_URL.indexOf(",") + 1), "base64"),
+  );
+  await query(`
+    INSERT INTO files (id, owner_id, source_type, project_id, node_id, mime_type, created_at)
+    VALUES ($1, $2, 'mask', 'mask-project', 'shared-mask-node', 'image/png', $3)
+  `, [sharedMaskId, users.owner.id, now]);
+  await query(`
+    INSERT INTO assets (id, owner_id, scope, name, category, image, created_at)
+    VALUES ('valid-shared-mask-asset', $1, 'shared', '用户主动共享的蒙版素材', 'reference', $2, $3)
+  `, [users.owner.id, sharedMaskUrl, now]);
+
+  assert.equal((await request(`/files/${maskId}`, "other")).status, 200);
+  for (const leaked of leakedOwnerFiles) {
+    assert.equal((await request(`/files/${leaked.id}`, "other")).status, 200);
+  }
+  await migrateLegacyData();
+
+  for (const actor of ["owner", "other", "admin"] as const) {
+    const assets = await (await request("/assets", actor)).json() as Array<{ id: string }>;
+    assert.equal(assets.some((asset) => asset.id === "legacy-public-mask-asset"), true);
+    for (const leaked of leakedOwnerFiles) {
+      assert.equal(assets.some((asset) => asset.id === leaked.assetId), true);
+    }
+    assert.equal(assets.some((asset) => asset.id === "valid-shared-mask-asset"), true);
+  }
+  assert.equal((await request(`/files/${maskId}`, "other")).status, 200);
+  assert.equal((await request(`/files/${maskId}`, "owner")).status, 200);
+  for (const leaked of leakedOwnerFiles) {
+    assert.equal((await request(`/files/${leaked.id}`, "other")).status, 200);
+    assert.equal((await request(`/files/${leaked.id}`, "owner")).status, 200);
+  }
+  assert.equal((await request(`/files/${sharedMaskId}`, "other")).status, 200);
+  const preserved = await queryOne<{
+    owner_id: string | null; scope: string; deleted_at: string | null;
+  }>(`
+    SELECT owner_id, scope, deleted_at FROM assets
+    WHERE id = 'legacy-public-mask-asset'
+  `);
+  assert.deepEqual(preserved, {
+    owner_id: null,
+    scope: "global",
+    deleted_at: null,
+  });
+  for (const leaked of leakedOwnerFiles) {
+    const preservedOwnerFile = await queryOne<{
+      owner_id: string | null; scope: string; deleted_at: string | null;
+    }>(`
+      SELECT owner_id, scope, deleted_at FROM assets WHERE id = $1
+    `, [leaked.assetId]);
+    assert.deepEqual(preservedOwnerFile, {
+      owner_id: null,
+      scope: "global",
+      deleted_at: null,
+    });
+  }
+  assert.deepEqual(await queryOne<{
+    owner_id: string | null; scope: string; deleted_at: string | null;
+  }>(`
+    SELECT owner_id, scope, deleted_at FROM assets
+    WHERE id = 'valid-shared-mask-asset'
+  `), {
+    owner_id: users.owner.id,
+    scope: "shared",
+    deleted_at: null,
+  });
+});
+
 await test("管理员创建通用素材时解除底层文件的个人归属", async () => {
   const upload = await request("/files", "admin", {
     method: "POST",
@@ -554,7 +661,9 @@ await test("管理员创建通用素材时解除底层文件的个人归属", as
       name: "通用素材", category: "reference", scope: "global", image: uploaded.url,
     }),
   });
-  assert.equal(create.status, 201, await create.text());
+  const created = await create.json() as { id?: string; error?: string };
+  assert.equal(create.status, 201, created.error);
+  assert.ok(created.id);
   assert.deepEqual(
     await queryOne<{ owner_id: string | null; deleted_at: string | null; purge_after: string | null }>(
       "SELECT owner_id, deleted_at, purge_after FROM files WHERE id = $1",
@@ -562,6 +671,74 @@ await test("管理员创建通用素材时解除底层文件的个人归属", as
     ),
     { owner_id: null, deleted_at: null, purge_after: null },
   );
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
+
+  const otherReference = await request("/assets", "other", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "引用同一通用素材", category: "reference", scope: "private", image: uploaded.url,
+    }),
+  });
+  const otherAsset = await otherReference.json() as { id?: string; error?: string };
+  assert.equal(otherReference.status, 201, otherAsset.error);
+  assert.ok(otherAsset.id);
+
+  const blocked = await request(`/assets/${created.id}`, "admin", {
+    method: "PATCH",
+    body: JSON.stringify({ scope: "private" }),
+  });
+  assert.equal(blocked.status, 409, await blocked.text());
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
+  const removedReference = await request(`/assets/${otherAsset.id}`, "other", { method: "DELETE" });
+  assert.equal(removedReference.status, 200, await removedReference.text());
+
+  const blockedRecoverable = await request(`/assets/${created.id}`, "admin", {
+    method: "PATCH",
+    body: JSON.stringify({ scope: "private" }),
+  });
+  assert.equal(blockedRecoverable.status, 409, await blockedRecoverable.text());
+  const restoredReference = await request(`/assets/${otherAsset.id}/restore`, "other", { method: "POST" });
+  assert.equal(restoredReference.status, 200, await restoredReference.text());
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
+  await query("DELETE FROM assets WHERE id = $1", [otherAsset.id]);
+
+  const privatized = await request(`/assets/${created.id}`, "admin", {
+    method: "PATCH",
+    body: JSON.stringify({ scope: "private" }),
+  });
+  assert.equal(privatized.status, 200, await privatized.text());
+  assert.deepEqual(
+    await queryOne<{ owner_id: string | null; deleted_at: string | null; purge_after: string | null }>(
+      "SELECT owner_id, deleted_at, purge_after FROM files WHERE id = $1",
+      [uploaded.id],
+    ),
+    { owner_id: users.admin.id, deleted_at: null, purge_after: null },
+  );
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 403);
+
+  const republished = await request(`/assets/${created.id}`, "admin", {
+    method: "PATCH",
+    body: JSON.stringify({ scope: "global" }),
+  });
+  assert.equal(republished.status, 200, await republished.text());
+  assert.deepEqual(
+    await queryOne<{ owner_id: string | null; deleted_at: string | null; purge_after: string | null }>(
+      "SELECT owner_id, deleted_at, purge_after FROM files WHERE id = $1",
+      [uploaded.id],
+    ),
+    { owner_id: null, deleted_at: null, purge_after: null },
+  );
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
+
+  await migrateLegacyData();
+  assert.deepEqual(
+    await queryOne<{ owner_id: string | null; scope: string; deleted_at: string | null }>(
+      "SELECT owner_id, scope, deleted_at FROM assets WHERE id = $1",
+      [created.id],
+    ),
+    { owner_id: null, scope: "global", deleted_at: null },
+  );
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
 });
 
 await test("图片上传可在一次请求中标准化并创建私有素材", async () => {
