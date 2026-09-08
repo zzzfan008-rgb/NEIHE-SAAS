@@ -671,7 +671,9 @@ await test("管理员创建通用素材时解除底层文件的个人归属", as
       name: "通用素材", category: "reference", scope: "global", image: uploaded.url,
     }),
   });
-  assert.equal(create.status, 201, await create.text());
+  const created = await create.json() as { id?: string; error?: string };
+  assert.equal(create.status, 201, created.error);
+  assert.ok(created.id);
   assert.deepEqual(
     await queryOne<{ owner_id: string | null; deleted_at: string | null; purge_after: string | null }>(
       "SELECT owner_id, deleted_at, purge_after FROM files WHERE id = $1",
@@ -679,6 +681,45 @@ await test("管理员创建通用素材时解除底层文件的个人归属", as
     ),
     { owner_id: null, deleted_at: null, purge_after: null },
   );
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
+
+  const privatized = await request(`/assets/${created.id}`, "admin", {
+    method: "PATCH",
+    body: JSON.stringify({ scope: "private" }),
+  });
+  assert.equal(privatized.status, 200, await privatized.text());
+  assert.deepEqual(
+    await queryOne<{ owner_id: string | null; deleted_at: string | null; purge_after: string | null }>(
+      "SELECT owner_id, deleted_at, purge_after FROM files WHERE id = $1",
+      [uploaded.id],
+    ),
+    { owner_id: users.admin.id, deleted_at: null, purge_after: null },
+  );
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 403);
+
+  const republished = await request(`/assets/${created.id}`, "admin", {
+    method: "PATCH",
+    body: JSON.stringify({ scope: "global" }),
+  });
+  assert.equal(republished.status, 200, await republished.text());
+  assert.deepEqual(
+    await queryOne<{ owner_id: string | null; deleted_at: string | null; purge_after: string | null }>(
+      "SELECT owner_id, deleted_at, purge_after FROM files WHERE id = $1",
+      [uploaded.id],
+    ),
+    { owner_id: null, deleted_at: null, purge_after: null },
+  );
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
+
+  await migrateLegacyData();
+  assert.deepEqual(
+    await queryOne<{ owner_id: string | null; scope: string; deleted_at: string | null }>(
+      "SELECT owner_id, scope, deleted_at FROM assets WHERE id = $1",
+      [created.id],
+    ),
+    { owner_id: null, scope: "global", deleted_at: null },
+  );
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
 });
 
 await test("图片上传可在一次请求中标准化并创建私有素材", async () => {

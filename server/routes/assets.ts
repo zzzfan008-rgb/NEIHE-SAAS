@@ -189,8 +189,10 @@ assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
   }
   const result = await transaction(async (client) => {
     if (!await lockActiveOwner(client, user.id)) return "owner_unavailable" as const;
-    const row = await queryOne<{ owner_id: string | null; scope: "global" | "private" | "shared" }>(
-      "SELECT owner_id, scope FROM assets WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+    const row = await queryOne<{
+      owner_id: string | null; scope: "global" | "private" | "shared"; image: string;
+    }>(
+      "SELECT owner_id, scope, image FROM assets WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
       [req.params.id],
       client,
     );
@@ -198,9 +200,15 @@ assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
     const canManage = row.scope === "global" ? user.role === "admin" : row.owner_id === user.id;
     if (!canManage) return "forbidden" as const;
     const nextScope = scope ?? row.scope;
+    const nextOwnerId = nextScope === "global" ? null : (row.owner_id ?? user.id);
+    if (scope !== undefined && scope !== row.scope && isLocalImageReference(row.image)) {
+      await client.query(`
+        UPDATE files SET owner_id = $1, deleted_at = NULL, purge_after = NULL WHERE id = $2
+      `, [nextOwnerId, path.basename(row.image)]);
+    }
     await client.query(
       "UPDATE assets SET name = COALESCE($1, name), scope = $2, owner_id = $3 WHERE id = $4",
-      [name?.trim() ?? null, nextScope, nextScope === "global" ? null : (row.owner_id ?? user.id), req.params.id],
+      [name?.trim() ?? null, nextScope, nextOwnerId, req.params.id],
     );
     return "updated" as const;
   });
