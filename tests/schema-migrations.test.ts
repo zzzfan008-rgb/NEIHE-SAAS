@@ -336,6 +336,16 @@ fs.writeFileSync(path.join(temp, "assets", "legacy-placeholder.json"), JSON.stri
   id: "legacy-placeholder-original", name: "旧版原始印花", category: "print",
   image: "/api/files/legacy-placeholder.png", sourceNote: "旧版原始备注", createdAt: now,
 }));
+fs.writeFileSync(path.join(temp, "uploads", "migration-mask-draft.png"), "mask-draft");
+await query(`
+  INSERT INTO files (id, owner_id, source_type, project_id, node_id, created_at)
+  VALUES ('migration-mask-draft.png', $1, 'mask-draft', 'mask-project', 'mask-node', $2)
+`, [admin.id, now]);
+await query(`
+  INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
+  VALUES ('migration-mask-placeholder', NULL, 'global', '历史素材-migration-mask-draft', 'reference',
+    '/api/files/migration-mask-draft.png', '从升级前服务器文件迁移', $1)
+`, [now]);
 await query(`
   INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
   VALUES ('legacy-placeholder-row', NULL, 'global', '历史素材-legacy-placeholder', 'reference',
@@ -354,6 +364,12 @@ assert.deepEqual(await queryOne<Record<string, unknown>>(`
   category: "print",
   source_note: "旧版原始备注",
 });
+assert.equal(await queryOne(
+  "SELECT id FROM assets WHERE image = '/api/files/migration-mask-draft.png'",
+), undefined, "蒙版草稿不得保留在资产库中");
+assert.equal((await queryOne<{ source_type: string }>(
+  "SELECT source_type FROM files WHERE id = 'migration-mask-draft.png'",
+))?.source_type, "mask-draft", "清理错误资产记录时必须保留蒙版文件");
 console.log("  ✓ legacy 素材 JSON 优先于上传目录占位记录且重复启动保持幂等");
 
 const preserved = await queryOne<Record<string, unknown>>(

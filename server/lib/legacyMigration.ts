@@ -103,6 +103,22 @@ export async function migrateLegacyData(): Promise<void> {
       for (const file of uploadFiles) {
         const id = path.basename(file);
         const image = `/api/files/${id}`;
+        const placeholderName = `历史素材-${path.parse(id).name}`;
+        const storedFile = await queryOne<{ source_type: string }>(
+          "SELECT source_type FROM files WHERE id = $1",
+          [id],
+          client,
+        );
+        if (storedFile?.source_type !== "legacy") {
+          // 旧版本曾把蒙版、生成结果等已登记文件误当成孤立上传。
+          // 只清理迁移器自己创建的占位记录，不触碰真实用户素材或底层文件。
+          await client.query(`
+            DELETE FROM assets
+            WHERE image = $1 AND owner_id IS NULL AND scope = 'global'
+              AND name = $2 AND category = 'reference' AND source_note = $3
+          `, [image, placeholderName, LEGACY_PLACEHOLDER_NOTE]);
+          continue;
+        }
         const existing = await queryOne<{ id: string }>(
           "SELECT id FROM assets WHERE image = $1 LIMIT 1",
           [image],
@@ -112,7 +128,7 @@ export async function migrateLegacyData(): Promise<void> {
           await client.query(`
             INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
             VALUES ($1, NULL, 'global', $2, 'reference', $3, $4, $5)
-          `, [nanoid(10), `历史素材-${path.parse(id).name}`, image, LEGACY_PLACEHOLDER_NOTE, now]);
+          `, [nanoid(10), placeholderName, image, LEGACY_PLACEHOLDER_NOTE, now]);
         }
       }
     });
