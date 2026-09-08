@@ -364,12 +364,21 @@ assert.deepEqual(await queryOne<Record<string, unknown>>(`
   category: "print",
   source_note: "旧版原始备注",
 });
-assert.equal(await queryOne(
+assert.deepEqual(await queryOne<{ id: string }>(
   "SELECT id FROM assets WHERE image = '/api/files/migration-mask-draft.png'",
-), undefined, "蒙版草稿不得保留在资产库中");
+), { id: "migration-mask-placeholder" }, "迁移器不得启发式删除来源不明的既有素材");
 assert.equal((await queryOne<{ source_type: string }>(
   "SELECT source_type FROM files WHERE id = 'migration-mask-draft.png'",
-))?.source_type, "mask-draft", "清理错误资产记录时必须保留蒙版文件");
+))?.source_type, "mask-draft", "迁移器不得改变蒙版文件类型");
+fs.writeFileSync(path.join(temp, "uploads", "new-mask-draft.png"), "new-mask-draft");
+await query(`
+  INSERT INTO files (id, owner_id, source_type, project_id, node_id, created_at)
+  VALUES ('new-mask-draft.png', $1, 'mask-draft', 'mask-project', 'mask-node', $2)
+`, [admin.id, now]);
+await migrateLegacyData();
+assert.equal(await queryOne(
+  "SELECT id FROM assets WHERE image = '/api/files/new-mask-draft.png'",
+), undefined, "蒙版草稿不得被迁移器新增到资产库中");
 console.log("  ✓ legacy 素材 JSON 优先于上传目录占位记录且重复启动保持幂等");
 
 const preserved = await queryOne<Record<string, unknown>>(
