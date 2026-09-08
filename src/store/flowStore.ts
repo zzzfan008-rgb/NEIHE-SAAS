@@ -1163,7 +1163,7 @@ function virtualTryOnRunBlockReason(node: FlowNode, document: ProjectTab): strin
   };
 
   if (node.data.workflowStage === "scene-stabilize") {
-    if (node.data.modelId !== "gemini-3.1-flash-image-preview") return "第一轮必须使用 Gemini 3.1 Flash";
+    if (node.data.modelId !== "gemini-3.1-flash-image") return "第一轮必须使用 Gemini 3.1 Flash";
     const personEdges = edgesFor("person");
     if (personEdges.length < 1 || personEdges.length > 3) return "人物身份图必须连接 1 至 3 张";
     if (personEdges.some((edge) => {
@@ -1915,8 +1915,10 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
   ]) delete data[transientKey];
   if (typeof input.error !== "string") delete data.error;
   if (NODE_SPECS[kind].providerId && kind !== "video-generate") {
-    const modelId = isImageModelId(input.modelId) && isModelAllowedForNode(input.modelId, kind)
-      ? input.modelId
+    const migratedModelId = input.modelId === "gemini-3.1-flash-image-preview"
+      ? "gemini-3.1-flash-image" : input.modelId;
+    const modelId = isImageModelId(migratedModelId) && isModelAllowedForNode(migratedModelId, kind)
+      ? migratedModelId
       : kind === "mask-redraw" || kind === "virtual-try-on"
         ? MASK_REDRAW_MODEL_ID
         : DEFAULT_GENERATION_MODEL_ID;
@@ -2087,9 +2089,11 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       else delete data.stylePrompt;
       if (typeof input.styleReferenceImage === "string") data.styleReferenceImage = input.styleReferenceImage;
       else delete data.styleReferenceImage;
-      if (data.workflowStage === "scene-stabilize") data.modelId = "gemini-3.1-flash-image-preview";
+      if (data.workflowStage === "scene-stabilize") {
+        data.modelId = "gemini-3.1-flash-image";
+      }
       if (data.workflowStage === "garment-refine") data.modelId = MASK_REDRAW_MODEL_ID;
-      if (data.modelId === "gemini-3.1-flash-image-preview") {
+      if (data.modelId === "gemini-3.1-flash-image") {
         data.modelOptions = normalizeImageModelOptions(data.modelId, {
           ...(typeof data.modelOptions === "object" && data.modelOptions ? data.modelOptions : {}),
           imageSize: data.imageSize,
@@ -2154,7 +2158,7 @@ function recoverSessionStagedTryOnNodes(nodes: readonly FlowNode[], edges: reado
     const roles = incomingRoles.get(node.id);
     if (!roles) return node;
     if (
-      node.data.modelId === "gemini-3.1-flash-image-preview"
+      node.data.modelId === "gemini-3.1-flash-image"
       && roles.has("person") && roles.has("scene") && roles.has("outfit")
     ) {
       return { ...node, data: { ...node.data, workflowStage: "scene-stabilize" as const } };

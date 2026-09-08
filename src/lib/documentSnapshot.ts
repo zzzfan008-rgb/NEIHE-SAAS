@@ -259,13 +259,13 @@ function virtualTryOnModelFields(
   imageSize: "2K" | "4K",
 ): { modelId: VirtualTryOnModelId; modelOptions: ImageModelOptions } {
   const modelId: VirtualTryOnModelId =
-    modelIdValue === "gemini-3.1-flash-image-preview"
-      ? "gemini-3.1-flash-image-preview"
+    modelIdValue === "gemini-3.1-flash-image" || modelIdValue === "gemini-3.1-flash-image-preview"
+      ? "gemini-3.1-flash-image"
       : MASK_REDRAW_MODEL_ID;
   const normalized = normalizeImageModelOptions(modelId, modelOptionsValue);
   return {
     modelId,
-    modelOptions: modelId === "gemini-3.1-flash-image-preview"
+    modelOptions: modelId === "gemini-3.1-flash-image"
       ? normalizeImageModelOptions(modelId, { ...(
           typeof modelOptionsValue === "object" && modelOptionsValue !== null
             ? modelOptionsValue as ImageModelOptions

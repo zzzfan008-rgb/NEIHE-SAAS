@@ -1,12 +1,12 @@
 {
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "id": "builtin-tool-video-extend",
   "name": "视频延长",
   "description": "源视频与延长指令连接到 Seedance 2.5 延长任务。",
   "builtIn": true,
   "createdAt": "2026-09-03T08:00:00.000Z",
   "flow": {
-    "schemaVersion": 11,
+    "schemaVersion": 12,
     "nodes": [
       {
         "id": "source",

@@ -613,7 +613,7 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
               status: "idle",
               workflowStage: "scene-stabilize",
               prompt: "",
-              modelId: "gemini-3.1-flash-image-preview",
+              modelId: "gemini-3.1-flash-image",
               modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
               imageSize: "2K",
               aspectRatio: "1:1",

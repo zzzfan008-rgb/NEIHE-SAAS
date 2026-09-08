@@ -23,6 +23,7 @@ import {
 import { normalizeUploadImageDataUrl } from "./uploadImageNormalization";
 
 const MAX_THUMBNAIL_INPUT_PIXELS = 40_000_000;
+const GENERATED_PNG_PALETTE_SIZES = [256, 192, 128, 96, 64] as const;
 
 const MIME_EXT: Record<string, string> = {
   "image/png": "png",
@@ -482,14 +483,46 @@ export async function normalizeImageRef(ref: string): Promise<string> {
   throw new Error(`unsupported image reference: ${ref.slice(0, 80)}`);
 }
 
-/** 结果图片归一化并落盘为 /api/files/:id（项目 JSON 中不保存 dataURL 或第三方临时 URL） */
+async function generatedImagePngBuffer(ref: string): Promise<Buffer> {
+  const dataUrl = await normalizeImageRef(ref);
+  const { mime, buffer } = validateImageDataUrl(dataUrl);
+  if (mime === "image/png") return buffer;
+
+  return withImageProcessingSlot(async () => {
+    const image = sharp(buffer, {
+      animated: false,
+      failOn: "error",
+      limitInputPixels: MAX_THUMBNAIL_INPUT_PIXELS,
+    }).rotate().toColourspace("srgb");
+    const lossless = await image.clone()
+      .png({ compressionLevel: 9, adaptiveFiltering: true })
+      .toBuffer();
+    if (lossless.byteLength <= MAX_IMAGE_BYTES) return lossless;
+
+    for (const colours of GENERATED_PNG_PALETTE_SIZES) {
+      const reduced = await image.clone()
+        .png({ compressionLevel: 9, adaptiveFiltering: true, palette: true, colours, dither: 1 })
+        .toBuffer();
+      if (reduced.byteLength <= MAX_IMAGE_BYTES) return reduced;
+    }
+    throw new Error(`generated PNG exceeds ${MAX_IMAGE_BYTES} bytes after compression`);
+  });
+}
+
+function saveGeneratedPng(buffer: Buffer): { id: string; url: string } {
+  for (;;) {
+    const id = `${nanoid(12)}.png`;
+    if (createStoredImage(id, buffer)) return { id, url: `/api/files/${id}` };
+  }
+}
+
+/** 结果图片统一转为 PNG 并落盘为 /api/files/:id（项目 JSON 中不保存 dataURL 或第三方临时 URL） */
 export async function persistImageRef(ref: string): Promise<string> {
-  if (ref.startsWith("/api/files/")) {
+  if (ref.startsWith("/api/files/") && ref.endsWith(".png")) {
     if (!isLocalImageReference(ref)) throw new Error("invalid local image reference");
     return ref;
   }
-  const dataUrl = await normalizeImageRef(ref);
-  return saveDataUrl(dataUrl).url;
+  return saveGeneratedPng(await generatedImagePngBuffer(ref)).url;
 }
 
 export interface PersistedImageReceipt {
@@ -539,18 +572,17 @@ export async function persistImageRefWithReceipt(
   ref: string,
   idempotencyKey: string,
 ): Promise<PersistedImageReceipt> {
-  if (ref.startsWith("/api/files/")) {
+  if (ref.startsWith("/api/files/") && ref.endsWith(".png")) {
+    if (!isLocalImageReference(ref)) throw new Error("invalid local image reference");
     return { id: path.basename(ref), url: ref, created: false };
   }
   if (!idempotencyKey.trim()) throw new Error("image persistence idempotency key is required");
 
-  const dataUrl = await normalizeImageRef(ref);
-  const { mime, buffer } = validateImageDataUrl(dataUrl);
-  const ext = MIME_EXT[mime];
+  const buffer = await generatedImagePngBuffer(ref);
   const keyDigest = sha256(idempotencyKey).slice(0, 24);
   const contentDigest = sha256(buffer).slice(0, 16);
   const base = `generated-${keyDigest}`;
-  const candidates = [`${base}.${ext}`, `${base}-${contentDigest}.${ext}`];
+  const candidates = [`${base}.png`, `${base}-${contentDigest}.png`];
 
   for (const id of candidates) {
     if (createStoredImage(id, buffer)) return { id, url: `/api/files/${id}`, created: true };
@@ -558,7 +590,7 @@ export async function persistImageRefWithReceipt(
   }
 
   for (;;) {
-    const id = `${base}-${contentDigest}-${nanoid(6)}.${ext}`;
+    const id = `${base}-${contentDigest}-${nanoid(6)}.png`;
     if (createStoredImage(id, buffer)) return { id, url: `/api/files/${id}`, created: true };
   }
 }
@@ -567,6 +599,9 @@ export async function persistMediaRefWithReceipt(
   ref: string,
   idempotencyKey: string,
 ): Promise<PersistedMediaReceipt> {
+  if (isLocalMediaReference(ref) && !isLocalImageReference(ref)) {
+    return { id: path.basename(ref), url: ref, created: false };
+  }
   if (!ref.startsWith("data:video/")) return persistImageRefWithReceipt(ref, idempotencyKey);
   if (!idempotencyKey.trim()) throw new Error("media persistence idempotency key is required");
   const { mime, buffer } = validateVideoDataUrl(ref, MAX_GENERATED_VIDEO_BYTES);

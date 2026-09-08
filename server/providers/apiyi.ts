@@ -29,6 +29,9 @@ const PROVIDER_RESPONSE_PIXEL_LIMIT = 40_000_000;
 const REFERENCE_MIMES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const FLUX_MAX_INPUT_PIXELS = 20_000_000;
 const FLUX_MAX_INPUT_BYTES = 20 * 1024 * 1024;
+const GEMINI_COMPRESSION_THRESHOLD = 1.5 * 1024 * 1024;
+const GEMINI_TOTAL_REFERENCE_BYTES = 6 * 1024 * 1024;
+const GEMINI_MAX_REFERENCE_BYTES = 7 * 1024 * 1024;
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -169,9 +172,13 @@ async function fetchApiyi(
   initFactory: () => RequestInit,
 ): Promise<Response> {
   const timeout = getImageModelContract(modelId).timeoutMs;
+  const configuredTimeout = config.aiTimeoutMs(timeout);
+  const minimumResponseTimeoutMs = modelId === "gemini-3.1-flash-image" ? 360_000 : undefined;
   return fetchWithRetry(`${config.apiyiBaseUrl()}${resolveContractPath(path, modelId)}`, initFactory, {
     providerId: modelId,
-    timeoutMs: config.aiTimeoutMs(timeout),
+    timeoutMs: Math.max(minimumResponseTimeoutMs ?? 0,
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : timeout),
+    minimumResponseTimeoutMs,
     maxRetries: 0,
   });
 }
@@ -536,13 +543,60 @@ async function parseGeminiImages(payload: unknown, modelId: ImageModelId): Promi
   );
 }
 
-async function geminiInlineData(dataUrl: string, modelId: ImageModelId): Promise<{ inlineData: { mimeType: string; data: string } }> {
+async function geminiInlineData(
+  dataUrl: string,
+  modelId: ImageModelId,
+  targetBytes = GEMINI_COMPRESSION_THRESHOLD,
+): Promise<{ inlineData: { mimeType: string; data: string } }> {
   const parsed = parsedReference(dataUrl, modelId);
-  if (parsed.mime === "image/png" || parsed.mime === "image/jpeg") {
+  if (parsed.buffer.length <= targetBytes && parsed.mime !== "image/webp") {
     return { inlineData: { mimeType: parsed.mime, data: parsed.base64 } };
   }
-  const converted = await withImageProcessingSlot(() => sharp(parsed.buffer).png().toBuffer());
-  return { inlineData: { mimeType: "image/png", data: converted.toString("base64") } };
+  try {
+    const mimeType = parsed.mime === "image/jpeg" ? "image/jpeg" : "image/png";
+    const converted = await withImageProcessingSlot(async () => {
+      let longEdge = 2048;
+      let buffer = parsed.buffer;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const pipeline = sharp(parsed.buffer, { limitInputPixels: PROVIDER_RESPONSE_PIXEL_LIMIT })
+          .rotate().resize({ width: longEdge, height: longEdge, fit: "inside", withoutEnlargement: true });
+        // PNG has no JPEG-style quality parameter; keep it lossless and reduce dimensions if needed.
+        buffer = await (mimeType === "image/jpeg"
+          ? pipeline.jpeg({ quality: 90, chromaSubsampling: "4:4:4" })
+          : pipeline.png({ compressionLevel: 9 })).toBuffer();
+        if (buffer.length <= targetBytes) break;
+        const metadata = await sharp(buffer).metadata();
+        longEdge = Math.max(1, Math.floor(Math.max(metadata.width ?? 1, metadata.height ?? 1)
+          * Math.min(0.85, Math.sqrt(targetBytes / buffer.length) * 0.95)));
+      }
+      return buffer;
+    });
+    return { inlineData: { mimeType, data: converted.toString("base64") } };
+  } catch (error) {
+    if (parsed.mime === "image/webp") {
+      throw new ProviderError("Gemini 参考图转换失败，请使用 PNG 或 JPEG", 400, modelId, "invalid_request");
+    }
+    // Compression failure alone must not discard a valid reference.
+    void error;
+    return { inlineData: { mimeType: parsed.mime, data: parsed.base64 } };
+  }
+}
+
+async function geminiReferenceParts(refs: string[], modelId: ImageModelId) {
+  let parts = await Promise.all(refs.map((ref) => geminiInlineData(ref, modelId)));
+  const byteCount = () => parts.reduce((total, part) => total + Buffer.byteLength(part.inlineData.data, "base64"), 0);
+  if (byteCount() > GEMINI_TOTAL_REFERENCE_BYTES) {
+    const budgetPerImage = Math.floor(GEMINI_TOTAL_REFERENCE_BYTES / refs.length);
+    parts = await Promise.all(parts.map((part) => geminiInlineData(
+      `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`, modelId, budgetPerImage,
+    )));
+  }
+  if (parts.some((part) => Buffer.byteLength(part.inlineData.data, "base64") >= GEMINI_MAX_REFERENCE_BYTES)
+    || byteCount() > GEMINI_TOTAL_REFERENCE_BYTES) {
+    throw new ProviderError("Gemini 参考图压缩后仍超出体积限制，请减少图片或缩小原图（合计最多 6MB）",
+      400, modelId, "invalid_request");
+  }
+  return parts;
 }
 
 export async function validateApiyiRequest(
@@ -598,11 +652,6 @@ async function generate(modelId: ImageModelId, req: ImageGenRequest): Promise<Im
         }),
       }));
       return { images: await parseGeminiImages(await readJson(response, modelId), modelId), model: modelId };
-    case "gemini-3.1-flash-image-preview":
-      throw new ProviderError(
-        "gemini-3.1-flash-image-preview 仅用于虚拟模特换装编辑",
-        400, modelId, "invalid_request",
-      );
     case "flux-2-pro":
       response = await fetchApiyi(modelId, contract.generation.path, () => ({
         method: "POST",
@@ -675,9 +724,8 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
       });
       return { images: await parseOpenAiImages(await readJson(response, modelId), modelId, { maxImages: 1 }), model: modelId };
     }
-    case "gemini-3.1-flash-image":
-    case "gemini-3.1-flash-image-preview": {
-      const parts = [{ text: req.prompt }, ...await Promise.all(refs.map((ref) => geminiInlineData(ref, modelId)))];
+    case "gemini-3.1-flash-image": {
+      const parts = [{ text: req.prompt }, ...await geminiReferenceParts(refs, modelId)];
       response = await fetchApiyi(modelId, contract.edit.path, () => ({
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiyiApiKey()}` },
@@ -742,7 +790,7 @@ export function createApiyiProvider(modelId: ImageModelId): AIProvider {
 
 export const apiyiProviders = Object.fromEntries(
   ([
-    "gpt-image-2", "gpt-image-2-vip", "gemini-3.1-flash-image", "gemini-3.1-flash-image-preview",
+    "gpt-image-2", "gpt-image-2-vip", "gemini-3.1-flash-image",
     "flux-2-pro", "seedream-5-0-260128", "grok-imagine-image",
   ] as const).map((modelId) => [modelId, createApiyiProvider(modelId)]),
 ) as Record<ImageModelId, AIProvider>;

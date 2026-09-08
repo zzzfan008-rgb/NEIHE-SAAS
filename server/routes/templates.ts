@@ -195,7 +195,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
             status: "idle",
             workflowStage: "scene-stabilize",
             prompt: "",
-            modelId: "gemini-3.1-flash-image-preview",
+            modelId: "gemini-3.1-flash-image",
             modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
             imageSize: "2K",
             aspectRatio: "3:4",

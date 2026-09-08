@@ -9,16 +9,31 @@ type ProviderFetchInit = RequestInit & { dispatcher: Agent };
 
 const providerDispatchers = new Map<string, Agent>();
 
-function boundedTimeout(raw: string | undefined, fallback: number, maximum: number): number {
+function boundedTimeout(
+  raw: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(1_000, Math.min(Math.floor(parsed), maximum));
+  if (!Number.isFinite(parsed)) return Math.max(minimum, Math.min(fallback, maximum));
+  return Math.max(minimum, Math.min(Math.floor(parsed), maximum));
 }
 
-function providerDispatcher(totalTimeoutMs: number): Agent {
-  const connectTimeout = boundedTimeout(process.env.AI_CONNECT_TIMEOUT_MS, 30_000, totalTimeoutMs);
-  const headersTimeout = boundedTimeout(process.env.AI_HEADERS_TIMEOUT_MS, totalTimeoutMs, totalTimeoutMs);
-  const bodyTimeout = boundedTimeout(process.env.AI_BODY_TIMEOUT_MS, totalTimeoutMs, totalTimeoutMs);
+function providerDispatcher(totalTimeoutMs: number, minimumResponseTimeoutMs = 1_000): Agent {
+  const connectTimeout = boundedTimeout(process.env.AI_CONNECT_TIMEOUT_MS, 30_000, 1_000, totalTimeoutMs);
+  const headersTimeout = boundedTimeout(
+    process.env.AI_HEADERS_TIMEOUT_MS,
+    totalTimeoutMs,
+    minimumResponseTimeoutMs,
+    totalTimeoutMs,
+  );
+  const bodyTimeout = boundedTimeout(
+    process.env.AI_BODY_TIMEOUT_MS,
+    totalTimeoutMs,
+    minimumResponseTimeoutMs,
+    totalTimeoutMs,
+  );
   const key = `${connectTimeout}:${headersTimeout}:${bodyTimeout}`;
   const existing = providerDispatchers.get(key);
   if (existing) return existing;
@@ -181,7 +196,12 @@ export class NotImplementedError extends ProviderError {
 export async function fetchWithRetry(
   url: string,
   initFactory: () => RequestInit,
-  opts?: { timeoutMs?: number; maxRetries?: number; providerId?: string },
+  opts?: {
+    timeoutMs?: number;
+    minimumResponseTimeoutMs?: number;
+    maxRetries?: number;
+    providerId?: string;
+  },
 ): Promise<Response> {
   let parsedUrl: URL;
   try {
@@ -204,7 +224,10 @@ export async function fetchWithRetry(
     const requestInit: ProviderFetchInit = {
       ...initFactory(),
       signal: AbortSignal.timeout(timeoutMs),
-      dispatcher: providerDispatcher(timeoutMs),
+      dispatcher: providerDispatcher(timeoutMs, Math.min(
+        timeoutMs,
+        Math.max(1_000, opts?.minimumResponseTimeoutMs ?? 1_000),
+      )),
     };
     const res = await fetch(url, requestInit);
     if (!res.ok) {

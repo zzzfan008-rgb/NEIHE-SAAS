@@ -4,7 +4,6 @@ export const IMAGE_MODEL_IDS = [
   "gpt-image-2",
   "gpt-image-2-vip",
   "gemini-3.1-flash-image",
-  "gemini-3.1-flash-image-preview",
   "flux-2-pro",
   "seedream-5-0-260128",
   "grok-imagine-image",
@@ -81,13 +80,13 @@ export const DEFAULT_GENERATION_MODEL_ID: GenerationImageModelId = "gpt-image-2-
 export const MASK_REDRAW_MODEL_ID = "gpt-image-2" as const;
 export const VIRTUAL_TRY_ON_MODEL_IDS = [
   "gpt-image-2",
-  "gemini-3.1-flash-image-preview",
+  "gemini-3.1-flash-image",
 ] as const;
 export type VirtualTryOnModelId = (typeof VIRTUAL_TRY_ON_MODEL_IDS)[number];
 
 export const GENERATION_IMAGE_MODEL_IDS = IMAGE_MODEL_IDS.filter(
   (id): id is GenerationImageModelId => (
-    id !== MASK_REDRAW_MODEL_ID && id !== "gemini-3.1-flash-image-preview"
+    id !== MASK_REDRAW_MODEL_ID
   ),
 );
 
@@ -108,7 +107,7 @@ export function isModelAllowedForNode(modelId: ImageModelId, nodeKind: string): 
   if (nodeKind === "virtual-try-on") {
     return (VIRTUAL_TRY_ON_MODEL_IDS as readonly string[]).includes(modelId);
   }
-  return modelId !== MASK_REDRAW_MODEL_ID && modelId !== "gemini-3.1-flash-image-preview";
+  return modelId !== MASK_REDRAW_MODEL_ID;
 }
 
 const VIP_SIZE_BY_RATIO: Record<string, string> = {
@@ -146,8 +145,7 @@ export function defaultImageModelOptions(
       return {};
     case "gpt-image-2-vip":
       return { size: VIP_SIZE_BY_RATIO[preferredAspectRatio] ?? VIP_SIZE_BY_RATIO["1:1"] };
-    case "gemini-3.1-flash-image":
-    case "gemini-3.1-flash-image-preview": {
+    case "gemini-3.1-flash-image": {
       const allowed = getImageModelContract(modelId).aspectRatios ?? [];
       return {
         aspectRatio: allowed.includes(preferredAspectRatio) ? preferredAspectRatio : "1:1",
@@ -212,8 +210,7 @@ export function normalizeImageModelOptions(
       const sizes = getImageModelContract(modelId).sizes ?? [];
       return { size: typeof raw.size === "string" && sizes.includes(raw.size) ? raw.size : defaults.size };
     }
-    case "gemini-3.1-flash-image":
-    case "gemini-3.1-flash-image-preview": {
+    case "gemini-3.1-flash-image": {
       const contract = getImageModelContract(modelId);
       return {
         aspectRatio: typeof raw.aspectRatio === "string" && contract.aspectRatios?.includes(raw.aspectRatio)
@@ -267,8 +264,7 @@ export function imageModelOptionsForAspectRatio(
       return normalized;
     case "gpt-image-2-vip":
       return { ...normalized, size: VIP_SIZE_BY_RATIO[aspectRatio] ?? normalized.size };
-    case "gemini-3.1-flash-image":
-    case "gemini-3.1-flash-image-preview": {
+    case "gemini-3.1-flash-image": {
       const allowed = getImageModelContract(modelId).aspectRatios ?? [];
       return allowed.includes(aspectRatio) ? { ...normalized, aspectRatio } : normalized;
     }
@@ -303,7 +299,6 @@ export function imageModelOptionsError(modelId: ImageModelId, value: unknown): s
     "gpt-image-2": ["size", "quality"],
     "gpt-image-2-vip": ["size"],
     "gemini-3.1-flash-image": ["aspectRatio", "imageSize"],
-    "gemini-3.1-flash-image-preview": ["aspectRatio", "imageSize"],
     "flux-2-pro": ["width", "height", "outputFormat"],
     "seedream-5-0-260128": ["size"],
     "grok-imagine-image": ["aspectRatio", "resolution"],

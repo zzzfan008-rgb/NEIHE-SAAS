@@ -118,6 +118,26 @@ const legacyAiFlow = () => ({
 async function main() {
   console.log("工作流 Schema / 图片 / SSRF 回归测试");
 
+  await test("v11 Preview 模型确定性迁移为正式模型并保留图片、参数和布局", () => {
+    const legacy = {
+      schemaVersion: 11,
+      nodes: [{ id: "try-on", type: "virtual-try-on", position: { x: 23, y: 45 }, data: {
+        kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize",
+        prompt: "保留细节", imageSize: "2K", aspectRatio: "3:4", basisRevision: 4,
+        modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
+        promptEnhancement: false, qualityMode: "fast", safetyFallback: false, stylePresetId: "faithful",
+        outputImages: [PNG_DATA_URL],
+      } }], edges: [],
+    };
+    const migrated = validateAndMigrateFlow(legacy);
+    assert.equal(migrated.nodes[0].data.modelId, "gemini-3.1-flash-image");
+    assert.deepEqual(migrated.nodes[0].position, legacy.nodes[0].position);
+    assert.deepEqual(migrated.nodes[0].data.outputImages, [PNG_DATA_URL]);
+    assert.deepEqual(migrated.nodes[0].data.modelOptions, legacy.nodes[0].data.modelOptions);
+    assert.deepEqual(validateAndMigrateFlow(migrated), migrated);
+    assert.throws(() => validateAndMigrateFlow({ ...legacy, schemaVersion: WORKFLOW_SCHEMA_VERSION }), /modelId/);
+  });
+
   await test("v4 分步换装与配色节点确定性迁移到 v5 typed-port 文档", () => {
     const legacy = {
       schemaVersion: 4,
@@ -134,7 +154,7 @@ async function main() {
           id: "stabilize", type: "virtual-try-on", position: { x: 300, y: 0 },
           data: {
             kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize",
-            prompt: "", imageSize: "2K", modelId: "gemini-3.1-flash-image-preview",
+            prompt: "", imageSize: "2K", modelId: "gemini-3.1-flash-image",
             modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, outputImages: [PNG_DATA_URL],
           },
         },
@@ -351,7 +371,7 @@ async function main() {
           status: "idle",
           prompt: "保留模特背景",
           imageSize: "4K",
-          modelId: "gemini-3.1-flash-image-preview",
+          modelId: "gemini-3.1-flash-image",
           modelOptions: { aspectRatio: "1:1", imageSize: "4K" },
           outputImages: [],
         },
@@ -408,7 +428,7 @@ async function main() {
           id: "stabilize", type: "virtual-try-on", position: { x: 0, y: 0 },
           data: {
             kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize",
-            prompt: "", imageSize: "2K", modelId: "gemini-3.1-flash-image-preview",
+            prompt: "", imageSize: "2K", modelId: "gemini-3.1-flash-image",
             modelOptions: { aspectRatio: "1:1", imageSize: "2K" }, outputImages: [],
           },
         },
@@ -440,13 +460,13 @@ async function main() {
     firstStageNode.data.modelId = "gpt-image-2";
     assert.throws(
       () => validateAndMigrateFlow(invalidFirstStage),
-      /scene-stabilize must use gemini-3\.1-flash-image-preview/,
+      /scene-stabilize must use gemini-3\.1-flash-image/,
     );
 
     const invalidSecondStage = structuredClone(normalized);
     const secondStageNode = invalidSecondStage.nodes.find((node) => node.id === "refine");
     if (!secondStageNode || secondStageNode.data.kind !== "virtual-try-on") throw new Error("missing second stage");
-    secondStageNode.data.modelId = "gemini-3.1-flash-image-preview";
+    secondStageNode.data.modelId = "gemini-3.1-flash-image";
     secondStageNode.data.modelOptions = { aspectRatio: "1:1", imageSize: "2K" };
     assert.throws(
       () => validateAndMigrateFlow(invalidSecondStage),
@@ -475,7 +495,7 @@ async function main() {
           id: "stabilize", type: "virtual-try-on", position: { x: 300, y: 0 },
           data: {
             kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "standard",
-            prompt: "", imageSize: "2K", modelId: "gemini-3.1-flash-image-preview",
+            prompt: "", imageSize: "2K", modelId: "gemini-3.1-flash-image",
             modelOptions: { aspectRatio: "1:1", imageSize: "2K" }, outputImages: [],
           },
         },
@@ -896,7 +916,7 @@ async function main() {
     assert.equal(stagedTryOn.builtIn, true);
     assert.equal(stagedTryOn.ownerId, undefined);
     assert.equal(stagedTryOn.flow.schemaVersion, WORKFLOW_SCHEMA_VERSION);
-    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3.1-flash-image-preview");
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3.1-flash-image");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.modelId, "gpt-image-2");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
     assert.equal(stagedTryOn.flow.nodes.length, 21);

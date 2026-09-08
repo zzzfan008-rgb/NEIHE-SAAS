@@ -244,10 +244,12 @@ function migratedModelFields(
     ? MASK_REDRAW_MODEL_ID
     : DEFAULT_GENERATION_MODEL_ID;
   if (raw.modelId !== undefined) {
+    const modelId = raw.modelId === "gemini-3.1-flash-image-preview"
+      ? "gemini-3.1-flash-image" : raw.modelId;
     return {
-      modelId: raw.modelId,
-      modelOptions: raw.modelOptions === undefined && isImageModelId(raw.modelId)
-        ? defaultImageModelOptions(raw.modelId, preferredAspectRatio)
+      modelId,
+      modelOptions: raw.modelOptions === undefined && isImageModelId(modelId)
+        ? defaultImageModelOptions(modelId, preferredAspectRatio)
         : raw.modelOptions,
     };
   }
@@ -544,8 +546,8 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       if (raw.workflowStage === "scene-stabilize" && raw.basisRevision === undefined) {
         fail(`${path}.basisRevision`, "is required for scene-stabilize");
       }
-      if (raw.workflowStage === "scene-stabilize" && raw.modelId !== "gemini-3.1-flash-image-preview") {
-        fail(`${path}.modelId`, "scene-stabilize must use gemini-3.1-flash-image-preview");
+      if (raw.workflowStage === "scene-stabilize" && raw.modelId !== "gemini-3.1-flash-image") {
+        fail(`${path}.modelId`, "scene-stabilize must use gemini-3.1-flash-image");
       }
       if (raw.workflowStage === "garment-refine" && raw.modelId !== "gpt-image-2") {
         fail(`${path}.modelId`, "garment-refine must use gpt-image-2");
@@ -648,7 +650,7 @@ function recoverStagedTryOnNode(
   const roles = incomingRoles.get(node.id);
   if (!roles) return value;
 
-  const inferred = data.modelId === "gemini-3.1-flash-image-preview"
+  const inferred = (data.modelId === "gemini-3.1-flash-image-preview" || data.modelId === "gemini-3.1-flash-image")
     && roles.has("person") && roles.has("scene") && roles.has("outfit")
     ? "scene-stabilize"
     : data.modelId === MASK_REDRAW_MODEL_ID && roles.has("baseline") && roles.has("outfit")
@@ -914,7 +916,7 @@ function migrateV4StageApprovals(
   return { nodes: [...nodes, ...insertedNodes], edges };
 }
 
-/** Validate untrusted JSON and migrate supported unversioned/v0-v10 formats to v11. */
+/** Validate untrusted JSON and migrate supported unversioned/v0-v11 formats to v12. */
 export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
   const raw = record(value, "flow");
   const version = raw.schemaVersion;

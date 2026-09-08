@@ -1,12 +1,12 @@
 {
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "id": "builtin-tool-one-click-try-on",
   "name": "一键换装",
   "description": "上传图片后自动连接完整双阶段工作流：Gemini 锁定人物与场景，人工确认后由 GPT Image 2 精修服装。",
   "builtIn": true,
   "createdAt": "2026-09-03T00:00:00.000Z",
   "flow": {
-    "schemaVersion": 11,
+    "schemaVersion": 12,
     "nodes": [
       {
         "id": "person",
@@ -305,7 +305,7 @@
           "status": "idle",
           "workflowStage": "scene-stabilize",
           "prompt": "",
-          "modelId": "gemini-3.1-flash-image-preview",
+          "modelId": "gemini-3.1-flash-image",
           "modelOptions": {
             "aspectRatio": "3:4",
             "imageSize": "2K"

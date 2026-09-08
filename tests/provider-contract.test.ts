@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import sharp from "sharp";
+import { randomBytes } from "node:crypto";
+import { mock } from "node:test";
 import sources from "../docs/ai/apiyi/sources.json";
 import { config } from "../server/config";
 import { deleteStoredImage, saveVideoUploadDataUrl } from "../server/lib/fileStore";
@@ -857,7 +859,7 @@ async function main(): Promise<void> {
       ];
       let call = 0;
       const restoreFetch = installFetchMock(() => Response.json(responses[call++]));
-      const invoke = () => apiyiProviders["gemini-3.1-flash-image-preview"].edit({
+      const invoke = () => apiyiProviders["gemini-3.1-flash-image"].edit({
         prompt: "虚拟换装",
         referenceImages: [white],
         modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
@@ -907,7 +909,7 @@ async function main(): Promise<void> {
       }));
       try {
         const started = Date.now();
-        const result = await apiyiProviders["gemini-3.1-flash-image-preview"].edit({
+        const result = await apiyiProviders["gemini-3.1-flash-image"].edit({
           prompt: "虚拟换装",
           referenceImages: [white],
           modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
@@ -920,7 +922,7 @@ async function main(): Promise<void> {
       }
     });
 
-    await test("Gemini 3.1 Flash Image Preview 换装使用 14 个有序 inlineData part", async () => {
+    await test("Gemini 正式模型换装使用 14 个有序 inlineData part", async () => {
       let capturedUrl = "";
       let capturedBody: Record<string, unknown> | undefined;
       const restoreFetch = installFetchMock((input, init) => {
@@ -935,14 +937,14 @@ async function main(): Promise<void> {
       });
       try {
         const references = Array.from({ length: 14 }, (_, index) => index % 2 === 0 ? white : blue);
-        await apiyiProviders["gemini-3.1-flash-image-preview"].edit({
+        await apiyiProviders["gemini-3.1-flash-image"].edit({
           prompt: "虚拟换装",
           referenceImages: references,
           modelOptions: { aspectRatio: "16:9", imageSize: "4K" },
         });
         assert.equal(
           capturedUrl,
-          "https://gateway.example/v1beta/models/gemini-3.1-flash-image-preview:generateContent",
+          "https://gateway.example/v1beta/models/gemini-3.1-flash-image:generateContent",
         );
         const contents = capturedBody?.contents as Array<{ parts: Array<Record<string, unknown>> }>;
         assert.equal(contents[0].parts.length, 15);
@@ -954,6 +956,90 @@ async function main(): Promise<void> {
         });
       } finally {
         restoreFetch();
+      }
+    });
+
+    await test("Gemini 压缩保持格式、比例和顺序，并将多图合计控制在 6MB", async () => {
+      const noisy = randomBytes(2500 * 1200 * 3);
+      const png = await sharp(noisy, { raw: { width: 2500, height: 1200, channels: 3 } }).png().toBuffer();
+      const jpeg = await sharp(noisy, { raw: { width: 2500, height: 1200, channels: 3 } }).jpeg({ quality: 100 }).toBuffer();
+      assert.ok(png.length > 1.5 * 1024 * 1024);
+      assert.ok(jpeg.length > 1.5 * 1024 * 1024);
+      let sent: Array<{ inlineData?: { mimeType: string; data: string }; text?: string }> = [];
+      const restore = installFetchMock((_input, init) => {
+        sent = (jsonBody(init).contents as Array<{ parts: typeof sent }>)[0].parts;
+        return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [
+          { text: "thinking" }, { inlineData: { mimeType: "image/png", data: white.split(",")[1] } },
+        ] } }] });
+      });
+      try {
+        const references = [white, ...Array.from({ length: 6 }, (_, i) => i % 2 === 0
+          ? `data:image/png;base64,${png.toString("base64")}` : `data:image/jpeg;base64,${jpeg.toString("base64")}`)];
+        await apiyiProviders["gemini-3.1-flash-image"].edit({
+          prompt: "preserve garment details", referenceImages: references,
+          modelOptions: { aspectRatio: "1:1", imageSize: "1K" },
+        });
+        assert.deepEqual(sent[0], { text: "preserve garment details" });
+        assert.equal(sent[1].inlineData?.data, white.split(",")[1], "小图保持原始字节");
+        let total = 0;
+        for (const [index, part] of sent.slice(1).entries()) {
+          assert.equal(part.text, undefined);
+          const inline = part.inlineData!;
+          const buffer = Buffer.from(inline.data, "base64");
+          total += buffer.length;
+          const info = await sharp(buffer).metadata();
+          assert.ok(Math.max(info.width!, info.height!) <= 2048);
+          if (index > 0) {
+            assert.equal(inline.mimeType, index % 2 === 1 ? "image/png" : "image/jpeg");
+            assert.ok(Math.abs(info.width! / info.height! - 2500 / 1200) < 0.02);
+          }
+        }
+        assert.ok(total <= 6 * 1024 * 1024);
+
+        const failure = mock.method(sharp.prototype, "resize", () => { throw new Error("test compression failure"); });
+        try {
+          const fallback = `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+          await apiyiProviders["gemini-3.1-flash-image"].edit({
+            prompt: "fallback", referenceImages: [fallback], modelOptions: { aspectRatio: "1:1", imageSize: "1K" },
+          });
+          assert.equal(sent[1].inlineData?.data, jpeg.toString("base64"));
+          await assert.rejects(() => apiyiProviders["gemini-3.1-flash-image"].edit({
+            prompt: "oversized fallback", referenceImages: Array(4).fill(fallback),
+            modelOptions: { aspectRatio: "1:1", imageSize: "1K" },
+          }), (error: unknown) => error instanceof ProviderError && error.category === "invalid_request");
+        } finally { failure.mock.restore(); }
+      } finally { restore(); }
+    });
+
+    await test("Gemini 总时限和 undici 响应时限至少 360 秒，其他模型保持各自时限", async () => {
+      const captures: Array<RequestInit & { dispatcher?: unknown }> = [];
+      const timeouts: number[] = [];
+      const timer = mock.method(AbortSignal, "timeout", (ms: number) => {
+        timeouts.push(ms);
+        return new AbortController().signal;
+      });
+      const restore = installFetchMock((_input, init) => {
+        captures.push(init!);
+        return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [
+          { inlineData: { mimeType: "image/png", data: white.split(",")[1] } },
+        ] } }] });
+      });
+      const restores = [setEnv("AI_HEADERS_TIMEOUT_MS", "360000"), setEnv("AI_BODY_TIMEOUT_MS", "360000"),
+        setEnv("AI_TIMEOUT_MS", "1000")];
+      try {
+        await fetchWithRetry("https://gateway.example/check", () => ({}), { timeoutMs: 360000 });
+        process.env.AI_HEADERS_TIMEOUT_MS = "1000";
+        process.env.AI_BODY_TIMEOUT_MS = "1000";
+        await apiyiProviders["gemini-3.1-flash-image"].generate({
+          prompt: "test", modelOptions: { aspectRatio: "1:1", imageSize: "1K" },
+        });
+        assert.equal(timeouts[1], 360000);
+        assert.equal(captures[1].dispatcher, captures[0].dispatcher, "低环境变量不得缩短 Gemini headers/body 时限");
+        await fetchWithRetry("https://gateway.example/check", () => ({}), { timeoutMs: 60000 });
+        assert.equal(timeouts[2], 60000);
+        assert.notEqual(captures[2].dispatcher, captures[0].dispatcher);
+      } finally {
+        timer.mock.restore(); restore(); restores.reverse().forEach((fn) => fn());
       }
     });
 

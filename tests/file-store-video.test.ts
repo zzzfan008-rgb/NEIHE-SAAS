@@ -26,6 +26,11 @@ try {
   assert.equal(receipt.created, true);
   assert.match(receipt.url, /^\/api\/files\/generated-/);
   assert.equal(fs.statSync(path.join(fileStore.uploadsDir(), receipt.id)).size, buffer.byteLength);
+  assert.deepEqual(await fileStore.persistMediaRefWithReceipt(receipt.url, "video-input-step"), {
+    id: receipt.id, url: receipt.url, created: false,
+  });
+  await assert.rejects(() => fileStore.persistMediaRefWithReceipt("/api/files/../video.mp4", "invalid-video"));
+  await assert.rejects(() => fileStore.persistMediaRefWithReceipt(`${receipt.url}?token=invalid`, "invalid-video"));
 } finally {
   fileStore.deleteStoredImage(receipt.id);
   fs.rmSync(temp, { recursive: true, force: true });

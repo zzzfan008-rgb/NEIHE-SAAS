@@ -1,12 +1,12 @@
 {
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "id": "builtin-tool-text-to-video",
   "name": "文生视频",
   "description": "文字提示连接真实视频生成节点。",
   "builtIn": true,
   "createdAt": "2026-09-03T08:00:00.000Z",
   "flow": {
-    "schemaVersion": 11,
+    "schemaVersion": 12,
     "nodes": [
       {
         "id": "prompt",

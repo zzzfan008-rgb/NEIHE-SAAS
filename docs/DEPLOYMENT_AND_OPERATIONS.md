@@ -32,10 +32,10 @@
 | `SQLITE_IMPORT_FILE` | 否 | `garment-canvas.db` | 相对于 `DATA_DIR` 的旧 SQLite 文件，只在 PostgreSQL 空库时导入一次 |
 | `COOKIE_SECURE` | 否 | `false` | HTTPS 反向代理部署必须设为 `true` |
 | `API_ONLY` | 否 | `false` | `true` 时不要求或托管前端构建 |
-| `AI_TIMEOUT_MS` | 否 | 按模型契约，通常 300000 | AI 请求总时限（毫秒） |
+| `AI_TIMEOUT_MS` | 否 | 按模型契约 | AI 请求总时限（毫秒）；Nano Banana 2 最低 360000 |
 | `AI_CONNECT_TIMEOUT_MS` | 否 | `30000` | TCP/TLS 建连时限，不超过总时限 |
-| `AI_HEADERS_TIMEOUT_MS` | 否 | 等于总时限 | 等待响应头时限，不超过总时限 |
-| `AI_BODY_TIMEOUT_MS` | 否 | 等于总时限 | 响应体分段空闲时限，不超过总时限 |
+| `AI_HEADERS_TIMEOUT_MS` | 否 | 等于总时限 | 等待响应头时限，不超过总时限；Nano Banana 2 最低 360000 |
+| `AI_BODY_TIMEOUT_MS` | 否 | 等于总时限 | 响应体分段空闲时限，不超过总时限；Nano Banana 2 最低 360000 |
 | `AI_IMAGE_TAIL_GRACE_MS` | 否 | `5000` | chunked JSON 完整后等待连接正常收尾的窗口；超时后主动回收完整结果 |
 | `GENERATION_WORKER_POLL_MS` | 否 | `2000` | Worker 轮询间隔，限制为 100–60000 ms |
 

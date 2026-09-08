@@ -116,7 +116,7 @@ await test("第一轮只接受六类配饰角色且每类最多一条连线", ()
       workflowStage: "scene-stabilize",
       prompt: "",
       imageSize: "2K",
-      modelId: "gemini-3.1-flash-image-preview",
+      modelId: "gemini-3.1-flash-image",
       modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
       outputImages: [],
     },
@@ -154,7 +154,7 @@ await test("图片赋值与模板自动连接原子提交，重复和过期写�
     id: "auto-stabilize", type: "virtual-try-on", position: { x: 320, y: 0 },
     data: {
       kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize",
-      prompt: "", modelId: "gemini-3.1-flash-image-preview", modelOptions: { imageSize: "2K" },
+      prompt: "", modelId: "gemini-3.1-flash-image", modelOptions: { imageSize: "2K" },
       imageSize: "2K", aspectRatio: "3:4", basisRevision: 0, outputImages: [],
     },
   };
@@ -444,7 +444,7 @@ function stagedConnectionNode(id = "role-stage"): FlowNode {
       workflowStage: "scene-stabilize",
       prompt: "",
       imageSize: "2K",
-      modelId: "gemini-3.1-flash-image-preview",
+      modelId: "gemini-3.1-flash-image",
       modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
       basisRevision: 0,
       outputImages: [],
@@ -2221,7 +2221,7 @@ await test("分步换装错误模型在客户端付费请求前被拒绝", async
     position: { x: 400, y: 0 },
     data: {
       kind: "virtual-try-on", label: "第二轮", status: "idle", workflowStage: "garment-refine",
-      prompt: "", imageSize: "2K", aspectRatio: "3:4", modelId: "gemini-3.1-flash-image-preview",
+      prompt: "", imageSize: "2K", aspectRatio: "3:4", modelId: "gemini-3.1-flash-image",
       modelOptions: { imageSize: "2K" }, garmentCategory: "knit", materialSpec: "羊毛", constructionSpec: "12GG", outputImages: [],
     },
   };

@@ -188,7 +188,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
         }
       };
       if (stage === "scene-stabilize") {
-        if (modelId !== "gemini-3.1-flash-image-preview") {
+        if (modelId !== "gemini-3.1-flash-image") {
           throw new DagError(`节点 ${step.nodeId} 第一轮必须使用 Gemini 3.1 Flash`);
         }
         const personSources = roleSources("person");

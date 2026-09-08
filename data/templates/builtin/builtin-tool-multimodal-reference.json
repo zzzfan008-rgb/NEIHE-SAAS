@@ -1,12 +1,12 @@
 {
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "id": "builtin-tool-multimodal-reference",
   "name": "多模态参考生视频",
   "description": "图片、视频、音频和提示词按独立角色连接。",
   "builtIn": true,
   "createdAt": "2026-09-03T08:00:00.000Z",
   "flow": {
-    "schemaVersion": 11,
+    "schemaVersion": 12,
     "nodes": [
       {
         "id": "image",

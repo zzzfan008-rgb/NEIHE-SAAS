@@ -82,7 +82,6 @@ function diagnosticModelOptions(modelId: ImageModelId): ImageModelOptions {
     case "gpt-image-2-vip":
       return { size: "1280x1280" };
     case "gemini-3.1-flash-image":
-    case "gemini-3.1-flash-image-preview":
       return { aspectRatio: "1:1", imageSize: "512" };
     case "flux-2-pro":
       return { width: 512, height: 512, outputFormat: "png" };

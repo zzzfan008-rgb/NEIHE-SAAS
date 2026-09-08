@@ -355,7 +355,7 @@ async function main() {
         workflowStage: "standard",
         prompt: "保留背景",
         imageSize: "4K",
-        modelId: "gemini-3.1-flash-image-preview",
+        modelId: "gemini-3.1-flash-image",
         modelOptions: { aspectRatio: "1:1", imageSize: "4K" },
         outputImages: [],
       } as WorkflowNodeData as FlowNode["data"],
@@ -394,7 +394,7 @@ async function main() {
       type: "virtual-try-on",
       data: {
         kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize",
-        prompt: "", imageSize: "2K", modelId: "gemini-3.1-flash-image-preview",
+        prompt: "", imageSize: "2K", modelId: "gemini-3.1-flash-image",
         modelOptions: { aspectRatio: "1:1", imageSize: "2K" }, outputImages: [],
       },
     };
@@ -487,7 +487,7 @@ async function main() {
     assert.doesNotThrow(() => assertPlanInputs(stageTwo, stageTwoEdges));
     const invalidStageTwoNode: FlowNode = {
       ...refine,
-      data: { ...refine.data, modelId: "gemini-3.1-flash-image-preview" },
+      data: { ...refine.data, modelId: "gemini-3.1-flash-image" },
     };
     const invalidStageTwo = buildExecutionPlan(
       [...stageTwoNodes.filter((node) => node.id !== refine.id), invalidStageTwoNode],
@@ -831,14 +831,20 @@ async function main() {
       {
         prompt: "",
         imageSize: "4K",
-        modelId: "gemini-3.1-flash-image-preview",
+        modelId: "gemini-3.1-flash-image",
         modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
       },
       [SEED_DATA_URL, SECOND_DATA_URL],
     );
-    assert.deepStrictEqual(gemini.providerIds, ["gemini-3.1-flash-image-preview"]);
+    assert.deepStrictEqual(gemini.providerIds, ["gemini-3.1-flash-image"]);
     assert.deepStrictEqual(gemini.calls[0].request.modelOptions, { aspectRatio: "1:1", imageSize: "4K" });
     assert.strictEqual(gemini.result.images.length, 1);
+
+    const legacyQueued = await runRecordedAiStep("virtual-try-on", {
+      prompt: "", imageSize: "2K", modelId: "gemini-3.1-flash-image-preview",
+      modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
+    }, [SEED_DATA_URL, SECOND_DATA_URL]);
+    assert.deepStrictEqual(legacyQueued.providerIds, ["gemini-3.1-flash-image"], "旧队列计划不得回退到 GPT");
 
     await assert.rejects(
       () => runRecordedAiStep(
@@ -861,7 +867,7 @@ async function main() {
       "virtual-try-on",
       {
         workflowStage: "scene-stabilize", prompt: "", imageSize: "2K",
-        modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
+        modelId: "gemini-3.1-flash-image", modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
       },
       [
         SCENE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL,
@@ -899,7 +905,7 @@ async function main() {
       "virtual-try-on",
       {
         workflowStage: "scene-stabilize", prompt: "", imageSize: "2K",
-        modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
+        modelId: "gemini-3.1-flash-image", modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
       },
       [SCENE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL, SECOND_DATA_URL],
       undefined,
@@ -913,7 +919,7 @@ async function main() {
       "virtual-try-on",
       {
         workflowStage: "scene-stabilize", prompt: "自然站立", imageSize: "2K",
-        modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
+        modelId: "gemini-3.1-flash-image", modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
         promptEnhancement: false, qualityMode: "best", safetyFallback: false, stylePresetId: "faithful",
       },
       [SCENE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL],
@@ -942,7 +948,7 @@ async function main() {
       "virtual-try-on",
       {
         workflowStage: "scene-stabilize", prompt: "保留象牙白阔腿裤的双褶线", imageSize: "2K",
-        modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
+        modelId: "gemini-3.1-flash-image", modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
         promptEnhancement: true, qualityMode: "fast", safetyFallback: true, stylePresetId: "faithful",
       },
       [SCENE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL],

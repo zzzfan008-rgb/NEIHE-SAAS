@@ -215,7 +215,7 @@ await test("持久队列保留分步角色，场景只做文字分析且未提�
       workflowStage: "scene-stabilize",
       prompt: "",
       imageSize: "2K",
-      modelId: "gemini-3.1-flash-image-preview",
+      modelId: "gemini-3.1-flash-image",
       modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
     },
   };
@@ -321,7 +321,7 @@ await test("最佳档位独立生成三张候选，只发布赢家并持久化�
       workflowStage: "scene-stabilize",
       prompt: "保留目标穿搭",
       imageSize: "2K",
-      modelId: "gemini-3.1-flash-image-preview",
+      modelId: "gemini-3.1-flash-image",
       modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
       promptEnhancement: false,
       qualityMode: "best",
@@ -559,18 +559,40 @@ await test("retry_wait 在 available_at 前不可领取，到期后才对 Worker
   assert.equal((await runRow(runId))?.status, "succeeded");
 });
 
-await test("队列结果文件按稳定键幂等落盘", async () => {
+await test("生成结果统一转为 PNG 且队列稳定键保持幂等", async () => {
   const key = `file-idempotency-${sequence += 1}`;
-  const first = await fileStore.persistImageRefWithReceipt(PNG_DATA_URL, key);
-  const second = await fileStore.persistImageRefWithReceipt(PNG_DATA_URL, key);
+  const webp = await sharp({
+    create: { width: 32, height: 24, channels: 3, background: { r: 31, g: 91, b: 173 } },
+  }).webp({ quality: 90 }).toBuffer();
+  const source = `data:image/webp;base64,${webp.toString("base64")}`;
+  const first = await fileStore.persistMediaRefWithReceipt(source, key);
+  const second = await fileStore.persistMediaRefWithReceipt(source, key);
   try {
     assert.equal(first.created, true);
     assert.equal(second.created, false);
     assert.equal(second.id, first.id);
     assert.equal(second.url, first.url);
+    assert.match(first.id, /^generated-[a-f0-9]{24}\.png$/);
+    assert.equal(fileStore.mimeOfFile(first.id), "image/png");
+    assert.equal((await sharp(path.join(fileStore.uploadsDir(), first.id)).metadata()).format, "png");
     assert.equal(fs.readdirSync(fileStore.uploadsDir()).filter((id) => id === first.id).length, 1);
   } finally {
     fileStore.deleteStoredImage(first.id);
+  }
+});
+
+await test("内存执行链的 JPEG 结果也以 PNG 文件路由返回", async () => {
+  const jpeg = await sharp({
+    create: { width: 30, height: 20, channels: 3, background: { r: 190, g: 80, b: 42 } },
+  }).jpeg({ quality: 90 }).toBuffer();
+  const url = await fileStore.persistImageRef(`data:image/jpeg;base64,${jpeg.toString("base64")}`);
+  const id = path.basename(url);
+  try {
+    assert.match(url, /^\/api\/files\/[A-Za-z0-9_-]{12}\.png$/);
+    assert.equal(fileStore.mimeOfFile(id), "image/png");
+    assert.equal((await sharp(path.join(fileStore.uploadsDir(), id)).metadata()).format, "png");
+  } finally {
+    fileStore.deleteStoredImage(id);
   }
 });
 
@@ -740,11 +762,11 @@ await test("Gemini IMAGE_SAFETY 最多自动重试两次并可在第三次成功
       throw new ProviderError(
         "AI 图片安全审核暂时未通过，系统将按上限自动重试",
         422,
-        "gemini-3.1-flash-image-preview",
+        "gemini-3.1-flash-image",
         "image_safety",
       );
     }
-    return { images: [PNG_DATA_URL], model: "gemini-3.1-flash-image-preview" };
+    return { images: [PNG_DATA_URL], model: "gemini-3.1-flash-image" };
   });
   const runId = await enqueueSingle("image-safety");
   for (let attempt = 0; attempt < 3; attempt += 1) {

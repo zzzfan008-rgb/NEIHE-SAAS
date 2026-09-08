@@ -417,7 +417,7 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
                   disabled={isNodeRunActive(d.status)}
                   onClick={() => updateNodeData(nodeId, {
                     imageSize,
-                    modelOptions: d.modelId === "gemini-3.1-flash-image-preview"
+                    modelOptions: d.modelId === "gemini-3.1-flash-image"
                       ? { ...d.modelOptions, imageSize }
                       : d.workflowStage === "garment-refine" ? { quality: "medium" } : {},
                     error: undefined,

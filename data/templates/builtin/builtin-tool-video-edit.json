@@ -1,12 +1,12 @@
 {
-  "schemaVersion": 11,
+  "schemaVersion": 12,
   "id": "builtin-tool-video-edit",
   "name": "视频编辑",
   "description": "源视频与编辑指令连接到 Seedance 2.5 编辑任务。",
   "builtIn": true,
   "createdAt": "2026-09-03T08:00:00.000Z",
   "flow": {
-    "schemaVersion": 11,
+    "schemaVersion": 12,
     "nodes": [
       {
         "id": "source",

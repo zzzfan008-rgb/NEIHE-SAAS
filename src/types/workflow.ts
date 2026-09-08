@@ -21,7 +21,7 @@ export type NodeKind =
   | "upscale"            // 高清放大（节点内选择 API易模型，业务侧 2K/4K）
   | "print-extract"      // 印花提取（gpt-image-2，抠出印花平铺展开）
   | "print-mutate"       // 印花裂变（gpt-image-2，1~8 张风格一致变体）
-  | "virtual-try-on"     // 虚拟模特换装（GPT Image 2 / Gemini 3.1 Flash Image Preview）
+  | "virtual-try-on"     // 虚拟模特换装（GPT Image 2 / Gemini 3.1 Flash Image）
   | "mask-redraw"        // GPT Image 2 局部修改
   | "result";            // 结果展示/管理
 
@@ -245,7 +245,7 @@ export interface VirtualTryOnNodeData extends BaseNodeData {
   /** 只描述最终效果的可选要求；不得重定义服务端固定的参考图角色或编号。 */
   prompt: string;
   /** 该节点只允许两种经过验证的图片编辑模型。 */
-  modelId: "gpt-image-2" | "gemini-3.1-flash-image-preview";
+  modelId: "gpt-image-2" | "gemini-3.1-flash-image";
   modelOptions: ImageModelOptions;
   imageSize: "2K" | "4K";
   /** 标准一键换装使用服装行业常用画幅；分步换装仍由基准图推导。 */
@@ -355,11 +355,11 @@ export type WorkflowNodeData =
 
 // ---------- 持久化工作流（项目 / 模板共用）----------
 /**
- * 版本 11 增加 Seedance 2.5 / 2.0 模型矩阵、首帧、多模态、编辑、延长和音频输入；
- * 读取 v0-v10 时服务端确定性迁移，旧视频模式映射到新的明确任务类型；
+ * 版本 12 统一使用 Nano Banana 2 正式模型名；
+ * 读取 v0-v11 时服务端确定性迁移，旧 Preview 图片模型映射到正式模型；
  * 新版本不得静默降级读取。
  */
-export const WORKFLOW_SCHEMA_VERSION = 11 as const;
+export const WORKFLOW_SCHEMA_VERSION = 12 as const;
 export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
 
 export interface PersistedWorkflowNode {

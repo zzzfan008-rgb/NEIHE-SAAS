@@ -259,6 +259,22 @@ await test("runner 仅对生成/改款画幅和高清放大应用尺寸后处理
   assert.strictEqual(await postProcessGeneratedOutputImages("print-extract", {}, untouched), untouched);
 });
 
+await test("Gemini 文生图和编辑保留原生分辨率与长宽比，不套用通用画幅", async () => {
+  for (const [width, height, ratio, imageSize] of [
+    [512, 512, "1:1", "512"], [384, 3072, "1:8", "1K"],
+    [4096, 1024, "4:1", "2K"], [4096, 4096, "1:1", "4K"],
+  ] as const) {
+    const source = await fixtureDataUrl(width, height);
+    for (const kind of ["sketch-to-render", "ai-modify"] as const) {
+      const result = await postProcessGeneratedOutputImages(kind, {
+        modelId: "gemini-3.1-flash-image", aspectRatio: "3:4",
+        modelOptions: { aspectRatio: ratio, imageSize },
+      }, [source]);
+      assert.equal(result[0], source, `${kind} must preserve ${ratio} ${imageSize} provider bytes`);
+    }
+  }
+});
+
 await test("直接生成接口对显式节点种类严格校验尺寸参数", async () => {
   assert.deepEqual(
     validateDirectGenerateRequest("sketch-to-render", { prompt: "效果图", aspectRatio: "3:4" }),

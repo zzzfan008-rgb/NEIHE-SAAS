@@ -467,7 +467,7 @@ const recoveredStagedSession = normalizeTabSessionValue({
         id: "stabilize", type: "virtual-try-on", position: { x: 300, y: 0 },
         data: {
           kind: "virtual-try-on", label: "第一轮", status: "idle", prompt: "", imageSize: "2K",
-          modelId: "gemini-3.1-flash-image-preview", modelOptions: { imageSize: "2K" }, outputImages: [],
+          modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, outputImages: [],
         },
       },
       {
@@ -496,6 +496,9 @@ const recoveredStages = recoveredStagedSession.tabs[0].nodes
   .filter((node) => node.data.kind === "virtual-try-on")
   .map((node) => node.data.kind === "virtual-try-on" && node.data.workflowStage);
 assert.deepEqual(recoveredStages, ["scene-stabilize", "garment-refine"]);
+const recoveredGemini = recoveredStagedSession.tabs[0].nodes.find((node) => node.id === "stabilize")?.data;
+assert.equal(recoveredGemini?.modelId, "gemini-3.1-flash-image");
+assert.deepEqual(recoveredGemini?.modelOptions, { aspectRatio: "3:4", imageSize: "2K" });
 assert.ok(!recoveredStagedSession.tabs[0].edges.some((edge) => edge.id === "stale-person-stage"));
 const recoveredHandbag = recoveredStagedSession.tabs[0].nodes.find((node) => node.id === "structure");
 assert.equal(recoveredStagedSession.tabs[0].nodes.find((node) => node.id === "accessory")?.data.label, "鞋履参考图（可选）");
@@ -524,7 +527,7 @@ const recoveredV5NodeFields = normalizeTabSessionValue({
       { id: "board-v5", type: "drawing-board", position: { x: 100, y: 0 }, data: { kind: "drawing-board", label: "画板", status: "idle", boardVersion: 1, width: 1200, height: 900, background: "#FFFFFF", contentRef: "/api/drawings/content-1", previewImageRef: "/api/files/preview.png", exportImageRef: "/api/files/export.png", drawingRecoveryDraft: { private: true } } },
       { id: "palette-v5", type: "color-palette", position: { x: 200, y: 0 }, data: { kind: "color-palette", label: "色板", status: "idle", paletteVersion: 1, swatches: [{ id: "red", value: "#FF0000", source: "custom" }], recentColors: ["#000000"] } },
       { id: "approval-v5", type: "stage-approval", position: { x: 300, y: 0 }, data: { kind: "stage-approval", label: "确认基准", status: "idle", approvalKind: "scene-baseline", approvedSourceNodeId: "stabilize-v5", approvedBaselineRef: "/api/files/baseline.png", approvedBasisRevision: 2, approvedAt: "2026-09-03T00:00:00.000Z", confirmPopoverOpen: true } },
-      { id: "stabilize-v5", type: "virtual-try-on", position: { x: 400, y: 0 }, data: { kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize", prompt: "", modelId: "gemini-3.1-flash-image-preview", modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, imageSize: "2K", basisRevision: 2, outputImages: ["/api/files/baseline.png"], displayState: "ready" } },
+      { id: "stabilize-v5", type: "virtual-try-on", position: { x: 400, y: 0 }, data: { kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize", prompt: "", modelId: "gemini-3.1-flash-image", modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, imageSize: "2K", basisRevision: 2, outputImages: ["/api/files/baseline.png"], displayState: "ready" } },
       { id: "fabric-v5", type: "fabric-recolor", position: { x: 500, y: 0 }, data: { kind: "fabric-recolor", label: "配色替换", status: "idle", operationMode: "color", colors: ["#FF0000"], prompt: "", outputImages: [], modelId: "gpt-image-2-vip", modelOptions: { size: "2048x2048" } } },
     ],
     edges: [

@@ -325,7 +325,7 @@ function gptOutputSize(width: number, height: number, imageSize: "2K" | "4K"): s
 }
 
 async function virtualTryOnModelOptions(
-  modelId: "gpt-image-2" | "gemini-3.1-flash-image-preview",
+  modelId: "gpt-image-2" | "gemini-3.1-flash-image",
   imageSize: "2K" | "4K",
   modelReference: string,
   stage: unknown,
@@ -684,6 +684,7 @@ export async function postProcessGeneratedOutputImages(
   images: string[],
 ): Promise<string[]> {
   if (kind !== "sketch-to-render" && kind !== "ai-modify" && kind !== "upscale") return images;
+  if (kind !== "upscale" && params.modelId === "gemini-3.1-flash-image") return images;
   const aspectRatio = normalizeExactAspectRatio(params.aspectRatio);
   const imageSize = normalizeUpscaleSize(params.imageSize);
   const processed: string[] = [];
@@ -873,8 +874,11 @@ export async function executeStep(
     case "print-mutate":
     case "virtual-try-on":
     case "mask-redraw": {
-      const modelId = isImageModelId(step.params.modelId)
-        ? step.params.modelId
+      // Persisted queue plans can predate the document schema migration.
+      const requestedModelId = step.params.modelId === "gemini-3.1-flash-image-preview"
+        ? "gemini-3.1-flash-image" : step.params.modelId;
+      const modelId = isImageModelId(requestedModelId)
+        ? requestedModelId
         : step.kind === "mask-redraw" || step.kind === "virtual-try-on"
           ? MASK_REDRAW_MODEL_ID
           : DEFAULT_GENERATION_MODEL_ID;
@@ -1120,7 +1124,7 @@ export async function executeStep(
         : referenceImages;
       const resolvedModelOptions = step.kind === "virtual-try-on"
         ? await virtualTryOnModelOptions(
-            modelId as "gpt-image-2" | "gemini-3.1-flash-image-preview",
+            modelId as "gpt-image-2" | "gemini-3.1-flash-image",
             step.params.imageSize === "4K" ? "4K" : "2K",
             virtualTryOnAspectReference,
             step.params.workflowStage,
