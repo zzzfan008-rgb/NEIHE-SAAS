@@ -202,6 +202,13 @@ assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
     const nextScope = scope ?? row.scope;
     const nextOwnerId = nextScope === "global" ? null : (row.owner_id ?? user.id);
     if (scope !== undefined && scope !== row.scope && isLocalImageReference(row.image)) {
+      const sharedReference = await queryOne<{ id: string }>(`
+        SELECT id FROM assets
+        WHERE image = $1 AND id <> $2 AND deleted_at IS NULL
+        LIMIT 1
+        FOR SHARE
+      `, [row.image, req.params.id], client);
+      if (sharedReference) return "shared_reference" as const;
       await client.query(`
         UPDATE files SET owner_id = $1, deleted_at = NULL, purge_after = NULL WHERE id = $2
       `, [nextOwnerId, path.basename(row.image)]);
@@ -222,6 +229,10 @@ assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
   }
   if (result === "forbidden") {
     res.status(403).json({ error: "无权修改此素材" });
+    return;
+  }
+  if (result === "shared_reference") {
+    res.status(409).json({ error: "该图片仍被其他活跃素材引用，不能切换可见范围" });
     return;
   }
   res.json({ ok: true });

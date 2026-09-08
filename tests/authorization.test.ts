@@ -539,7 +539,7 @@ await test("没有 files 元数据的物理孤儿文件拒绝所有账号读取"
   deleteStoredImage(orphanId);
 });
 
-await test("旧版公开占位素材会被隔离且不再跨账号暴露", async () => {
+await test("启动迁移保留归属含糊的既有公开素材", async () => {
   const maskId = "legacy-public-mask.png";
   const maskUrl = `/api/files/${maskId}`;
   fs.writeFileSync(
@@ -597,51 +597,41 @@ await test("旧版公开占位素材会被隔离且不再跨账号暴露", async
 
   for (const actor of ["owner", "other", "admin"] as const) {
     const assets = await (await request("/assets", actor)).json() as Array<{ id: string }>;
-    assert.equal(assets.some((asset) => asset.id === "legacy-public-mask-asset"), false);
+    assert.equal(assets.some((asset) => asset.id === "legacy-public-mask-asset"), true);
     for (const leaked of leakedOwnerFiles) {
-      assert.equal(assets.some((asset) => asset.id === leaked.assetId), false);
+      assert.equal(assets.some((asset) => asset.id === leaked.assetId), true);
     }
     assert.equal(assets.some((asset) => asset.id === "valid-shared-mask-asset"), true);
   }
-  assert.equal((await request(`/files/${maskId}`, "other")).status, 403);
+  assert.equal((await request(`/files/${maskId}`, "other")).status, 200);
   assert.equal((await request(`/files/${maskId}`, "owner")).status, 200);
   for (const leaked of leakedOwnerFiles) {
-    assert.equal((await request(`/files/${leaked.id}`, "other")).status, 403);
+    assert.equal((await request(`/files/${leaked.id}`, "other")).status, 200);
     assert.equal((await request(`/files/${leaked.id}`, "owner")).status, 200);
   }
   assert.equal((await request(`/files/${sharedMaskId}`, "other")).status, 200);
-  const quarantined = await queryOne<{
-    owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
+  const preserved = await queryOne<{
+    owner_id: string | null; scope: string; deleted_at: string | null;
   }>(`
-    SELECT owner_id, scope, deleted_at, purge_after FROM assets
+    SELECT owner_id, scope, deleted_at FROM assets
     WHERE id = 'legacy-public-mask-asset'
   `);
-  assert.deepEqual({
-    owner_id: quarantined?.owner_id,
-    scope: quarantined?.scope,
-    purge_after: quarantined?.purge_after,
-  }, {
-    owner_id: users.owner.id,
-    scope: "private",
-    purge_after: null,
+  assert.deepEqual(preserved, {
+    owner_id: null,
+    scope: "global",
+    deleted_at: null,
   });
-  assert.ok(quarantined?.deleted_at);
   for (const leaked of leakedOwnerFiles) {
-    const quarantinedOwnerFile = await queryOne<{
-      owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
+    const preservedOwnerFile = await queryOne<{
+      owner_id: string | null; scope: string; deleted_at: string | null;
     }>(`
-      SELECT owner_id, scope, deleted_at, purge_after FROM assets WHERE id = $1
+      SELECT owner_id, scope, deleted_at FROM assets WHERE id = $1
     `, [leaked.assetId]);
-    assert.deepEqual({
-      owner_id: quarantinedOwnerFile?.owner_id,
-      scope: quarantinedOwnerFile?.scope,
-      purge_after: quarantinedOwnerFile?.purge_after,
-    }, {
-      owner_id: users.owner.id,
-      scope: "private",
-      purge_after: null,
+    assert.deepEqual(preservedOwnerFile, {
+      owner_id: null,
+      scope: "global",
+      deleted_at: null,
     });
-    assert.ok(quarantinedOwnerFile?.deleted_at);
   }
   assert.deepEqual(await queryOne<{
     owner_id: string | null; scope: string; deleted_at: string | null;
@@ -682,6 +672,25 @@ await test("管理员创建通用素材时解除底层文件的个人归属", as
     { owner_id: null, deleted_at: null, purge_after: null },
   );
   assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
+
+  const otherReference = await request("/assets", "other", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "引用同一通用素材", category: "reference", scope: "private", image: uploaded.url,
+    }),
+  });
+  const otherAsset = await otherReference.json() as { id?: string; error?: string };
+  assert.equal(otherReference.status, 201, otherAsset.error);
+  assert.ok(otherAsset.id);
+
+  const blocked = await request(`/assets/${created.id}`, "admin", {
+    method: "PATCH",
+    body: JSON.stringify({ scope: "private" }),
+  });
+  assert.equal(blocked.status, 409, await blocked.text());
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
+  const removedReference = await request(`/assets/${otherAsset.id}`, "other", { method: "DELETE" });
+  assert.equal(removedReference.status, 200, await removedReference.text());
 
   const privatized = await request(`/assets/${created.id}`, "admin", {
     method: "PATCH",

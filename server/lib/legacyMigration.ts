@@ -97,22 +97,6 @@ export async function migrateLegacyData(): Promise<void> {
     });
   }
 
-  // 当前接口创建全局素材时会同步清空文件所有者；反向组合只能来自旧占位泄漏。
-  await transaction(async (client) => {
-    await client.query(`
-      UPDATE assets AS asset
-      SET owner_id = stored_file.owner_id,
-          scope = 'private',
-          deleted_at = COALESCE(asset.deleted_at, $1),
-          purge_after = NULL
-      FROM files AS stored_file
-      WHERE asset.image = '/api/files/' || stored_file.id
-        AND stored_file.owner_id IS NOT NULL
-        AND asset.owner_id IS NULL
-        AND asset.scope = 'global'
-    `, [now]);
-  });
-
   // 权威素材 JSON 导入完成后，才为没有元数据的孤立上传补通用占位素材。
   if (uploadFiles.length > 0) {
     await transaction(async (client) => {

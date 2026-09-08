@@ -404,41 +404,43 @@ assert.deepEqual(await queryOne<Record<string, unknown>>(`
   category: "print",
   source_note: "旧版原始备注",
 });
-const quarantinedMaskAsset = await queryOne<{
+const preservedMaskAsset = await queryOne<{
   id: string; owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
 }>(`
   SELECT id, owner_id, scope, deleted_at, purge_after FROM assets
   WHERE image = '/api/files/migration-mask-draft.png'
 `);
 assert.deepEqual({
-  id: quarantinedMaskAsset?.id,
-  owner_id: quarantinedMaskAsset?.owner_id,
-  scope: quarantinedMaskAsset?.scope,
-  purge_after: quarantinedMaskAsset?.purge_after,
+  id: preservedMaskAsset?.id,
+  owner_id: preservedMaskAsset?.owner_id,
+  scope: preservedMaskAsset?.scope,
+  deleted_at: preservedMaskAsset?.deleted_at,
+  purge_after: preservedMaskAsset?.purge_after,
 }, {
   id: "migration-mask-placeholder",
-  owner_id: admin.id,
-  scope: "private",
+  owner_id: null,
+  scope: "global",
+  deleted_at: null,
   purge_after: null,
-}, "公开蒙版占位素材必须隔离到文件所有者且不自动删除");
-assert.ok(quarantinedMaskAsset?.deleted_at, "隔离蒙版占位素材必须从可见素材库移除");
+}, "升级前已存在的公开素材归属含糊时必须保持可见性");
 for (const sourceType of ["upload", "generated"] as const) {
-  const quarantinedOwnerFile = await queryOne<{
+  const preservedOwnerFile = await queryOne<{
     owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
   }>(`
     SELECT owner_id, scope, deleted_at, purge_after FROM assets
     WHERE id = $1
   `, [`migration-${sourceType}-placeholder`]);
   assert.deepEqual({
-    owner_id: quarantinedOwnerFile?.owner_id,
-    scope: quarantinedOwnerFile?.scope,
-    purge_after: quarantinedOwnerFile?.purge_after,
+    owner_id: preservedOwnerFile?.owner_id,
+    scope: preservedOwnerFile?.scope,
+    deleted_at: preservedOwnerFile?.deleted_at,
+    purge_after: preservedOwnerFile?.purge_after,
   }, {
-    owner_id: admin.id,
-    scope: "private",
+    owner_id: null,
+    scope: "global",
+    deleted_at: null,
     purge_after: null,
-  }, `公开 ${sourceType} 占位素材必须隔离到文件所有者`);
-  assert.ok(quarantinedOwnerFile?.deleted_at, `隔离 ${sourceType} 占位素材必须从可见素材库移除`);
+  }, `升级前公开 ${sourceType} 素材归属含糊时必须保持可见性`);
 }
 assert.deepEqual(await queryOne<{
   owner_id: string | null; scope: string; deleted_at: string | null;
@@ -464,7 +466,7 @@ assert.deepEqual(await queryOne<{ project_id: string; asset_id: string }>(`
 `), {
   project_id: "migration-project",
   asset_id: "migration-mask-placeholder",
-}, "隔离蒙版占位素材时必须保留项目引用");
+}, "既有公开素材必须保留项目引用");
 assert.equal((await queryOne<{ source_type: string }>(
   "SELECT source_type FROM files WHERE id = 'migration-mask-draft.png'",
 ))?.source_type, "mask-draft", "迁移器不得改变蒙版文件类型");
