@@ -221,6 +221,7 @@ const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
   "person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet",
   "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
   "first-frame", "last-frame", "source-video", "repair-source", "eyewear", "neckwear", "belt", "watch",
+  "reference-image", "reference-video", "reference-audio",
 ];
 
 function documentTargetHandle(value: string | null | undefined): WorkflowInputRole | null | undefined {

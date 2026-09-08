@@ -13,6 +13,7 @@ import {
   isDocumentConnectionValid,
   isPristineProjectTab,
   normalizeTabSessionValue,
+  TAB_SESSION_SCHEMA_VERSION,
   selectActiveDocument,
   selectActiveDocumentTarget,
   selectNodeInputImages,
@@ -288,6 +289,65 @@ await test("浏览器旧视频草稿迁移到 Seedance v11 模型、模式和端
   assert.equal(video?.data.kind === "video-generate" && video.data.resolution, "1080p");
   assert.equal(video?.data.kind === "video-generate" && video.data.seconds, 30);
   assert.deepEqual(restored.tabs[0].edges.map((edge) => edge.targetHandle), ["reference-image", "reference-image"]);
+});
+
+await test("浏览器旧蒙版草稿恢复时补齐唯一 repair-source 端口", () => {
+  const restored = normalizeTabSessionValue({
+    schemaVersion: 1,
+    activeTabId: "legacy-mask-tab",
+    tabs: [{
+      id: "legacy-mask-tab",
+      projectId: "legacy-mask-project",
+      projectName: "旧蒙版草稿",
+      nodes: [
+        imageNode("legacy-mask-source", "原图"),
+        {
+          id: "legacy-mask",
+          type: "mask-redraw",
+          position: { x: 320, y: 0 },
+          data: {
+            kind: "mask-redraw", label: "局部重绘", status: "idle", prompt: "修复袖口",
+            mask: "/api/files/legacy-mask.png", maskSourceRef: "/api/files/legacy-source.png",
+            outputImages: [],
+          },
+        },
+      ],
+      edges: [
+        { id: "legacy-mask-source-edge", source: "legacy-mask-source", target: "legacy-mask", targetHandle: "references" },
+      ],
+    }],
+  });
+  assert.ok(restored);
+  assert.equal(restored.tabs[0].edges[0].targetHandle, "repair-source");
+});
+
+await test("当前会话保留用户主动断开底图后的细节参考端口", () => {
+  const restored = normalizeTabSessionValue({
+    schemaVersion: TAB_SESSION_SCHEMA_VERSION,
+    activeTabId: "current-mask-tab",
+    tabs: [{
+      id: "current-mask-tab",
+      projectId: "current-mask-project",
+      projectName: "当前蒙版草稿",
+      nodes: [
+        imageNode("current-mask-reference", "细节参考"),
+        {
+          id: "current-mask",
+          type: "mask-redraw",
+          position: { x: 320, y: 0 },
+          data: {
+            kind: "mask-redraw", label: "局部重绘", status: "idle", prompt: "修复袖口",
+            repairFocus: "custom", executionMode: "repair", outputImages: [],
+          },
+        },
+      ],
+      edges: [
+        { id: "current-mask-reference-edge", source: "current-mask-reference", target: "current-mask", targetHandle: "references" },
+      ],
+    }],
+  });
+  assert.ok(restored);
+  assert.equal(restored.tabs[0].edges[0].targetHandle, "references");
 });
 
 await test("配饰精修自动选择最多六张参考图且不覆盖已选连接", () => {

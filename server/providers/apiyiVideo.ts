@@ -1,6 +1,8 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { config } from "../config";
 import sharp from "sharp";
-import { normalizeImageRef } from "../lib/fileStore";
+import { mimeOfFile, normalizeImageRef, storedMediaPath } from "../lib/fileStore";
 import { fetchWithRetry, parseDataUrl, ProviderError, toDataUrl } from "./base";
 import {
   SEEDANCE_MODEL_CAPABILITIES,
@@ -57,7 +59,7 @@ export interface ApiYiVideoRequest {
 
 export interface ApiYiVideoTask {
   id: string;
-  model: SeedanceVideoModelId;
+  model: string;
 }
 
 export interface ApiYiVideoUsage {
@@ -71,7 +73,7 @@ export interface ApiYiVideoUsage {
 
 export interface ApiYiVideoResult {
   video: string;
-  model: SeedanceVideoModelId;
+  model: string;
   providerRequests: number;
   taskId: string;
   usage: ApiYiVideoUsage;
@@ -167,6 +169,79 @@ function remotelyReachableMedia(value: string, model: SeedanceVideoModelId): str
   );
 }
 
+function assetEndpoint(pathname: string): string {
+  return `${config.seedanceAssetApiBaseUrl()}${pathname}`;
+}
+
+function assetHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${config.seedanceAssetApiKey()}`,
+    "Content-Type": "application/json",
+  };
+}
+
+async function assetFetch(url: string, initFactory: () => RequestInit): Promise<Response> {
+  try {
+    return await fetchWithRetry(url, initFactory, {
+      providerId: "seedance-asset-library",
+      timeoutMs: config.aiTimeoutMs(120_000),
+      maxRetries: 0,
+    });
+  } catch (error) {
+    if (error instanceof ProviderError && error.category === "outcome_unknown") {
+      throw new ProviderError(
+        "Seedance 素材转存服务暂时不可用，请稍后重试",
+        503,
+        "seedance-asset-library",
+        "gateway_unavailable",
+        error.diagnostic,
+      );
+    }
+    throw error;
+  }
+}
+
+async function uploadLocalVideoReference(value: string, model: SeedanceVideoModelId): Promise<string> {
+  let filePath: string;
+  try {
+    filePath = storedMediaPath(value, ["video/mp4", "video/quicktime"]);
+  } catch (error) {
+    throw new ProviderError(
+      "Seedance 本地参考视频只支持 MP4 或 MOV",
+      400,
+      model,
+      "invalid_request",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  const buffer = await fs.readFile(filePath);
+  if (buffer.byteLength > 50 * 1024 * 1024) {
+    throw new ProviderError("Seedance 本地参考视频不得超过 50MB", 400, model, "invalid_request");
+  }
+  const mime = mimeOfFile(path.basename(filePath));
+  const ext = mime === "video/quicktime" ? "mov" : "mp4";
+  const presignResponse = await assetFetch(assetEndpoint("/storage/presign"), () => ({
+    method: "POST",
+    headers: assetHeaders(),
+    body: JSON.stringify({ ext, contentType: mime }),
+  }));
+  const presign = await presignResponse.json() as {
+    code?: unknown;
+    data?: { uploadUrl?: unknown; publicUrl?: unknown };
+  };
+  const uploadUrl = typeof presign.data?.uploadUrl === "string" ? presign.data.uploadUrl : "";
+  const publicUrl = typeof presign.data?.publicUrl === "string" ? presign.data.publicUrl : "";
+  if (presign.code !== 0 || !/^https:\/\//i.test(uploadUrl) || !/^https:\/\//i.test(publicUrl)) {
+    throw new ProviderError("Seedance 素材转存服务返回无效地址", 502, model, "invalid_response");
+  }
+  await assetFetch(uploadUrl, () => ({
+    method: "PUT",
+    headers: { "Content-Type": mime },
+    body: new Uint8Array(buffer),
+  }));
+  return publicUrl;
+}
+
 async function contentFor(request: ApiYiVideoRequest): Promise<SeedanceContent[]> {
   const content: SeedanceContent[] = [{ type: "text", text: request.prompt }];
   for (const reference of request.references) {
@@ -188,9 +263,12 @@ async function contentFor(request: ApiYiVideoRequest): Promise<SeedanceContent[]
       });
       continue;
     }
+    const videoUrl = reference.url.startsWith("/api/files/")
+      ? await uploadLocalVideoReference(reference.url, request.model)
+      : remotelyReachableMedia(reference.url, request.model);
     content.push({
       type: "video_url",
-      video_url: { url: remotelyReachableMedia(reference.url, request.model) },
+      video_url: { url: videoUrl },
       role: "reference_video",
     });
   }
@@ -378,10 +456,72 @@ export async function generateApiYiVideo(request: ApiYiVideoRequest): Promise<Ap
   }
   const payload = await waitUntilComplete(task);
   return {
-    video: await download(payload, task.model, request.outputFormat),
-    model: task.model,
+    video: await download(payload, request.model, request.outputFormat),
+    model: request.model,
     providerRequests,
     taskId: task.id,
     usage: usageFrom(payload),
+  };
+}
+
+const LEGACY_VEO_MODEL = /^veo-?3\.1(?:[-.][A-Za-z0-9]+)*$/;
+
+export function isLegacyVeoTask(task: ApiYiVideoTask | undefined): task is ApiYiVideoTask {
+  return Boolean(task && task.id.trim() && task.id.length <= 256 && LEGACY_VEO_MODEL.test(task.model));
+}
+
+async function waitForLegacyVeoTask(task: ApiYiVideoTask): Promise<void> {
+  const deadline = Date.now() + 10 * 60_000;
+  let firstPoll = true;
+  while (Date.now() < deadline) {
+    if (!firstPoll) await wait(8_000);
+    firstPoll = false;
+    const response = await fetchWithRetry(
+      `${config.apiyiBaseUrl()}/v1/videos/${encodeURIComponent(task.id)}`,
+      () => ({ headers: { Authorization: `Bearer ${config.apiyiApiKey()}` } }),
+      { providerId: task.model, timeoutMs: config.aiTimeoutMs(30_000), maxRetries: 0 },
+    );
+    const payload = await response.json() as { status?: unknown; error?: unknown };
+    if (payload.status === "completed" || payload.status === "succeeded") return;
+    if (payload.status === "failed" || payload.status === "cancelled") {
+      const detail = typeof payload.error === "string"
+        ? payload.error
+        : payload.error && typeof payload.error === "object" && typeof (payload.error as { message?: unknown }).message === "string"
+          ? (payload.error as { message: string }).message
+          : "旧视频任务生成失败";
+      throw new ProviderError(detail, 422, task.model, "invalid_request");
+    }
+  }
+  throw new ProviderError("旧视频任务等待超时，结果状态未知", 504, task.model, "outcome_unknown");
+}
+
+async function downloadLegacyVeoTask(task: ApiYiVideoTask): Promise<string> {
+  const response = await fetchWithRetry(
+    `${config.apiyiBaseUrl()}/v1/videos/${encodeURIComponent(task.id)}/content`,
+    () => ({ headers: { Authorization: `Bearer ${config.apiyiApiKey()}` } }),
+    { providerId: task.model, timeoutMs: config.aiTimeoutMs(180_000), maxRetries: 0 },
+  );
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.byteLength < 12 || buffer.subarray(4, 8).toString("ascii") !== "ftyp") {
+    throw new ProviderError("旧视频任务下载内容不是有效 MP4", 502, task.model, "invalid_response");
+  }
+  if (buffer.byteLength > 100 * 1024 * 1024) {
+    throw new ProviderError("旧视频任务结果超过 100MB 限制", 502, task.model, "invalid_response");
+  }
+  return toDataUrl(buffer.toString("base64"), "video/mp4");
+}
+
+/** 仅恢复升级前已经受理的 VEO 任务；绝不允许通过旧接口创建新任务。 */
+export async function resumeLegacyVeoTask(task: ApiYiVideoTask): Promise<ApiYiVideoResult> {
+  if (!isLegacyVeoTask(task)) {
+    throw new ProviderError("已保存的旧视频任务状态无效", 500, "apiyi-video", "invalid_response");
+  }
+  await waitForLegacyVeoTask(task);
+  return {
+    video: await downloadLegacyVeoTask(task),
+    model: task.model,
+    providerRequests: 0,
+    taskId: task.id,
+    usage: {},
   };
 }

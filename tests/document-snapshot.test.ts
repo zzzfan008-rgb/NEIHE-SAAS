@@ -3,6 +3,7 @@ import {
   createDocumentSnapshot,
   documentSnapshotToPersistedWorkflow,
 } from "../src/lib/documentSnapshot";
+import { validateAndMigrateFlow } from "../server/lib/workflowSchema";
 import { WORKFLOW_SCHEMA_VERSION } from "../src/types/workflow";
 
 const source = {
@@ -421,4 +422,33 @@ assert.deepEqual(v5Wire.edges, [
   { id: "palette-fabric-v5", source: "palette-v5", target: "fabric-v5", sourceHandle: "colors", targetHandle: "palette" },
 ]);
 
-console.log("通过 1 项纯文档快照边界测试（覆盖 9 种节点）");
+const multimodalSnapshot = createDocumentSnapshot({
+  projectName: "多模态端口往返",
+  nodes: [
+    { id: "image", type: "image-input", position: { x: 0, y: 0 }, data: { kind: "image-input", label: "图片", status: "idle", imageRole: "reference" } },
+    { id: "video", type: "video-input", position: { x: 0, y: 100 }, data: { kind: "video-input", label: "视频", status: "idle" } },
+    { id: "audio", type: "audio-input", position: { x: 0, y: 200 }, data: { kind: "audio-input", label: "音频", status: "idle" } },
+    { id: "generate", type: "video-generate", position: { x: 300, y: 0 }, data: {
+      kind: "video-generate", label: "多模态生成", status: "idle", mode: "multimodal-reference",
+      prompt: "保持主体一致", videoModel: "doubao-seedance-2-5-260628", aspectRatio: "16:9",
+      resolution: "720p", seconds: 5, generateAudio: true, outputFormat: "mp4", outputImages: [],
+    } },
+  ],
+  edges: [
+    { id: "image-edge", source: "image", sourceHandle: "image", target: "generate", targetHandle: "reference-image" },
+    { id: "video-edge", source: "video", sourceHandle: "video", target: "generate", targetHandle: "reference-video" },
+    { id: "audio-edge", source: "audio", sourceHandle: "audio", target: "generate", targetHandle: "reference-audio" },
+  ],
+});
+const multimodalWire = documentSnapshotToPersistedWorkflow(multimodalSnapshot);
+assert.deepEqual(
+  multimodalWire.edges.map((edge) => edge.targetHandle),
+  ["reference-image", "reference-video", "reference-audio"],
+);
+const multimodalValidated = validateAndMigrateFlow(multimodalWire);
+assert.deepEqual(
+  validateAndMigrateFlow(multimodalValidated).edges.map((edge) => edge.targetHandle),
+  ["reference-image", "reference-video", "reference-audio"],
+);
+
+console.log("通过纯文档快照边界与多模态端口往返测试");

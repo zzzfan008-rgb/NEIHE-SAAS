@@ -430,6 +430,7 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
             </div>
           </fieldset>
           <TryOnQualityControls
+            nodeId={nodeId}
             data={d}
             disabled={isNodeRunActive(d.status)}
             onChange={(patch) => updateNodeData(nodeId, patch)}

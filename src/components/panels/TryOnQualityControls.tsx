@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { BUILT_IN_TRY_ON_STYLE_PRESETS, type TryOnQualityMode } from "@/lib/tryOnStylePresets";
 import { thumbnailImageUrl } from "@/lib/images";
+import { selectActiveDocumentTarget, useFlowStore } from "@/store/flowStore";
 import type { Asset, VirtualTryOnNodeData } from "@/types/workflow";
 
 interface StylePreset {
@@ -39,14 +40,17 @@ const qualityModes: Array<{ id: TryOnQualityMode; label: string; detail: string 
 ];
 
 export function TryOnQualityControls({
+  nodeId,
   data,
   disabled,
   onChange,
 }: {
+  nodeId: string;
   data: VirtualTryOnNodeData;
   disabled: boolean;
   onChange: (patch: Partial<VirtualTryOnNodeData>) => void;
 }) {
+  const updateNodeDataInTab = useFlowStore((state) => state.updateNodeDataInTab);
   const [presets, setPresets] = useState(initialPresets);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState("");
@@ -99,6 +103,7 @@ export function TryOnQualityControls({
   };
 
   const savePreset = async () => {
+    const target = selectActiveDocumentTarget(useFlowStore.getState());
     setSaving(true);
     setError(null);
     try {
@@ -114,7 +119,7 @@ export function TryOnQualityControls({
       const body = await response.json() as { id?: string; error?: string };
       if (!response.ok || !body.id) throw new Error(body.error ?? `HTTP ${response.status}`);
       await loadPresets();
-      onChange({
+      updateNodeDataInTab(target, nodeId, {
         stylePresetId: body.id,
         stylePresetName: name.trim(),
         stylePrompt: prompt.trim(),
@@ -161,10 +166,18 @@ export function TryOnQualityControls({
                 aria-label="删除当前风格预设"
                 disabled={disabled}
                 onClick={async () => {
+                  const target = selectActiveDocumentTarget(useFlowStore.getState());
                   const response = await fetch(`/api/try-on-style-presets/${encodeURIComponent(selectedPreset.id)}`, { method: "DELETE" });
                   if (response.ok) {
                     await loadPresets();
-                    selectPreset("faithful");
+                    const faithful = initialPresets.find((preset) => preset.id === "faithful")!;
+                    updateNodeDataInTab(target, nodeId, {
+                      stylePresetId: faithful.id,
+                      stylePresetName: faithful.name,
+                      stylePrompt: faithful.prompt,
+                      styleReferenceImage: undefined,
+                      error: undefined,
+                    });
                   }
                 }}
               >

@@ -45,7 +45,7 @@ test("production bundle serves hashed assets and the authenticated desktop shell
   const center = page.getByRole("dialog", { name: "项目中心" });
   await expect(center).toBeVisible();
   await center.getByRole("tab", { name: "内置模板" }).click();
-  await expect(center.getByRole("button", { name: "新建项目" })).toBeVisible();
+  await expect(center.getByRole("button", { name: /一键换装/ })).toBeVisible();
   await center.getByRole("button", { name: "关闭项目中心" }).click();
   expect(failedScriptResponses, "lazy production chunks should load without HTTP errors").toEqual([]);
 });

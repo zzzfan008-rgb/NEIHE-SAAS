@@ -63,6 +63,8 @@ import { tryOnCandidateCount, type TryOnQualityMode } from "../../src/lib/tryOnS
 import { isSeedanceVideoModel } from "../../src/lib/seedance";
 import {
   generateApiYiVideo,
+  isLegacyVeoTask,
+  resumeLegacyVeoTask,
   type ApiYiVideoReference,
   type ApiYiVideoReferenceRole,
   type ApiYiVideoTask,
@@ -703,6 +705,12 @@ async function generateIndependentTryOnCandidates(
   )));
   const successful = settled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   if (successful.length === 0) {
+    const unknownOutcome = settled.find((result): result is PromiseRejectedResult => (
+      result.status === "rejected"
+      && result.reason instanceof ProviderError
+      && result.reason.category === "outcome_unknown"
+    ));
+    if (unknownOutcome) throw unknownOutcome.reason;
     const firstFailure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
     throw firstFailure?.reason instanceof Error ? firstFailure.reason : new Error("候选图片全部生成失败");
   }
@@ -789,6 +797,15 @@ export async function executeStep(
       return { images: inputImages, providerRequests: 0 };
     }
     case "video-generate": {
+      if (isLegacyVeoTask(options.videoTask)) {
+        const result = await resumeLegacyVeoTask(options.videoTask);
+        return {
+          images: [result.video],
+          model: result.model,
+          providerRequests: result.providerRequests,
+          executionMeta: { video: { taskId: result.taskId, usage: result.usage, legacyResume: true } },
+        };
+      }
       const references = orderedVideoReferences(
         step.params.mode,
         inputImages,

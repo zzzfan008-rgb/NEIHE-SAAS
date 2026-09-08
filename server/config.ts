@@ -46,6 +46,9 @@ export const config = {
   /** Seedance 视频接口使用独立网关和凭据，不与图片模型共享令牌。 */
   seedanceApiBaseUrl: () => required("SEEDANCE_API_BASE_URL").replace(/\/+$/, ""),
   seedanceApiKey: () => required("SEEDANCE_API_KEY"),
+  /** 本地媒体经 icover.ai 预签名上传后再作为 HTTPS 引用交给 Seedance。 */
+  seedanceAssetApiBaseUrl: () => (process.env.SEEDANCE_ASSET_API_BASE_URL ?? "https://icover.ai/api").replace(/\/+$/, ""),
+  seedanceAssetApiKey: () => required("SEEDANCE_ASSET_API_KEY"),
 
   port: () => Number(process.env.PORT ?? 3001),
   dataDir: () => path.resolve(ROOT_DIR, process.env.DATA_DIR ?? "./data"),

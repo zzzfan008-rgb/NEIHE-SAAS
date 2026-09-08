@@ -15,6 +15,18 @@ interface Rect {
   height: number;
 }
 
+interface BrowserFlowNode {
+  id: string;
+  data: { kind: string; stylePresetId?: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+interface BrowserProjectTab {
+  id: string;
+  projectId: string;
+  nodes: BrowserFlowNode[];
+}
+
 const TEMPLATE_FIXTURES = Array.from({ length: 3 }, (_, index) => ({
   schemaVersion: WORKFLOW_SCHEMA_VERSION,
   id: `e2e-template-${index + 1}`,
@@ -200,6 +212,12 @@ async function openFreshBlankProject(page: Page) {
   await expect(page.getByRole("region", { name: "开始第一个创作任务" })).toBeVisible();
 }
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((release) => { resolve = release; });
+  return { promise, resolve };
+}
+
 async function addTextNode(page: Page): Promise<Locator> {
   const nodes = page.locator(".react-flow__node");
   const before = await nodes.count();
@@ -352,11 +370,9 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     return tab?.edges.filter((edge: { source: string }) => edge.source === "outfit").map((edge: { target: string }) => edge.target).sort();
   })).toEqual(["pants-repair", "refine", "stabilize", "upper-repair"]);
 
-  await page.evaluate(async () => {
-    const storeModulePath = "/src/store/flowStore.ts";
-    const { useFlowStore } = await import(storeModulePath);
-    useFlowStore.getState().setSelectedNodeIds(["stabilize"]);
-  });
+  const stabilizeNode = page.locator('.react-flow__node[data-id="stabilize"]');
+  await expect(stabilizeNode).toBeVisible();
+  await stabilizeNode.locator(".gc-node-floating-title").click();
   await page.getByRole("button", { name: "属性", exact: true }).click();
   const qualityControls = page.locator("#workbench-inspector-panel");
   await expect(qualityControls.getByText("风格预设", { exact: true })).toBeVisible();
@@ -444,6 +460,134 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
     return tab?.nodes.find((node: { id: string; position: { x: number; y: number } }) => node.id === "person")?.position;
   })).toEqual(start);
+});
+
+test("delayed style preset writes stay bound to the initiating document", async ({ page }, testInfo) => {
+  await openFreshBlankProject(page);
+  const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  await rail.getByRole("button", { name: "模特换装", exact: true }).click();
+  await page.getByRole("menu", { name: "模特换装" }).getByRole("menuitem", { name: /一键换装/ }).click();
+
+  const stabilizeNode = page.locator('.react-flow__node[data-id="stabilize"]');
+  await expect(stabilizeNode).toBeVisible();
+  await stabilizeNode.locator(".gc-node-floating-title").click();
+  const inspector = page.locator("#workbench-inspector-panel");
+  if (!await inspector.isVisible()) {
+    await page.getByRole("button", { name: "属性", exact: true }).click();
+  }
+  await expect(inspector).toBeVisible();
+
+  const saveStarted = deferred();
+  const releaseSave = deferred();
+  await page.route("**/api/try-on-style-presets", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    saveStarted.resolve();
+    await releaseSave.promise;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+  });
+
+  await inspector.getByRole("button", { name: "保存为我的风格预设" }).click();
+  const dialog = page.getByRole("dialog", { name: "保存风格预设" });
+  await dialog.getByLabel("名称").fill(`延迟隔离 ${testInfo.project.name}`);
+  await dialog.getByLabel("提示词片段").fill("仅用于验证异步文档隔离");
+  await dialog.getByRole("button", { name: "保存", exact: true }).click();
+  await saveStarted.promise;
+
+  const saveTargets = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const store = useFlowStore.getState();
+    const source = store.tabs.find((tab: BrowserProjectTab) => tab.id === store.activeTabId)!;
+    const stage = source.nodes.find((node: BrowserFlowNode) => node.id === "stabilize")!;
+    store.createBlankTab();
+    useFlowStore.getState().loadFlow({
+      projectId: `style-isolation-${crypto.randomUUID()}`,
+      projectName: "异步隔离目标",
+      nodes: [{ ...stage, data: { ...stage.data, stylePresetId: "faithful", stylePresetName: "忠实还原" } }],
+      edges: [],
+      markDirty: true,
+    });
+    return { sourceTabId: source.id, activeTabId: useFlowStore.getState().activeTabId };
+  });
+  const saveRefresh = page.waitForResponse((response) => (
+    response.request().method() === "GET"
+    && new URL(response.url()).pathname === "/api/try-on-style-presets"
+  ));
+  releaseSave.resolve();
+  await saveRefresh;
+  await expect.poll(() => page.evaluate(async ({ sourceTabId, activeTabId }) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const source = state.tabs.find((tab: BrowserProjectTab) => tab.id === sourceTabId)?.nodes.find((node: BrowserFlowNode) => node.id === "stabilize");
+    const active = state.tabs.find((tab: BrowserProjectTab) => tab.id === activeTabId)?.nodes.find((node: BrowserFlowNode) => node.id === "stabilize");
+    return {
+      sourceIsCustom: source?.data.kind === "virtual-try-on" && Boolean(source.data.stylePresetId && source.data.stylePresetId !== "faithful"),
+      activePreset: active?.data.kind === "virtual-try-on" ? active.data.stylePresetId : undefined,
+    };
+  }, saveTargets)).toEqual({ sourceIsCustom: true, activePreset: "faithful" });
+  await page.unroute("**/api/try-on-style-presets");
+
+  await page.evaluate(async (sourceTabId) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().switchTab(sourceTabId);
+    useFlowStore.getState().setSelectedNodeIds(["stabilize"]);
+  }, saveTargets.sourceTabId);
+  await expect(inspector.getByRole("button", { name: "删除当前风格预设" })).toBeVisible();
+
+  const deleteStarted = deferred();
+  const releaseDelete = deferred();
+  await page.route("**/api/try-on-style-presets/*", async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    deleteStarted.resolve();
+    await releaseDelete.promise;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+  });
+  await inspector.getByRole("button", { name: "删除当前风格预设" }).click();
+  await deleteStarted.promise;
+
+  const replacement = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const current = state.tabs.find((tab: BrowserProjectTab) => tab.id === state.activeTabId)!;
+    const stage = current.nodes.find((node: BrowserFlowNode) => node.id === "stabilize")!;
+    const nextProjectId = `style-replacement-${crypto.randomUUID()}`;
+    state.loadFlow({
+      projectId: nextProjectId,
+      projectName: "替换后的项目",
+      nodes: [{ ...stage, data: { ...stage.data, stylePresetId: "faithful", stylePresetName: "忠实还原" } }],
+      edges: [],
+      markDirty: true,
+    });
+    return { tabId: current.id, projectId: nextProjectId };
+  });
+  const deleteRefresh = page.waitForResponse((response) => (
+    response.request().method() === "GET"
+    && new URL(response.url()).pathname === "/api/try-on-style-presets"
+  ));
+  releaseDelete.resolve();
+  await deleteRefresh;
+  await page.waitForTimeout(100);
+  expect(await page.evaluate(async ({ tabId, projectId }) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const tab = useFlowStore.getState().tabs.find((candidate: BrowserProjectTab) => candidate.id === tabId);
+    const stage = tab?.nodes.find((node: BrowserFlowNode) => node.id === "stabilize");
+    return {
+      projectId: tab?.projectId,
+      presetId: stage?.data.kind === "virtual-try-on" ? stage.data.stylePresetId : undefined,
+    };
+  }, replacement)).toEqual({ projectId: replacement.projectId, presetId: "faithful" });
 });
 
 test("staged try-on confirms a semantic role before connecting and invalidates stale approval", async ({ page }, testInfo) => {

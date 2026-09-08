@@ -2291,7 +2291,28 @@ function migrateSessionLegacyVideoEdges(nodes: readonly FlowNode[], edges: reado
   ));
 }
 
-function normalizeSessionTab(value: unknown): ProjectTab | undefined {
+function migrateSessionLegacyMaskEdges(nodes: readonly FlowNode[], edges: readonly Edge[]): Edge[] {
+  const maskNodeIds = new Set(nodes.flatMap((node) => (
+    node.data.kind === "mask-redraw" ? [node.id] : []
+  )));
+  const explicitSources = new Set(edges.flatMap((edge) => (
+    maskNodeIds.has(edge.target) && edge.targetHandle === "repair-source" ? [edge.target] : []
+  )));
+  return edges.map((edge) => {
+    if (
+      !maskNodeIds.has(edge.target)
+      || explicitSources.has(edge.target)
+      || (edge.targetHandle !== undefined && edge.targetHandle !== null && edge.targetHandle !== "references")
+    ) return edge;
+    explicitSources.add(edge.target);
+    return { ...edge, targetHandle: "repair-source" };
+  });
+}
+
+function normalizeSessionTab(
+  value: unknown,
+  options: { migrateLegacyMaskEdges?: boolean } = {},
+): ProjectTab | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Partial<ProjectTab>;
   if (
@@ -2317,9 +2338,10 @@ function normalizeSessionTab(value: unknown): ProjectTab | undefined {
     seenEdgeIds.add(normalized.id);
     return [normalized];
   });
+  const videoEdges = migrateSessionLegacyVideoEdges(nodes, normalizedEdges);
   const upgraded = migrateSessionLegacyDualModelAccessorySlot(
     nodes,
-    migrateSessionLegacyVideoEdges(nodes, normalizedEdges),
+    options.migrateLegacyMaskEdges ? migrateSessionLegacyMaskEdges(nodes, videoEdges) : videoEdges,
   );
   const recoveredNodes = recoverSessionStagedTryOnNodes(upgraded.nodes, upgraded.edges);
   const edges = discardUntypedStagedDuplicateEdges(recoveredNodes, upgraded.edges);
@@ -2387,8 +2409,9 @@ export function normalizeTabSessionValue(value: unknown): PersistedTabSession | 
     raw.schemaVersion !== TAB_SESSION_SCHEMA_VERSION
   ) return undefined;
   if (!Array.isArray(raw.tabs) || typeof raw.activeTabId !== "string") return undefined;
+  const migrateLegacyMaskEdges = raw.schemaVersion !== TAB_SESSION_SCHEMA_VERSION;
   const tabs = raw.tabs.flatMap((tab): ProjectTab[] => {
-    const normalized = normalizeSessionTab(tab);
+    const normalized = normalizeSessionTab(tab, { migrateLegacyMaskEdges });
     return normalized ? [normalized] : [];
   });
   if (tabs.length === 0) return undefined;

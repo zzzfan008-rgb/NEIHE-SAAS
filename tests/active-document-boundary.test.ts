@@ -126,6 +126,31 @@ assert.match(
 );
 console.log("  ✓ 提示词优化异步回写绑定发起文档身份");
 
+const tryOnQualitySource = fs.readFileSync(
+  path.join(sourceRoot, "components/panels/TryOnQualityControls.tsx"),
+  "utf8",
+);
+const savePresetHandler = tryOnQualitySource.slice(
+  tryOnQualitySource.indexOf("const savePreset = async () =>"),
+  tryOnQualitySource.indexOf("const selectedPreset ="),
+);
+const deletePresetButtonStart = tryOnQualitySource.indexOf('aria-label="删除当前风格预设"');
+const deletePresetHandler = tryOnQualitySource.slice(
+  deletePresetButtonStart,
+  tryOnQualitySource.indexOf("<Trash2Icon", deletePresetButtonStart),
+);
+assert.match(
+  savePresetHandler,
+  /const target = selectActiveDocumentTarget\(useFlowStore\.getState\(\)\);[\s\S]*?await fetch\("\/api\/try-on-style-presets"[\s\S]*?updateNodeDataInTab\(target, nodeId,/,
+  "风格预设保存必须在请求前捕获 DocumentTarget，并按该目标写回",
+);
+assert.match(
+  deletePresetHandler,
+  /const target = selectActiveDocumentTarget\(useFlowStore\.getState\(\)\);[\s\S]*?method: "DELETE"[\s\S]*?updateNodeDataInTab\(target, nodeId,/,
+  "风格预设删除必须在请求前捕获 DocumentTarget，并按该目标写回",
+);
+console.log("  ✓ 风格预设异步保存与删除绑定发起文档身份");
+
 useFlowStore.getState().loadFlow({
   projectId: "selector-a",
   projectName: "Selector A",

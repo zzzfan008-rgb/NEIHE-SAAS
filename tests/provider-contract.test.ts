@@ -7,6 +7,7 @@ import express from "express";
 import sharp from "sharp";
 import sources from "../docs/ai/apiyi/sources.json";
 import { config } from "../server/config";
+import { deleteStoredImage, saveVideoUploadDataUrl } from "../server/lib/fileStore";
 import { compositeMaskedEdit, validateMaskForSource } from "../server/lib/maskProcessing";
 import { createRateLimitMiddleware } from "../server/lib/rateLimit";
 import { apiyiProviders } from "../server/providers/apiyi";
@@ -138,6 +139,8 @@ async function main(): Promise<void> {
   const restoreKey = setEnv("APIYI_API_KEY", "apiyi-test-key");
   const restoreSeedanceBase = setEnv("SEEDANCE_API_BASE_URL", "https://video-gateway.example");
   const restoreSeedanceKey = setEnv("SEEDANCE_API_KEY", "seedance-test-key");
+  const restoreSeedanceAssetBase = setEnv("SEEDANCE_ASSET_API_BASE_URL", "https://asset-gateway.example");
+  const restoreSeedanceAssetKey = setEnv("SEEDANCE_ASSET_API_KEY", "seedance-asset-test-key");
   const white = await imageDataUrl(4, 2, { r: 255, g: 255, b: 255 });
   const blue = await imageDataUrl(4, 2, { r: 20, g: 80, b: 220 });
   const red = await imageDataUrl(4, 2, { r: 220, g: 30, b: 30 });
@@ -234,6 +237,81 @@ async function main(): Promise<void> {
       } finally {
         restoreFetch();
       }
+    });
+
+    await test("换装候选混合失败时保留 outcome_unknown 且不触发安全回退", async () => {
+      let calls = 0;
+      const provider = {
+        id: "try-on-mixed-failure",
+        async generate() { throw new Error("不应走文生图"); },
+        async edit() {
+          calls += 1;
+          if (calls === 1) {
+            throw new ProviderError("审核拒绝", 400, "try-on-mixed-failure", "content_refused");
+          }
+          throw new ProviderError("结果状态未知", 504, "try-on-mixed-failure", "outcome_unknown");
+        },
+      };
+      await assert.rejects(
+        () => executeStep({
+          nodeId: "try-on-mixed-failure",
+          kind: "virtual-try-on",
+          params: {
+            workflowStage: "garment-refine",
+            modelId: "gpt-image-2",
+            imageSize: "2K",
+            prompt: "保持穿搭",
+            approvedBaselineRef: videoWhite,
+            garmentCategory: "woven",
+            materialSpec: "棉质",
+            constructionSpec: "梭织",
+            promptEnhancement: false,
+            qualityMode: "balanced",
+            safetyFallback: true,
+            stylePresetId: "faithful",
+          },
+        }, [videoWhite, videoWhite], () => provider, {
+          referenceRoles: ["baseline", "outfit"],
+        }),
+        (error: unknown) => error instanceof ProviderError && error.category === "outcome_unknown",
+      );
+      assert.equal(calls, 2, "状态未知后不得发起第二批安全回退请求");
+    });
+
+    await test("换装候选部分成功时保留结果且不因未知候选重试整批", async () => {
+      let calls = 0;
+      const provider = {
+        id: "try-on-partial-unknown",
+        async generate() { throw new Error("不应走文生图"); },
+        async edit() {
+          calls += 1;
+          if (calls === 1) return { images: [videoWhite], model: "try-on-partial-unknown" };
+          throw new ProviderError("结果状态未知", 504, "try-on-partial-unknown", "outcome_unknown");
+        },
+      };
+      const result = await executeStep({
+        nodeId: "try-on-partial-unknown",
+        kind: "virtual-try-on",
+        params: {
+          workflowStage: "garment-refine",
+          modelId: "gpt-image-2",
+          imageSize: "2K",
+          prompt: "保持穿搭",
+          approvedBaselineRef: videoWhite,
+          garmentCategory: "woven",
+          materialSpec: "棉质",
+          constructionSpec: "梭织",
+          promptEnhancement: false,
+          qualityMode: "balanced",
+          safetyFallback: true,
+          stylePresetId: "faithful",
+        },
+      }, [videoWhite, videoWhite], () => provider, {
+        referenceRoles: ["baseline", "outfit"],
+      });
+      assert.deepEqual(result.images, [videoWhite]);
+      assert.equal(calls, 2, "已有成功候选时不得重试整批或触发安全回退");
+      assert.equal(result.failures?.length, 1);
     });
 
     await test("Seedance 2.5 多模态按图片、视频、音频角色提交并保留用量", async () => {
@@ -364,6 +442,88 @@ async function main(): Promise<void> {
       }
     });
 
+    await test("已受理旧 VEO 任务升级后只继续轮询和下载", async () => {
+      const requests: Array<{ url: string; method: string }> = [];
+      const restoreFetch = installFetchMock((input, init) => {
+        const url = String(input);
+        requests.push({ url, method: init?.method ?? "GET" });
+        if (url.endsWith("/content")) return new Response(mp4Payload());
+        return Response.json({ status: "completed" });
+      });
+      try {
+        const result = await withoutTimerDelay(() => executeStep({
+          nodeId: "legacy-veo-node",
+          kind: "video-generate",
+          params: {
+            mode: "text-to-video",
+            videoModel: "veo-3.1",
+            prompt: "旧任务",
+            aspectRatio: "16:9",
+            resolution: "720p",
+            seconds: 8,
+          },
+        }, [], undefined, {
+          videoTask: { id: "legacy-veo-task", model: "veo-3.1-fast-generate-preview" },
+        }));
+        assert.deepEqual(requests, [
+          { url: "https://gateway.example/v1/videos/legacy-veo-task", method: "GET" },
+          { url: "https://gateway.example/v1/videos/legacy-veo-task/content", method: "GET" },
+        ]);
+        assert.equal(result.model, "veo-3.1-fast-generate-preview");
+        assert.equal(result.providerRequests, 0);
+      } finally {
+        restoreFetch();
+      }
+    });
+
+    await test("本地视频经独立素材服务转存后可用于 Seedance 编辑", async () => {
+      const local = saveVideoUploadDataUrl(`data:video/mp4;base64,${mp4Payload().toString("base64")}`);
+      let seedanceBody: Record<string, unknown> | undefined;
+      const restoreFetch = installFetchMock((input, init) => {
+        const url = String(input);
+        if (url === "https://asset-gateway.example/storage/presign") {
+          const headers = new Headers(init?.headers);
+          assert.equal(headers.get("authorization"), "Bearer seedance-asset-test-key");
+          assert.deepEqual(jsonBody(init), { ext: "mp4", contentType: "video/mp4" });
+          return Response.json({ code: 0, data: {
+            uploadUrl: "https://upload.example/local-video",
+            publicUrl: "https://cdn.example/local-video.mp4",
+          } });
+        }
+        if (url === "https://upload.example/local-video") {
+          const headers = new Headers(init?.headers);
+          assert.equal(init?.method, "PUT");
+          assert.equal(headers.has("authorization"), false);
+          assert.equal(headers.get("content-type"), "video/mp4");
+          return new Response(null, { status: 200 });
+        }
+        if (url === "https://video-gateway.example/seedance/api/v3/contents/generations/tasks" && init?.method === "POST") {
+          seedanceBody = jsonBody(init);
+          return Response.json({ id: "local-video-edit-task" });
+        }
+        if (url === "https://cdn.example/local-video-edit-result.mp4") return new Response(mp4Payload());
+        return Response.json({ status: "succeeded", content: { video_url: "https://cdn.example/local-video-edit-result.mp4" } });
+      });
+      try {
+        await withoutTimerDelay(() => generateApiYiVideo({
+          mode: "video-edit",
+          model: SEEDANCE_25_MODEL,
+          prompt: "修改 @视频1 的服装颜色",
+          aspectRatio: "adaptive",
+          resolution: "720p",
+          seconds: -1,
+          generateAudio: true,
+          outputFormat: "mp4",
+          references: [{ role: "source-video", url: local.url }],
+        }));
+        const content = seedanceBody?.content as Array<Record<string, unknown>>;
+        assert.equal((content[1].video_url as { url: string }).url, "https://cdn.example/local-video.mp4");
+      } finally {
+        restoreFetch();
+        deleteStoredImage(local.id);
+      }
+    });
+
     await test("视频任务受理状态保存失败时返回不可重放的专用错误", async () => {
       let calls = 0;
       const restoreFetch = installFetchMock((_input, init) => {
@@ -444,6 +604,8 @@ async function main(): Promise<void> {
       } finally {
         restoreMissingVideoKey();
       }
+      assert.equal(config.seedanceAssetApiBaseUrl(), "https://asset-gateway.example");
+      assert.equal(config.seedanceAssetApiKey(), "seedance-asset-test-key");
     });
 
     await test("公共请求出口拒绝非 HTTPS 且不会发送 Bearer 请求", async () => {
@@ -1124,6 +1286,8 @@ async function main(): Promise<void> {
     });
   } finally {
     restoreSeedanceKey();
+    restoreSeedanceAssetBase();
+    restoreSeedanceAssetKey();
     restoreSeedanceBase();
     restoreKey();
     restoreBase();
