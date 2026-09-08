@@ -97,6 +97,20 @@ export async function migrateLegacyData(): Promise<void> {
     });
   }
 
+  await transaction(async (client) => {
+    await client.query(`
+      UPDATE assets AS asset
+      SET owner_id = stored_file.owner_id,
+          scope = 'private',
+          deleted_at = COALESCE(asset.deleted_at, $1),
+          purge_after = NULL
+      FROM files AS stored_file
+      WHERE asset.image = '/api/files/' || stored_file.id
+        AND stored_file.source_type IN ('mask-draft', 'mask')
+        AND asset.scope IN ('global', 'shared')
+    `, [now]);
+  });
+
   // 权威素材 JSON 导入完成后，才为没有元数据的孤立上传补通用占位素材。
   if (uploadFiles.length > 0) {
     await transaction(async (client) => {

@@ -347,6 +347,14 @@ await query(`
     '/api/files/migration-mask-draft.png', '从升级前服务器文件迁移', $1)
 `, [now]);
 await query(`
+  INSERT INTO projects (id, owner_id, name, flow_json, updated_at, created_at)
+  VALUES ('migration-project', $1, '蒙版引用项目', '{"schemaVersion":1,"nodes":[],"edges":[]}', $2, $2)
+`, [admin.id, now]);
+await query(`
+  INSERT INTO project_asset_refs (project_id, asset_id, created_at)
+  VALUES ('migration-project', 'migration-mask-placeholder', $1)
+`, [now]);
+await query(`
   INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
   VALUES ('legacy-placeholder-row', NULL, 'global', '历史素材-legacy-placeholder', 'reference',
     '/api/files/legacy-placeholder.png', '从升级前服务器文件迁移', $1)
@@ -364,9 +372,31 @@ assert.deepEqual(await queryOne<Record<string, unknown>>(`
   category: "print",
   source_note: "旧版原始备注",
 });
-assert.deepEqual(await queryOne<{ id: string }>(
-  "SELECT id FROM assets WHERE image = '/api/files/migration-mask-draft.png'",
-), { id: "migration-mask-placeholder" }, "迁移器不得启发式删除来源不明的既有素材");
+const quarantinedMaskAsset = await queryOne<{
+  id: string; owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
+}>(`
+  SELECT id, owner_id, scope, deleted_at, purge_after FROM assets
+  WHERE image = '/api/files/migration-mask-draft.png'
+`);
+assert.deepEqual({
+  id: quarantinedMaskAsset?.id,
+  owner_id: quarantinedMaskAsset?.owner_id,
+  scope: quarantinedMaskAsset?.scope,
+  purge_after: quarantinedMaskAsset?.purge_after,
+}, {
+  id: "migration-mask-placeholder",
+  owner_id: admin.id,
+  scope: "private",
+  purge_after: null,
+}, "公开蒙版占位素材必须隔离到文件所有者且不自动删除");
+assert.ok(quarantinedMaskAsset?.deleted_at, "隔离蒙版占位素材必须从可见素材库移除");
+assert.deepEqual(await queryOne<{ project_id: string; asset_id: string }>(`
+  SELECT project_id, asset_id FROM project_asset_refs
+  WHERE asset_id = 'migration-mask-placeholder'
+`), {
+  project_id: "migration-project",
+  asset_id: "migration-mask-placeholder",
+}, "隔离蒙版占位素材时必须保留项目引用");
 assert.equal((await queryOne<{ source_type: string }>(
   "SELECT source_type FROM files WHERE id = 'migration-mask-draft.png'",
 ))?.source_type, "mask-draft", "迁移器不得改变蒙版文件类型");

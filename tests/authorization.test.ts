@@ -34,6 +34,7 @@ const { usageRouter } = await import("../server/routes/usage");
 const { historyRouter } = await import("../server/routes/history");
 const { templatesRouter } = await import("../server/routes/templates");
 const { tryOnStylePresetsRouter } = await import("../server/routes/tryOnStylePresets");
+const { migrateLegacyData } = await import("../server/lib/legacyMigration");
 const {
   migrateLegacyUserTemplateOwners,
   prepareUserTemplateAccountMutation,
@@ -536,6 +537,50 @@ await test("没有 files 元数据的物理孤儿文件拒绝所有账号读取"
     assert.equal((await request(`/files/${orphanId}/thumbnail`, actor)).status, 403);
   }
   deleteStoredImage(orphanId);
+});
+
+await test("旧版公开蒙版占位素材会被隔离且不再跨账号暴露", async () => {
+  const maskId = "legacy-public-mask.png";
+  const maskUrl = `/api/files/${maskId}`;
+  fs.writeFileSync(
+    path.join(uploadsDir(), maskId),
+    Buffer.from(PNG_DATA_URL.slice(PNG_DATA_URL.indexOf(",") + 1), "base64"),
+  );
+  await query(`
+    INSERT INTO files (id, owner_id, source_type, project_id, node_id, mime_type, created_at)
+    VALUES ($1, $2, 'mask-draft', 'mask-project', 'mask-node', 'image/png', $3)
+  `, [maskId, users.owner.id, now]);
+  await query(`
+    INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
+    VALUES ('legacy-public-mask-asset', NULL, 'global', '历史素材-legacy-public-mask',
+      'reference', $1, '从升级前服务器文件迁移', $2)
+  `, [maskUrl, now]);
+
+  assert.equal((await request(`/files/${maskId}`, "other")).status, 200);
+  await migrateLegacyData();
+
+  for (const actor of ["owner", "other", "admin"] as const) {
+    const assets = await (await request("/assets", actor)).json() as Array<{ id: string }>;
+    assert.equal(assets.some((asset) => asset.id === "legacy-public-mask-asset"), false);
+  }
+  assert.equal((await request(`/files/${maskId}`, "other")).status, 403);
+  assert.equal((await request(`/files/${maskId}`, "owner")).status, 200);
+  const quarantined = await queryOne<{
+    owner_id: string | null; scope: string; deleted_at: string | null; purge_after: string | null;
+  }>(`
+    SELECT owner_id, scope, deleted_at, purge_after FROM assets
+    WHERE id = 'legacy-public-mask-asset'
+  `);
+  assert.deepEqual({
+    owner_id: quarantined?.owner_id,
+    scope: quarantined?.scope,
+    purge_after: quarantined?.purge_after,
+  }, {
+    owner_id: users.owner.id,
+    scope: "private",
+    purge_after: null,
+  });
+  assert.ok(quarantined?.deleted_at);
 });
 
 await test("管理员创建通用素材时解除底层文件的个人归属", async () => {
