@@ -152,10 +152,28 @@ const GEMINI_AUTO_ASPECT_RATIOS = [
   "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
 ] as const;
 
-const VIRTUAL_TRY_ON_NUMBERED_REFERENCE_PATTERN = /(?:参考)?图\s*[一二三四五六七八九十百\d]+/u;
+const VIRTUAL_TRY_ON_REFERENCE_TOKEN = String.raw`(?:参考)?图\s*[一二三四五六七八九十百\d]+`;
+const VIRTUAL_TRY_ON_REFERENCE_ROLE_OVERRIDE_PATTERNS = [
+  new RegExp(
+    `${VIRTUAL_TRY_ON_REFERENCE_TOKEN}[^，。；\\n]{0,12}(?:控制|决定|优先于|覆盖|替代|取代|改为|设为|定义为|充当)`,
+    "u",
+  ),
+  new RegExp(
+    `${VIRTUAL_TRY_ON_REFERENCE_TOKEN}\\s*(?:是|作为)\\s*(?:唯一(?:的)?)?\\s*(?:人物|模特|身份|场景|背景|主穿搭)(?:基准|来源|参考)?`,
+    "u",
+  ),
+  new RegExp(
+    `(?:人物|模特|身份|场景|背景|主穿搭)[^，。；\\n]{0,12}(?:由|以)\\s*${VIRTUAL_TRY_ON_REFERENCE_TOKEN}\\s*(?:控制|决定|为准)`,
+    "u",
+  ),
+];
+
+function overridesVirtualTryOnReferenceRoles(prompt: string): boolean {
+  return VIRTUAL_TRY_ON_REFERENCE_ROLE_OVERRIDE_PATTERNS.some((pattern) => pattern.test(prompt));
+}
 
 function preservedEnhancedTryOnRequirements(original: string, enhanced: string): string {
-  if (VIRTUAL_TRY_ON_NUMBERED_REFERENCE_PATTERN.test(enhanced)) {
+  if (overridesVirtualTryOnReferenceRoles(enhanced)) {
     throw new ProviderError("提示词增强结果不能重新定义参考图编号", 502, "prompt-enhancer", "invalid_response");
   }
   return [
@@ -165,7 +183,7 @@ function preservedEnhancedTryOnRequirements(original: string, enhanced: string):
 }
 
 function virtualTryOnPrompt(referenceCount: number, extra: string): string {
-  if (VIRTUAL_TRY_ON_NUMBERED_REFERENCE_PATTERN.test(extra)) {
+  if (overridesVirtualTryOnReferenceRoles(extra)) {
     throw new Error("换装补充要求不能重新定义图1、图2等参考图编号；请只描述最终穿搭效果");
   }
   const supplementalRange = referenceCount > 2 ? `参考图3至参考图${referenceCount}` : "没有更多参考图";
@@ -179,7 +197,7 @@ function stagedVirtualTryOnPrompt(
   params: Record<string, unknown>,
   sceneDescription?: string,
 ): string {
-  if (VIRTUAL_TRY_ON_NUMBERED_REFERENCE_PATTERN.test(extra)) {
+  if (overridesVirtualTryOnReferenceRoles(extra)) {
     throw new Error("换装补充要求不能重新定义参考图编号；请只描述最终效果");
   }
   const indexes = (role: string) => referenceRoles
@@ -917,6 +935,12 @@ export async function executeStep(
       }
 
       const extra = ((step.params.prompt as string) ?? "").trim();
+      if (step.kind === "virtual-try-on" && overridesVirtualTryOnReferenceRoles(extra)) {
+        const staged = step.params.workflowStage === "scene-stabilize" || step.params.workflowStage === "garment-refine";
+        throw new Error(staged
+          ? "换装补充要求不能重新定义参考图编号；请只描述最终效果"
+          : "换装补充要求不能重新定义图1、图2等参考图编号；请只描述最终穿搭效果");
+      }
 
       // 配色替换：每个颜色独立调用，保证一色一图；部分失败也保留成功结果。
       if (step.kind === "fabric-recolor") {

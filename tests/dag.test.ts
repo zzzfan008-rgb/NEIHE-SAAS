@@ -985,6 +985,68 @@ async function main() {
     assert.match(stageTwo.calls[0].request.prompt, /目标商品上已经存在的金属装饰图案与五金必须保持原有位置、比例和外观/);
     assert.match(stageTwo.calls[0].request.prompt, /羊毛双股纱，中等厚度/);
     assert.match(stageTwo.calls[0].request.prompt, /12GG，平针衣身/);
+
+    const descriptiveReferencePrompt = "图3上用红色框圈住的地方是裤子的款型细节必须还原，红色方框不参与重绘，图4是上衣的领口款型和面料特写";
+    const descriptiveReferences = await runRecordedAiStep(
+      "virtual-try-on",
+      {
+        workflowStage: "garment-refine", prompt: descriptiveReferencePrompt, imageSize: "2K",
+        modelId: "gpt-image-2", modelOptions: { quality: "medium" }, garmentCategory: "other",
+        approvedBaselineRef: SEED_DATA_URL, materialSpec: "按参考素材还原", constructionSpec: "按可见结构还原",
+        promptEnhancement: true, qualityMode: "fast", safetyFallback: true, stylePresetId: "faithful",
+      },
+      [SEED_DATA_URL, SECOND_DATA_URL, SEED_DATA_URL, SECOND_DATA_URL],
+      undefined,
+      ["baseline", "outfit", "material", "detail"],
+      undefined,
+      {
+        promptEnhancer: async (_input, options) => {
+          await options?.beforeProviderCall?.(1);
+          return {
+            enhancedPrompt: "保留图3上红框指示的裤型细节，同时还原图4中的上衣领口与面料特写",
+            safePrompt: "还原裤型、领口与面料细节",
+            model: "enhancer-stub",
+            providerRequests: 1,
+            cacheHit: false,
+          };
+        },
+        candidateSelector: async () => ({
+          selectedIndex: 0,
+          scores: [],
+          model: "judge-stub",
+          providerRequests: 0,
+          allHardFail: false,
+        }),
+      },
+    );
+    assert.equal(descriptiveReferences.calls.length, 1, "描述参考图可见内容时必须继续进入图片生成");
+    assert.match(descriptiveReferences.calls[0].request.prompt, /图3上用红色框圈住的地方是裤子的款型细节必须还原/);
+    assert.match(descriptiveReferences.calls[0].request.prompt, /图4中的上衣领口与面料特写/);
+
+    let rejectedEnhancerCalls = 0;
+    await assert.rejects(
+      () => runRecordedAiStep(
+        "virtual-try-on",
+        {
+          workflowStage: "garment-refine", prompt: "图2控制人物，图3控制上衣", imageSize: "2K",
+          modelId: "gpt-image-2", modelOptions: { quality: "medium" }, garmentCategory: "other",
+          approvedBaselineRef: SEED_DATA_URL, materialSpec: "按参考素材还原", constructionSpec: "按可见结构还原",
+          promptEnhancement: true, qualityMode: "fast", safetyFallback: true, stylePresetId: "faithful",
+        },
+        [SEED_DATA_URL, SECOND_DATA_URL, SEED_DATA_URL],
+        undefined,
+        ["baseline", "outfit", "material"],
+        undefined,
+        {
+          promptEnhancer: async () => {
+            rejectedEnhancerCalls += 1;
+            throw new Error("危险补充要求不应进入提示词增强器");
+          },
+        },
+      ),
+      /补充要求不能重新定义参考图编号/,
+    );
+    assert.equal(rejectedEnhancerCalls, 0, "角色覆盖应在任何付费提示词增强请求前被拒绝");
   });
 
   await ok("runner 面料配色：一色一次 edit，成衣与面料参考均传入", async () => {
