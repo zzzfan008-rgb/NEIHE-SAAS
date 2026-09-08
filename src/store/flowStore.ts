@@ -73,6 +73,16 @@ import {
 
 export type FlowNode = Node<WorkflowNodeData>;
 export type ConnectedNodeDirection = "upstream" | "downstream";
+const SAFE_DOCUMENT_EDGE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+function createDocumentEdgeId(): string {
+  return `edge-${nanoid(10)}`;
+}
+
+function addDocumentEdge(connection: Connection | Edge, edges: Edge[]): Edge[] {
+  return addEdge(connection, edges, { getEdgeId: createDocumentEdgeId });
+}
+
 export interface ConnectedNodeOptions {
   preset?: Record<string, unknown>;
   sourceHandle?: string | null;
@@ -2125,7 +2135,10 @@ function normalizeSessionEdge(value: unknown, nodeIds: Set<string>): Edge | unde
     typeof raw.source !== "string" || !nodeIds.has(raw.source) ||
     typeof raw.target !== "string" || !nodeIds.has(raw.target)
   ) return undefined;
-  return { ...raw, id: raw.id, source: raw.source, target: raw.target } as Edge;
+  const id = SAFE_DOCUMENT_EDGE_ID.test(raw.id)
+    ? raw.id
+    : raw.id.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 128);
+  return { ...raw, id, source: raw.source, target: raw.target } as Edge;
 }
 
 function recoverSessionStagedTryOnNodes(nodes: readonly FlowNode[], edges: readonly Edge[]): FlowNode[] {
@@ -3784,7 +3797,7 @@ export const useFlowStore = create<FlowState>()(
           return;
         }
         if (!get().isValidConnection(conn)) return;
-        commitDocumentMutationWithSet(set, { edges: addEdge(conn, tab.edges) });
+        commitDocumentMutationWithSet(set, { edges: addDocumentEdge(conn, tab.edges) });
       },
 
       confirmPendingConnection: (targetHandle) => {
@@ -3825,7 +3838,7 @@ export const useFlowStore = create<FlowState>()(
           set({ connectionDraftError: compatibilityError });
           return false;
         }
-        const nextEdges = addEdge(connection, tab.edges);
+        const nextEdges = addDocumentEdge(connection, tab.edges);
         commitDocumentMutationWithSet(set, {
           edges: nextEdges,
           nodes: incrementSceneBasis(tab.nodes, new Set([target.id])),
@@ -3883,7 +3896,7 @@ export const useFlowStore = create<FlowState>()(
         const selection = normalizeNodeSelection(nodes, [id]);
         commitDocumentMutationWithSet(set, {
           ...selection,
-          edges: addEdge(connection, tab.edges),
+          edges: addDocumentEdge(connection, tab.edges),
           selectedResultId: null,
         });
         return id;
@@ -4064,7 +4077,7 @@ export const useFlowStore = create<FlowState>()(
               && edge.targetHandle === connection.targetHandle
             ));
             if (exactEdgeExists || !isDocumentConnectionValid({ nodes, edges }, connection)) continue;
-            edges = addEdge(connection, edges);
+            edges = addDocumentEdge(connection, edges);
             const targetNode = nodes.find((node) => node.id === connection.target);
             if (targetNode?.data.kind === "virtual-try-on" && targetNode.data.workflowStage === "scene-stabilize") {
               changedStageIds.add(targetNode.id);

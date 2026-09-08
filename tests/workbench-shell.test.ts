@@ -102,6 +102,14 @@ const topBarSource = fs.readFileSync(
   path.resolve(testRoot, "../src/components/panels/TopBar.tsx"),
   "utf8",
 );
+const toolRailSource = fs.readFileSync(
+  path.resolve(testRoot, "../src/components/workbench/ToolRail.tsx"),
+  "utf8",
+);
+const shortcutMenuSource = fs.readFileSync(
+  path.resolve(testRoot, "../src/components/workbench/ShortcutMenu.tsx"),
+  "utf8",
+);
 const indexCssSource = fs.readFileSync(path.resolve(testRoot, "../src/index.css"), "utf8");
 const initialDraftWorkspaceSource = fs.readFileSync(
   path.resolve(testRoot, "../src/initialDraft/InitialDraftWorkspace.tsx"),
@@ -177,11 +185,16 @@ assert.match(
   /from "@\/components\/ui\/card"/,
   "草稿同步错误提示必须使用本地 shadcn Card",
 );
-assert.match(topBarSource, /from "@\/components\/ui\/dropdown-menu"/, "快捷键浮层必须使用本地 shadcn DropdownMenu");
-assert.match(topBarSource, /DropdownMenuShortcut/, "快捷键标签必须使用 shadcn Shortcut 对齐槽位");
-assert.match(topBarSource, /w-56 min-w-56/, "快捷键浮层宽度必须收敛到 224px");
-assert.doesNotMatch(topBarSource, /ShortcutKey|pinned|openTimer/, "快捷键浮层不得保留手写键帽与点击固定状态");
-assert.match(topBarSource, /onPointerEnter=\{openMenu\}[\s\S]*?onPointerLeave=\{scheduleClose\}/, "快捷键浮层必须悬停打开并在移开后关闭");
+assert.doesNotMatch(topBarSource, /ShortcutMenu|查看快捷键|KeyboardIcon/, "顶部栏不得继续渲染快捷键入口");
+assert.match(shortcutMenuSource, /from "@\/components\/ui\/dropdown-menu"/, "快捷键浮层必须使用本地 shadcn DropdownMenu");
+assert.match(shortcutMenuSource, /DropdownMenuShortcut/, "快捷键标签必须使用 shadcn Shortcut 对齐槽位");
+assert.match(shortcutMenuSource, /side="right"[\s\S]*?w-56 min-w-56/, "左侧快捷键浮层必须向右展开并保持 224px 宽");
+assert.doesNotMatch(shortcutMenuSource, /ShortcutKey|pinned|openTimer/, "快捷键浮层不得保留手写键帽与点击固定状态");
+assert.match(shortcutMenuSource, /openOnHover[\s\S]*?closeDelay=\{100\}/, "快捷键浮层必须悬停打开并在移开后关闭");
+assert.match(shortcutMenuSource, /eventDetails\.reason === "trigger-press"[\s\S]*?eventDetails\.event\.detail > 0/, "鼠标点击不得切换或固定快捷键浮层");
+assert.doesNotMatch(shortcutMenuSource, /title="快捷键"/, "快捷键按钮不得叠加浏览器原生提示");
+assert.match(toolRailSource, /\{TOOL_GROUPS\.map\([\s\S]*?\)\}\s*<ShortcutMenu/, "快捷键入口必须直接位于创作工具之后");
+assert.doesNotMatch(toolRailSource, /Separator|role="separator"/, "创作工具与快捷键入口之间不得增加分隔线");
 assert.match(appSource, /requestCanvasZoom\("in"\)/, "主修饰键加号必须缩放画布而不是浏览器页面");
 assert.match(appSource, /copySelectedNodesToClipboard\(\)/, "复制快捷键必须读取 canonical 多选节点");
 assert.match(appSource, /addExistingNodes\(additions\)/, "多节点粘贴必须通过原子批量 action 落入文档");

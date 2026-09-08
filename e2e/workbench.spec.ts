@@ -332,7 +332,7 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   await rail.getByRole("button", { name: "模特换装", exact: true }).click();
   const menu = page.getByRole("menu", { name: "模特换装" });
   await menu.getByRole("menuitem", { name: /一键换装/ }).click();
-  await expect(page.locator(".react-flow__node")).toHaveCount(25);
+  await expect(page.locator(".react-flow__node")).toHaveCount(21);
   const personNode = page.locator('.react-flow__node[data-id="person"]');
   const outfitNode = page.locator('.react-flow__node[data-id="outfit"]');
   const personMedia = personNode.locator(".gc-image-input-media");
@@ -348,13 +348,10 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     const tab = useFlowStore.getState().tabs.find((candidate: { id: string }) => candidate.id === useFlowStore.getState().activeTabId);
     return tab?.edges.map((edge: { source: string; target: string; targetHandle?: string | null }) => `${edge.source}:${edge.target}:${edge.targetHandle}`).sort();
   })).toEqual([
-    "accessory-repair:logo-correct:repair-source",
     "approval:refine:baseline",
-    "pants-repair:accessory-repair:repair-source",
     "person:stabilize:person",
-    "refine:upper-repair:repair-source",
+    "refine:garment-detail:repair-source",
     "stabilize:approval:baseline-candidate",
-    "upper-repair:pants-repair:repair-source",
   ]);
 
   await outfitNode.locator('input[type="file"]').setInputFiles({
@@ -368,7 +365,7 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
     return tab?.edges.filter((edge: { source: string }) => edge.source === "outfit").map((edge: { target: string }) => edge.target).sort();
-  })).toEqual(["pants-repair", "refine", "stabilize", "upper-repair"]);
+  })).toEqual(["garment-detail", "refine", "stabilize"]);
 
   const stabilizeNode = page.locator('.react-flow__node[data-id="stabilize"]');
   await expect(stabilizeNode).toBeVisible();
@@ -385,20 +382,21 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   await page.evaluate(async () => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
-    useFlowStore.getState().setSelectedNodeIds(["upper-repair"]);
+    useFlowStore.getState().setSelectedNodeIds(["garment-detail"]);
   });
-  await page.getByRole("button", { name: "属性", exact: true }).click();
-  const upperRepairSwitch = page.locator("#workbench-inspector-panel").getByRole("switch", { name: "可选 · 上衣款型精修参与精修" });
-  await expect(upperRepairSwitch).not.toBeChecked();
-  await upperRepairSwitch.click();
-  await expect(upperRepairSwitch).toBeChecked();
-  await page.evaluate(async () => {
+  await expect(page.locator('.react-flow__node[data-id="garment-detail"]')).toContainText("第二轮 · 局部重绘（可选）");
+  const localRedraw = await page.evaluate(async () => {
     const storeModulePath = "/src/store/flowStore.ts";
-    const { useFlowStore } = await import(storeModulePath);
-    useFlowStore.getState().undo();
+    const { selectActiveDocument, useFlowStore } = await import(storeModulePath);
+    const document = selectActiveDocument(useFlowStore.getState());
+    return document.nodes.find((node: BrowserFlowNode) => node.id === "garment-detail")?.data;
   });
-  await expect(upperRepairSwitch).not.toBeChecked();
-  await page.getByRole("button", { name: "属性", exact: true }).click();
+  expect(localRedraw).toMatchObject({
+    kind: "mask-redraw",
+    modelId: "gpt-image-2",
+    repairFocus: "custom",
+    executionMode: "repair",
+  });
 
   await page.evaluate(async () => {
     const storeModulePath = "/src/store/flowStore.ts";
@@ -1152,6 +1150,44 @@ test("node drag is one undo transaction and selection stays canonical", async ({
   ).toBe(endTransform);
 });
 
+test("image node hides asset address entry and keeps upload and library usable", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  await rail.getByRole("button", { name: "添加节点", exact: true }).click();
+  await page.getByRole("menu", { name: "添加节点" }).getByRole("menuitem", { name: /本地上传图片/ }).click();
+  const imageNode = page.locator(".react-flow__node").filter({ hasText: "图片上传" }).last();
+  await expect(imageNode.getByLabel("API易图片素材 ID")).toHaveCount(0);
+  await expect(imageNode.getByRole("button", { name: "应用 API易图片素材" })).toHaveCount(0);
+  const upload = imageNode.getByLabel("本地上传");
+  const library = imageNode.getByRole("button", { name: "从素材库选择" });
+  await expect(upload).toBeVisible();
+  await expect(library).toBeVisible();
+  const bounds = await imageNode.boundingBox();
+  if (!bounds) throw new Error("Image node bounds are missing");
+  for (const control of [upload, library]) {
+    const box = await control.boundingBox();
+    if (!box) throw new Error("Image input control bounds are missing");
+    expect(box.width).toBeGreaterThan(20);
+    expect(box.height).toBeGreaterThan(20);
+    expect(box.x).toBeGreaterThanOrEqual(bounds.x);
+    expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+    expect(box.y + box.height).toBeLessThanOrEqual(bounds.y + bounds.height + 1);
+  }
+  await library.focus();
+  await library.press("Enter");
+  const picker = page.getByRole("dialog", { name: "从素材库选择" });
+  await expect(picker).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(picker).toBeHidden();
+  await expect(library).toBeFocused();
+  await upload.setInputFiles({ name: "hidden-address.png", mimeType: "image/png", buffer: E2E_UPLOAD_PNG });
+  await expect(imageNode.getByAltText("已上传图片")).toBeVisible();
+  await expect(imageNode.getByLabel("API易图片素材 ID")).toHaveCount(0);
+  await imageNode.locator(".gc-node-floating-title").click();
+  await expect(imageNode.getByLabel("重新上传")).toBeVisible();
+  await expect(imageNode.getByRole("button", { name: "素材库", exact: true })).toBeVisible();
+});
+
 test("node title and media actions keep stable keyboard-accessible controls", async ({ page }) => {
   await openFreshBlankProject(page);
   const textNode = await addTextNode(page);
@@ -1208,6 +1244,72 @@ test("node title and media actions keep stable keyboard-accessible controls", as
   const upscaleNode = nodes.filter({ hasText: "高清放大" }).last();
   await expect(upscaleNode).toHaveClass(/selected/);
   await expect(upscaleNode.getByRole("button", { name: "2K · 长边 2048" })).toBeVisible();
+});
+
+test("result quick transforms create server-safe edges for the selected image", async ({ page }) => {
+  await openFreshBlankProject(page);
+  await page.evaluate(async (image) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().loadFlow({
+      projectId: "e2e-result-transform-project",
+      projectName: "结果快捷操作边 ID",
+      markDirty: true,
+      nodes: [{
+        id: "e2e-transform-result",
+        type: "result",
+        position: { x: 0, y: 0 },
+        data: {
+          kind: "result",
+          label: "待继续处理结果",
+          status: "success",
+          images: [image],
+        },
+      }],
+      edges: [],
+    });
+  }, RESULTS_DENSITY_IMAGE);
+
+  const resultNode = page.locator('.react-flow__node[data-id="e2e-transform-result"]');
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  const assertConnection = async (kind: string) => {
+    const connection = await page.evaluate(async () => {
+      const storeModulePath = "/src/store/flowStore.ts";
+      const { selectActiveDocument, useFlowStore } = await import(storeModulePath);
+      const document = selectActiveDocument(useFlowStore.getState());
+      const selectedId = document.selectedNodeId;
+      const node = document.nodes.find((candidate: BrowserFlowNode) => candidate.id === selectedId);
+      const edge = document.edges.find((candidate: { target: string }) => candidate.target === selectedId);
+      return { kind: node?.data.kind, edge };
+    });
+    expect(connection.kind).toBe(kind);
+    expect(connection.edge?.id).toMatch(/^[A-Za-z0-9_-]{1,128}$/);
+    expect(connection.edge?.id).not.toContain(":");
+    expect(connection.edge?.sourceHandle).toBe("image:0");
+  };
+  const selectResult = async () => {
+    await resultNode.locator(".gc-node-floating-title").click();
+    await expect(resultNode.getByRole("toolbar", { name: "媒体节点操作" })).toBeVisible();
+  };
+  const undoTransform = async () => {
+    await page.keyboard.press(`${modifier}+z`);
+    await expect(page.locator(".react-flow__node")).toHaveCount(1);
+  };
+
+  await selectResult();
+  await resultNode.getByRole("button", { name: "风格转绘" }).click();
+  await assertConnection("ai-modify");
+  await undoTransform();
+
+  await selectResult();
+  await resultNode.getByRole("button", { name: "局部重绘" }).click();
+  await assertConnection("mask-redraw");
+  await undoTransform();
+
+  await selectResult();
+  await resultNode.getByRole("button", { name: "高清放大" }).click();
+  await page.getByRole("menuitem", { name: "2K", exact: true }).click();
+  await assertConnection("upscale");
 });
 
 test("dragging a node near the canvas edge never auto-pans the viewport", async ({ page }) => {
@@ -1307,15 +1409,41 @@ test("tool rail, right dock and horizontal zoom controls preserve canvas identit
   await page.keyboard.press(`${modifier}+-`);
   await expect(zoomOutput).toHaveText("100%");
 
-  const shortcutTrigger = page.getByRole("button", { name: "查看快捷键" });
+  const shortcutTrigger = floatingRail.getByRole("button", { name: "查看快捷键" });
+  const createTrigger = floatingRail.getByRole("button", { name: "创作工具", exact: true });
   const shortcutMenu = page.locator("#workbench-shortcuts");
-  await shortcutTrigger.click();
+  await expect(page.locator("header").getByRole("button", { name: "查看快捷键" })).toHaveCount(0);
+  await expect(floatingRail.getByRole("button")).toHaveCount(6);
+  await expect(floatingRail.getByRole("button").nth(4)).toHaveAttribute("aria-label", "创作工具");
+  await expect(floatingRail.getByRole("button").nth(5)).toHaveAttribute("aria-label", "查看快捷键");
+  await expect(floatingRail.getByRole("separator")).toHaveCount(0);
+  const createTriggerRect = await rect(createTrigger);
+  const shortcutTriggerRect = await rect(shortcutTrigger);
+  expect(shortcutTriggerRect.top - createTriggerRect.bottom).toBeGreaterThanOrEqual(3);
+  expect(shortcutTriggerRect.top - createTriggerRect.bottom).toBeLessThanOrEqual(5);
+
+  await createTrigger.hover();
+  const createMenu = page.getByRole("menu", { name: "创作工具" });
+  await expect(createMenu).toBeVisible();
+  await shortcutTrigger.hover();
   await expect(shortcutMenu).toBeVisible();
+  await expect(createMenu).toBeHidden();
   await expect.poll(() => shortcutMenu.evaluate((element) => (element as HTMLElement).offsetWidth)).toBe(224);
+  const shortcutMenuRect = await rect(shortcutMenu);
+  expect(shortcutMenuRect.left - shortcutTriggerRect.right).toBeGreaterThanOrEqual(-1);
+  expect(shortcutMenuRect.left - shortcutTriggerRect.right).toBeLessThanOrEqual(4);
   await expect(shortcutMenu).toContainText(process.platform === "darwin" ? "macOS" : "Windows");
   await expect(shortcutMenu).toContainText("移动画布");
   await expect(shortcutMenu).toContainText(process.platform === "darwin" ? "⌘ +" : "Ctrl +");
   await expect(shortcutMenu).toContainText(process.platform === "darwin" ? "⇧⌘ Z" : "Ctrl Y");
+
+  await shortcutTrigger.click();
+  await page.mouse.move(0, 80);
+  await expect(shortcutMenu).toBeHidden();
+
+  await shortcutTrigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(shortcutMenu).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(shortcutMenu).toBeHidden();
   await expect(shortcutTrigger).toBeFocused();

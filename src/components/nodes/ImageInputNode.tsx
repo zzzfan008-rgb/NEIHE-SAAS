@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import { ImagesIcon, LinkIcon, UploadIcon } from "lucide-react";
+import { ImagesIcon, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { selectActiveDocumentTarget, useFlowStore } from "@/store/flowStore";
 import type { ImageInputNodeData } from "@/types/workflow";
 import { thumbnailImageUrl } from "@/lib/images";
@@ -125,7 +124,6 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
   const uploadRequestRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [assetDraft, setAssetDraft] = useState(data.imageUrl?.startsWith("asset://") ? data.imageUrl : "");
   const [imageDimensions, setImageDimensions] = useState<{
     url: string;
     width: number;
@@ -139,20 +137,6 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
     };
     window.dispatchEvent(new CustomEvent(OPEN_ASSET_PICKER_EVENT, { detail }));
   }, [id]);
-
-  useEffect(() => {
-    if (data.imageUrl?.startsWith("asset://")) setAssetDraft(data.imageUrl);
-  }, [data.imageUrl]);
-
-  const applyApiYiAsset = useCallback(() => {
-    const value = assetDraft.trim();
-    const target = selectActiveDocumentTarget(useFlowStore.getState());
-    if (!/^asset:\/\/[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(value)) {
-      updateNodeDataInTab(target, id, { status: "error", error: "请输入有效的 asset:// 图片素材 ID" });
-      return;
-    }
-    assignImageInputInTab(target, id, value);
-  }, [assetDraft, assignImageInputInTab, id, updateNodeDataInTab]);
 
   const handleFile = useCallback(
     async (file: File | undefined | null) => {
@@ -277,24 +261,6 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
             </p>
           </div>
         )}
-        <div className="flex gap-1">
-          <Input
-            value={assetDraft}
-            onChange={(event) => setAssetDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                applyApiYiAsset();
-              }
-            }}
-            aria-label="API易图片素材 ID"
-            placeholder="asset://…"
-            className="nodrag h-7 min-w-0 border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-2 text-[10px] text-[var(--gc-node-text)]"
-          />
-          <Button type="button" variant="outline" size="icon-sm" aria-label="应用 API易图片素材" onClick={applyApiYiAsset} className="nodrag border-[var(--gc-node-border)] text-[var(--gc-node-text)]">
-            <LinkIcon />
-          </Button>
-        </div>
       </NodeFrame>
       {data.imageUrl && selected && (
         <div className="gc-image-node-actions nodrag nopan absolute left-1/2 top-[calc(100%+8px)] z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] p-1 shadow-xl">

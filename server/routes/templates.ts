@@ -123,67 +123,67 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           id: "outfit",
           type: "image-input",
           position: { x: 0, y: 220 },
-          data: { kind: "image-input", label: "主穿搭图（必需）", status: "idle", imageRole: "garment", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "outfit" }, { targetNodeId: "refine", targetHandle: "outfit" }, { targetNodeId: "upper-repair", targetHandle: "references" }, { targetNodeId: "pants-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "主穿搭图（必需）", status: "idle", imageRole: "garment", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "outfit" }, { targetNodeId: "refine", targetHandle: "outfit" }, { targetNodeId: "garment-detail", targetHandle: "references" }] },
         },
         {
           id: "bag",
           type: "image-input",
           position: { x: 300, y: -560 },
-          data: { kind: "image-input", label: "包袋参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bag" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "包袋参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bag" }] },
         },
         {
           id: "shoes",
           type: "image-input",
           position: { x: 300, y: -300 },
-          data: { kind: "image-input", label: "鞋履参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "shoes" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "鞋履参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "shoes" }] },
         },
         {
           id: "hat",
           type: "image-input",
           position: { x: 300, y: -40 },
-          data: { kind: "image-input", label: "帽子参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "hat" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "帽子参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "hat" }] },
         },
         {
           id: "ring",
           type: "image-input",
           position: { x: 300, y: 220 },
-          data: { kind: "image-input", label: "戒指参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "ring" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "戒指参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "ring" }] },
         },
         {
           id: "earrings",
           type: "image-input",
           position: { x: 0, y: 480 },
-          data: { kind: "image-input", label: "耳环参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "earrings" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "耳环参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "earrings" }] },
         },
         {
           id: "bracelet",
           type: "image-input",
           position: { x: 300, y: 480 },
-          data: { kind: "image-input", label: "手镯参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bracelet" }, { targetNodeId: "accessory-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "手镯参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bracelet" }] },
         },
         {
           id: "eyewear",
           type: "image-input",
           position: { x: 600, y: 480 },
-          data: { kind: "image-input", label: "眼镜参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "accessory-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "眼镜参考图（可选）", status: "idle", imageRole: "reference" },
         },
         {
           id: "neckwear",
           type: "image-input",
           position: { x: 0, y: 740 },
-          data: { kind: "image-input", label: "项链 / 围巾参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "accessory-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "项链 / 围巾参考图（可选）", status: "idle", imageRole: "reference" },
         },
         {
           id: "belt",
           type: "image-input",
           position: { x: 300, y: 740 },
-          data: { kind: "image-input", label: "腰带参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "accessory-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "腰带参考图（可选）", status: "idle", imageRole: "reference" },
         },
         {
           id: "watch",
           type: "image-input",
           position: { x: 600, y: 740 },
-          data: { kind: "image-input", label: "手表 / 其他穿戴参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "accessory-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "手表 / 其他穿戴参考图（可选）", status: "idle", imageRole: "reference" },
         },
         {
           id: "stabilize",
@@ -222,13 +222,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           id: "material",
           type: "image-input",
           position: { x: 940, y: 420 },
-          data: { kind: "image-input", label: "第二轮 · 面料/纱线参考（可选）", status: "idle", imageRole: "fabric", autoConnectTargets: [{ targetNodeId: "refine", targetHandle: "material" }, { targetNodeId: "upper-repair", targetHandle: "references" }, { targetNodeId: "pants-repair", targetHandle: "references" }] },
-        },
-        {
-          id: "garment-detail",
-          type: "image-input",
-          position: { x: 940, y: 680 },
-          data: { kind: "image-input", label: "第二轮 · 服装局部结构参考（可选）", status: "idle", imageRole: "garment", autoConnectTargets: [{ targetNodeId: "refine", targetHandle: "detail" }, { targetNodeId: "upper-repair", targetHandle: "references" }, { targetNodeId: "pants-repair", targetHandle: "references" }] },
+          data: { kind: "image-input", label: "第二轮 · 面料/纱线参考（可选）", status: "idle", imageRole: "fabric", autoConnectTargets: [{ targetNodeId: "refine", targetHandle: "material" }, { targetNodeId: "garment-detail", targetHandle: "references" }] },
         },
         {
           id: "refine",
@@ -255,66 +249,18 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           },
         },
         {
-          id: "upper-repair",
+          id: "garment-detail",
           type: "mask-redraw",
           position: { x: 1660, y: -120 },
           data: {
             kind: "mask-redraw",
-            label: "可选 · 上衣款型精修",
+            label: "第二轮 · 局部重绘（可选）",
             status: "idle",
             modelId: "gpt-image-2",
             modelOptions: { quality: "medium" },
-            repairFocus: "upper-garment",
-            executionMode: "bypass",
-            prompt: "依据主穿搭、面料和局部结构参考，精确恢复目标上衣的实际款型与制作细节。",
-            outputImages: [],
-          },
-        },
-        {
-          id: "pants-repair",
-          type: "mask-redraw",
-          position: { x: 2000, y: -120 },
-          data: {
-            kind: "mask-redraw",
-            label: "可选 · 裤装款型精修",
-            status: "idle",
-            modelId: "gpt-image-2",
-            modelOptions: { quality: "medium" },
-            repairFocus: "pants",
-            executionMode: "bypass",
-            prompt: "依据主穿搭、面料和局部结构参考，精确恢复目标裤装的实际版型、结构与垂坠。",
-            outputImages: [],
-          },
-        },
-        {
-          id: "accessory-repair",
-          type: "mask-redraw",
-          position: { x: 2340, y: -120 },
-          data: {
-            kind: "mask-redraw",
-            label: "可选 · 人物配饰精修",
-            status: "idle",
-            modelId: "gpt-image-2",
-            modelOptions: { quality: "medium" },
-            repairFocus: "accessories",
-            executionMode: "bypass",
-            prompt: "依据已选择的配饰参考，精确恢复对应配饰的形状、材质、五金、穿戴位置和真实接触关系。",
-            outputImages: [],
-          },
-        },
-        {
-          id: "logo-correct",
-          type: "mask-redraw",
-          position: { x: 2680, y: -120 },
-          data: {
-            kind: "mask-redraw",
-            label: "可选 · Logo / 文字局部校正",
-            status: "idle",
-            modelId: "gpt-image-2",
-            modelOptions: { quality: "medium" },
-            repairFocus: "logo-text",
-            executionMode: "bypass",
-            prompt: "仅按蒙版修复目标商品上真实存在的 Logo、文字、五金或细小结构；保持人物、服装其它区域、配饰、构图、光线和背景不变，不得新增或改写无关文字。",
+            repairFocus: "custom",
+            executionMode: "repair",
+            prompt: "仅修改蒙版覆盖的目标区域；依据主穿搭和面料参考恢复服装结构、材质、纹理、褶皱与自然遮挡，保持人物身份、未涂抹区域、构图、光线和背景不变。",
             outputImages: [],
           },
         },
@@ -326,17 +272,14 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
             kind: "text-input",
             label: "使用步骤",
             status: "idle",
-            text: "① 上传人物、场景和主穿搭，按需补充身份、服装和配饰参考。② 运行第一轮并确认人物与场景基准。③ 填写材料与结构工艺后运行第二轮服装精修。④ 从上衣、裤装、人物配饰、Logo/文字中只启用实际需要的局部步骤；跳过步骤不生成、不计费。⑤ 每个启用步骤都要基于当前底图重新绘制蒙版，再按从大结构到小细节的顺序运行。配饰精修最多选择 6 张已上传参考图。",
+            text: "① 上传人物、场景和主穿搭，按需补充身份、面料和配饰参考。② 运行第一轮并确认人物与场景基准。③ 填写材料与结构工艺后运行第二轮服装精修。④ 若结果仍需调整，在局部重绘节点基于第二轮结果绘制蒙版；不运行即不产生调用或费用。⑤ 主穿搭和面料会自动作为局部参考，其它参考图可按需手动连接。",
           },
         },
       ],
       edges: [
         { id: "stabilize-approval", source: "stabilize", target: "approval", sourceHandle: "image", targetHandle: "baseline-candidate" },
         { id: "approval-refine", source: "approval", target: "refine", sourceHandle: "image", targetHandle: "baseline" },
-        { id: "refine-upper-repair", source: "refine", target: "upper-repair", sourceHandle: "image", targetHandle: "repair-source" },
-        { id: "upper-pants-repair", source: "upper-repair", target: "pants-repair", sourceHandle: "image", targetHandle: "repair-source" },
-        { id: "pants-accessory-repair", source: "pants-repair", target: "accessory-repair", sourceHandle: "image", targetHandle: "repair-source" },
-        { id: "accessory-logo-correct", source: "accessory-repair", target: "logo-correct", sourceHandle: "image", targetHandle: "repair-source" },
+        { id: "refine-garment-detail", source: "refine", target: "garment-detail", sourceHandle: "image", targetHandle: "repair-source" },
       ],
     },
   };
@@ -773,12 +716,19 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as {
       schemaVersion?: unknown;
-      flow?: { edges?: Array<{ id?: unknown; targetHandle?: unknown }> };
+      flow?: {
+        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown } }>;
+        edges?: Array<{ id?: unknown; targetHandle?: unknown }>;
+      };
     };
     if (templateId === "builtin-tool-one-click-try-on") {
       const named = raw as typeof raw & { name?: unknown };
+      const nodeById = new Map(raw.flow?.nodes?.map((node) => [node.id, node]) ?? []);
       return raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION
-        || named.name !== "一键换装";
+        || named.name !== "一键换装"
+        || nodeById.get("garment-detail")?.type !== "mask-redraw"
+        || nodeById.get("garment-detail")?.data?.executionMode !== "repair"
+        || ["upper-repair", "pants-repair", "accessory-repair", "logo-correct"].some((id) => nodeById.has(id));
     }
     if ([
       "builtin-tool-text-to-video",

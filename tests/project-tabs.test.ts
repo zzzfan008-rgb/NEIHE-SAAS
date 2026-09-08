@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { maskRedrawReadiness } from "../src/lib/maskRedraw";
 import { shouldWarnBeforeWorkspaceUnload } from "../src/lib/workspaceUnload";
 import { imageModelAspectRatioPatch } from "../src/types/imageModels";
+import { validateAndMigrateFlow } from "../server/lib/workflowSchema";
 import type { Edge } from "@xyflow/react";
 import {
   addExistingNodes,
@@ -13,6 +14,7 @@ import {
   isDocumentConnectionValid,
   isPristineProjectTab,
   normalizeTabSessionValue,
+  persistedWorkflowForProjectTab,
   TAB_SESSION_SCHEMA_VERSION,
   selectActiveDocument,
   selectActiveDocumentTarget,
@@ -815,6 +817,7 @@ await test("快捷建图原子新增节点与合法连线，一次撤销完整�
   assert.equal(activeDocument().edges.length, 1);
   assert.equal(activeDocument().edges[0].source, anchor.id);
   assert.equal(activeDocument().edges[0].target, addedId);
+  assert.match(activeDocument().edges[0].id, /^[A-Za-z0-9_-]{1,128}$/);
   assert.equal(activeDocument().edges[0].sourceHandle, "image");
   assert.equal(activeDocument().edges[0].targetHandle, "references");
   const added = activeDocument().nodes.find((node) => node.id === addedId);
@@ -852,9 +855,76 @@ await test("多图结果快捷建图只把用户选中的图片连接给下游",
     { sourceHandle: "image:1", targetHandle: "repair-source" },
   );
   assert.ok(addedId);
+  assert.match(activeDocument().edges[0].id, /^[A-Za-z0-9_-]{1,128}$/);
+  assert.equal(activeDocument().edges[0].id.includes(":"), false);
   assert.equal(activeDocument().edges[0].sourceHandle, "image:1");
   assert.equal(activeDocument().edges[0].targetHandle, "repair-source");
   assert.deepEqual(selectNodeInputImages(activeDocument(), addedId), ["/api/files/second.png"]);
+  assert.doesNotThrow(() => validateAndMigrateFlow(persistedWorkflowForProjectTab(activeDocument())));
+});
+
+await test("旧会话中的 React Flow 结果边 ID 自动修复且不改变图片选择", () => {
+  const restored = normalizeTabSessionValue({
+    schemaVersion: TAB_SESSION_SCHEMA_VERSION,
+    activeTabId: "legacy-result-edge-tab",
+    tabs: [{
+      id: "legacy-result-edge-tab",
+      projectId: "legacy-result-edge-project",
+      projectName: "旧结果边恢复",
+      nodes: [{
+        id: "legacy-result",
+        type: "result",
+        position: { x: 0, y: 0 },
+        data: {
+          kind: "result",
+          label: "旧结果",
+          status: "success",
+          images: ["/api/files/first.png", "/api/files/second.png"],
+        },
+      }, {
+        id: "legacy-mask",
+        type: "mask-redraw",
+        position: { x: 380, y: 0 },
+        data: {
+          kind: "mask-redraw",
+          label: "局部重绘",
+          status: "idle",
+          repairFocus: "custom",
+          executionMode: "repair",
+          prompt: "改成白色",
+          modelId: "gpt-image-2",
+          modelOptions: {},
+          outputImages: [],
+        },
+      }],
+      edges: [{
+        id: "xy-edge__legacy-resultimage:1-legacy-maskrepair-source",
+        source: "legacy-result",
+        sourceHandle: "image:1",
+        target: "legacy-mask",
+        targetHandle: "repair-source",
+      }],
+      selectedNodeIds: ["legacy-mask"],
+      selectedNodeId: "legacy-mask",
+      selectedResultId: null,
+      compareIds: [],
+      saveState: "error",
+      hasBeenPersisted: true,
+      revision: 2,
+      savedRevision: 1,
+      dirty: true,
+      documentEpoch: 4,
+      lifecycle: "saved",
+    }],
+  });
+
+  assert.ok(restored);
+  const tab = restored.tabs[0];
+  assert.match(tab.edges[0].id, /^[A-Za-z0-9_-]{1,128}$/);
+  assert.equal(tab.edges[0].id.includes(":"), false);
+  assert.equal(tab.edges[0].sourceHandle, "image:1");
+  assert.equal(tab.edges[0].targetHandle, "repair-source");
+  assert.deepEqual(selectNodeInputImages(tab, "legacy-mask"), ["/api/files/second.png"]);
 });
 
 await test("快捷建图复用输入上限与只读门禁", () => {
@@ -1975,7 +2045,7 @@ await test("蒙版异步保存接线冻结编辑、校验最新原图并保持�
   assert.match(topBarSource, /onClick=\{retryTabSessionPersistence\}/);
 });
 
-await test("桌面工作台使用五组工具栏与稳定右侧 Dock，快捷键入口通过三列网格严格居中", () => {
+await test("桌面工作台使用五组工具栏与稳定右侧 Dock，快捷键入口位于创作工具之后", () => {
   const appSource = fs.readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   const topBarSource = fs.readFileSync(
     new URL("../src/components/panels/TopBar.tsx", import.meta.url),
@@ -1993,6 +2063,14 @@ await test("桌面工作台使用五组工具栏与稳定右侧 Dock，快捷键
     new URL("../src/components/workbench/WorkbenchShell.tsx", import.meta.url),
     "utf8",
   );
+  const toolRailSource = fs.readFileSync(
+    new URL("../src/components/workbench/ToolRail.tsx", import.meta.url),
+    "utf8",
+  );
+  const shortcutMenuSource = fs.readFileSync(
+    new URL("../src/components/workbench/ShortcutMenu.tsx", import.meta.url),
+    "utf8",
+  );
 
   assert.match(appSource, /<WorkbenchShell[\s\S]*inspector=\{\(/);
   assert.doesNotMatch(appSource, /NodeLibraryPanel/);
@@ -2003,17 +2081,25 @@ await test("桌面工作台使用五组工具栏与稳定右侧 Dock，快捷键
   assert.match(shellSource, /aria-controls=\{INSPECTOR_PANEL_ID\}/);
   assert.match(shellSource, /border-l border-\[var\(--gc-border\)\]/);
   assert.match(shellSource, /transition-\[width,visibility\]/);
-  assert.match(topBarSource, /grid-cols-\[1fr_auto_1fr\]/);
+  assert.match(topBarSource, /items-center justify-between/);
   assert.match(topBarSource, /Coin AI - Canvas/);
   assert.doesNotMatch(topBarSource, /ThemeSwitcher|useTheme|THEMES/);
-  assert.match(topBarSource, /<DropdownMenu open=\{open\} onOpenChange=\{setOpen\}>/);
-  assert.match(topBarSource, /aria-label="查看快捷键"/);
-  assert.match(topBarSource, /className="w-56 min-w-56/);
-  assert.match(topBarSource, /<DropdownMenuShortcut/);
-  assert.match(topBarSource, /onPointerEnter=\{openMenu\}/);
-  assert.match(topBarSource, /onPointerLeave=\{scheduleClose\}/);
-  assert.match(topBarSource, /onFocus=\{openMenu\}/);
-  assert.match(topBarSource, /setTimeout\(\(\) => setOpen\(false\), 100\)/);
+  assert.doesNotMatch(topBarSource, /ShortcutMenu|查看快捷键|KeyboardIcon/);
+  assert.match(shortcutMenuSource, /eventDetails\.reason === "trigger-press"/);
+  assert.match(shortcutMenuSource, /eventDetails\.event\.detail > 0/);
+  assert.match(shortcutMenuSource, /aria-label="查看快捷键"/);
+  assert.doesNotMatch(shortcutMenuSource, /title="快捷键"/);
+  assert.match(shortcutMenuSource, /className="w-56 min-w-56/);
+  assert.match(shortcutMenuSource, /<DropdownMenuShortcut/);
+  assert.match(shortcutMenuSource, /openOnHover/);
+  assert.match(shortcutMenuSource, /delay=\{0\}/);
+  assert.match(shortcutMenuSource, /closeDelay=\{100\}/);
+  assert.match(shortcutMenuSource, /side="right"/);
+  assert.doesNotMatch(shortcutMenuSource, /onPointerEnter=\{openMenu\}/);
+  assert.doesNotMatch(shortcutMenuSource, /onPointerLeave=\{scheduleClose\}/);
+  assert.doesNotMatch(shortcutMenuSource, /onFocus=\{openMenu\}/);
+  assert.match(toolRailSource, /\{TOOL_GROUPS\.map\([\s\S]*?\)\}\s*<ShortcutMenu/);
+  assert.doesNotMatch(toolRailSource, /Separator|role="separator"/);
   assert.doesNotMatch(topBarSource, /GARMENT CANVAS|ProjectPicker/);
   assert.doesNotMatch(appSource, /TemplatesDock/);
   assert.match(projectTabsSource, /<LazyProjectCenter open=\{projectCenterOpen\}/);

@@ -58,6 +58,17 @@ const baseData: ImageInputNodeData = {
 
 console.log("图片上传节点文件选择测试");
 
+test("各图片状态均隐藏素材地址输入，已有素材仍可展示和更换", () => {
+  for (const imageUrl of [undefined, "/api/files/source.png", "asset://existing-image"]) {
+    for (const selected of [false, true]) {
+      const html = renderNode({ ...baseData, imageUrl }, selected);
+      assert.doesNotMatch(html, /API易图片素材 ID|应用 API易图片素材|placeholder="asset:\/\//);
+      if (!imageUrl || selected) assertDirectFileInput(html, imageUrl ? "重新上传" : "本地上传");
+      if (imageUrl?.startsWith("asset://")) assert.match(html, /API易图片素材/);
+    }
+  }
+});
+
 test("空节点提供本地上传与素材库两个明确入口", () => {
   const html = renderNode(baseData);
   assertDirectFileInput(html, "本地上传");

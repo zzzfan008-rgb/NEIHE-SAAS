@@ -899,8 +899,8 @@ async function main() {
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3.1-flash-image-preview");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.modelId, "gpt-image-2");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
-    assert.equal(stagedTryOn.flow.nodes.length, 25);
-    assert.equal(stagedTryOn.flow.edges.length, 6, "图片连接必须在赋值后创建，四个局部精修节点保留固定串联边");
+    assert.equal(stagedTryOn.flow.nodes.length, 21);
+    assert.equal(stagedTryOn.flow.edges.length, 3, "图片连接必须在赋值后创建，第二轮结果固定连接局部重绘");
     assert.equal(stagedTryOn.flow.edges.some((edge) => edge.target === "stabilize" && edge.source !== "approval"), false);
     assert.ok(stagedTryOn.flow.edges.some((edge) => (
       edge.source === "stabilize" && edge.target === "approval" &&
@@ -920,27 +920,17 @@ async function main() {
     assert.deepEqual(targetsFor("outfit"), [
       { targetNodeId: "stabilize", targetHandle: "outfit" },
       { targetNodeId: "refine", targetHandle: "outfit" },
-      { targetNodeId: "upper-repair", targetHandle: "references" },
-      { targetNodeId: "pants-repair", targetHandle: "references" },
+      { targetNodeId: "garment-detail", targetHandle: "references" },
     ]);
     for (const role of ["bag", "shoes", "hat", "ring", "earrings", "bracelet"]) {
-      assert.deepEqual(targetsFor(role), [
-        { targetNodeId: "stabilize", targetHandle: role },
-        { targetNodeId: "accessory-repair", targetHandle: "references" },
-      ]);
+      assert.deepEqual(targetsFor(role), [{ targetNodeId: "stabilize", targetHandle: role }]);
     }
     for (const role of ["eyewear", "neckwear", "belt", "watch"]) {
-      assert.deepEqual(targetsFor(role), [{ targetNodeId: "accessory-repair", targetHandle: "references" }]);
+      assert.equal(targetsFor(role), undefined);
     }
     assert.deepEqual(targetsFor("material"), [
       { targetNodeId: "refine", targetHandle: "material" },
-      { targetNodeId: "upper-repair", targetHandle: "references" },
-      { targetNodeId: "pants-repair", targetHandle: "references" },
-    ]);
-    assert.deepEqual(targetsFor("garment-detail"), [
-      { targetNodeId: "refine", targetHandle: "detail" },
-      { targetNodeId: "upper-repair", targetHandle: "references" },
-      { targetNodeId: "pants-repair", targetHandle: "references" },
+      { targetNodeId: "garment-detail", targetHandle: "references" },
     ]);
     for (const nodeId of ["stabilize", "refine"]) {
       const data = stagedTryOn.flow.nodes.find((node) => node.id === nodeId)?.data;
@@ -951,18 +941,15 @@ async function main() {
     }
     assert.deepEqual(
       stagedTryOn.flow.edges.filter((edge) => edge.targetHandle === "repair-source").map((edge) => `${edge.source}:${edge.target}`),
-      ["refine:upper-repair", "upper-repair:pants-repair", "pants-repair:accessory-repair", "accessory-repair:logo-correct"],
+      ["refine:garment-detail"],
     );
-    for (const [nodeId, repairFocus] of [
-      ["upper-repair", "upper-garment"],
-      ["pants-repair", "pants"],
-      ["accessory-repair", "accessories"],
-      ["logo-correct", "logo-text"],
-    ] as const) {
-      const data = stagedTryOn.flow.nodes.find((node) => node.id === nodeId)?.data;
-      assert.equal(data?.modelId, "gpt-image-2");
-      assert.equal(data?.repairFocus, repairFocus);
-      assert.equal(data?.executionMode, "bypass");
+    const localRedraw = stagedTryOn.flow.nodes.find((node) => node.id === "garment-detail");
+    assert.equal(localRedraw?.type, "mask-redraw");
+    assert.equal(localRedraw?.data.modelId, "gpt-image-2");
+    assert.equal(localRedraw?.data.repairFocus, "custom");
+    assert.equal(localRedraw?.data.executionMode, "repair");
+    for (const deletedNodeId of ["upper-repair", "pants-repair", "accessory-repair", "logo-correct"]) {
+      assert.equal(stagedTryOn.flow.nodes.some((node) => node.id === deletedNodeId), false);
     }
     for (const node of stagedTryOn.flow.nodes) {
       assert.equal("imageUrl" in node.data, false, `${node.id} 不得保存真实输入图`);

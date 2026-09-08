@@ -14,6 +14,7 @@ import { TOOL_GROUPS } from "@/lib/toolCatalog";
 import { selectActiveDocumentTarget, useFlowStore } from "@/store/flowStore";
 import type { CanvasCreationIntent, ToolGroupId } from "@/types/workbench";
 import { cn } from "@/lib/utils";
+import { ShortcutMenu } from "./ShortcutMenu";
 import { ToolFlyout } from "./ToolFlyout";
 import type { WorkbenchUiAction, WorkbenchUiState } from "./workbenchState";
 
@@ -35,6 +36,7 @@ export function ToolRail({
   dispatch: Dispatch<WorkbenchUiAction>;
 }) {
   const [focusIndex, setFocusIndex] = useState(0);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const triggerRefs = useRef(new Map<ToolGroupId, HTMLButtonElement>());
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -49,6 +51,7 @@ export function ToolRail({
   };
   const open = (groupId: ToolGroupId) => {
     clearClose();
+    setShortcutsOpen(false);
     dispatch({ type: "hover-group", groupId });
   };
   const focusFirstItem = (groupId: ToolGroupId) => {
@@ -59,6 +62,7 @@ export function ToolRail({
   const activateByKeyboard = (event: KeyboardEvent<HTMLButtonElement>, groupId: ToolGroupId) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
+      setShortcutsOpen(false);
       dispatch({ type: "toggle-pin", groupId });
       focusFirstItem(groupId);
       return;
@@ -134,6 +138,7 @@ export function ToolRail({
                   onClick={(event) => {
                     event.preventDefault();
                     event.preventBaseUIHandler();
+                    setShortcutsOpen(false);
                     dispatch({ type: "toggle-pin", groupId: group.id });
                   }}
                   onKeyDown={(event) => activateByKeyboard(event, group.id)}
@@ -163,6 +168,16 @@ export function ToolRail({
           </Popover>
         );
       })}
+      <ShortcutMenu
+        open={shortcutsOpen}
+        onOpenChange={(nextOpen) => {
+          clearClose();
+          if (nextOpen && state.openToolGroupId) {
+            dispatch({ type: "close-group", groupId: state.openToolGroupId });
+          }
+          setShortcutsOpen(nextOpen);
+        }}
+      />
     </nav>
   );
 }
