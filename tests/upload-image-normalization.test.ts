@@ -741,7 +741,7 @@ await test("Provider 调用前会标准化旧素材请求副本，失败时不�
 await test("前端未拿到 normalized:true 时不会把图片写入节点", () => {
   const source = fs.readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
   assert.match(source, /fetch\("\/api\/assets"/);
-  assert.match(source, /category: "reference"[\s\S]*scope: "private"[\s\S]*image: dataUrl/);
+  assert.match(source, /category: "upload"[\s\S]*scope: "private"[\s\S]*image: dataUrl/);
   assert.match(source, /data\.normalized !== true[\s\S]*服务端未完成素材标准化/);
   assert.match(source, /const upload = await uploadFile\(file\)[\s\S]*assignImageInputInTab\(target, id, upload\.url\)/);
 });

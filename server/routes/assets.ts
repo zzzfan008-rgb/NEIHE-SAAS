@@ -10,7 +10,7 @@ import { lockActiveOwner } from "../lib/ownerMutation";
 import type { Asset } from "../../src/types/workflow";
 
 export const assetsRouter = Router();
-const CATEGORIES: Asset["category"][] = ["print", "fabric", "reference"];
+const CATEGORIES: Asset["category"][] = ["upload", "generated", "print", "fabric", "reference"];
 const TRASH_DAYS = 15;
 
 interface AssetRow {
@@ -178,7 +178,13 @@ assetsRouter.post("/", asyncHandler(async (req, res) => {
 
 assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
   const user = requestUser(req);
-  const { name, scope } = req.body as { name?: string; scope?: "global" | "private" | "shared" };
+  const { name, scope, category } = req.body as {
+    name?: string; scope?: "global" | "private" | "shared"; category?: Asset["category"];
+  };
+  if (category !== undefined && !CATEGORIES.includes(category)) {
+    res.status(400).json({ error: "素材分类无效" });
+    return;
+  }
   if (name !== undefined && (typeof name !== "string" || !name.trim() || name.length > 200)) {
     res.status(400).json({ error: "素材名称无效" });
     return;
@@ -214,8 +220,8 @@ assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
       `, [nextOwnerId, path.basename(row.image)]);
     }
     await client.query(
-      "UPDATE assets SET name = COALESCE($1, name), scope = $2, owner_id = $3 WHERE id = $4",
-      [name?.trim() ?? null, nextScope, nextOwnerId, req.params.id],
+      "UPDATE assets SET name = COALESCE($1, name), scope = $2, owner_id = $3, category = COALESCE($5, category) WHERE id = $4",
+      [name?.trim() ?? null, nextScope, nextOwnerId, req.params.id, category ?? null],
     );
     return "updated" as const;
   });

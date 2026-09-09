@@ -667,6 +667,26 @@ async function migrate(): Promise<void> {
       );
     }
 
+    if (!applied.has(17)) {
+      await client.query(`
+        ALTER TABLE assets DROP CONSTRAINT assets_category_check;
+        ALTER TABLE assets ADD CONSTRAINT assets_category_check
+          CHECK (category IN ('upload','generated','print','fabric','reference'));
+        UPDATE assets a SET category = CASE
+          WHEN f.source_type = 'generated' THEN 'generated'
+          ELSE 'upload'
+        END
+        FROM files f
+        WHERE a.image = '/api/files/' || f.id AND a.category = 'reference'
+          AND (f.source_type IN ('generated','upload')
+            OR (f.source_type = 'asset' AND a.source_note = '来自图片上传节点'));
+      `);
+      await client.query(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (17, $1, $2)",
+        ["asset_library_categories", new Date().toISOString()],
+      );
+    }
+
     return imported;
   });
   if (importedRows !== undefined) {

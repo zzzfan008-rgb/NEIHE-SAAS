@@ -233,7 +233,7 @@ function Workspace() {
     const openCompare = () => setCompareOpen(true);
     const openAssetPicker = (event: Event) => {
       const request = (event as CustomEvent<AssetPickerRequest>).detail;
-      if (request?.target && request.nodeId) setAssetPickerRequest(request);
+      if (request?.mode === "browse" || (request?.target && request.nodeId)) setAssetPickerRequest(request);
     };
     const openGenerationRecord = (event: Event) => {
       const request = (event as CustomEvent<GenerationRecordRequest>).detail;
@@ -274,10 +274,10 @@ function Workspace() {
     if (!assetPickerRequest && !viewerOpen && !compareOpen) return;
     const closeActiveOverlay = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (assetPickerRequest) {
-        setAssetPickerRequest(null);
-      } else if (viewerOpen) {
+      if (viewerOpen) {
         closeViewer();
+      } else if (assetPickerRequest) {
+        setAssetPickerRequest(null);
       } else if (compareOpen) {
         setCompareOpen(false);
         clearCompare();

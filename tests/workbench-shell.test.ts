@@ -202,7 +202,7 @@ assert.doesNotMatch(shortcutMenuSource, /ShortcutKey|pinned|openTimer/, "快捷�
 assert.match(shortcutMenuSource, /openOnHover[\s\S]*?closeDelay=\{100\}/, "快捷键浮层必须悬停打开并在移开后关闭");
 assert.match(shortcutMenuSource, /eventDetails\.reason === "trigger-press"[\s\S]*?eventDetails\.event\.detail > 0/, "鼠标点击不得切换或固定快捷键浮层");
 assert.doesNotMatch(shortcutMenuSource, /title="快捷键"/, "快捷键按钮不得叠加浏览器原生提示");
-assert.match(toolRailSource, /\{TOOL_GROUPS\.map\([\s\S]*?\)\}\s*<ShortcutMenu/, "快捷键入口必须直接位于创作工具之后");
+assert.match(toolRailSource, /\{TOOL_GROUPS\.map\([\s\S]*?aria-label="资产库"[\s\S]*?<ShortcutMenu/, "资产库入口必须位于创作工具与快捷键之间");
 assert.doesNotMatch(toolRailSource, /Separator|role="separator"/, "创作工具与快捷键入口之间不得增加分隔线");
 assert.match(appSource, /requestCanvasZoom\("in"\)/, "主修饰键加号必须缩放画布而不是浏览器页面");
 assert.match(appSource, /copySelectedNodesToClipboard\(\)/, "复制快捷键必须读取 canonical 多选节点");

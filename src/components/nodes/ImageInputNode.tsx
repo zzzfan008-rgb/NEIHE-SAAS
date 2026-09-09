@@ -26,7 +26,7 @@ async function uploadFile(file: File): Promise<NormalizedUploadResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name: assetName,
-      category: "reference",
+      category: "upload",
       scope: "private",
       image: dataUrl,
       sourceNote: "来自图片上传节点",

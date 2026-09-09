@@ -741,6 +741,38 @@ await test("管理员创建通用素材时解除底层文件的个人归属", as
   assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 200);
 });
 
+await test("资产分类支持筛选和调整，并保持所有权与输入校验", async () => {
+  const createdIds: string[] = [];
+  for (const category of ["upload", "generated", "print", "fabric"]) {
+    const response = await request("/assets", "owner", {
+      method: "POST",
+      body: JSON.stringify({ name: `分类测试-${category}`, category, image: PNG_DATA_URL }),
+    });
+    assert.equal(response.status, 201);
+    const { id } = await response.json() as { id: string };
+    createdIds.push(id);
+    const list = await (await request(`/assets?category=${category}&search=分类测试`, "owner")).json() as Array<{ id: string; category: string }>;
+    assert.deepEqual(list.map((asset) => [asset.id, asset.category]), [[id, category]]);
+    const otherList = await (await request(`/assets?category=${category}&search=分类测试`, "other")).json();
+    assert.deepEqual(otherList, []);
+  }
+  const patch = (actor: string, category: unknown) => request(`/assets/${createdIds[0]}`, actor, {
+    method: "PATCH", body: JSON.stringify({ category }),
+  });
+  assert.equal((await patch("other", "fabric")).status, 403);
+  assert.equal((await patch("admin", "fabric")).status, 403);
+  for (const invalid of ["bad", null, 1, {}, ["fabric"]]) {
+    assert.equal((await patch("owner", invalid)).status, 400);
+  }
+  assert.equal((await patch("owner", "fabric")).status, 200);
+  assert.deepEqual(await queryOne("SELECT category, owner_id, scope FROM assets WHERE id = $1", [createdIds[0]]), {
+    category: "fabric", owner_id: users.owner.id, scope: "private",
+  });
+  assert.deepEqual(await (await request("/assets?category=upload&search=分类测试", "owner")).json(), []);
+  assert.equal((await request("/assets?category=invalid", "owner")).status, 400);
+  await query("DELETE FROM assets WHERE id = ANY($1::text[])", [createdIds]);
+});
+
 await test("图片上传可在一次请求中标准化并创建私有素材", async () => {
   const create = await request("/assets", "owner", {
     method: "POST",

@@ -461,6 +461,15 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
 });
 
 test("delayed style preset writes stay bound to the initiating document", async ({ page }, testInfo) => {
+  const styleAssets: Array<{ name: string; url: string }> = [];
+  for (const category of ["upload", "generated"]) {
+    const name = `风格分类-${category}-${testInfo.project.name}`;
+    const response = await page.request.post("/api/assets", {
+      data: { name, category, image: RESULTS_DENSITY_IMAGE },
+    });
+    expect(response.status()).toBe(201);
+    styleAssets.push({ name, url: ((await response.json()) as { url: string }).url });
+  }
   await openFreshBlankProject(page);
   const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
   await rail.getByRole("button", { name: "模特换装", exact: true }).click();
@@ -483,6 +492,7 @@ test("delayed style preset writes stay bound to the initiating document", async 
       return;
     }
     saveStarted.resolve();
+    expect(route.request().postDataJSON().referenceImage).toBe(styleAssets[1].url);
     await releaseSave.promise;
     const response = await route.fetch();
     await route.fulfill({ response });
@@ -492,6 +502,9 @@ test("delayed style preset writes stay bound to the initiating document", async 
   const dialog = page.getByRole("dialog", { name: "保存风格预设" });
   await dialog.getByLabel("名称").fill(`延迟隔离 ${testInfo.project.name}`);
   await dialog.getByLabel("提示词片段").fill("仅用于验证异步文档隔离");
+  await dialog.getByRole("combobox", { name: "固定参考图（可选）" }).click();
+  for (const asset of styleAssets) await expect(page.getByRole("option", { name: asset.name, exact: true })).toBeVisible();
+  await page.getByRole("option", { name: styleAssets[1].name, exact: true }).click();
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await saveStarted.promise;
 
@@ -1321,6 +1334,82 @@ test("asset library previews and deletes manageable images without selecting the
   await page.request.delete(`/api/assets/${blocked.id}`);
 });
 
+test("standalone asset library filters and reclassifies without changing canvas", async ({ page }, testInfo) => {
+  const suffix = `catalog-${testInfo.project.name}-${Date.now()}`;
+  const categories = [["upload", "用户上传"], ["generated", "生成结果"], ["print", "印花"], ["fabric", "布料"]] as const;
+  const ids: string[] = [];
+  for (const [category] of categories) {
+    const response = await page.request.post("/api/assets", {
+      data: { name: `${suffix}-${category}`, category, image: RESULTS_DENSITY_IMAGE },
+    });
+    expect(response.status()).toBe(201);
+    ids.push(((await response.json()) as { id: string }).id);
+  }
+  await openFreshBlankProject(page);
+  const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  const trigger = rail.getByRole("button", { name: "资产库", exact: true });
+  const nodeIdsBefore = await page.locator(".react-flow__node").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id")));
+  const createBox = await rect(rail.getByRole("button", { name: "创作工具", exact: true }));
+  const assetBox = await rect(trigger);
+  const shortcutsBox = await rect(rail.getByRole("button", { name: "查看快捷键" }));
+  expect(assetBox.top).toBeGreaterThan(createBox.bottom);
+  expect(assetBox.bottom).toBeLessThan(shortcutsBox.top);
+  expect(assetBox.width).toBe(createBox.width);
+  await trigger.focus();
+  await trigger.press("Enter");
+  const library = page.getByRole("dialog", { name: "资产库", exact: true });
+  const search = library.getByRole("searchbox", { name: "搜索素材名称" });
+  await search.fill(suffix);
+  await expect(library.locator("[data-asset-card-id]")).toHaveCount(4);
+  for (const [category, label] of categories) {
+    await library.getByRole("tab", { name: label, exact: true }).click();
+    await expect(library.locator("[data-asset-card-id]")).toHaveCount(1);
+    await expect(library.getByAltText(`${suffix}-${category}`)).toBeVisible();
+  }
+  await library.getByRole("tab", { name: "用户上传", exact: true }).click();
+  const uploadCard = library.locator(`[data-asset-card-id="${ids[0]}"]`);
+  const cardButton = uploadCard.locator(`button[title="${suffix}-upload"]`);
+  await cardButton.click();
+  const viewer = page.getByRole("dialog", { name: "图片查看器" });
+  await expect(viewer).toBeVisible();
+  const savedCopyResponse = page.waitForResponse((response) => response.url().endsWith("/api/assets") && response.request().method() === "POST");
+  await viewer.getByRole("button", { name: "收藏为资产", exact: true }).click();
+  const savedCopy = await savedCopyResponse;
+  expect(savedCopy.status()).toBe(201);
+  expect(savedCopy.request().postDataJSON().category).toBe("upload");
+  await page.request.delete(`/api/assets/${((await savedCopy.json()) as { id: string }).id}`);
+  await page.keyboard.press("Escape");
+  await expect(library).toBeVisible();
+  await expect(cardButton).toBeFocused();
+  await uploadCard.getByRole("combobox").click();
+  await page.getByRole("option", { name: "布料", exact: true }).click();
+  await expect(uploadCard).toHaveCount(0);
+  await expect(search).toBeFocused();
+  await expect(library.getByText("没有匹配的素材", { exact: true })).toBeVisible();
+  await library.getByRole("tab", { name: "布料", exact: true }).click();
+  await expect(library.locator("[data-asset-card-id]")).toHaveCount(2);
+  await library.getByRole("tab", { name: "全部", exact: true }).click();
+  await expect(library.locator("[data-asset-card-id]")).toHaveCount(4);
+  const bounds = await rect(library);
+  expect(bounds.width).toBe(680);
+  expect(bounds.left).toBeGreaterThanOrEqual(0);
+  expect(bounds.right).toBeLessThanOrEqual(page.viewportSize()!.width);
+  expect(bounds.bottom).toBeLessThanOrEqual(page.viewportSize()!.height);
+  expect(await library.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.addScriptTag({ content: axe.source });
+  const violations = await page.evaluate(async () => {
+    const runtime = (window as unknown as { axe: typeof axe }).axe;
+    return (await runtime.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa"] } })).violations;
+  });
+  expect(violations).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath("asset-library.png") });
+  await page.keyboard.press("Escape");
+  await expect(library).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect(await page.locator(".react-flow__node").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id")))).toEqual(nodeIdsBefore);
+  for (const id of ids) await page.request.delete(`/api/assets/${id}`);
+});
+
 test("asset deletion resets pending pagination and restores focus on first deletion", async ({ page }) => {
   let assets = Array.from({ length: 40 }, (_, index) => ({
     id: `pagination-${index + 1}`,
@@ -1609,14 +1698,18 @@ test("tool rail, right dock and horizontal zoom controls preserve canvas identit
   const createTrigger = floatingRail.getByRole("button", { name: "创作工具", exact: true });
   const shortcutMenu = page.locator("#workbench-shortcuts");
   await expect(page.locator("header").getByRole("button", { name: "查看快捷键" })).toHaveCount(0);
-  await expect(floatingRail.getByRole("button")).toHaveCount(6);
+  await expect(floatingRail.getByRole("button")).toHaveCount(7);
   await expect(floatingRail.getByRole("button").nth(4)).toHaveAttribute("aria-label", "创作工具");
-  await expect(floatingRail.getByRole("button").nth(5)).toHaveAttribute("aria-label", "查看快捷键");
+  await expect(floatingRail.getByRole("button").nth(5)).toHaveAttribute("aria-label", "资产库");
+  await expect(floatingRail.getByRole("button").nth(6)).toHaveAttribute("aria-label", "查看快捷键");
   await expect(floatingRail.getByRole("separator")).toHaveCount(0);
   const createTriggerRect = await rect(createTrigger);
   const shortcutTriggerRect = await rect(shortcutTrigger);
-  expect(shortcutTriggerRect.top - createTriggerRect.bottom).toBeGreaterThanOrEqual(3);
-  expect(shortcutTriggerRect.top - createTriggerRect.bottom).toBeLessThanOrEqual(5);
+  const assetTriggerRect = await rect(floatingRail.getByRole("button", { name: "资产库", exact: true }));
+  expect(assetTriggerRect.top - createTriggerRect.bottom).toBeGreaterThanOrEqual(3);
+  expect(assetTriggerRect.top - createTriggerRect.bottom).toBeLessThanOrEqual(5);
+  expect(shortcutTriggerRect.top - assetTriggerRect.bottom).toBeGreaterThanOrEqual(3);
+  expect(shortcutTriggerRect.top - assetTriggerRect.bottom).toBeLessThanOrEqual(5);
 
   await createTrigger.hover();
   const createMenu = page.getByRole("menu", { name: "创作工具" });
