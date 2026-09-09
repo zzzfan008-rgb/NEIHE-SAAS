@@ -193,6 +193,8 @@ test("upload and text starters complete the isolated first-generation golden pat
 
   await textResultCard.locator('button[title="查看图片"]').click();
   await expect(page.getByText(/滚轮缩放 100%/)).toBeVisible();
+  await expect(page.getByText(/最大 500%/)).toBeVisible();
+  await expect(page.getByText(/放大后拖动查看/)).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByText(/滚轮缩放 100%/)).toHaveCount(0);
 
