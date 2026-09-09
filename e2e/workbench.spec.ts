@@ -484,6 +484,23 @@ test("delayed style preset writes stay bound to the initiating document", async 
   }
   await expect(inspector).toBeVisible();
 
+  const assetOffsets: number[] = [];
+  let failAssetPage = true;
+  await page.route("**/api/assets?*", async (route) => {
+    const offset = Number(new URL(route.request().url()).searchParams.get("offset") ?? 0);
+    assetOffsets.push(offset);
+    if (offset === 100 && failAssetPage) {
+      await route.fulfill({ status: 503, json: { error: "test unavailable" } });
+      return;
+    }
+    await route.fulfill({ json: offset === 0
+      ? Array.from({ length: 100 }, (_, index) => ({
+        id: `newer-${index}`, name: `较新素材 ${index}`, image: `/api/files/newer-${index}.png`, category: "upload",
+      }))
+      : styleAssets.map((asset, index) => ({ id: `older-${index}`, name: asset.name, image: asset.url, category: "generated" })),
+    });
+  });
+
   const saveStarted = deferred();
   const releaseSave = deferred();
   await page.route("**/api/try-on-style-presets", async (route) => {
@@ -500,10 +517,20 @@ test("delayed style preset writes stay bound to the initiating document", async 
 
   await inspector.getByRole("button", { name: "保存为我的风格预设" }).click();
   const dialog = page.getByRole("dialog", { name: "保存风格预设" });
+  await expect(dialog.getByRole("alert")).toHaveText("参考素材加载失败，请重新打开后重试");
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  failAssetPage = false;
+  await inspector.getByRole("button", { name: "保存为我的风格预设" }).click();
+  await expect.poll(() => assetOffsets).toEqual([0, 100, 0, 100]);
   await dialog.getByLabel("名称").fill(`延迟隔离 ${testInfo.project.name}`);
   await dialog.getByLabel("提示词片段").fill("仅用于验证异步文档隔离");
   await dialog.getByRole("combobox", { name: "固定参考图（可选）" }).click();
-  for (const asset of styleAssets) await expect(page.getByRole("option", { name: asset.name, exact: true })).toBeVisible();
+  await expect(page.getByRole("option")).toHaveCount(103);
+  for (const asset of styleAssets) {
+    await page.getByRole("option", { name: asset.name, exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole("option", { name: asset.name, exact: true })).toBeVisible();
+  }
   await page.getByRole("option", { name: styleAssets[1].name, exact: true }).click();
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await saveStarted.promise;
@@ -542,6 +569,7 @@ test("delayed style preset writes stay bound to the initiating document", async 
     };
   }, saveTargets)).toEqual({ sourceIsCustom: true, activePreset: "faithful" });
   await page.unroute("**/api/try-on-style-presets");
+  await page.unroute("**/api/assets?*");
 
   await page.evaluate(async (sourceTabId) => {
     const storeModulePath = "/src/store/flowStore.ts";

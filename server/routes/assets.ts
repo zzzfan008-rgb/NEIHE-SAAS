@@ -67,7 +67,7 @@ assetsRouter.get("/", asyncHandler(async (req, res) => {
       AND (${includeDeleted
         ? "$2 = 'admin' OR a.owner_id = $3"
         : "$2 = 'admin' OR a.scope IN ('global','shared') OR a.owner_id = $3"})
-    ORDER BY a.created_at DESC
+    ORDER BY a.created_at DESC, a.id DESC
     LIMIT $4 OFFSET $5
   `, [category ?? null, user.role, user.id, limit, offset, searchPattern]);
   res.json(rows.map((row) => ({

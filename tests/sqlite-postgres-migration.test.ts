@@ -24,6 +24,10 @@ source.exec(`
     category TEXT NOT NULL, image TEXT NOT NULL, source_note TEXT, created_at TEXT NOT NULL,
     deleted_at TEXT, purge_after TEXT
   );
+  CREATE TABLE files (
+    id TEXT PRIMARY KEY, owner_id TEXT, source_type TEXT NOT NULL,
+    project_id TEXT, node_id TEXT, run_id TEXT, created_at TEXT NOT NULL
+  );
   CREATE TABLE project_asset_refs (
     project_id TEXT NOT NULL, asset_id TEXT NOT NULL, created_at TEXT NOT NULL,
     PRIMARY KEY (project_id, asset_id)
@@ -56,6 +60,20 @@ source.prepare("INSERT INTO project_asset_refs VALUES (?, ?, ?)")
   .run("missing-project", "legacy-asset", now);
 source.prepare("INSERT INTO project_asset_refs VALUES (?, ?, ?)")
   .run("legacy-project", "missing-asset", now);
+const categoryFixtures = [
+  ["generated", "generated", "", "reference", "generated"],
+  ["upload", "upload", "", "reference", "upload"],
+  ["node-upload", "asset", "来自图片上传节点", "reference", "upload"],
+  ["unknown", "asset", "", "reference", "reference"],
+  ["print", "generated", "", "print", "print"],
+  ["fabric", "upload", "", "fabric", "fabric"],
+] as const;
+for (const [id, sourceType, note, category] of categoryFixtures) {
+  source.prepare("INSERT INTO files VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(`category-${id}.png`, "legacy-user", sourceType, null, null, null, now);
+  source.prepare("INSERT INTO assets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(`category-${id}`, "legacy-user", "private", id, category, `/api/files/category-${id}.png`, note, now, null, null);
+}
 source.close();
 
 process.env.DATA_DIR = temp;
@@ -66,6 +84,16 @@ process.env.INITIAL_ADMIN_PASSWORD = "Initial1234";
 await resetPostgresTestDatabase();
 const { closeDatabaseForTests, initializeDatabase, query, queryOne } = await import("../server/lib/database");
 await initializeDatabase();
+
+async function assertImportedCategories() {
+  for (const [id, , , , expected] of categoryFixtures) {
+    assert.deepEqual(await queryOne("SELECT category, owner_id, scope FROM assets WHERE id = $1", [`category-${id}`]), {
+      category: expected, owner_id: "legacy-user", scope: "private",
+    });
+  }
+  assert.equal((await queryOne<{ category: string }>("SELECT category FROM assets WHERE id = 'legacy-asset'"))?.category, "reference");
+}
+await assertImportedCategories();
 
 console.log("SQLite → PostgreSQL 升级迁移测试");
 const legacyUser = await queryOne<Record<string, unknown>>("SELECT * FROM users WHERE id = $1", ["legacy-user"]);
@@ -124,6 +152,15 @@ assert.deepEqual(
   [{ project_id: "legacy-project", asset_id: "legacy-asset" }],
 );
 console.log("  ✓ 编号迁移已存在时，后挂 SQLite 仍只导入父记录完整的素材引用");
+await assertImportedCategories();
+console.log("  ✓ 首次及延迟导入均按文件来源回填分类，保留归属、印花、布料和未知来源");
+
+await query("UPDATE assets SET category = 'fabric' WHERE id = 'category-generated'");
+await closeDatabaseForTests();
+await initializeDatabase();
+assert.equal((await queryOne<{ category: string }>("SELECT category FROM assets WHERE id = 'category-generated'"))?.category, "fabric");
+assert.equal((await queryOne<{ count: number }>("SELECT COUNT(*)::int AS count FROM assets WHERE id LIKE 'category-%'"))?.count, categoryFixtures.length);
+console.log("  ✓ 重启不重复导入素材，也不覆盖用户修改的分类");
 
 await closeDatabaseForTests();
 fs.rmSync(temp, { recursive: true, force: true });

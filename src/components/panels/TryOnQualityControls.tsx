@@ -75,18 +75,40 @@ export function TryOnQualityControls({
 
   useEffect(() => { void loadPresets(); }, [loadPresets]);
 
-  const openSaveDialog = async () => {
+  useEffect(() => {
+    if (!dialogOpen) return;
+    const controller = new AbortController();
+    setAssets([]);
+    void (async () => {
+      const loaded: Asset[] = [];
+      try {
+        for (let offset = 0; ; offset += 100) {
+          const response = await fetch(`/api/assets?limit=100&offset=${offset}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const page = await response.json() as Asset[];
+          if (!Array.isArray(page)) throw new Error("素材列表格式无效");
+          loaded.push(...page);
+          if (page.length < 100) break;
+        }
+        if (!controller.signal.aborted) {
+          setAssets([...new Map(loaded.map((asset) => [asset.id, asset])).values()]);
+        }
+      } catch {
+        if (!controller.signal.aborted) setError("参考素材加载失败，请重新打开后重试");
+      }
+    })();
+    return () => controller.abort();
+  }, [dialogOpen]);
+
+  const openSaveDialog = () => {
     setName("");
     setPrompt(data.stylePrompt ?? presets.find((preset) => preset.id === data.stylePresetId)?.prompt ?? "");
     setReferenceImage(data.styleReferenceImage ?? "none");
     setError(null);
     setDialogOpen(true);
-    try {
-      const response = await fetch("/api/assets?limit=100", { cache: "no-store" });
-      if (response.ok) setAssets(await response.json() as Asset[]);
-    } catch {
-      setAssets([]);
-    }
   };
 
   const selectPreset = (id: string | null) => {
