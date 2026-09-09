@@ -2098,7 +2098,7 @@ await test("桌面工作台使用五组工具栏与稳定右侧 Dock，快捷键
   assert.doesNotMatch(shortcutMenuSource, /onPointerEnter=\{openMenu\}/);
   assert.doesNotMatch(shortcutMenuSource, /onPointerLeave=\{scheduleClose\}/);
   assert.doesNotMatch(shortcutMenuSource, /onFocus=\{openMenu\}/);
-  assert.match(toolRailSource, /\{TOOL_GROUPS\.map\([\s\S]*?\)\}\s*<ShortcutMenu/);
+  assert.match(toolRailSource, /\{TOOL_GROUPS\.map\([\s\S]*?aria-label="资产库"[\s\S]*?<ShortcutMenu/);
   assert.doesNotMatch(toolRailSource, /Separator|role="separator"/);
   assert.doesNotMatch(topBarSource, /GARMENT CANVAS|ProjectPicker/);
   assert.doesNotMatch(appSource, /TemplatesDock/);

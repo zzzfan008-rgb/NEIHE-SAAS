@@ -464,8 +464,8 @@ export interface Asset {
   scope?: "global" | "private" | "shared";
   canManage?: boolean;
   name: string;
-  /** 素材类型：print=印花 / fabric=面料 / reference=参考图 */
-  category: "print" | "fabric" | "reference";
+  /** reference 保留给来源不明的历史素材，仅在全部分类展示。 */
+  category: "upload" | "generated" | "print" | "fabric" | "reference";
   /** 图片 URL（/api/files/xxx） */
   image: string;
   /** 列表/画布预览使用的轻量缩略图；执行节点时仍使用 image 原图。 */

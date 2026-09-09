@@ -128,7 +128,7 @@ export function ImageViewer() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: `${record?.nodeLabel ?? viewer.title ?? "生成素材"}-${new Date().toLocaleDateString("zh-CN")}`,
-          category: "reference",
+          category: viewer.assetCategory ?? "generated",
           image: viewer.url,
           sourceNote: record?.projectName ? `来自项目「${record.projectName}」` : "来自生成记录",
         }),

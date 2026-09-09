@@ -178,7 +178,7 @@ export interface FlowState {
   /** 最近生成（底部结果面板，含运行记录），新条目在前 */
   recentResults: RecentResult[];
   /** 全局图片查看器（单击任意图片弹出，滚轮缩放 1x~2x） */
-  viewer: { url: string; title?: string; prompt?: string; meta?: string } | null;
+  viewer: { url: string; title?: string; prompt?: string; meta?: string; assetCategory?: Asset["category"] } | null;
   /** 浏览器会话草稿未能持久化；非空时刷新可能丢失尚未保存的修改。 */
   tabSessionPersistenceError: string | null;
   /** 仅内存：打开的蒙版编辑器与尚未结束的蒙版上传总数。 */
@@ -207,7 +207,7 @@ export interface FlowState {
   toggleCompareId: (id: string) => void;
   clearCompare: () => void;
   removeRecentResult: (id: string) => void;
-  openViewer: (v: { url: string; title?: string; prompt?: string; meta?: string }) => void;
+  openViewer: (v: { url: string; title?: string; prompt?: string; meta?: string; assetCategory?: Asset["category"] }) => void;
   closeViewer: () => void;
   onNodesChange: (changes: NodeChange<FlowNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<Edge>[]) => void;

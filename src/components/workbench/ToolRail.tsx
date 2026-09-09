@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type Dispatch, type KeyboardEvent } from "react";
 import {
   ClapperboardIcon,
+  ImagesIcon,
   PaintbrushIcon,
   PlusIcon,
   ShirtIcon,
   UserRoundIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { OPEN_ASSET_PICKER_EVENT, type AssetPickerRequest } from "@/lib/overlayEvents";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { requestCanvasCreation } from "@/lib/canvasCreation";
 import { openColorTool } from "@/lib/colorTool";
@@ -168,6 +171,33 @@ export function ToolRail({
           </Popover>
         );
       })}
+      <Tooltip>
+        <TooltipTrigger render={(
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-lg"
+            aria-label="资产库"
+            aria-haspopup="dialog"
+            onPointerEnter={() => {
+              clearClose();
+              setShortcutsOpen(false);
+              if (state.openToolGroupId) dispatch({ type: "close-group", groupId: state.openToolGroupId });
+            }}
+            onClick={() => {
+              clearClose();
+              setShortcutsOpen(false);
+              if (state.openToolGroupId) dispatch({ type: "close-group", groupId: state.openToolGroupId });
+              const detail: AssetPickerRequest = { mode: "browse" };
+              window.dispatchEvent(new CustomEvent(OPEN_ASSET_PICKER_EVENT, { detail }));
+            }}
+            className="text-[var(--gc-text-muted)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-text)]"
+          >
+            <ImagesIcon aria-hidden="true" />
+          </Button>
+        )} />
+        <TooltipContent side="right">资产库</TooltipContent>
+      </Tooltip>
       <ShortcutMenu
         open={shortcutsOpen}
         onOpenChange={(nextOpen) => {

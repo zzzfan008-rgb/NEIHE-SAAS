@@ -36,6 +36,7 @@ assert.deepEqual(versions, [
   { version: 13, name: "drawing_document_versions" },
   { version: 14, name: "generation_video_provider_task_state" },
   { version: 15, name: "try_on_quality_pipeline" },
+  { version: 16, name: "asset_library_categories" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
 
@@ -575,6 +576,36 @@ assert.equal((await queryOne<{ count: number }>(`
   SELECT COUNT(*)::int AS count FROM schema_migrations WHERE version = 12
 `))?.count, 1);
 console.log("  ✓ 旧数据库无损补齐生命周期字段且迁移重复启动保持幂等");
+
+const categoryFixtures = [
+  ["uploaded", "asset", "来自图片上传节点", "reference", "upload"],
+  ["file-upload", "upload", "", "reference", "upload"],
+  ["generated", "generated", "", "reference", "generated"],
+  ["print", "generated", "", "print", "print"],
+  ["fabric", "upload", "", "fabric", "fabric"],
+  ["ambiguous", "asset", "", "reference", "reference"],
+  ["mask", "mask", "来自图片上传节点", "reference", "reference"],
+] as const;
+for (const [id, source, note, category] of categoryFixtures) {
+  await query(`INSERT INTO files (id, owner_id, source_type, created_at)
+    VALUES ($1, $2, $3, $4)`, [`category-${id}.png`, admin.id, source, now]);
+  await query(`INSERT INTO assets (id, owner_id, scope, name, category, image, source_note, created_at)
+    VALUES ($1, $2, 'private', $1, $3, $4, $5, $6)`,
+  [`category-${id}`, admin.id, category, `/api/files/category-${id}.png`, note, now]);
+}
+await query("ALTER TABLE assets DROP CONSTRAINT assets_category_check");
+await query("ALTER TABLE assets ADD CONSTRAINT assets_category_check CHECK (category IN ('print','fabric','reference'))");
+await query("DELETE FROM schema_migrations WHERE version = 16");
+await closeDatabaseForTests();
+await initializeDatabase();
+for (const [id, , , , expected] of categoryFixtures) {
+  assert.equal((await queryOne<{ category: string }>("SELECT category FROM assets WHERE id = $1", [`category-${id}`]))?.category, expected);
+}
+await query("UPDATE assets SET category = 'fabric' WHERE id = 'category-generated'");
+await closeDatabaseForTests();
+await initializeDatabase();
+assert.equal((await queryOne<{ category: string }>("SELECT category FROM assets WHERE id = 'category-generated'"))?.category, "fabric");
+console.log("  ✓ 分类迁移只处理已有且来源明确的素材，保留印花、布料和未知来源，重启不覆盖用户分类");
 
 await closeDatabaseForTests();
 fs.rmSync(temp, { recursive: true, force: true });

@@ -82,7 +82,7 @@ export function TryOnQualityControls({
     setError(null);
     setDialogOpen(true);
     try {
-      const response = await fetch("/api/assets?category=reference&limit=100", { cache: "no-store" });
+      const response = await fetch("/api/assets?limit=100", { cache: "no-store" });
       if (response.ok) setAssets(await response.json() as Asset[]);
     } catch {
       setAssets([]);

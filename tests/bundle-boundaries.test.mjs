@@ -30,7 +30,7 @@ assert.match(appSource, /window\.addEventListener\(OPEN_COMPARE_EVENT, openCompa
 assert.match(appSource, /window\.addEventListener\(OPEN_ASSET_PICKER_EVENT, openAssetPicker\)/);
 assert.match(appSource, /setAssetPickerRequest\(request\)/);
 assert.match(appSource, /window\.addEventListener\("keydown", closeActiveOverlay\)/);
-assert.match(appSource, /if \(assetPickerRequest\)[\s\S]*setAssetPickerRequest\(null\)[\s\S]*else if \(viewerOpen\)[\s\S]*closeViewer\(\)[\s\S]*else if \(compareOpen\)/);
+assert.match(appSource, /if \(viewerOpen\)[\s\S]*closeViewer\(\)[\s\S]*else if \(assetPickerRequest\)[\s\S]*setAssetPickerRequest\(null\)[\s\S]*else if \(compareOpen\)/);
 assert.doesNotMatch(compareSource, /addEventListener\(OPEN_COMPARE_EVENT/);
 assert.doesNotMatch(assetPickerSource, /addEventListener\(OPEN_ASSET_PICKER_EVENT/);
 console.log("  ✓ 常驻工作台保留弹层事件和 Esc，懒加载首次操作不丢请求");
