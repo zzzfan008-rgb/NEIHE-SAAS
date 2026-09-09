@@ -61,6 +61,7 @@ export function AssetPickerOverlay({
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
   const requestGeneration = useRef(0);
   const previewButtons = useRef(new Map<string, HTMLButtonElement>());
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -135,7 +136,8 @@ export function AssetPickerOverlay({
       if (!response.ok) {
         throw new Error(typeof body?.error === "string" ? body.error : `HTTP ${response.status}`);
       }
-      setAssets((current) => current.filter((asset) => asset.id !== assetToDelete.id));
+      // Deletion shifts server offsets; discard pending pages and rebuild the list.
+      void load(0);
       setAssetToDelete(null);
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : String(err));
@@ -188,6 +190,7 @@ export function AssetPickerOverlay({
             <label className="ml-auto w-44">
               <span className="sr-only">搜索素材名称</span>
               <Input
+                ref={searchInputRef}
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -308,6 +311,7 @@ export function AssetPickerOverlay({
         }}
       >
         <AlertDialogContent
+          finalFocus={searchInputRef}
           overlayClassName="z-[60] bg-[color-mix(in_srgb,var(--gc-shell)_82%,transparent)] backdrop-blur-xs"
           className="z-[61] border border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)] ring-0"
         >

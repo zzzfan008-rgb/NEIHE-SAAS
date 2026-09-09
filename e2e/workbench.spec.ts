@@ -1319,6 +1319,69 @@ test("asset library previews and deletes manageable images without selecting the
   await page.request.delete(`/api/assets/${blocked.id}`);
 });
 
+test("asset deletion resets pending pagination and restores focus on first deletion", async ({ page }) => {
+  let assets = Array.from({ length: 40 }, (_, index) => ({
+    id: `pagination-${index + 1}`,
+    name: `分页素材 ${index + 1}`,
+    category: "reference",
+    image: RESULTS_DENSITY_IMAGE,
+    thumbnail: RESULTS_DENSITY_IMAGE,
+    createdAt: "2026-09-09T00:00:00.000Z",
+    canManage: true,
+  }));
+  let delayNextPage = true;
+  let releasePage!: () => void;
+  const pendingPage = new Promise<void>((resolve) => { releasePage = resolve; });
+  let pageStarted = false;
+  let pageFinished = false;
+  await page.route("**/api/assets?*", async (route) => {
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    const delayed = offset === 20 && delayNextPage;
+    if (delayed) {
+      delayNextPage = false;
+      pageStarted = true;
+      await pendingPage;
+    }
+    await route.fulfill({ json: assets.slice(offset, offset + 20) });
+    if (delayed) pageFinished = true;
+  });
+  await page.route("**/api/assets/pagination-1", async (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    assets = assets.filter((asset) => asset.id !== "pagination-1");
+    await route.fulfill({ json: { ok: true } });
+  });
+
+  try {
+    await openFreshBlankProject(page);
+    const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+    await rail.getByRole("button", { name: "添加节点", exact: true }).click();
+    await page.getByRole("menu", { name: "添加节点" }).getByRole("menuitem", { name: /本地上传图片/ }).click();
+    const imageNode = page.locator(".react-flow__node").filter({ hasText: "图片上传" }).last();
+    await imageNode.getByRole("button", { name: "从素材库选择" }).click();
+    const picker = page.getByRole("dialog", { name: "从素材库选择" });
+    const cards = picker.locator("[data-asset-card-id]");
+    await expect(cards).toHaveCount(20);
+    await picker.getByRole("button", { name: "加载更多素材" }).click();
+    await expect.poll(() => pageStarted).toBe(true);
+    await picker.getByRole("button", { name: "删除素材 分页素材 1", exact: true }).click();
+    const confirmation = page.getByRole("alertdialog", { name: "删除素材" });
+    await confirmation.getByRole("button", { name: "确认删除" }).click();
+    await expect(confirmation).toBeHidden();
+    await expect(picker.getByRole("searchbox", { name: "搜索素材名称" })).toBeFocused();
+    await expect(picker.locator('[data-asset-card-id="pagination-21"]')).toHaveCount(1);
+    releasePage();
+    await expect.poll(() => pageFinished).toBe(true);
+    await picker.getByRole("button", { name: "加载更多素材" }).click();
+    await expect(cards).toHaveCount(39);
+    await expect(picker.getByRole("button", { name: "加载更多素材" })).toHaveCount(0);
+    expect(await cards.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-asset-card-id"))))
+      .toEqual(assets.map((asset) => asset.id));
+  } finally {
+    releasePage();
+  }
+});
+
 test("node title and media actions keep stable keyboard-accessible controls", async ({ page }) => {
   await openFreshBlankProject(page);
   const textNode = await addTextNode(page);
