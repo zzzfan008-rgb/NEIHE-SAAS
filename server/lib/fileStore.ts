@@ -20,7 +20,10 @@ import {
   isLocalImageReference,
   validateImageDataUrl,
 } from "./imageValidation";
-import { normalizeUploadImageDataUrl } from "./uploadImageNormalization";
+import {
+  normalizeUploadImageDataUrl,
+  type NormalizedUploadMime,
+} from "./uploadImageNormalization";
 
 const MAX_THUMBNAIL_INPUT_PIXELS = 40_000_000;
 const GENERATED_PNG_PALETTE_SIZES = [256, 192, 128, 96, 64] as const;
@@ -150,14 +153,14 @@ export function saveDataUrl(dataUrl: string): { id: string; url: string } {
 export interface SavedNormalizedUpload {
   id: string;
   url: string;
-  mimeType: "image/png" | "image/jpeg";
+  mimeType: NormalizedUploadMime;
   width: number;
   height: number;
   byteLength: number;
   normalized: true;
 }
 
-/** 用户输入先完成 API易推荐标准化，再以独占创建 + fsync 原子落盘。 */
+/** 用户输入按 7 MiB 阈值保真存储或压缩，再以独占创建 + fsync 原子落盘。 */
 export async function saveNormalizedUploadDataUrl(dataUrl: string): Promise<SavedNormalizedUpload> {
   const normalized = await normalizeUploadImageDataUrl(dataUrl);
   const ext = MIME_EXT[normalized.mimeType];

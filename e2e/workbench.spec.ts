@@ -1211,7 +1211,9 @@ test("image node hides asset address entry and keeps upload and library usable",
   await expect(picker).toBeHidden();
   await expect(library).toBeFocused();
   await upload.setInputFiles({ name: "hidden-address.png", mimeType: "image/png", buffer: E2E_UPLOAD_PNG });
-  await expect(imageNode.getByAltText("已上传图片")).toBeVisible();
+  const uploadedImage = imageNode.getByAltText("已上传图片");
+  await expect(uploadedImage).toBeVisible();
+  await expect(uploadedImage).toHaveAttribute("src", /^\/api\/files\/[A-Za-z0-9_-]+\.png$/);
   await expect(imageNode.getByLabel("API易图片素材 ID")).toHaveCount(0);
   await imageNode.locator(".gc-node-floating-title").click();
   await expect(imageNode.getByLabel("重新上传")).toBeVisible();

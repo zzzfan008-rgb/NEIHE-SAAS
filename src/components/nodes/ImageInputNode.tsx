@@ -4,7 +4,6 @@ import { ImagesIcon, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { selectActiveDocumentTarget, useFlowStore } from "@/store/flowStore";
 import type { ImageInputNodeData } from "@/types/workflow";
-import { thumbnailImageUrl } from "@/lib/images";
 import { OPEN_ASSET_PICKER_EVENT, type AssetPickerRequest } from "@/lib/overlayEvents";
 import { NodeFrame } from "./NodeFrame";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
@@ -12,7 +11,7 @@ import { MediaNodeActionToolbar } from "./NodeActionToolbar";
 interface NormalizedUploadResponse {
   id: string;
   url: string;
-  mimeType: "image/png" | "image/jpeg";
+  mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
   width: number;
   height: number;
   byteLength: number;
@@ -37,7 +36,7 @@ async function uploadFile(file: File): Promise<NormalizedUploadResponse> {
   if (!res.ok) throw new Error(data.error || `上传失败 HTTP ${res.status}`);
   if (
     data.normalized !== true || typeof data.url !== "string" || !data.url ||
-    (data.mimeType !== "image/png" && data.mimeType !== "image/jpeg") ||
+    !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(data.mimeType ?? "") ||
     !Number.isInteger(data.width) || !Number.isInteger(data.height) || !Number.isInteger(data.byteLength)
   ) {
     throw new Error("服务端未完成素材标准化，请重试");
@@ -213,7 +212,7 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
             style={{ height: fittedImage.height }}
           >
             <img
-              src={thumbnailImageUrl(data.imageUrl)}
+              src={data.imageUrl}
               loading="lazy"
               decoding="async"
               draggable={false}

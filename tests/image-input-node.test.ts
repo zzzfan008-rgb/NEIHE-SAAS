@@ -95,6 +95,21 @@ test("已上传图片区域只负责节点选择与拖动，不再打开查看�
   assert.doesNotMatch(source, /gc-image-input-media nodrag nopan/);
 });
 
+test("画布中的上传图、生成结果和局部重绘源图均直接加载原图", () => {
+  const nodeSource = readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
+  const gridSource = readFileSync(new URL("../src/components/nodes/ImageGrid.tsx", import.meta.url), "utf8");
+  const redrawSource = readFileSync(new URL("../src/components/nodes/MaskRedrawNode.tsx", import.meta.url), "utf8");
+  const html = renderNode({ ...baseData, imageUrl: "/api/files/source.png" });
+
+  assert.match(html, /src="\/api\/files\/source\.png"/);
+  assert.doesNotMatch(html, /\/thumbnail/);
+  for (const source of [nodeSource, gridSource, redrawSource]) {
+    assert.doesNotMatch(source, /thumbnailImageUrl/);
+  }
+  assert.match(gridSource, /<img[\s\S]*?src=\{url\}/);
+  assert.match(redrawSource, /<img[\s\S]*?src=\{source\}/);
+});
+
 test("上传入口不再通过脚本点击隐藏文件控件", () => {
   const source = readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(source, /fileInputRef/);

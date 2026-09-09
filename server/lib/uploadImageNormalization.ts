@@ -4,11 +4,14 @@ import { withImageProcessingSlot } from "./imageProcessingLimit";
 import { ImageValidationError, validateImageDataUrl } from "./imageValidation";
 
 const inputContract = contracts.inputNormalization;
+const uploadContract = contracts.uploadStorage;
 
 export const UPLOAD_MAX_INPUT_BYTES = inputContract.maxInputBytes;
 export const UPLOAD_MAX_INPUT_PIXELS = inputContract.maxInputPixels;
 export const UPLOAD_MAX_LONG_EDGE = inputContract.maxLongEdge;
-export const UPLOAD_TARGET_BYTES = inputContract.targetBytes;
+export const PROVIDER_TARGET_BYTES = inputContract.targetBytes;
+export const UPLOAD_COMPRESSION_THRESHOLD_BYTES = uploadContract.preserveAtOrBelowBytes;
+export const UPLOAD_COMPRESSED_TARGET_BYTES = uploadContract.compressAboveBytesTo;
 export const UPLOAD_JPEG_QUALITY = inputContract.jpegQuality.initial;
 export const UPLOAD_MIN_JPEG_QUALITY = inputContract.jpegQuality.minimum;
 
@@ -20,7 +23,7 @@ const SHARP_INPUT_OPTIONS = {
   sequentialRead: true,
 };
 
-export type NormalizedUploadMime = "image/png" | "image/jpeg";
+export type NormalizedUploadMime = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
 export interface NormalizedUploadImage {
   buffer: Buffer;
@@ -65,12 +68,13 @@ function smallerDimensions(
   width: number,
   height: number,
   encodedBytes: number,
+  targetBytes: number,
 ): { width: number; height: number } {
   const longEdge = Math.max(width, height);
   if (longEdge <= MIN_SHRINK_LONG_EDGE) {
-    throw new ImageValidationError("图片内容过于复杂，压缩后仍超过 1.5MB，请先裁剪图片后重试");
+    throw new ImageValidationError("图片内容过于复杂，压缩后仍超过目标体积，请先裁剪图片后重试");
   }
-  const estimated = Math.sqrt(UPLOAD_TARGET_BYTES / Math.max(encodedBytes, 1)) * 0.96;
+  const estimated = Math.sqrt(targetBytes / Math.max(encodedBytes, 1)) * 0.96;
   const scale = Math.max(0.5, Math.min(0.9, estimated));
   const next = {
     width: Math.max(1, Math.floor(width * scale)),
@@ -103,22 +107,23 @@ async function encodeOpaqueWithinLimit(
   buffer: Buffer,
   initialWidth: number,
   initialHeight: number,
+  targetBytes: number,
 ): Promise<EncodedImage> {
   let width = initialWidth;
   let height = initialHeight;
   for (;;) {
     const high = await encodeJpeg(buffer, width, height, UPLOAD_JPEG_QUALITY);
-    if (high.buffer.byteLength <= UPLOAD_TARGET_BYTES) return high;
+    if (high.buffer.byteLength <= targetBytes) return high;
 
     const low = await encodeJpeg(buffer, width, height, UPLOAD_MIN_JPEG_QUALITY);
-    if (low.buffer.byteLength <= UPLOAD_TARGET_BYTES) {
+    if (low.buffer.byteLength <= targetBytes) {
       let best = low;
       let left = UPLOAD_MIN_JPEG_QUALITY + 1;
       let right = UPLOAD_JPEG_QUALITY - 1;
       while (left <= right) {
         const quality = Math.floor((left + right) / 2);
         const candidate = await encodeJpeg(buffer, width, height, quality);
-        if (candidate.buffer.byteLength <= UPLOAD_TARGET_BYTES) {
+        if (candidate.buffer.byteLength <= targetBytes) {
           best = candidate;
           left = quality + 1;
         } else {
@@ -127,7 +132,7 @@ async function encodeOpaqueWithinLimit(
       }
       return best;
     }
-    ({ width, height } = smallerDimensions(width, height, low.buffer.byteLength));
+    ({ width, height } = smallerDimensions(width, height, low.buffer.byteLength, targetBytes));
   }
 }
 
@@ -135,6 +140,7 @@ async function encodeTransparentWithinLimit(
   buffer: Buffer,
   initialWidth: number,
   initialHeight: number,
+  targetBytes: number,
 ): Promise<EncodedImage> {
   let width = initialWidth;
   let height = initialHeight;
@@ -142,8 +148,8 @@ async function encodeTransparentWithinLimit(
     const result = await pipeline(buffer, width, height)
       .png({ compressionLevel: 9, adaptiveFiltering: true })
       .toBuffer({ resolveWithObject: true });
-    if (result.data.byteLength <= UPLOAD_TARGET_BYTES) return { buffer: result.data, info: result.info };
-    ({ width, height } = smallerDimensions(width, height, result.data.byteLength));
+    if (result.data.byteLength <= targetBytes) return { buffer: result.data, info: result.info };
+    ({ width, height } = smallerDimensions(width, height, result.data.byteLength, targetBytes));
   }
 }
 
@@ -158,21 +164,31 @@ async function hasMeaningfulAlpha(buffer: Buffer, metadata: Metadata): Promise<b
   return alpha.some((value) => value < 255);
 }
 
-/**
- * API易输入素材标准化：校正 EXIF、动图取首帧、转换到 sRGB，并收敛尺寸与体积。
- * 透明素材保存为 PNG，其余素材保存为 JPEG，输出不携带原始 EXIF/ICC 元数据。
- */
-export async function normalizeUploadImageDataUrl(dataUrl: unknown): Promise<NormalizedUploadImage> {
+async function processImageDataUrl(
+  dataUrl: unknown,
+  preserveAtOrBelowBytes: number | null,
+  targetBytes: number,
+): Promise<NormalizedUploadImage> {
   const validated = validateImageDataUrl(dataUrl, UPLOAD_MAX_INPUT_BYTES);
   try {
     return await withImageProcessingSlot(async () => {
       const metadata = await sharp(validated.buffer, SHARP_INPUT_OPTIONS).metadata();
       const oriented = orientedDimensions(metadata);
+      if (preserveAtOrBelowBytes !== null && validated.buffer.byteLength <= preserveAtOrBelowBytes) {
+        return {
+          buffer: validated.buffer,
+          mimeType: validated.mime,
+          width: oriented.width,
+          height: oriented.height,
+          byteLength: validated.buffer.byteLength,
+          normalized: true,
+        };
+      }
       const target = dimensionsWithinLongEdge(oriented.width, oriented.height);
       const transparent = await hasMeaningfulAlpha(validated.buffer, metadata);
       const encoded = transparent
-        ? await encodeTransparentWithinLimit(validated.buffer, target.width, target.height)
-        : await encodeOpaqueWithinLimit(validated.buffer, target.width, target.height);
+        ? await encodeTransparentWithinLimit(validated.buffer, target.width, target.height, targetBytes)
+        : await encodeOpaqueWithinLimit(validated.buffer, target.width, target.height, targetBytes);
       if (!encoded.info.width || !encoded.info.height) {
         throw new ImageValidationError("标准化后无法读取图片尺寸");
       }
@@ -197,4 +213,18 @@ export async function normalizeUploadImageDataUrl(dataUrl: unknown): Promise<Nor
       `图片无法完成标准化处理，请转换为标准 PNG、JPEG、WebP 或 GIF 后重试（${detail.slice(0, 160)}）`,
     );
   }
+}
+
+/** 用户上传不超过 7 MiB 时原样保存；更大的图片才压缩到 7 MiB 内。 */
+export function normalizeUploadImageDataUrl(dataUrl: unknown): Promise<NormalizedUploadImage> {
+  return processImageDataUrl(
+    dataUrl,
+    UPLOAD_COMPRESSION_THRESHOLD_BYTES,
+    UPLOAD_COMPRESSED_TARGET_BYTES,
+  );
+}
+
+/** Provider 请求副本继续按模型输入契约收敛，不改写已保存的原始素材。 */
+export function normalizeProviderImageDataUrl(dataUrl: unknown): Promise<NormalizedUploadImage> {
+  return processImageDataUrl(dataUrl, null, PROVIDER_TARGET_BYTES);
 }

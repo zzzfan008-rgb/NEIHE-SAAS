@@ -1,6 +1,6 @@
 /**
  * 文件上传/读取：
- *   POST /api/files      { dataUrl } → 标准化图片元数据（base64 JSON，body limit 50mb）
+ *   POST /api/files      { dataUrl } → 保真存储或大图压缩后的图片元数据（base64 JSON，body limit 50mb）
  *   GET  /api/files/:id  读取图片（id 含扩展名，如 abc12.png）
  */
 import { Router, type Response } from "express";

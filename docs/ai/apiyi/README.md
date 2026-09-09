@@ -37,7 +37,7 @@
 6. 自动化测试只能使用假 Provider，不得调用任何付费模型。
 7. 保持现有鉴权、项目归属、素材归属及无拉伸缩放规则。普通节点最多 8 张引用图；虚拟模特换装经单独验证后最多 14 张。模型自身上限更低时取更低值。
 8. 产品模型 ID 与上游请求模型 ID 分开保存。请求 URL 和请求体只能读取 `model-contracts.json` 的 `upstreamModelId`，不得假设二者永久相同。
-9. 用户上传图片必须先完成 `inputNormalization` 契约并落盘，接口返回 `normalized: true` 后前端才能写入节点。原始上传字节不得直接传给模型。
+9. 用户上传图片按 `uploadStorage` 契约落盘：不超过 7 MiB 时保留原始字节、格式和像素，超过后才压缩到 7 MiB 内。接口返回 `normalized: true` 后前端才能写入节点；Provider 调用前仍按 `inputNormalization` 生成独立请求副本，原始素材不被改写。
 
 ## 文档优先级
 

@@ -20,7 +20,7 @@ import { parseDataUrl, ProviderError, publicProviderErrorMessage, toDataUrl } fr
 import { generateExactImages } from "../providers/exact";
 import { normalizeImageRef, persistImageRef } from "../lib/fileStore";
 import { isLocalImageReference } from "../lib/imageValidation";
-import { normalizeUploadImageDataUrl } from "../lib/uploadImageNormalization";
+import { normalizeProviderImageDataUrl } from "../lib/uploadImageNormalization";
 import { query } from "../lib/database";
 import {
   fitGeneratedImageToAspect,
@@ -1256,7 +1256,7 @@ export async function executeStep(
 
 /**
  * 将节点图片引用统一解析为 Provider 输入 dataURL。
- * 已标准化上传与生成结果直接复用；旧素材或缺少元数据的本地文件只标准化请求副本。
+ * 生成结果直接复用；用户上传与素材只标准化请求副本，不改写原始文件。
  */
 export async function resolveImageRefs(refs: string[]): Promise<string[]> {
   const localIds = Array.from(new Set(
@@ -1264,8 +1264,8 @@ export async function resolveImageRefs(refs: string[]): Promise<string[]> {
   ));
   const storedInputs = localIds.length === 0
     ? []
-    : await query<{ id: string; source_type: string; normalized: boolean }>(`
-        SELECT id, source_type, normalized FROM files WHERE id = ANY($1::text[])
+    : await query<{ id: string; source_type: string }>(`
+        SELECT id, source_type FROM files WHERE id = ANY($1::text[])
       `, [localIds]);
   const metadataById = new Map(storedInputs.map((row) => [row.id, row]));
 
@@ -1275,9 +1275,9 @@ export async function resolveImageRefs(refs: string[]): Promise<string[]> {
 
     const id = ref.slice("/api/files/".length);
     const metadata = metadataById.get(id);
-    if (metadata?.normalized || metadata?.source_type === "generation") return resolved;
+    if (metadata?.source_type === "generation") return resolved;
 
-    const normalized = await normalizeUploadImageDataUrl(resolved);
+    const normalized = await normalizeProviderImageDataUrl(resolved);
     return toDataUrl(normalized.buffer.toString("base64"), normalized.mimeType);
   }));
 }

@@ -651,6 +651,22 @@ async function migrate(): Promise<void> {
       );
     }
 
+    if (!applied.has(16)) {
+      await client.query(`
+        ALTER TABLE files DROP CONSTRAINT IF EXISTS files_normalized_metadata_check;
+        ALTER TABLE files ADD CONSTRAINT files_normalized_metadata_check CHECK (
+          normalized = FALSE OR (
+            mime_type IN ('image/png', 'image/jpeg', 'image/webp', 'image/gif') AND
+            width > 0 AND height > 0 AND byte_length > 0
+          )
+        );
+      `);
+      await client.query(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (16, $1, $2)",
+        ["preserve_small_upload_images", new Date().toISOString()],
+      );
+    }
+
     return imported;
   });
   if (importedRows !== undefined) {

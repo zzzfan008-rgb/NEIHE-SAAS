@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { EyeIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFlowStore } from "@/store/flowStore";
-import { thumbnailImageUrl } from "@/lib/images";
 
 interface ImageGridProps {
   images?: string[] | null;
@@ -44,7 +43,7 @@ export function ImageGrid({ images, empty = "暂无生成结果", renderAction, 
             className="block h-auto w-full rounded-none p-0"
           >
             <img
-              src={thumbnailImageUrl(url)}
+              src={url}
               alt={`生成结果 ${i + 1}`}
               loading="lazy"
               decoding="async"

@@ -23,6 +23,11 @@
     "outputColourspace": "srgb",
     "preserveMeaningfulAlpha": true
   },
+  "uploadStorage": {
+    "preserveAtOrBelowBytes": 7340032,
+    "compressAboveBytesTo": 7340032,
+    "preserveOriginalFormat": true
+  },
   "models": [
     {
       "id": "gpt-image-2",

@@ -36,8 +36,18 @@ assert.deepEqual(versions, [
   { version: 13, name: "drawing_document_versions" },
   { version: 14, name: "generation_video_provider_task_state" },
   { version: 15, name: "try_on_quality_pipeline" },
+  { version: 16, name: "preserve_small_upload_images" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
+
+const normalizedImageConstraint = await queryOne<{ definition: string }>(`
+  SELECT pg_get_constraintdef(oid) AS definition
+  FROM pg_constraint
+  WHERE conrelid = 'files'::regclass AND conname = 'files_normalized_metadata_check'
+`);
+assert.match(normalizedImageConstraint?.definition ?? "", /image\/webp/);
+assert.match(normalizedImageConstraint?.definition ?? "", /image\/gif/);
+console.log("  ✓ 已验证的小体积 WebP 与 GIF 可作为保真上传登记");
 
 const tryOnQualityColumns = await query<{ table_name: string; column_name: string }>(`
   SELECT table_name, column_name FROM information_schema.columns

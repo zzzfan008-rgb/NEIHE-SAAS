@@ -16,7 +16,6 @@ import {
 import { Developing, inputClass, NodeFrame, RunButton } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { MaskEditor } from "./MaskEditor";
-import { thumbnailImageUrl } from "@/lib/images";
 import { maskRedrawReadiness } from "@/lib/maskRedraw";
 import { saveMaskDraft } from "@/lib/maskUpload";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
@@ -113,7 +112,7 @@ export function MaskRedrawNode({ id, data, selected }: NodeProps<Node<MaskRedraw
         </p>
         {source ? (
           <img
-            src={thumbnailImageUrl(source)}
+            src={source}
             alt="蒙版原图"
             className="aspect-4/3 w-full rounded-md border border-[#262626] object-contain"
           />
