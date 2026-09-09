@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { selectActiveSelectedResultId, useFlowStore } from "@/store/flowStore";
 import { thumbnailImageUrl } from "@/lib/images";
 import { useGenerationSafetyBlockReason } from "@/store/generationSafety";
@@ -6,11 +6,27 @@ import { Button } from "@/components/ui/button";
 import { XIcon } from "lucide-react";
 
 const MIN_SCALE = 1;
-const MAX_SCALE = 2;
+const MAX_SCALE = 5;
+
+interface ViewTransform {
+  scale: number;
+  x: number;
+  y: number;
+}
+
+interface DragState {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
+}
+
+const INITIAL_TRANSFORM: ViewTransform = { scale: MIN_SCALE, x: 0, y: 0 };
 
 /**
  * 全局图片查看器：单击任意图片弹出，
- * 滚轮缩放（1x ~ 2x），双击复位，Esc / 点击背景关闭。
+ * 滚轮缩放（1x ~ 5x）、放大后拖动查看，双击复位，Esc / 点击背景关闭。
  * 附带运行记录信息栏（来自最近生成的条目）。
  */
 export function ImageViewer() {
@@ -19,14 +35,41 @@ export function ImageViewer() {
   const record = useFlowStore((s) => s.recentResults.find((item) => item.id === selectedResultId));
   const closeViewer = useFlowStore((s) => s.closeViewer);
   const generationSafetyBlockReason = useGenerationSafetyBlockReason();
-  const [scale, setScale] = useState(1);
+  const [transform, setTransform] = useState<ViewTransform>(INITIAL_TRANSFORM);
+  const [dragging, setDragging] = useState(false);
   const [assetState, setAssetState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const imgRef = useRef<HTMLImageElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragState | null>(null);
+
+  const clampPan = (x: number, y: number, scale: number) => {
+    const image = imgRef.current;
+    const stage = stageRef.current;
+    if (!image || !stage || scale <= MIN_SCALE) return { x: 0, y: 0 };
+
+    const stageStyle = window.getComputedStyle(stage);
+    const availableWidth = Math.max(
+      0,
+      stage.clientWidth - Number.parseFloat(stageStyle.paddingLeft) - Number.parseFloat(stageStyle.paddingRight),
+    );
+    const availableHeight = Math.max(
+      0,
+      stage.clientHeight - Number.parseFloat(stageStyle.paddingTop) - Number.parseFloat(stageStyle.paddingBottom),
+    );
+    const maxX = Math.max(0, (image.offsetWidth * scale - availableWidth) / 2);
+    const maxY = Math.max(0, (image.offsetHeight * scale - availableHeight) / 2);
+    return {
+      x: Math.min(maxX, Math.max(-maxX, x)),
+      y: Math.min(maxY, Math.max(-maxY, y)),
+    };
+  };
 
   // 每次打开新图时复位缩放
   useEffect(() => {
-    setScale(1);
+    setTransform(INITIAL_TRANSFORM);
+    setDragging(false);
+    dragRef.current = null;
     setAssetState("idle");
   }, [viewer?.url]);
 
@@ -34,19 +77,47 @@ export function ImageViewer() {
     overlayRef.current?.focus();
   }, [viewer?.url]);
 
-  // 滚轮缩放（原生监听，preventDefault 阻止页面滚动）
+  // 使用原生非 passive 监听，保证滚轮缩放时页面不会跟随滚动。
   useEffect(() => {
-    const img = imgRef.current;
-    if (!img || !viewer) return;
+    const stage = stageRef.current;
+    if (!stage || !viewer) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      setScale((s) =>
-        Math.min(MAX_SCALE, Math.max(MIN_SCALE, s - e.deltaY * 0.0015)),
-      );
+      const stageRect = stage.getBoundingClientRect();
+      const pointerX = e.clientX - (stageRect.left + stageRect.width / 2);
+      const pointerY = e.clientY - (stageRect.top + stageRect.height / 2);
+      setTransform((current) => {
+        const scale = Math.min(
+          MAX_SCALE,
+          Math.max(MIN_SCALE, current.scale * Math.exp(-e.deltaY * 0.0015)),
+        );
+        const ratio = scale / current.scale;
+        const next = clampPan(
+          pointerX - ratio * (pointerX - current.x),
+          pointerY - ratio * (pointerY - current.y),
+          scale,
+        );
+        return { scale, ...next };
+      });
     };
-    img.addEventListener("wheel", onWheel, { passive: false });
-    return () => img.removeEventListener("wheel", onWheel);
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
   }, [viewer]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    const image = imgRef.current;
+    if (!stage || !image) return;
+    const observer = new ResizeObserver(() => {
+      setTransform((current) => ({
+        ...current,
+        ...clampPan(current.x, current.y, current.scale),
+      }));
+    });
+    observer.observe(stage);
+    observer.observe(image);
+    return () => observer.disconnect();
+  }, [viewer?.url]);
 
   if (!viewer) return null;
 
@@ -79,6 +150,43 @@ export function ImageViewer() {
     window.setTimeout(() => void useFlowStore.getState().runNode(record.nodeId), 0);
   };
 
+  const startPan = (event: ReactPointerEvent<HTMLImageElement>) => {
+    event.stopPropagation();
+    if (event.button !== 0 || transform.scale <= MIN_SCALE) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: transform.x,
+      startY: transform.y,
+    };
+    setDragging(true);
+  };
+
+  const movePan = (event: ReactPointerEvent<HTMLImageElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const next = clampPan(
+      drag.startX + event.clientX - drag.startClientX,
+      drag.startY + event.clientY - drag.startClientY,
+      transform.scale,
+    );
+    setTransform((current) => ({ ...current, ...next }));
+  };
+
+  const stopPan = (event: ReactPointerEvent<HTMLImageElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragRef.current = null;
+    setDragging(false);
+  };
+
   return (
     <div
       ref={overlayRef}
@@ -95,23 +203,36 @@ export function ImageViewer() {
         }
       }}
     >
-      <div className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden p-8">
+      <div
+        ref={stageRef}
+        data-testid="image-viewer-stage"
+        className="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden p-8"
+      >
         <img
           ref={imgRef}
+          data-testid="image-viewer-image"
           src={viewer.url}
           alt={viewer.title ?? "图片预览"}
           onClick={(e) => e.stopPropagation()}
           onDoubleClick={(e) => {
             e.stopPropagation();
-            setScale(1);
+            setTransform(INITIAL_TRANSFORM);
           }}
-          className="max-h-full max-w-full cursor-zoom-in rounded-lg object-contain shadow-2xl transition-transform duration-100"
-          style={{ transform: `scale(${scale})` }}
+          onPointerDown={startPan}
+          onPointerMove={movePan}
+          onPointerUp={stopPan}
+          onPointerCancel={stopPan}
+          className={`max-h-full max-w-full touch-none select-none rounded-lg object-contain shadow-2xl ${
+            transform.scale > MIN_SCALE
+              ? dragging ? "cursor-grabbing" : "cursor-grab"
+              : "cursor-default"
+          }`}
+          style={{ transform: `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})` }}
           draggable={false}
         />
       </div>
       <span aria-hidden="true" className="absolute left-4 top-4 text-[11px] text-neutral-400">
-        滚轮缩放 {Math.round(scale * 100)}%（最大 200%）· 双击复位 · Esc 关闭
+        滚轮缩放 {Math.round(transform.scale * 100)}%（最大 500%）· 放大后拖动查看 · 双击复位 · Esc 关闭
       </span>
       <aside className="w-[400px] shrink-0 overflow-y-auto border-l border-[#333] bg-[#141414]/98 p-5" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3">

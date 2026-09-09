@@ -125,6 +125,10 @@ const generationRecordDialogSource = fs.readFileSync(
   path.resolve(testRoot, "../src/components/GenerationRecordDialog.tsx"),
   "utf8",
 );
+const assetPickerSource = fs.readFileSync(
+  path.resolve(testRoot, "../src/components/AssetPickerOverlay.tsx"),
+  "utf8",
+);
 const popoverSource = fs.readFileSync(
   path.resolve(testRoot, "../src/components/ui/popover.tsx"),
   "utf8",
@@ -137,6 +141,11 @@ const workbenchShellRenderSource = shellSource.slice(shellSource.indexOf("export
 
 assert.match(combined, /@\/components\/ui\//, "新外壳必须复用已安装的 shadcn 基础组件");
 assert.match(combined, /aria-(?:label|labelledby|expanded|controls)/, "新外壳的交互入口必须提供可感知名称或状态");
+assert.match(assetPickerSource, /@\/components\/ui\/alert-dialog/, "素材删除确认必须复用本地 shadcn AlertDialog");
+assert.match(assetPickerSource, /EyeIcon[\s\S]*Trash2Icon/, "素材卡片必须提供预览与删除图标操作");
+assert.match(assetPickerSource, /asset\.canManage\s*&&/, "素材删除入口必须服从服务端返回的管理权限");
+assert.match(assetPickerSource, /method:\s*"DELETE"/, "素材删除必须调用既有 DELETE 资产接口");
+assert.match(assetPickerSource, /openViewer\(\{[\s\S]*meta:\s*"资产库"/, "素材预览必须复用全局图片查看器");
 assert.match(combined, /transition-\[width,visibility\]/, "桌面 Dock 应通过占位宽度开合，避免遮挡画布控件与结果");
 assert.match(shellSource, /<ToolRail state=\{state\} dispatch=\{dispatch\}/, "左侧入口必须替换为五组 ToolRail");
 assert.doesNotMatch(shellSource, /LIBRARY_PANEL_ID|workbench-library-panel/, "旧节点库 Dock 不得继续出现在工作台外壳");

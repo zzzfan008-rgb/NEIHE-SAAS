@@ -75,7 +75,7 @@ const PROJECT_CENTER_TEMPLATE_FIXTURES: Array<WorkflowTemplate> = [
   },
 ];
 
-const RESULTS_DENSITY_IMAGE = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+const RESULTS_DENSITY_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAHgCAIAAAC6s0uzAAAF+klEQVR42u3VMQ0AAAgEsZfCxIx/dbiApUkV3HKpHgDgWCQAAAMGAAMGAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgADBgAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYAAwYADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAAMGAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgADBgAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYAAwYADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAAMGAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgADBgAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYAAwYADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAANWAQAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYADBgADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAAwYAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgAMGAAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYADBgADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAAwYAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgAMGAAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYADBgADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAAwYAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgAMGAAMGAAMWAUAMGAAMGAAwIABwIABAAMGAAMGAAwYAAwYADBgADBgADBgAMCAAcCAAQADBgADBgAMGAAMGAAwYAAwYAAwYADAgAHAgAEAAwYAAwYADBgADBgAMGAAMGAAMGAAwIABwIABAAMGAAMGAAwYAAwYADBgADBgADBgAMCAAcCAAQADBgADBgAMGAAMGAAwYAAwYAAwYADAgAHAgAEAAwYAAwYADBgADBgAMGAAMGAAMGAAwIABwIABAAMGAAMGAAwYAAwYADBgADBgADBgAMCAAcCAAQADBgADBgAMGAAMGAAwYAAwYAAwYADAgAHAgAEAAwYAAwYADBgADBgAMGAAMGAAMGAAwIABwIABAAMGAAMGAAwYAAwYADBgADBgADBgCQDAgAHAgAEAAwYAAwYADBgADBgAMGAAMGAAwIABwIABwIABAAMGAAMGAAwYAAwYADBgADBgAMCAAcCAAcCAAQADBgADBgAMGAAMGAAwYAAwYADAgAHAgAHAgAEAAwYAAwYADBgADBgAMGAAMGAAwIABwIABwIABAAMGAAMGAAwYAAwYADBgADBgAMCAAcCAAcCAAQADBgADBgAMGAAMGAAwYAAwYADAgAHAgAHAgAEAAwYAAwYADBgADBgAMGAAMGAAwIABwIABwIABAAMGAAMGAAwYAAwYADBgADBgAMCAAcCAAcCAAQADBgADBgAMGAAMGAAwYAAwYADAgAHAgAHAgFUAAAMGAAMGAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgADBgAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYAAwYADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAAMGAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgADBgAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYAAwYADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAAMGAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgADBgAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYAAwYADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAANWAQAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYADBgADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAAwYAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgAMGAAMGAAMGAAwYAAwYADAgAHAgAEAAwYAAwYADBgADBgADBgAMGAAMGAAwIABwIABAAMGAAMGAAwYAAwYAAwYADBgADBgAMCAAcCAAQADBgADBgAMGAD+LTRiQGhLJaS5AAAAAElFTkSuQmCC";
 const E2E_UPLOAD_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
   "base64",
@@ -959,10 +959,40 @@ test("results and project center follow desktop density for cards", async ({ pag
 
   await viewButton.click();
   const viewerHint = page.getByText(/滚轮缩放 100%/);
+  const viewerImage = page.getByTestId("image-viewer-image");
+  const viewerStage = page.getByTestId("image-viewer-stage");
   await expect(viewerHint).toBeVisible();
+  await expect(viewerImage).toHaveCSS("cursor", "default");
+
+  const imageBox = await viewerImage.boundingBox();
+  const stageBox = await viewerStage.boundingBox();
+  if (!imageBox) throw new Error("图片查看器主图缺少可见边界");
+  if (!stageBox) throw new Error("图片查看器舞台缺少可见边界");
+  await page.mouse.move(stageBox.x + stageBox.width - 48, stageBox.y + stageBox.height / 2);
+  await page.mouse.wheel(0, -4000);
+  await expect(page.getByText(/滚轮缩放 500%（最大 500%）/)).toBeVisible();
+  await expect(viewerImage).toHaveCSS("cursor", "grab");
+
+  await page.mouse.wheel(0, -4000);
+  await expect(page.getByText(/滚轮缩放 500%（最大 500%）/)).toBeVisible();
+  const transformBeforePan = await viewerImage.evaluate((element) => getComputedStyle(element).transform);
+  await page.mouse.down();
+  await page.mouse.move(imageBox.x + imageBox.width / 2 + 64, imageBox.y + imageBox.height / 2 + 48, { steps: 4 });
+  await expect(viewerImage).toHaveCSS("cursor", "grabbing");
+  await page.mouse.up();
+  await expect(viewerImage).toHaveCSS("cursor", "grab");
+  await expect.poll(
+    () => viewerImage.evaluate((element) => getComputedStyle(element).transform),
+  ).not.toBe(transformBeforePan);
+
+  await page.mouse.dblclick(stageBox.x + stageBox.width - 48, stageBox.y + stageBox.height / 2);
+  await expect(page.getByText(/滚轮缩放 100%（最大 500%）/)).toBeVisible();
+  await expect(viewerImage).toHaveCSS("cursor", "default");
+  await expect(viewerImage).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
   await page.keyboard.press("Escape");
   await expect(viewerHint).toBeHidden();
 
+  await firstSuccessCard.hover();
   await compareButton.click();
   await expect(firstSuccessCard.locator('button[title="取消对比"]')).toBeVisible();
 
@@ -1186,6 +1216,107 @@ test("image node hides asset address entry and keeps upload and library usable",
   await imageNode.locator(".gc-node-floating-title").click();
   await expect(imageNode.getByLabel("重新上传")).toBeVisible();
   await expect(imageNode.getByRole("button", { name: "素材库", exact: true })).toBeVisible();
+});
+
+test("asset library previews and deletes manageable images without selecting them", async ({ page }, testInfo) => {
+  const suffix = `${testInfo.project.name}-${Date.now()}`;
+  const createAsset = async (name: string) => {
+    const response = await page.request.post("/api/assets", {
+      data: { name, category: "reference", image: RESULTS_DENSITY_IMAGE },
+    });
+    expect(response.ok()).toBeTruthy();
+    return (await response.json()) as { id: string };
+  };
+  const removableName = `可删除素材-${suffix}`;
+  const blockedName = `受保护素材-${suffix}`;
+  const removable = await createAsset(removableName);
+  const blocked = await createAsset(blockedName);
+
+  await page.route(`**/api/assets/${blocked.id}`, async (route) => {
+    if (route.request().method() === "DELETE") {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "素材正在被项目使用，不能删除" }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await openFreshBlankProject(page);
+  const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  await rail.getByRole("button", { name: "添加节点", exact: true }).click();
+  await page.getByRole("menu", { name: "添加节点" }).getByRole("menuitem", { name: /本地上传图片/ }).click();
+  const imageNode = page.locator(".react-flow__node").filter({ hasText: "图片上传" }).last();
+  await imageNode.getByRole("button", { name: "从素材库选择" }).click();
+
+  const picker = page.getByRole("dialog", { name: "从素材库选择" });
+  const removableCard = picker.locator(`[data-asset-card-id="${removable.id}"]`);
+  const blockedCard = picker.locator(`[data-asset-card-id="${blocked.id}"]`);
+  const previewButton = removableCard.getByRole("button", { name: `查看图片 ${removableName}` });
+  const deleteButton = removableCard.getByRole("button", { name: `删除素材 ${removableName}` });
+  await expect(removableCard).toBeVisible();
+  await expect(blockedCard).toBeVisible();
+  await picker.getByRole("heading", { name: "从素材库选择" }).hover();
+  await expect.poll(() => previewButton.evaluate((element) => getComputedStyle(element.parentElement!).opacity)).toBe("0");
+  await page.addScriptTag({ content: axe.source });
+  const pickerViolations = await page.evaluate(async () => {
+    const axeRuntime = (window as unknown as Window & { axe: typeof axe }).axe;
+    const result = await axeRuntime.run(document, {
+      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa"] },
+    });
+    return result.violations.map(({ id, impact, help }) => ({ id, impact, help }));
+  });
+  expect(pickerViolations).toEqual([]);
+
+  await removableCard.hover();
+  await expect.poll(() => previewButton.evaluate((element) => getComputedStyle(element.parentElement!).opacity)).toBe("1");
+  await expect(deleteButton).toBeVisible();
+  await previewButton.focus();
+  await expect(previewButton).toBeFocused();
+  await previewButton.press("Enter");
+
+  const viewer = page.getByRole("dialog", { name: "图片查看器" });
+  await expect(picker).toBeHidden();
+  await expect(viewer).toBeVisible();
+  await expect(viewer.getByAltText(removableName)).toBeVisible();
+  const viewerStage = page.getByTestId("image-viewer-stage");
+  const stageBox = await viewerStage.boundingBox();
+  if (!stageBox) throw new Error("Asset preview stage is missing");
+  await page.mouse.move(stageBox.x + stageBox.width / 2, stageBox.y + stageBox.height / 2);
+  await page.mouse.wheel(0, -4_000);
+  await expect(page.getByText(/滚轮缩放 500%（最大 500%）/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(viewer).toBeHidden();
+  await expect(picker).toBeVisible();
+  await expect(previewButton).toBeFocused();
+  await expect(imageNode.getByAltText("已上传图片")).toHaveCount(0);
+
+  const blockedDeleteButton = blockedCard.getByRole("button", { name: `删除素材 ${blockedName}` });
+  await blockedCard.hover();
+  await blockedDeleteButton.click();
+  const confirmation = page.getByRole("alertdialog", { name: "删除素材" });
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole("button", { name: "确认删除" }).click();
+  await expect(confirmation.getByRole("alert")).toHaveText("素材正在被项目使用，不能删除");
+  await confirmation.getByRole("button", { name: "取消" }).click();
+  await expect(confirmation).toBeHidden();
+  await expect(blockedCard).toBeVisible();
+
+  await removableCard.hover();
+  await deleteButton.click();
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole("button", { name: "确认删除" }).click();
+  await expect(confirmation).toBeHidden();
+  await expect(removableCard).toHaveCount(0);
+  await expect(blockedCard).toBeVisible();
+
+  await blockedCard.locator(`button[title="${blockedName}"]`).click();
+  await expect(picker).toBeHidden();
+  await expect(imageNode.getByAltText("已上传图片")).toBeVisible();
+  await page.unroute(`**/api/assets/${blocked.id}`);
+  await page.request.delete(`/api/assets/${blocked.id}`);
 });
 
 test("node title and media actions keep stable keyboard-accessible controls", async ({ page }) => {
