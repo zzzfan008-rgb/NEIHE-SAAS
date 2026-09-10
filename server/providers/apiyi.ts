@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { requestGptImage25 } from "./gptImage25";
 import {
   type AIProvider,
   type ImageGenRequest,
@@ -9,6 +10,7 @@ import {
   getImageModelContract,
   imageModelOptionsError,
   modelMaximumImagesPerRequest,
+  normalizeImageModelOptions,
   modelMaxReferenceImages,
   type ImageModelId,
   type ImageModelOptions,
@@ -43,7 +45,7 @@ function requestOptions(modelId: ImageModelId, req: ImageGenRequest): ImageModel
   const options = req.modelOptions ?? defaultImageModelOptions(modelId, req.aspectRatio);
   const error = imageModelOptionsError(modelId, options);
   if (error) throw new ProviderError(`模型参数无效：${error}`, 400, modelId, "invalid_request");
-  return options;
+  return modelId.startsWith("gpt-image-2.5-") ? normalizeImageModelOptions(modelId, options, req.aspectRatio) : options;
 }
 
 function referenceData(req: ImageGenRequest, modelId: ImageModelId): string[] {
@@ -614,8 +616,8 @@ export async function validateApiyiRequest(
     throw new ProviderError("文生图请求不能包含参考图", 400, modelId, "invalid_request");
   }
   refs.forEach((ref) => parsedReference(ref, modelId));
-  if (modelId === "gpt-image-2") {
-    if (mode !== "edit") {
+  if (modelId === "gpt-image-2" || modelId.startsWith("gpt-image-2.5-")) {
+    if (modelId === "gpt-image-2" && mode !== "edit") {
       throw new ProviderError("gpt-image-2 不支持文生图，仅用于图片编辑", 400, modelId, "invalid_request");
     }
     if (req.mask) await validateMaskForSource(refs[0], req.mask, modelId);
@@ -631,6 +633,9 @@ async function generate(modelId: ImageModelId, req: ImageGenRequest): Promise<Im
   const options = requestOptions(modelId, req);
   let response: Response;
   switch (modelId) {
+    case "gpt-image-2.5-flare":
+    case "gpt-image-2.5-sunburst":
+      return gptImage25Result(modelId, { ...req, modelOptions: options }, "generate");
     case "gpt-image-2":
       throw new ProviderError("gpt-image-2 只能由图片编辑节点调用", 400, modelId, "invalid_request");
     case "gpt-image-2-vip":
@@ -695,6 +700,9 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
   const refs = req.referenceImages!;
   let response: Response;
   switch (modelId) {
+    case "gpt-image-2.5-flare":
+    case "gpt-image-2.5-sunburst":
+      return gptImage25Result(modelId, { ...req, modelOptions: options }, "edit");
     case "gpt-image-2": {
       response = await fetchApiyi(modelId, contract.edit.path, () => {
         const form = new FormData();
@@ -779,6 +787,23 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
   }
 }
 
+async function gptImage25Result(modelId: ImageModelId, req: ImageGenRequest, mode: "generate" | "edit"): Promise<ImageGenResult> {
+  const { response, model } = await requestGptImage25(req, mode);
+  const payload = await readJson(response, modelId);
+  const usage = record(record(payload)?.usage);
+  const input = record(usage?.input_tokens_details);
+  const text = input?.text_tokens;
+  const image = input?.image_tokens;
+  const output = usage?.output_tokens;
+  const providerUsage = [text, image, output].every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0)
+    ? { inputTextTokens: text as number, inputImageTokens: image as number, outputTokens: output as number,
+        estimatedUsd: ((text as number) * 5 + (image as number) * 8 + (output as number) * 30) / 1_000_000 }
+    : undefined;
+  const providerRequestId = response.headers.get("x-request-id") ?? undefined;
+  console.info("[gpt-image-2.5] completed", { model, providerRequestId, providerUsage });
+  return { images: await parseOpenAiImages(payload, modelId, { maxImages: 1 }), model, providerUsage, providerRequestId };
+}
+
 export function createApiyiProvider(modelId: ImageModelId): AIProvider {
   return {
     id: modelId,
@@ -790,6 +815,7 @@ export function createApiyiProvider(modelId: ImageModelId): AIProvider {
 
 export const apiyiProviders = Object.fromEntries(
   ([
+    "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
     "gpt-image-2", "gpt-image-2-vip", "gemini-3.1-flash-image",
     "flux-2-pro", "seedream-5-0-260128", "grok-imagine-image",
   ] as const).map((modelId) => [modelId, createApiyiProvider(modelId)]),

@@ -38,8 +38,41 @@ assert.deepEqual(versions, [
   { version: 15, name: "try_on_quality_pipeline" },
   { version: 16, name: "preserve_small_upload_images" },
   { version: 17, name: "asset_library_categories" },
+  { version: 18, name: "user_color_preferences" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
+
+const colorPreferenceColumns = await query<{ column_name: string }>(`
+  SELECT column_name FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'user_color_preferences'
+  ORDER BY ordinal_position
+`);
+assert.deepEqual(colorPreferenceColumns, [
+  { column_name: "user_id" },
+  { column_name: "favorite_colors" },
+  { column_name: "updated_at" },
+]);
+const colorPreferenceForeignKey = await queryOne<{ delete_action: string }>(`
+  SELECT confdeltype AS delete_action
+  FROM pg_constraint
+  WHERE conrelid = 'user_color_preferences'::regclass AND contype = 'f'
+`);
+assert.equal(colorPreferenceForeignKey?.delete_action, "c");
+const colorPreferenceConstraint = await queryOne<{ definition: string }>(`
+  SELECT pg_get_constraintdef(oid) AS definition
+  FROM pg_constraint
+  WHERE conrelid = 'user_color_preferences'::regclass
+    AND conname = 'user_color_preferences_favorites_check'
+`);
+assert.match(colorPreferenceConstraint?.definition ?? "", /jsonb_typeof\(favorite_colors\) = 'array'/);
+assert.match(colorPreferenceConstraint?.definition ?? "", /jsonb_array_length\(favorite_colors\) <= 128/);
+const colorPreferenceDefault = await queryOne<{ column_default: string }>(`
+  SELECT column_default FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'user_color_preferences'
+    AND column_name = 'favorite_colors'
+`);
+assert.match(colorPreferenceDefault?.column_default ?? "", /'\[\]'::jsonb/);
+console.log("  ✓ 色彩收藏按用户持久化且随账号级联删除");
 
 const normalizedImageConstraint = await queryOne<{ definition: string }>(`
   SELECT pg_get_constraintdef(oid) AS definition

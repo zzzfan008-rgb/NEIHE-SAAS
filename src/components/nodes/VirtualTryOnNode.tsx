@@ -1,5 +1,6 @@
 import { Position, type Node, type NodeProps } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
+import { GptQualityControls } from "./GptQualityControls";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
 import { selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
 import { inputPortSpecs } from "@/lib/workflowPorts";
@@ -75,6 +76,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
           </p>
         ) : undefined}
       >
+        <GptQualityControls nodeId={id} modelId={data.modelId} modelOptions={data.modelOptions} disabled={running} />
         {data.workflowStage === "standard" ? (
           <StageHelp title="系统参考图角色" lines={[
             "首图锁定最终模特身份、姿势与背景",

@@ -896,6 +896,14 @@ async function handleJobError(
       await terminateRun(client, row, "outcome_unknown", message, now);
       return;
     }
+    const failedStep = parseJson<NodeExecution | undefined>(row.step_json, undefined);
+    const gpt25 = String(failedStep?.params.modelId ?? "").startsWith("gpt-image-2.5-")
+      || error instanceof ProviderError && Boolean(error.providerId?.startsWith("gpt-image-2.5-"));
+    if (gpt25 && error instanceof ProviderError && error.category === "outcome_unknown") {
+      await terminateRun(client, row, "outcome_unknown",
+        "GPT Image 2.5 请求超时或连接中断，结果未知；未自动重试。请先核对 API易消耗记录，避免重复扣费", now);
+      return;
+    }
     const automaticallyRetryable = isRetryableProviderError(error) || (
       error instanceof ProviderError && error.category === "outcome_unknown"
     );
@@ -940,6 +948,16 @@ export async function recoverExpiredGenerationJobs(now = Date.now()): Promise<nu
             outcomeUnknownMessage("Worker 在视频任务受理状态落库前中断，系统已禁止自动重提"),
             now,
           );
+          continue;
+        }
+        const modelId = step?.params.modelId === "gemini-3.1-flash-image-preview"
+          ? "gemini-3.1-flash-image" : step?.params.modelId;
+        // 缺省或无效图片模型由 runner 回退到 2.5；恢复不能重放可能已计费的请求。
+        if (step?.kind !== "video-generate" && (
+          !isImageModelId(modelId) || modelId.startsWith("gpt-image-2.5-")
+        )) {
+          await terminateRun(client, row, "outcome_unknown",
+            outcomeUnknownMessage("Worker 在 GPT Image 2.5 调用后中断，系统已禁止自动重提"), now);
           continue;
         }
         if (row.status !== "cancel_requested" && await scheduleAutomaticRetry(

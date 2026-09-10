@@ -77,6 +77,9 @@ const getDiagnostics = asyncHandler(async (_req, res) => {
 
 function diagnosticModelOptions(modelId: ImageModelId): ImageModelOptions {
   switch (modelId) {
+    case "gpt-image-2.5-flare":
+    case "gpt-image-2.5-sunburst":
+      return { size: "1024x1024", quality: "medium" };
     case "gpt-image-2":
       return {};
     case "gpt-image-2-vip":

@@ -260,6 +260,120 @@ function directGenerateBody(referenceImage: string, projectId?: string, clientRe
 
 console.log("运行任务与素材引用授权回归测试");
 
+await test("色彩收藏由服务端按账号隔离、规范化并跨会话读取", async () => {
+  const ownerSession = await createSession(users.owner.id, { markExistingAsReplaced: false });
+  const otherSession = await createSession(users.other.id, { markExistingAsReplaced: false });
+  const authenticatedRequest = (
+    pathname: string,
+    user: "owner" | "other",
+    token: string,
+    init: RequestInit = {},
+  ) => {
+    const headers = {
+      ...Object.fromEntries(new Headers(init.headers).entries()),
+      cookie: `${SESSION_COOKIE}=${token}`,
+    };
+    return request(pathname, user, { ...init, headers });
+  };
+  try {
+    const ownerSave = await authenticatedRequest("/auth/color-preferences", "owner", ownerSession.token, {
+      method: "PUT",
+      body: JSON.stringify({ favorites: ["#abc", "rgb(255, 0, 0)", "#AABBCC"] }),
+    });
+    const ownerSaveText = await ownerSave.text();
+    assert.equal(ownerSave.status, 200, ownerSaveText);
+    assert.deepEqual((JSON.parse(ownerSaveText) as { favorites: string[] }).favorites, ["#AABBCC", "#FF0000"]);
+
+    const ownerRead = await authenticatedRequest("/auth/color-preferences", "owner", ownerSession.token);
+    assert.equal(ownerRead.status, 200);
+    assert.equal(ownerRead.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await ownerRead.json(), {
+      ownerId: users.owner.id, favorites: ["#AABBCC", "#FF0000"], initialized: true,
+    });
+    assert.deepEqual(await (await authenticatedRequest("/auth/color-preferences", "other", otherSession.token)).json(), {
+      ownerId: users.other.id,
+      favorites: [],
+      initialized: false,
+    });
+
+    const otherSave = await authenticatedRequest("/auth/color-preferences", "other", otherSession.token, {
+      method: "PUT",
+      body: JSON.stringify({ favorites: ["hsl(240,100%,50%)"] }),
+    });
+    const otherSaveText = await otherSave.text();
+    assert.equal(otherSave.status, 200, otherSaveText);
+    assert.deepEqual((JSON.parse(otherSaveText) as { favorites: string[] }).favorites, ["#0000FF"]);
+    assert.deepEqual((await query<{ user_id: string; favorite_colors: string[] }>(`
+      SELECT user_id, favorite_colors FROM user_color_preferences ORDER BY user_id
+    `)).map((row) => ({ userId: row.user_id, favorites: row.favorite_colors })), [
+      { userId: users.other.id, favorites: ["#0000FF"] },
+      { userId: users.owner.id, favorites: ["#AABBCC", "#FF0000"] },
+    ]);
+
+    const ignoredReplacement = await authenticatedRequest("/auth/color-preferences", "owner", ownerSession.token, {
+      method: "PUT",
+      body: JSON.stringify({ favorites: ["#00FF00"] }),
+    });
+    assert.deepEqual((await ignoredReplacement.json() as { favorites: string[] }).favorites, ["#AABBCC", "#FF0000"]);
+
+    const patchFavorite = (color: string, favorite: boolean) => authenticatedRequest(
+      "/auth/color-preferences", "owner", ownerSession.token, {
+        method: "PATCH",
+        body: JSON.stringify({ color, favorite, bootstrapFavorites: ["#AABBCC", "#FF0000"] }),
+      },
+    );
+    const concurrentAdds = await Promise.all([
+      patchFavorite("#112233", true),
+      patchFavorite("#445566", true),
+    ]);
+    assert.equal(concurrentAdds.every((response) => response.status === 200), true);
+    const afterConcurrentAdds = await authenticatedRequest("/auth/color-preferences", "owner", ownerSession.token);
+    const concurrentFavorites = (await afterConcurrentAdds.json() as { favorites: string[] }).favorites;
+    assert.deepEqual([...concurrentFavorites].sort(), ["#112233", "#445566", "#AABBCC", "#FF0000"].sort());
+
+    const removeFavorite = await patchFavorite("#112233", false);
+    assert.equal(removeFavorite.status, 200, await removeFavorite.text());
+    const oversizedColor = await patchFavorite(`#${"1".repeat(64)}`, true);
+    assert.equal(oversizedColor.status, 400);
+    const invalidList = await authenticatedRequest("/auth/color-preferences", "owner", ownerSession.token, {
+      method: "PUT",
+      body: JSON.stringify({ favorites: "#FFFFFF" }),
+    });
+    assert.equal(invalidList.status, 400);
+    const unauthenticated = await fetch(`${baseUrl}/auth/color-preferences`, {
+      headers: { "content-type": "application/json", "x-test-user": "owner" },
+    });
+    assert.equal(unauthenticated.status, 401);
+    const switchedAccountRequests: RequestInit[] = [
+      {},
+      { method: "PUT", body: JSON.stringify({ favorites: ["#FFFFFF"] }) },
+      { method: "PATCH", body: JSON.stringify({ color: "#FFFFFF", favorite: true }) },
+    ];
+    for (const init of switchedAccountRequests) {
+      const switchedAccount = await authenticatedRequest(
+        "/auth/color-preferences", "owner", ownerSession.token, {
+          ...init, headers: { "x-expected-user-id": users.other.id },
+        },
+      );
+      assert.equal(switchedAccount.status, 409);
+      assert.equal((await switchedAccount.json() as { code?: string }).code, "SESSION_OWNER_MISMATCH");
+    }
+
+    const invalid = await authenticatedRequest("/auth/color-preferences", "owner", ownerSession.token, {
+      method: "PUT",
+      body: JSON.stringify({ favorites: ["not-a-color"] }),
+    });
+    assert.equal(invalid.status, 400);
+    const ownerAfterInvalid = await authenticatedRequest(
+      "/auth/color-preferences", "owner", ownerSession.token,
+    );
+    const ownerAfterInvalidBody = await ownerAfterInvalid.json() as { favorites: string[] };
+    assert.deepEqual(ownerAfterInvalidBody.favorites, ["#AABBCC", "#FF0000", "#445566"]);
+  } finally {
+    await query("DELETE FROM sessions WHERE user_id = ANY($1::text[])", [[users.owner.id, users.other.id]]);
+  }
+});
+
 await test("用户模板按账号隔离，其他用户无法读取或删除，管理员可审计", async () => {
   const create = async (user: keyof typeof users, name: string) => {
     const response = await request("/templates", user, {

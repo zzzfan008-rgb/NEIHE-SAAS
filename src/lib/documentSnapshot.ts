@@ -1,5 +1,4 @@
 import {
-  DEFAULT_GENERATION_MODEL_ID,
   MASK_REDRAW_MODEL_ID,
   isImageModelId,
   isModelAllowedForNode,
@@ -247,11 +246,19 @@ function generationModelFields(
 ): GenerationModelDocumentFields {
   const modelId = isImageModelId(modelIdValue) && isModelAllowedForNode(modelIdValue, kind)
     ? modelIdValue as GenerationImageModelId
-    : DEFAULT_GENERATION_MODEL_ID;
+    : "gpt-image-2-vip";
   return {
     modelId,
     modelOptions: normalizeImageModelOptions(modelId, modelOptionsValue, preferredAspectRatio),
   };
+}
+
+function gptDocumentQuality(modelId: unknown, modelOptions: unknown): ImageModelOptions["quality"] {
+  const quality = normalizeImageModelOptions(MASK_REDRAW_MODEL_ID, modelOptions).quality;
+  // 服务端也会先序列化旧文档；模型替换和质量映射必须一起完成，且只映射一次。
+  return modelId === "gpt-image-2"
+    ? quality === "low" ? "low" : quality === "high" ? "max" : "high"
+    : quality;
 }
 
 function virtualTryOnModelFields(
@@ -263,7 +270,7 @@ function virtualTryOnModelFields(
     modelIdValue === "gemini-3.1-flash-image" || modelIdValue === "gemini-3.1-flash-image-preview"
       ? "gemini-3.1-flash-image"
       : MASK_REDRAW_MODEL_ID;
-  const normalized = normalizeImageModelOptions(modelId, modelOptionsValue);
+  const quality = gptDocumentQuality(modelIdValue, modelOptionsValue);
   return {
     modelId,
     modelOptions: modelId === "gemini-3.1-flash-image"
@@ -272,7 +279,7 @@ function virtualTryOnModelFields(
             ? modelOptionsValue as ImageModelOptions
             : {}
         ), imageSize })
-      : normalized.quality ? { quality: normalized.quality } : {},
+      : quality ? { quality } : {},
   };
 }
 
@@ -438,7 +445,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         outputImages: [...data.outputImages],
         modelId: MASK_REDRAW_MODEL_ID,
         // 蒙版输出尺寸由服务端按原图逐次计算，不能写入项目文档形成陈旧参数。
-        modelOptions: {},
+        modelOptions: { quality: gptDocumentQuality(data.modelId, data.modelOptions) },
       };
     case "result":
       return {

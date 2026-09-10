@@ -300,6 +300,31 @@ async function main() {
     assert.equal(replaceStep.params.maskMode, undefined);
   });
 
+  await ok("蒙版节点质量从文档经 DAG 传入 provider，且保留旧模型", async () => {
+    for (const quality of ["low", "medium", "high", "xhigh", "max"] as const) {
+      const node: FlowNode = {
+        id: `mask-${quality}`, type: "mask-redraw",
+        data: {
+          kind: "mask-redraw", label: "蒙版重绘", status: "idle",
+          repairFocus: "custom", executionMode: "repair",
+          prompt: "替换胸前图案", mask: MASK_DATA_URL, maskSourceRef: MASK_SOURCE_DATA_URL,
+          outputImages: [], modelId: "gpt-image-2.5-sunburst", modelOptions: { quality },
+        },
+      };
+      const planned = buildExecutionPlan([node], []).steps[0];
+      assert.equal((planned.params.modelOptions as { quality?: string }).quality, quality);
+      const { calls, providerIds } = await runRecordedAiStep(
+        "mask-redraw", planned.params, [MASK_SOURCE_DATA_URL], [REPLACE_PROVIDER_DATA_URL],
+      );
+      assert.equal(providerIds[0], "gpt-image-2.5-sunburst");
+      assert.equal(calls[0].request.modelOptions?.quality, quality);
+      if (node.data.kind !== "mask-redraw") throw new Error("expected mask node");
+      node.data.modelId = "gpt-image-2";
+      node.data.modelOptions = {};
+      assert.equal(buildExecutionPlan([node], []).steps[0].params.modelId, "gpt-image-2");
+    }
+  });
+
   await ok("风格迁移：双参考图按人物、场景的连线顺序传入", () => {
     const transfer = aiNode("transfer", "ai-modify");
     const plan = buildExecutionPlan(
@@ -763,7 +788,7 @@ async function main() {
       { prompt, aspectRatio: "3:4", batchSize: 2 },
       [SEED_DATA_URL],
     );
-    assert.deepStrictEqual(providerIds, ["gpt-image-2-vip"]);
+    assert.deepStrictEqual(providerIds, ["gpt-image-2.5-flare"]);
     assert.strictEqual(calls.length, 1);
     assert.strictEqual(calls[0].method, "edit");
     assert.deepStrictEqual(calls[0].request.referenceImages, [SEED_DATA_URL]);
@@ -782,7 +807,7 @@ async function main() {
       { prompt, aspectRatio: "16:9", batchSize: 2 },
       [],
     );
-    assert.deepStrictEqual(providerIds, ["gpt-image-2-vip"]);
+    assert.deepStrictEqual(providerIds, ["gpt-image-2.5-flare"]);
     assert.strictEqual(calls.length, 1);
     assert.strictEqual(calls[0].method, "generate");
     assert.strictEqual(calls[0].request.referenceImages, undefined);
@@ -799,7 +824,7 @@ async function main() {
       { prompt, aspectRatio: "1:1", batchSize: 4 },
       [SEED_DATA_URL, SECOND_DATA_URL],
     );
-    assert.deepStrictEqual(providerIds, ["gpt-image-2-vip"]);
+    assert.deepStrictEqual(providerIds, ["gpt-image-2.5-flare"]);
     assert.strictEqual(calls.length, 1);
     assert.strictEqual(calls[0].method, "edit");
     assert.deepStrictEqual(calls[0].request.referenceImages, [SEED_DATA_URL, SECOND_DATA_URL]);
@@ -1062,7 +1087,7 @@ async function main() {
       { colors, fabricImageUrl: SECOND_DATA_URL },
       [SEED_DATA_URL],
     );
-    assert.deepStrictEqual(providerIds, ["gpt-image-2-vip"]);
+    assert.deepStrictEqual(providerIds, ["gpt-image-2.5-flare"]);
     assert.strictEqual(calls.length, colors.length);
     assert.ok(calls.every((call) => call.method === "edit"));
     assert.ok(calls.every((call) => call.request.batchSize === 1));
@@ -1082,7 +1107,7 @@ async function main() {
       { imageSize: "2K" },
       [SEED_DATA_URL],
     );
-    assert.deepStrictEqual(providerIds, ["gpt-image-2-vip"]);
+    assert.deepStrictEqual(providerIds, ["gpt-image-2.5-flare"]);
     assert.strictEqual(calls.length, 1);
     assert.strictEqual(calls[0].method, "edit");
     assert.deepStrictEqual(calls[0].request.referenceImages, [SEED_DATA_URL]);
@@ -1100,7 +1125,7 @@ async function main() {
       { prompt: extra },
       [SEED_DATA_URL],
     );
-    assert.deepStrictEqual(providerIds, ["gpt-image-2-vip"]);
+    assert.deepStrictEqual(providerIds, ["gpt-image-2.5-flare"]);
     assert.strictEqual(calls.length, 1);
     assert.strictEqual(calls[0].method, "edit");
     assert.deepStrictEqual(calls[0].request.referenceImages, [SEED_DATA_URL]);
@@ -1131,7 +1156,7 @@ async function main() {
       { prompt: extra, count: 3 },
       [SEED_DATA_URL],
     );
-    assert.deepStrictEqual(providerIds, ["gpt-image-2-vip"]);
+    assert.deepStrictEqual(providerIds, ["gpt-image-2.5-flare"]);
     assert.strictEqual(calls.length, 1);
     assert.strictEqual(calls[0].method, "edit");
     assert.deepStrictEqual(calls[0].request.referenceImages, [SEED_DATA_URL]);

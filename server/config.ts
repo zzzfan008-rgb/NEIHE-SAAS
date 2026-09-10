@@ -41,7 +41,9 @@ function required(name: string): string {
 
 export const config = {
   /** API易图片接口；路径由本地模型知识库逐模型声明。 */
-  apiyiBaseUrl: () => (process.env.APIYI_BASE_URL ?? "https://api.apiyi.com").replace(/\/+$/, ""),
+  apiyiBaseUrl: () => required("APIYI_BASE_URL").replace(/\/+$/, "").replace(/\/v1$/, ""),
+  gptImageGenerationModel: () => process.env.APIYI_GPT_IMAGE_GENERATION_MODEL?.trim() || "gpt-image-2.5-flare-2026-09-08",
+  gptImageEditModel: () => process.env.APIYI_GPT_IMAGE_EDIT_MODEL?.trim() || "gpt-image-2.5-sunburst-2026-09-08",
   apiyiApiKey: () => required("APIYI_API_KEY"),
   /** Seedance 视频接口使用独立网关和凭据，不与图片模型共享令牌。 */
   seedanceApiBaseUrl: () => required("SEEDANCE_API_BASE_URL").replace(/\/+$/, ""),
@@ -80,9 +82,9 @@ export const config = {
   /** 不发外部请求的 AI 配置就绪检查，供 readiness 使用。 */
   aiConfigReady: () => {
     const key = process.env.APIYI_API_KEY?.trim();
-    const baseUrl = config.apiyiBaseUrl();
     if (!key) return false;
     try {
+      const baseUrl = config.apiyiBaseUrl();
       const url = new URL(baseUrl);
       return url.protocol === "https:";
     } catch {

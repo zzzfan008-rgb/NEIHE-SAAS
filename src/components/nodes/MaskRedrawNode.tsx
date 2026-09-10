@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Position, type Node, type NodeProps } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
+import { GptQualityControls } from "./GptQualityControls";
+import { imageModelLabel } from "@/types/imageModels";
 import {
   beginMaskWork,
   selectActiveDocumentTarget,
@@ -97,8 +99,9 @@ export function MaskRedrawNode({ id, data, selected }: NodeProps<Node<MaskRedraw
         )}
         <div className="flex items-center justify-between text-[10px]">
           <span className="text-neutral-500">图片模型</span>
-          <span className="font-mono text-neutral-300">gpt-image-2</span>
+          <span className="font-mono text-neutral-300">{imageModelLabel(data.modelId)}</span>
         </div>
+        <GptQualityControls nodeId={id} modelId={data.modelId} modelOptions={data.modelOptions} disabled={running} />
         {data.repairFocus === "accessories" && (
           <p className="text-[9px] text-[var(--gc-text-muted)]">已选细节参考 {Math.max(0, inputCount - 1)}/6</p>
         )}

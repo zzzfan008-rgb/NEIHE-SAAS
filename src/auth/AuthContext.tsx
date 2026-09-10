@@ -101,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         authenticatedUserId.current = body.user.id;
         useCustomColors.getState().bindOwner(body.user.id);
+        void useCustomColors.getState().refreshFavorites();
         setUser(body.user);
       }
     } catch {

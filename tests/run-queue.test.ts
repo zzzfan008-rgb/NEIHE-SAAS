@@ -836,6 +836,23 @@ await test("连续 503 按 5/30 秒退避，第 3 次失败后终止", async () 
   ), { retry_count: 2, status: "failed" });
 });
 
+await test("GPT Image 2.5 不确定结果不自动重放付费请求", async () => {
+  const fake = resolver(() => {
+    throw new ProviderError("transport interrupted", 504, "gpt-image-2.5-flare-2026-09-08", "outcome_unknown");
+  });
+  const runId = await enqueueSingle("gpt25-unknown");
+  await queue.processNextGenerationJob("worker-gpt25", {
+    resolveProvider: fake.resolveProvider, now: () => tick(), random: () => 0, retryDelaysMs: [0, 0],
+  });
+  assert.equal(fake.calls(), 1);
+  const unknown = await runRow(runId);
+  assert.equal(unknown?.status, "outcome_unknown");
+  assert.match(unknown?.error ?? "", /未自动重试/);
+  assert.deepEqual(await database.queryOne<{ retry_count: number; status: string }>(
+    "SELECT retry_count, status FROM generation_jobs WHERE run_id = $1", [runId],
+  ), { retry_count: 0, status: "outcome_unknown" });
+});
+
 await test("超时或连接不确定结果最多自动重放两次，耗尽后进入 outcome_unknown", async () => {
   const fake = resolver(() => {
     throw new ProviderError(
@@ -934,6 +951,26 @@ await test("租约在上游调用前过期可安全重排，调用开始后中�
   assert.equal(unknown?.status, "outcome_unknown");
   assert.equal(unknown?.provider_requests, 3);
   assert.match(unknown?.error ?? "", /核对 API易消耗记录/);
+});
+
+await test("GPT 2.5 调用后 Worker 租约过期保留未知结果且不自动重放", async () => {
+  for (const modelId of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", undefined]) {
+    const planned = step(`lease-gpt25-${modelId ?? "default"}-${++sequence}`);
+    planned.params.modelId = modelId;
+    const { id: runId } = await queue.enqueueGenerationRun({ steps: [planned] }, owner.id, context(planned.nodeId));
+    const expiredAt = tick();
+    await database.query(`
+      UPDATE generation_jobs SET status = 'running', worker_id = 'dead-worker',
+        lease_expires_at = $1, attempt_started_at = $2 WHERE run_id = $3
+    `, [expiredAt - 1, expiredAt - 100, runId]);
+    await database.query("UPDATE generation_run_steps SET status = 'running', provider_requests = 1 WHERE run_id = $1", [runId]);
+    await database.query("UPDATE generation_runs SET status = 'running' WHERE id = $1", [runId]);
+    assert.equal(await queue.recoverExpiredGenerationJobs(expiredAt), 1);
+    assert.equal((await runRow(runId))?.status, "outcome_unknown");
+    assert.deepEqual(await database.queryOne<{ status: string; retry_count: number }>(
+      "SELECT status, retry_count FROM generation_jobs WHERE run_id = $1", [runId],
+    ), { status: "outcome_unknown", retry_count: 0 });
+  }
 });
 
 await test("视频任务在受理状态落库前中断时禁止自动重提", async () => {

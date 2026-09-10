@@ -245,7 +245,7 @@ export interface VirtualTryOnNodeData extends BaseNodeData {
   /** 只描述最终效果的可选要求；不得重定义服务端固定的参考图角色或编号。 */
   prompt: string;
   /** 该节点只允许两种经过验证的图片编辑模型。 */
-  modelId: "gpt-image-2" | "gemini-3.1-flash-image";
+  modelId: "gpt-image-2" | "gpt-image-2.5-sunburst" | "gemini-3.1-flash-image";
   modelOptions: ImageModelOptions;
   imageSize: "2K" | "4K";
   /** 标准一键换装使用服装行业常用画幅；分步换装仍由基准图推导。 */
@@ -318,7 +318,7 @@ export interface VideoGenerateNodeData extends BaseNodeData {
 
 export interface MaskRedrawNodeData extends BaseNodeData {
   kind: "mask-redraw";
-  modelId: "gpt-image-2";
+  modelId: "gpt-image-2" | "gpt-image-2.5-sunburst";
   modelOptions: ImageModelOptions;
   repairFocus: MaskRepairFocus;
   executionMode: MaskRepairExecutionMode;
@@ -402,6 +402,9 @@ export interface ImageGenRequest {
 }
 
 export interface ImageGenResult {
+  /** Token accounting from this response, not a claim of actual account debit. */
+  providerUsage?: { inputTextTokens: number; inputImageTokens: number; outputTokens: number; estimatedUsd: number };
+  providerRequestId?: string;
   images: string[];          // dataURL 或可访问 URL
   model: string;
   usageNote?: string;

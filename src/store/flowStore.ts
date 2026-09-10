@@ -46,6 +46,7 @@ import {
   isImageModelId,
   isModelAllowedForNode,
   normalizeImageModelOptions,
+  type ImageModelOptions,
 } from "@/types/imageModels";
 import { getGenerationSafetyBlockReason } from "@/store/generationSafety";
 import {
@@ -1195,7 +1196,7 @@ function virtualTryOnRunBlockReason(node: FlowNode, document: ProjectTab): strin
       ?? requireSingle("outfit", "主穿搭图");
   }
 
-  if (node.data.modelId !== MASK_REDRAW_MODEL_ID) return "第二轮必须使用 GPT Image 2";
+  if (node.data.modelId !== MASK_REDRAW_MODEL_ID && node.data.modelId !== "gpt-image-2") return "第二轮必须使用 GPT Image 2.5 Sunburst";
   const baselineError = requireSingle("baseline", "已确认基准图");
   if (baselineError) return baselineError;
   const outfitError = requireSingle("outfit", "主穿搭图");
@@ -1805,6 +1806,15 @@ export function updateCoalescedTextEdit(
   return edit.token;
 }
 
+function migrateLegacyGptNode(node: FlowNode): FlowNode {
+  if (!("modelId" in node.data) || node.data.modelId !== "gpt-image-2") return node;
+  const oldQuality = (node.data.modelOptions as ImageModelOptions | undefined)?.quality;
+  return { ...node, data: { ...node.data, modelId: MASK_REDRAW_MODEL_ID,
+    modelOptions: { ...normalizeImageModelOptions(MASK_REDRAW_MODEL_ID, node.data.modelOptions),
+      quality: oldQuality === "low" ? "low" : oldQuality === "high" ? "max" : "high" },
+  } as WorkflowNodeData };
+}
+
 function newTab(opts?: {
   projectId?: string;
   projectName?: string;
@@ -2003,7 +2013,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
   if (typeof input.error !== "string") delete data.error;
   if (NODE_SPECS[kind].providerId && kind !== "video-generate") {
     const migratedModelId = input.modelId === "gemini-3.1-flash-image-preview"
-      ? "gemini-3.1-flash-image" : input.modelId;
+      ? "gemini-3.1-flash-image" : input.modelId === "gpt-image-2" ? MASK_REDRAW_MODEL_ID : input.modelId;
     const modelId = isImageModelId(migratedModelId) && isModelAllowedForNode(migratedModelId, kind)
       ? migratedModelId
       : kind === "mask-redraw" || kind === "virtual-try-on"
@@ -2012,6 +2022,11 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     const preferredAspectRatio = typeof input.aspectRatio === "string" ? input.aspectRatio : "1:1";
     data.modelId = modelId;
     data.modelOptions = normalizeImageModelOptions(modelId, input.modelOptions, preferredAspectRatio);
+    if (input.modelId === "gpt-image-2") {
+      const oldQuality = (input.modelOptions as ImageModelOptions | undefined)?.quality;
+      data.modelOptions = { ...data.modelOptions as ImageModelOptions,
+        quality: oldQuality === "low" ? "low" : oldQuality === "high" ? "max" : "high" };
+    }
   }
 
   switch (kind) {
@@ -2187,12 +2202,12 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
         });
       } else {
         data.modelId = MASK_REDRAW_MODEL_ID;
-        data.modelOptions = data.workflowStage === "garment-refine" ? { quality: "medium" } : {};
+        data.modelOptions = normalizeImageModelOptions(MASK_REDRAW_MODEL_ID, data.modelOptions);
       }
       break;
     case "mask-redraw":
       data.modelId = MASK_REDRAW_MODEL_ID;
-      data.modelOptions = {};
+      data.modelOptions = normalizeImageModelOptions(MASK_REDRAW_MODEL_ID, data.modelOptions);
       data.repairFocus = input.repairFocus === "upper-garment" || input.repairFocus === "pants"
         || input.repairFocus === "accessories" || input.repairFocus === "logo-text"
         ? input.repairFocus : "custom";
@@ -3669,7 +3684,7 @@ export const useFlowStore = create<FlowState>()(
         const state = get();
         const applyActiveHistory = (inputNodes: FlowNode[]) => {
           const activeByNode = latestActiveRecordsByNode(state.recentResults, projectId);
-          return inputNodes.map((node) => {
+          return inputNodes.map(migrateLegacyGptNode).map((node) => {
             const active = activeByNode.get(node.id);
             return active
               ? {
@@ -4475,7 +4490,7 @@ export const useFlowStore = create<FlowState>()(
         cancelHistoryTransaction();
         const state = get();
         const activeByNode = latestActiveRecordsByNode(state.recentResults, projectId);
-        const loadedNodes = nodes.map((node) => {
+        const loadedNodes = nodes.map(migrateLegacyGptNode).map((node) => {
           const active = activeByNode.get(node.id);
           return active
             ? {

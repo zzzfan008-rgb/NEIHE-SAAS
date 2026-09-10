@@ -28,6 +28,7 @@ data/prompt-enhancement-cache/
 data/templates/user/
 data/quarantine/
 data/evaluations/
+data/acceptance/
 data/*.db
 data/*.db-*
 data/*.dump

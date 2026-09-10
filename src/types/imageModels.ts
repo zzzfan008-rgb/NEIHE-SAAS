@@ -1,6 +1,8 @@
 import contracts from "../../docs/ai/apiyi/model-contracts.json";
 
 export const IMAGE_MODEL_IDS = [
+  "gpt-image-2.5-flare",
+  "gpt-image-2.5-sunburst",
   "gpt-image-2",
   "gpt-image-2-vip",
   "gemini-3.1-flash-image",
@@ -14,7 +16,7 @@ export type GenerationImageModelId = Exclude<ImageModelId, "gpt-image-2">;
 
 export interface ImageModelOptions {
   size?: string;
-  quality?: "low" | "medium" | "high";
+  quality?: "low" | "medium" | "high" | "xhigh" | "max";
   aspectRatio?: string;
   imageSize?: string;
   width?: number;
@@ -51,7 +53,7 @@ export interface ImageModelContract {
   sizes?: string[];
   aspectRatios?: string[];
   imageSizes?: string[];
-  qualities?: Array<"low" | "medium" | "high">;
+  qualities?: Array<NonNullable<ImageModelOptions["quality"]>>;
   outputFormats?: string[];
   resolutions?: string[];
   outputCounts?: { min: number; max: number };
@@ -76,9 +78,10 @@ if (contractMap.size !== IMAGE_MODEL_IDS.length) {
   throw new Error("API易模型知识库与应用模型清单不一致");
 }
 
-export const DEFAULT_GENERATION_MODEL_ID: GenerationImageModelId = "gpt-image-2-vip";
-export const MASK_REDRAW_MODEL_ID = "gpt-image-2" as const;
+export const DEFAULT_GENERATION_MODEL_ID: GenerationImageModelId = "gpt-image-2.5-flare";
+export const MASK_REDRAW_MODEL_ID = "gpt-image-2.5-sunburst" as const;
 export const VIRTUAL_TRY_ON_MODEL_IDS = [
+  "gpt-image-2.5-sunburst",
   "gpt-image-2",
   "gemini-3.1-flash-image",
 ] as const;
@@ -86,7 +89,7 @@ export type VirtualTryOnModelId = (typeof VIRTUAL_TRY_ON_MODEL_IDS)[number];
 
 export const GENERATION_IMAGE_MODEL_IDS = IMAGE_MODEL_IDS.filter(
   (id): id is GenerationImageModelId => (
-    id !== MASK_REDRAW_MODEL_ID
+    id !== "gpt-image-2"
   ),
 );
 
@@ -103,11 +106,11 @@ export function imageModelLabel(id: ImageModelId): string {
 }
 
 export function isModelAllowedForNode(modelId: ImageModelId, nodeKind: string): boolean {
-  if (nodeKind === "mask-redraw") return modelId === MASK_REDRAW_MODEL_ID;
+  if (nodeKind === "mask-redraw") return modelId === MASK_REDRAW_MODEL_ID || modelId === "gpt-image-2";
   if (nodeKind === "virtual-try-on") {
     return (VIRTUAL_TRY_ON_MODEL_IDS as readonly string[]).includes(modelId);
   }
-  return modelId !== MASK_REDRAW_MODEL_ID;
+  return modelId !== "gpt-image-2";
 }
 
 const VIP_SIZE_BY_RATIO: Record<string, string> = {
@@ -141,6 +144,9 @@ export function defaultImageModelOptions(
   preferredAspectRatio = "1:1",
 ): ImageModelOptions {
   switch (modelId) {
+    case "gpt-image-2.5-flare":
+    case "gpt-image-2.5-sunburst":
+      return { size: VIP_SIZE_BY_RATIO[preferredAspectRatio] ?? "2048x2048", quality: "medium" };
     case "gpt-image-2":
       return {};
     case "gpt-image-2-vip":
@@ -182,6 +188,8 @@ export function normalizeImageModelOptions(
   const raw = objectValue(value);
   const defaults = defaultImageModelOptions(modelId, preferredAspectRatio);
   switch (modelId) {
+    case "gpt-image-2.5-flare":
+    case "gpt-image-2.5-sunburst":
     case "gpt-image-2": {
       const dimensions = getImageModelContract(modelId).dimensions!;
       const match = typeof raw.size === "string" ? /^(\d+)x(\d+)$/.exec(raw.size) : null;
@@ -197,12 +205,12 @@ export function normalizeImageModelOptions(
         && width * height <= dimensions.maxPixels
         && aspectRatio <= (dimensions.maxAspectRatio ?? Number.POSITIVE_INFINITY);
       const quality = typeof raw.quality === "string" && getImageModelContract(modelId).qualities?.includes(
-        raw.quality as "low" | "medium" | "high",
+        raw.quality as NonNullable<ImageModelOptions["quality"]>,
       )
-        ? raw.quality as "low" | "medium" | "high"
-        : undefined;
+        ? raw.quality as NonNullable<ImageModelOptions["quality"]>
+        : defaults.quality;
       return {
-        ...(valid ? { size: raw.size as string } : {}),
+        ...(valid ? { size: raw.size as string } : defaults.size ? { size: defaults.size } : {}),
         ...(quality ? { quality } : {}),
       };
     }
@@ -259,6 +267,9 @@ export function imageModelOptionsForAspectRatio(
 ): ImageModelOptions {
   const normalized = normalizeImageModelOptions(modelId, current, aspectRatio);
   switch (modelId) {
+    case "gpt-image-2.5-flare":
+    case "gpt-image-2.5-sunburst":
+      return { ...normalized, size: VIP_SIZE_BY_RATIO[aspectRatio] ?? normalized.size };
     case "gpt-image-2":
     case "seedream-5-0-260128":
       return normalized;
@@ -296,6 +307,8 @@ export function imageModelOptionsError(modelId: ImageModelId, value: unknown): s
   const raw = value as Record<string, unknown>;
   const normalized = normalizeImageModelOptions(modelId, raw);
   const allowedKeys: Record<ImageModelId, readonly string[]> = {
+    "gpt-image-2.5-flare": ["size", "quality"],
+    "gpt-image-2.5-sunburst": ["size", "quality"],
     "gpt-image-2": ["size", "quality"],
     "gpt-image-2-vip": ["size"],
     "gemini-3.1-flash-image": ["aspectRatio", "imageSize"],
@@ -305,6 +318,10 @@ export function imageModelOptionsError(modelId: ImageModelId, value: unknown): s
   };
   const unknown = Object.keys(raw).find((key) => !allowedKeys[modelId].includes(key));
   if (unknown) return `contains unsupported parameter ${unknown}`;
+  if (modelId.startsWith("gpt-image-2.5-")) {
+    return Object.entries(raw).some(([key, value]) => normalized[key as keyof ImageModelOptions] !== value)
+      ? "contains an unsupported model option" : undefined;
+  }
   const normalizedEntries = Object.entries(normalized);
   if (Object.keys(raw).length !== normalizedEntries.length) {
     return "contains an unsupported or incomplete model option";

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+import { StarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,6 +22,7 @@ import type { WorkbenchDocumentTarget } from "@/types/workbench";
 type EyeDropperConstructor = new () => { open: (options: { signal: AbortSignal }) => Promise<{ sRGBHex: string }> };
 
 const MAX_COLORS = 8;
+const MY_FAVORITES_CATEGORY_ID = "my-favorites";
 
 export function ColorToolPanel() {
   const [target, setTarget] = useState<WorkbenchDocumentTarget>();
@@ -30,9 +32,14 @@ export function ColorToolPanel() {
   const [error, setError] = useState<string>();
   const nativePicker = useRef<HTMLInputElement>(null);
   const activePicker = useRef<AbortController | null>(null);
+  const myFavoritesTab = useRef<HTMLButtonElement>(null);
+  const favoriteControlRefs = useRef(new Map<string, HTMLButtonElement>());
   const directPickingSupported = typeof window !== "undefined"
     && typeof (window as typeof window & { EyeDropper?: EyeDropperConstructor }).EyeDropper === "function";
-  const { colors, recent, favorites, add, rememberRecent, toggleFavorite } = useCustomColors();
+  const {
+    colors, recent, favorites, favoritesSyncing, favoritesSyncError,
+    add, rememberRecent, refreshFavorites, toggleFavorite,
+  } = useCustomColors();
 
   useEffect(() => () => {
     activePicker.current?.abort();
@@ -43,6 +50,7 @@ export function ColorToolPanel() {
     const listener = (event: Event) => {
       const detail = (event as CustomEvent<OpenColorToolRequest>).detail;
       if (!detail?.target) return;
+      void refreshFavorites();
       setTarget(detail.target);
       setSelected([]);
       setManual("");
@@ -51,7 +59,7 @@ export function ColorToolPanel() {
     };
     window.addEventListener(OPEN_COLOR_TOOL_EVENT, listener);
     return () => window.removeEventListener(OPEN_COLOR_TOOL_EVENT, listener);
-  }, []);
+  }, [refreshFavorites]);
 
   const selectedValues = useMemo(() => new Set(selected.map((entry) => entry.value)), [selected]);
   const toggle = (raw: string, source: ColorSwatchSource) => {
@@ -128,17 +136,62 @@ export function ColorToolPanel() {
     }
   };
 
-  const section = (title: string, values: readonly string[], source: ColorSwatchSource) => values.length > 0 && (
+  const toggleFavoriteFromControl = (
+    value: string, source: ColorSwatchSource, values: readonly string[], index: number,
+  ) => {
+    const removingFromFavorites = source === "favorite" && favorites.includes(value);
+    if (removingFromFavorites) {
+      const nextValue = values[index + 1] ?? values[index - 1];
+      const nextControl = nextValue ? favoriteControlRefs.current.get(`favorite:${nextValue}`) : undefined;
+      // 先移走焦点再卸载按钮，避免 Dialog 的删除后焦点恢复覆盖后续输入。
+      (nextControl ?? myFavoritesTab.current)?.focus();
+    }
+    void toggleFavorite(value);
+  };
+
+  const section = (
+    title: string,
+    values: readonly string[],
+    source: ColorSwatchSource,
+    favoriteControls = false,
+    emptyMessage?: string,
+  ) => (
     <section className="space-y-2">
       <h3 className="text-xs font-medium text-[var(--gc-text)]">{title}</h3>
-      <div className="grid grid-cols-8 gap-1.5">
-        {values.map((value) => (
-          <button key={`${source}:${value}`} type="button" aria-label={`${selectedValues.has(value) ? "移除" : "选择"} ${value}`}
-            aria-pressed={selectedValues.has(value)} onClick={() => toggle(value, source)}
-            className={`h-8 rounded-md border transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gc-accent)] ${selectedValues.has(value) ? "border-[var(--gc-accent)] ring-2 ring-[var(--gc-accent)]/40" : "border-white/15"}`}
-            style={{ backgroundColor: value }} />
-        ))}
-      </div>
+      {values.length > 0 ? (
+        <div className="grid grid-cols-8 gap-1.5">
+          {values.map((value, index) => {
+            const favorite = favorites.includes(value);
+            return (
+              <div key={`${source}:${value}`}
+                className={`flex h-10 overflow-hidden rounded-md border ${selectedValues.has(value) ? "border-[var(--gc-accent)] ring-2 ring-[var(--gc-accent)]/40" : "border-white/15"}`}>
+                <button type="button" aria-label={`${selectedValues.has(value) ? "移除" : "选择"} ${value}`}
+                  aria-pressed={selectedValues.has(value)} onClick={() => toggle(value, source)}
+                  className="min-w-0 flex-1 transition-[filter] hover:brightness-110 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--gc-accent)]"
+                  style={{ backgroundColor: value }} />
+                {favoriteControls && (
+                  <Button ref={(button) => {
+                    const key = `${source}:${value}`;
+                    if (button) favoriteControlRefs.current.set(key, button);
+                    else favoriteControlRefs.current.delete(key);
+                  }} type="button" size="icon" variant="ghost"
+                    aria-label={`${favorites.includes(value) ? "取消收藏" : "收藏"} ${value}`}
+                    aria-pressed={favorite}
+                    onClick={() => toggleFavoriteFromControl(value, source, values, index)}
+                    className="h-full min-h-0 min-w-7 shrink-0 rounded-none border-l border-white/15 bg-[var(--gc-control)] p-0 text-[var(--gc-text-muted)] hover:bg-[var(--gc-control-hover)] hover:text-[var(--gc-text)]"
+                    style={{ width: 28, height: "100%" }}>
+                    <StarIcon aria-hidden="true" className="size-3.5" fill={favorite ? "currentColor" : "none"} />
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : emptyMessage ? (
+        <p className="rounded-md border border-dashed border-[var(--gc-border)] px-3 py-4 text-center text-xs text-[var(--gc-text-muted)]">
+          {emptyMessage}
+        </p>
+      ) : null}
     </section>
   );
 
@@ -151,22 +204,28 @@ export function ColorToolPanel() {
         </DialogHeader>
         <div className="space-y-4">
           <Tabs value={categoryId} onValueChange={setCategoryId}>
-            <TabsList className="grid h-9 w-full grid-cols-3 bg-[var(--gc-control)]">
+            <TabsList className="grid h-9 w-full grid-cols-4 bg-[var(--gc-control)]">
               {COLOR_CATEGORIES.map((category) => (
                 <TabsTrigger key={category.id} value={category.id} className="text-xs">
                   {category.label}
                 </TabsTrigger>
               ))}
+              <TabsTrigger ref={myFavoritesTab} value={MY_FAVORITES_CATEGORY_ID} className="text-xs">我的收藏</TabsTrigger>
             </TabsList>
             {COLOR_CATEGORIES.map((category) => (
               <TabsContent key={category.id} value={category.id} className="pt-2">
-                {section(category.label, category.swatches.map((swatch) => swatch.hex), "quick")}
+                {section(category.label, category.swatches.map((swatch) => swatch.hex), "quick", true)}
               </TabsContent>
             ))}
+            <TabsContent value={MY_FAVORITES_CATEGORY_ID} className="pt-2">
+              {section(
+                "我的收藏", favorites, "favorite", true,
+                favoritesSyncing ? "正在同步收藏…" : "还没有收藏颜色",
+              )}
+            </TabsContent>
           </Tabs>
-          {section("我的颜色", colors, "custom")}
-          {section("最近使用", recent, "recent")}
-          {section("收藏", favorites, "favorite")}
+          {section("我的颜色", colors, "custom", true)}
+          {section("最近使用", recent, "recent", true)}
           <section className="space-y-2">
             <h3 className="text-xs font-medium text-[var(--gc-text)]">颜色值与取色</h3>
             <div className="flex gap-2">
@@ -189,11 +248,12 @@ export function ColorToolPanel() {
                 </button>
               ))}</div>
               <div className="flex flex-wrap gap-1">{selected.map(({ value }) => (
-                <Button key={`favorite:${value}`} type="button" size="sm" variant="ghost" onClick={() => toggleFavorite(value)}>{favorites.includes(value) ? "取消收藏" : "收藏"} {value}</Button>
+                <Button key={`favorite:${value}`} type="button" size="sm" variant="ghost" onClick={() => void toggleFavorite(value)}>{favorites.includes(value) ? "取消收藏" : "收藏"} {value}</Button>
               ))}</div>
             </section>
           )}
           {error && <p role="alert" className="text-xs text-red-500">{error}</p>}
+          {favoritesSyncError && <p role="alert" className="text-xs text-red-500">{favoritesSyncError}</p>}
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => setTarget(undefined)}>取消</Button>

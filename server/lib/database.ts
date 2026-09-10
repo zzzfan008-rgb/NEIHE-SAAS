@@ -679,6 +679,24 @@ async function migrate(): Promise<void> {
       );
     }
 
+    if (!applied.has(18)) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS user_color_preferences (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          favorite_colors JSONB NOT NULL DEFAULT '[]'::jsonb,
+          updated_at TEXT NOT NULL,
+          CONSTRAINT user_color_preferences_favorites_check CHECK (
+            jsonb_typeof(favorite_colors) = 'array'
+            AND jsonb_array_length(favorite_colors) <= 128
+          )
+        );
+      `);
+      await client.query(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (18, $1, $2)",
+        ["user_color_preferences", new Date().toISOString()],
+      );
+    }
+
     // SQLite can be restored after an empty database has already applied migration 17.
     if (!applied.has(17) || imported !== undefined) {
       await client.query(`

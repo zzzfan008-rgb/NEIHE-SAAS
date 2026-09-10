@@ -1,5 +1,7 @@
 import { useFlowStore } from "@/store/flowStore";
 import { inputClass } from "./NodeFrame";
+import { GptQualityControls } from "./GptQualityControls";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DEFAULT_GENERATION_MODEL_ID,
   GENERATION_IMAGE_MODEL_IDS,
@@ -36,23 +38,26 @@ export function ModelControls({
     <div className="space-y-2 border-t border-[#262626] pt-2">
       <label className="block space-y-1">
         <span className="text-[10px] text-neutral-500">图片模型</span>
-        <select
+        <Select
           value={modelId}
           disabled={disabled}
-          onChange={(event) => {
-            const next = event.target.value as GenerationImageModelId;
+          onValueChange={(value) => {
+            if (!value) return;
+            const next = value as GenerationImageModelId;
             updateNodeData(nodeId, {
               modelId: next,
               modelOptions: defaultImageModelOptions(next, preferredAspectRatio),
               error: undefined,
             });
           }}
-          className={inputClass}
         >
+          <SelectTrigger aria-label="图片模型" className="nodrag nopan w-full text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
           {GENERATION_IMAGE_MODEL_IDS.map((id) => (
-            <option key={id} value={id}>{imageModelLabel(id)}</option>
+            <SelectItem key={id} value={id}>{imageModelLabel(id)}</SelectItem>
           ))}
-        </select>
+          </SelectContent>
+        </Select>
       </label>
 
       {modelId === "gpt-image-2-vip" && (
@@ -64,6 +69,12 @@ export function ModelControls({
           onChange={(value) => updateOptions({ size: value })}
         />
       )}
+      {modelId.startsWith("gpt-image-2.5-") && <>
+        <SelectOption label="输出尺寸" value={options.size ?? "2048x2048"}
+          values={["1024x1024", "1536x1024", "1024x1536", "2048x2048", "2048x1152", "1152x2048", "3840x2160", "2160x3840", ...(options.size ? [options.size] : [])].filter((v, i, a) => a.indexOf(v) === i)}
+          disabled={disabled} onChange={(size) => updateOptions({ size })} />
+        <GptQualityControls nodeId={nodeId} modelId={modelId} modelOptions={options} disabled={disabled} />
+      </>}
 
       {modelId === "gemini-3.1-flash-image" && (
         <div className="grid grid-cols-2 gap-2">
@@ -146,9 +157,10 @@ function SelectOption({
   return (
     <label className="block space-y-1">
       <span className="text-[10px] text-neutral-500">{label}</span>
-      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className={inputClass}>
-        {values.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
+      <Select value={value} disabled={disabled} onValueChange={(next) => { if (next) onChange(next); }}>
+        <SelectTrigger aria-label={label} className="nodrag nopan w-full text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent>{values.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
+      </Select>
     </label>
   );
 }

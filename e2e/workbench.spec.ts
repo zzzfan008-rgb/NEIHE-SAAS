@@ -15,6 +15,64 @@ interface Rect {
   height: number;
 }
 
+test("GPT Image 2.5 quality selection persists and fits desktop canvas", async ({ page }) => {
+  await openFreshBlankProject(page);
+  await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const landingPath = "/src/lib/canvasLanding.ts";
+    const { useFlowStore } = await import(storePath);
+    const { requestCanvasLanding } = await import(landingPath);
+    useFlowStore.getState().loadFlow({ projectName: "质量验收", markDirty: true,
+      nodes: [{ id: "quality", type: "sketch-to-render", position: { x: 0, y: 0 },
+        data: { kind: "sketch-to-render", label: "图片生成", status: "idle", prompt: "shirt",
+          modelId: "gpt-image-2.5-flare", modelOptions: { size: "1024x1024", quality: "medium" },
+          aspectRatio: "1:1", batchSize: 1, outputImages: [] } }], edges: [] });
+    requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, fitView: true });
+  });
+  const node = page.locator('.react-flow__node[data-id="quality"]');
+  const quality = node.getByRole("combobox", { name: "图片质量" });
+  await expect(quality).toContainText("medium");
+  await quality.click();
+  for (const name of ["low", "medium", "high", "xhigh", "max"]) {
+    await expect(page.getByRole("option", { name, exact: true })).toBeVisible();
+  }
+  await page.getByRole("option", { name: "max", exact: true }).click();
+  await expect(quality).toContainText("max");
+  const box = await quality.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await expect(node).toContainText("费用更高");
+  const savedQuality = await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const snapshotPath = "/src/lib/documentSnapshot.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    const { createDocumentSnapshot } = await import(snapshotPath);
+    return createDocumentSnapshot(selectActiveDocument(useFlowStore.getState())).nodes[0].data.modelOptions.quality;
+  });
+  expect(savedQuality).toBe("max");
+  await quality.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("option", { name: "max", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(quality).toBeFocused();
+  const migrated = await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    return ["low", "medium", "high"].map((oldQuality) => {
+      useFlowStore.getState().loadFlow({ projectName: "旧模型迁移", markDirty: true,
+        nodes: [{ id: "legacy", type: "mask-redraw", position: { x: 0, y: 0 }, data: {
+          kind: "mask-redraw", label: "旧蒙版", status: "idle", prompt: "", outputImages: ["/api/files/keep.png"],
+          modelId: "gpt-image-2", modelOptions: { quality: oldQuality }, repairFocus: "custom", executionMode: "repair",
+        } }], edges: [] });
+      const data = selectActiveDocument(useFlowStore.getState()).nodes[0].data;
+      return { modelId: data.modelId, quality: data.modelOptions.quality, outputImages: data.outputImages };
+    });
+  });
+  expect(migrated).toEqual(["low", "high", "max"].map((quality) => ({
+    modelId: "gpt-image-2.5-sunburst", quality, outputImages: ["/api/files/keep.png"],
+  })));
+});
+
 test("color picker supports native fallback, direct selection, cancellation and failures", async ({ page }) => {
   // Exercise the production panel without touching saved projects or real AI APIs.
   await page.goto("/e2e/fixtures/color-tool.html?picker=native");
@@ -58,6 +116,91 @@ test("color picker supports native fallback, direct selection, cancellation and 
       else await expect(dialog.getByRole("alert")).toContainText("屏幕取色失败");
     }
   }
+});
+
+test("color series favorites sync and remain available in My Favorites", async ({ page }) => {
+  let persistedFavorites: string[] = [];
+  const ownerId = "color-favorites-e2e-owner";
+  let responseOwnerId = ownerId;
+  let removalResponse: Promise<void> | undefined;
+  let releaseRemoval: (() => void) | undefined;
+  await page.route("**/api/auth/color-preferences", async (route) => {
+    const method = route.request().method();
+    expect(route.request().headers()["x-expected-user-id"]).toBe(ownerId);
+    if (method === "PATCH") {
+      const body = route.request().postDataJSON() as {
+        color: string; favorite: boolean; bootstrapFavorites?: string[];
+      };
+      const base = persistedFavorites.length > 0 ? persistedFavorites : (body.bootstrapFavorites ?? []);
+      persistedFavorites = body.favorite
+        ? [...base.filter((color) => color !== body.color), body.color]
+        : base.filter((color) => color !== body.color);
+      if (!body.favorite) await removalResponse;
+      await route.fulfill({ json: { ownerId: responseOwnerId, favorites: persistedFavorites } });
+      return;
+    }
+    if (method === "PUT") {
+      const body = route.request().postDataJSON() as { favorites?: string[] };
+      if (persistedFavorites.length === 0) persistedFavorites = body.favorites ?? [];
+      await route.fulfill({ json: { ownerId: responseOwnerId, favorites: persistedFavorites } });
+      return;
+    }
+    await route.fulfill({ json: { ownerId: responseOwnerId, favorites: persistedFavorites, initialized: true } });
+  });
+  const bindOwner = () => page.evaluate(async (targetOwnerId) => {
+    const storePath = "/src/store/customColors.ts";
+    const { useCustomColors } = await import(storePath);
+    useCustomColors.getState().bindOwner(targetOwnerId);
+  }, ownerId);
+
+  await page.goto("/e2e/fixtures/color-tool.html?picker=native");
+  await bindOwner();
+  await page.getByRole("button", { name: "开始取色测试" }).click();
+  const dialog = page.getByRole("dialog", { name: "色彩工具" });
+  await expect(dialog.getByRole("tab")).toHaveCount(4);
+  await expect(dialog.getByRole("tab").allTextContents()).resolves.toEqual(["中性基础色", "暖色系", "冷色系", "我的收藏"]);
+
+  const favoriteControl = dialog.getByRole("button", { name: "收藏 #161616" });
+  const selectControl = dialog.getByRole("button", { name: "选择 #161616" });
+  await expect(favoriteControl).toBeVisible();
+  await expect(selectControl).toBeVisible();
+  const dialogBox = await dialog.boundingBox();
+  const favoriteBox = await favoriteControl.boundingBox();
+  expect(dialogBox).not.toBeNull();
+  expect(favoriteBox).not.toBeNull();
+  expect(favoriteBox!.x).toBeGreaterThanOrEqual(dialogBox!.x);
+  expect(favoriteBox!.x + favoriteBox!.width).toBeLessThanOrEqual(dialogBox!.x + dialogBox!.width);
+  await favoriteControl.click();
+  await expect.poll(() => persistedFavorites).toEqual(["#161616"]);
+
+  await dialog.getByRole("tab", { name: "我的收藏" }).click();
+  const favoritesPanel = dialog.getByRole("tabpanel", { name: "我的收藏" });
+  await expect(favoritesPanel.getByRole("button", { name: "选择 #161616" })).toBeVisible();
+  await expect(favoritesPanel.getByRole("button", { name: "取消收藏 #161616" })).toBeVisible();
+  await favoritesPanel.getByRole("button", { name: "选择 #161616" }).click();
+  await expect(dialog.getByText("已选 1/8")).toBeVisible();
+
+  await page.reload();
+  await bindOwner();
+  await page.getByRole("button", { name: "开始取色测试" }).click();
+  await dialog.getByRole("tab", { name: "我的收藏" }).click();
+  await expect(favoritesPanel.getByRole("button", { name: "选择 #161616" })).toBeVisible();
+  const removeFavorite = favoritesPanel.getByRole("button", { name: "取消收藏 #161616" });
+  removalResponse = new Promise<void>((resolve) => { releaseRemoval = resolve; });
+  await removeFavorite.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => persistedFavorites).toEqual([]);
+  await expect(dialog.getByRole("tab", { name: "我的收藏" })).toBeFocused();
+  const colorInput = dialog.getByRole("textbox", { name: "颜色值", exact: true });
+  await colorInput.fill("#123456");
+  releaseRemoval?.();
+  await expect(dialog.getByText("还没有收藏颜色")).toBeVisible();
+  await expect(colorInput).toBeFocused();
+
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  responseOwnerId = "different-owner";
+  await page.getByRole("button", { name: "开始取色测试" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("登录账号已切换，请刷新后重试");
 });
 
 test("node handles disconnect only their edges with one undo and preserve left drag", async ({ page }) => {
@@ -547,7 +690,7 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   });
   expect(localRedraw).toMatchObject({
     kind: "mask-redraw",
-    modelId: "gpt-image-2",
+    modelId: "gpt-image-2.5-sunburst",
     repairFocus: "custom",
     executionMode: "repair",
   });

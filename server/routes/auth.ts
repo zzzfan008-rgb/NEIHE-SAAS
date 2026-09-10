@@ -1,5 +1,6 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { nanoid } from "nanoid";
+import { parseColorValue } from "../../src/lib/colorPalette";
 import {
   clearSessionCookie,
   createSession,
@@ -43,6 +44,35 @@ function publicUser(row: UserRow) {
     ...(row.active === undefined ? {} : { active: row.active === 1 }),
     ...(row.created_at ? { createdAt: row.created_at } : {}),
   };
+}
+
+const MAX_FAVORITE_COLORS = 128;
+const MAX_COLOR_VALUE_LENGTH = 64;
+
+function normalizeFavoriteColors(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > MAX_FAVORITE_COLORS) {
+    throw new Error(`收藏颜色必须是最多 ${MAX_FAVORITE_COLORS} 项的数组`);
+  }
+  const seen = new Set<string>();
+  const favorites: string[] = [];
+  for (const candidate of value) {
+    if (typeof candidate !== "string" || candidate.length > MAX_COLOR_VALUE_LENGTH) {
+      throw new Error("收藏颜色格式无效");
+    }
+    const color = parseColorValue(candidate);
+    if (!seen.has(color)) {
+      seen.add(color);
+      favorites.push(color);
+    }
+  }
+  return favorites;
+}
+
+function validateExpectedPreferenceOwner(req: Request, res: Response, userId: string): boolean {
+  const expectedOwnerId = req.get("x-expected-user-id");
+  if (!expectedOwnerId || expectedOwnerId === userId) return true;
+  res.status(409).json({ error: "登录账号已切换，请刷新后重试", code: "SESSION_OWNER_MISMATCH" });
+  return false;
 }
 
 authRouter.post("/login", asyncHandler(async (req, res) => {
@@ -108,6 +138,89 @@ authRouter.post("/change-password", asyncHandler(async (req, res) => {
 
 authRouter.use(requirePasswordChanged);
 
+
+authRouter.get("/color-preferences", asyncHandler(async (req, res) => {
+  const user = requestUser(req);
+  if (!validateExpectedPreferenceOwner(req, res, user.id)) return;
+  const row = await queryOne<{ favorite_colors: unknown }>(`
+    SELECT favorite_colors FROM user_color_preferences WHERE user_id = $1
+  `, [user.id]);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    ownerId: user.id,
+    favorites: row ? normalizeFavoriteColors(row.favorite_colors) : [],
+    initialized: Boolean(row),
+  });
+}));
+
+authRouter.put("/color-preferences", asyncHandler(async (req, res) => {
+  const user = requestUser(req);
+  if (!validateExpectedPreferenceOwner(req, res, user.id)) return;
+  let favorites: string[];
+  try {
+    favorites = normalizeFavoriteColors((req.body as { favorites?: unknown })?.favorites);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "收藏颜色格式无效" });
+    return;
+  }
+  const initializedFavorites = await transaction(async (client) => {
+    const updatedAt = new Date().toISOString();
+    await client.query(`
+      INSERT INTO user_color_preferences (user_id, favorite_colors, updated_at)
+      VALUES ($1, $2::jsonb, $3)
+      ON CONFLICT (user_id) DO NOTHING
+    `, [user.id, JSON.stringify(favorites), updatedAt]);
+    const result = await client.query<{ favorite_colors: unknown }>(`
+      SELECT favorite_colors FROM user_color_preferences WHERE user_id = $1
+    `, [user.id]);
+    return normalizeFavoriteColors(result.rows[0]?.favorite_colors);
+  });
+  res.json({ ownerId: user.id, favorites: initializedFavorites });
+}));
+
+authRouter.patch("/color-preferences", asyncHandler(async (req, res) => {
+  const user = requestUser(req);
+  if (!validateExpectedPreferenceOwner(req, res, user.id)) return;
+  const body = req.body as { color?: unknown; favorite?: unknown; bootstrapFavorites?: unknown };
+  let color: string;
+  let bootstrapFavorites: string[];
+  try {
+    if (body.favorite !== true && body.favorite !== false) throw new Error("收藏状态格式无效");
+    color = normalizeFavoriteColors([body.color])[0];
+    bootstrapFavorites = normalizeFavoriteColors(body.bootstrapFavorites ?? []);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "收藏颜色格式无效" });
+    return;
+  }
+  const result = await transaction(async (client) => {
+    const updatedAt = new Date().toISOString();
+    await client.query(`
+      INSERT INTO user_color_preferences (user_id, favorite_colors, updated_at)
+      VALUES ($1, $2::jsonb, $3)
+      ON CONFLICT (user_id) DO NOTHING
+    `, [user.id, JSON.stringify(bootstrapFavorites), updatedAt]);
+    const locked = await client.query<{ favorite_colors: unknown }>(`
+      SELECT favorite_colors FROM user_color_preferences WHERE user_id = $1 FOR UPDATE
+    `, [user.id]);
+    const current = normalizeFavoriteColors(locked.rows[0]?.favorite_colors);
+    const favorites = body.favorite
+      ? current.includes(color) ? current : [...current, color]
+      : current.filter((candidate) => candidate !== color);
+    if (favorites.length > MAX_FAVORITE_COLORS) {
+      return { favorites: current, limitReached: true };
+    }
+    await client.query(`
+      UPDATE user_color_preferences SET favorite_colors = $1::jsonb, updated_at = $2
+      WHERE user_id = $3
+    `, [JSON.stringify(favorites), updatedAt, user.id]);
+    return { favorites, limitReached: false };
+  });
+  if (result.limitReached) {
+    res.status(400).json({ error: `收藏颜色最多保存 ${MAX_FAVORITE_COLORS} 项` });
+    return;
+  }
+  res.json({ ownerId: user.id, favorites: result.favorites });
+}));
 authRouter.get("/users", requireAdmin, asyncHandler(async (_req, res) => {
   const rows = await query<UserRow>(`
     SELECT id, account_id, display_name, role, must_change_password, active, created_at

@@ -212,7 +212,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
         continue;
       }
       if (stage === "garment-refine") {
-        if (modelId !== "gpt-image-2") {
+        if (modelId !== "gpt-image-2" && modelId !== "gpt-image-2.5-sunburst") {
           throw new DagError(`节点 ${step.nodeId} 第二轮必须使用 GPT Image 2`);
         }
         requireOne("baseline", "approved baseline");
@@ -553,7 +553,7 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
         repairFocus: data.repairFocus, executionMode: data.executionMode,
         prompt: data.prompt, mask: data.mask, maskSourceRef: data.maskSourceRef,
         maskPipelineVersion: MASK_PIPELINE_VERSION,
-        modelId: MASK_REDRAW_MODEL_ID, modelOptions: {},
+        ...modelFields(),
       };
     case "result":
       return { note: data.note };

@@ -451,7 +451,7 @@ async function main() {
     assert.equal(refine.kind, "virtual-try-on");
     if (refine.kind !== "virtual-try-on") throw new Error("unexpected node kind");
     assert.equal(refine.garmentCategory, "knit");
-    assert.deepEqual(refine.modelOptions, { quality: "medium" });
+    assert.deepEqual(refine.modelOptions, { quality: "high" });
     assert.ok(normalized.edges.some((edge) => edge.target === "refine" && edge.targetHandle === "baseline"));
 
     const invalidFirstStage = structuredClone(normalized);

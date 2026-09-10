@@ -325,7 +325,7 @@ function gptOutputSize(width: number, height: number, imageSize: "2K" | "4K"): s
 }
 
 async function virtualTryOnModelOptions(
-  modelId: "gpt-image-2" | "gemini-3.1-flash-image",
+  modelId: "gpt-image-2" | "gpt-image-2.5-sunburst" | "gemini-3.1-flash-image",
   imageSize: "2K" | "4K",
   modelReference: string,
   stage: unknown,
@@ -345,7 +345,7 @@ async function virtualTryOnModelOptions(
     : undefined;
   const [requestedWidth, requestedHeight] = requested?.split(":").map(Number) ?? [width, height];
   const useRequestedRatio = stage === "standard" && requested !== undefined;
-  return modelId === "gpt-image-2"
+  return modelId !== "gemini-3.1-flash-image"
     ? {
         size: gptOutputSize(useRequestedRatio ? requestedWidth : width, useRequestedRatio ? requestedHeight : height, imageSize),
         ...(stage === "garment-refine" ? { quality: "medium" as const } : {}),
@@ -1124,7 +1124,7 @@ export async function executeStep(
         : referenceImages;
       const resolvedModelOptions = step.kind === "virtual-try-on"
         ? await virtualTryOnModelOptions(
-            modelId as "gpt-image-2" | "gemini-3.1-flash-image",
+            modelId as "gpt-image-2" | "gpt-image-2.5-sunburst" | "gemini-3.1-flash-image",
             step.params.imageSize === "4K" ? "4K" : "2K",
             virtualTryOnAspectReference,
             step.params.workflowStage,
@@ -1139,7 +1139,8 @@ export async function executeStep(
           : step.params.aspectRatio as string | undefined,
         batchSize: step.params.batchSize as number | undefined,
         imageSize: step.kind === "upscale" ? normalizeUpscaleSize(step.params.imageSize) : undefined,
-        modelOptions: preparedMask ? { ...resolvedModelOptions, size: preparedMask.size } : resolvedModelOptions,
+        modelOptions: preparedMask ? { ...resolvedModelOptions, ...modelOptions, size: preparedMask.size }
+          : modelId.startsWith("gpt-image-2.5-") ? { ...resolvedModelOptions, quality: modelOptions?.quality ?? "medium" } : resolvedModelOptions,
         // API易's live gpt-image-2 gateway currently rejects the documented multipart mask field.
         // The derived region guide still constrains generation, and final compositing below enforces
         // the user's original alpha mask pixel-for-pixel outside the editable region.

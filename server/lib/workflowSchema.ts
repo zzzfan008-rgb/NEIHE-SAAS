@@ -17,7 +17,6 @@ import {
 import { isLocalImageReference, validateImageDataUrl } from "./imageValidation";
 import { isLocalMediaReference } from "./fileStore";
 import {
-  DEFAULT_GENERATION_MODEL_ID,
   MASK_REDRAW_MODEL_ID,
   defaultImageModelOptions,
   getImageModelContract,
@@ -241,8 +240,8 @@ function migratedModelFields(
   preferredAspectRatio = "1:1",
 ): Record<string, unknown> {
   const fallback = kind === "mask-redraw" || kind === "virtual-try-on"
-    ? MASK_REDRAW_MODEL_ID
-    : DEFAULT_GENERATION_MODEL_ID;
+    ? "gpt-image-2"
+    : "gpt-image-2-vip";
   if (raw.modelId !== undefined) {
     const modelId = raw.modelId === "gemini-3.1-flash-image-preview"
       ? "gemini-3.1-flash-image" : raw.modelId;
@@ -346,8 +345,7 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
       const { maskMode: _legacyMaskMode, ...migratedMaskData } = raw;
       return {
         prompt: "", outputImages: [], repairFocus: "custom", executionMode: "repair", ...migratedMaskData,
-        modelId: MASK_REDRAW_MODEL_ID,
-        modelOptions: defaultImageModelOptions(MASK_REDRAW_MODEL_ID),
+        ...migratedModelFields(kind, raw),
       };
     }
     case "result":
@@ -549,7 +547,7 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       if (raw.workflowStage === "scene-stabilize" && raw.modelId !== "gemini-3.1-flash-image") {
         fail(`${path}.modelId`, "scene-stabilize must use gemini-3.1-flash-image");
       }
-      if (raw.workflowStage === "garment-refine" && raw.modelId !== "gpt-image-2") {
+      if (raw.workflowStage === "garment-refine" && raw.modelId !== "gpt-image-2" && raw.modelId !== "gpt-image-2.5-sunburst") {
         fail(`${path}.modelId`, "garment-refine must use gpt-image-2");
       }
       imageReferenceArray(raw.outputImages, `${path}.outputImages`);
@@ -653,7 +651,7 @@ function recoverStagedTryOnNode(
   const inferred = (data.modelId === "gemini-3.1-flash-image-preview" || data.modelId === "gemini-3.1-flash-image")
     && roles.has("person") && roles.has("scene") && roles.has("outfit")
     ? "scene-stabilize"
-    : data.modelId === MASK_REDRAW_MODEL_ID && roles.has("baseline") && roles.has("outfit")
+    : (data.modelId === MASK_REDRAW_MODEL_ID || data.modelId === "gpt-image-2") && roles.has("baseline") && roles.has("outfit")
       ? "garment-refine"
       : undefined;
   return inferred ? { ...node, data: { ...data, workflowStage: inferred } } : value;

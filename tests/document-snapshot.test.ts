@@ -318,8 +318,8 @@ assert.deepEqual(snapshot, {
         mask: "/api/files/mask.png",
         maskSourceRef: "/api/files/source.png",
         outputImages: ["/api/files/mask-a.png"],
-        modelId: "gpt-image-2",
-        modelOptions: {},
+        modelId: "gpt-image-2.5-sunburst",
+        modelOptions: { quality: "medium" },
       },
     },
     {
@@ -450,5 +450,27 @@ assert.deepEqual(
   validateAndMigrateFlow(multimodalValidated).edges.map((edge) => edge.targetHandle),
   ["reference-image", "reference-video", "reference-audio"],
 );
+
+for (const kind of ["mask-redraw", "virtual-try-on"] as const) {
+  for (const schemaVersion of [undefined, 1, 4, 11, WORKFLOW_SCHEMA_VERSION]) {
+    for (const [quality, expected] of [["low", "low"], ["medium", "high"], ["high", "max"], [undefined, "high"]]) {
+      const migrated = validateAndMigrateFlow({
+        schemaVersion, edges: [],
+        nodes: [{ id: "legacy-quality", type: kind, position: { x: 0, y: 0 }, data: {
+          kind, label: "旧项目", status: "idle", modelId: "gpt-image-2",
+          modelOptions: quality ? { quality } : {}, outputImages: [], prompt: "修改衣服",
+          repairFocus: "custom", executionMode: "repair", workflowStage: "standard", imageSize: "2K",
+          aspectRatio: "3:4", promptEnhancement: false, qualityMode: "fast", safetyFallback: false, stylePresetId: "none",
+        } }],
+      });
+      const data = migrated.nodes[0].data;
+      assert.ok("modelOptions" in data);
+      assert.equal(data.modelOptions.quality, expected, `${kind} schema ${schemaVersion}: 服务端读取必须映射旧 ${quality}`);
+      const repeated = validateAndMigrateFlow(migrated).nodes[0].data;
+      assert.ok("modelOptions" in repeated);
+      assert.equal(repeated.modelOptions.quality, expected, "往返不能二次映射质量");
+    }
+  }
+}
 
 console.log("通过纯文档快照边界与多模态端口往返测试");

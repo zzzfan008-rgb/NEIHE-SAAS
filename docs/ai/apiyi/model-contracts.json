@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "reviewedOn": "2026-09-01",
+  "reviewedOn": "2026-09-10",
   "baseUrl": "https://api.apiyi.com",
   "runtime": {
     "upstreamMode": "synchronous",
@@ -29,6 +29,168 @@
     "preserveOriginalFormat": true
   },
   "models": [
+    {
+      "id": "gpt-image-2.5-flare",
+      "upstreamModelId": "gpt-image-2.5-flare-2026-09-08",
+      "label": "GPT-Image 2.5 Flare",
+      "channel": "official",
+      "allowedNodeKinds": [
+        "image-generation",
+        "mask-redraw",
+        "virtual-try-on"
+      ],
+      "timeoutMs": 600000,
+      "generation": {
+        "path": "/v1/images/generations",
+        "contentType": "application/json"
+      },
+      "edit": {
+        "path": "/v1/images/edits",
+        "contentType": "multipart/form-data",
+        "minReferences": 1,
+        "maxReferences": 16,
+        "singleImageField": "image[]",
+        "multipleImageField": "image[]",
+        "mask": {
+          "required": false,
+          "pipelineVersion": 3,
+          "mimeTypes": [
+            "image/png"
+          ],
+          "maxBytes": 4194304,
+          "requiresAlpha": true,
+          "mustMatchFirstImageDimensions": true,
+          "editableAlpha": 0,
+          "preservedAlpha": 255,
+          "userSelectionSemantics": "semantic-core-not-crop",
+          "providerExpansionAllowed": true,
+          "finalPixelProtection": "local-adaptive-blend-window"
+        },
+        "background": {
+          "supportedValues": [
+            "auto",
+            "opaque",
+            "transparent"
+          ],
+          "transparentStatus": "preview",
+          "transparentOutputFormats": [
+            "png",
+            "webp"
+          ],
+          "projectOutputFormat": "png",
+          "projectRequestValue": "opaque",
+          "projectResponseConvention": "full-canvas-edited-image",
+          "projectCompositePolicy": "unified-local-adaptive-blend-with-exact-outside-protection"
+        }
+      },
+      "dimensions": {
+        "multipleOf": 16,
+        "minSide": 16,
+        "maxSide": 3840,
+        "minPixels": 655360,
+        "maxPixels": 8294400,
+        "maxAspectRatio": 3
+      },
+      "qualities": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "forbiddenParameters": [
+        "input_fidelity",
+        "response_format"
+      ],
+      "output": {
+        "kind": "openai-image",
+        "fields": [
+          "b64_json"
+        ],
+        "maxImages": 1
+      }
+    },
+    {
+      "id": "gpt-image-2.5-sunburst",
+      "upstreamModelId": "gpt-image-2.5-sunburst-2026-09-08",
+      "label": "GPT-Image 2.5 Sunburst",
+      "channel": "official",
+      "allowedNodeKinds": [
+        "image-generation",
+        "mask-redraw",
+        "virtual-try-on"
+      ],
+      "timeoutMs": 600000,
+      "generation": {
+        "path": "/v1/images/generations",
+        "contentType": "application/json"
+      },
+      "edit": {
+        "path": "/v1/images/edits",
+        "contentType": "multipart/form-data",
+        "minReferences": 1,
+        "maxReferences": 16,
+        "singleImageField": "image[]",
+        "multipleImageField": "image[]",
+        "mask": {
+          "required": false,
+          "pipelineVersion": 3,
+          "mimeTypes": [
+            "image/png"
+          ],
+          "maxBytes": 4194304,
+          "requiresAlpha": true,
+          "mustMatchFirstImageDimensions": true,
+          "editableAlpha": 0,
+          "preservedAlpha": 255,
+          "userSelectionSemantics": "semantic-core-not-crop",
+          "providerExpansionAllowed": true,
+          "finalPixelProtection": "local-adaptive-blend-window"
+        },
+        "background": {
+          "supportedValues": [
+            "auto",
+            "opaque",
+            "transparent"
+          ],
+          "transparentStatus": "preview",
+          "transparentOutputFormats": [
+            "png",
+            "webp"
+          ],
+          "projectOutputFormat": "png",
+          "projectRequestValue": "opaque",
+          "projectResponseConvention": "full-canvas-edited-image",
+          "projectCompositePolicy": "unified-local-adaptive-blend-with-exact-outside-protection"
+        }
+      },
+      "dimensions": {
+        "multipleOf": 16,
+        "minSide": 16,
+        "maxSide": 3840,
+        "minPixels": 655360,
+        "maxPixels": 8294400,
+        "maxAspectRatio": 3
+      },
+      "qualities": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "forbiddenParameters": [
+        "input_fidelity",
+        "response_format"
+      ],
+      "output": {
+        "kind": "openai-image",
+        "fields": [
+          "b64_json"
+        ],
+        "maxImages": 1
+      }
+    },
     {
       "id": "gpt-image-2",
       "upstreamModelId": "gpt-image-2",
