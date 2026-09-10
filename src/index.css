@@ -490,6 +490,67 @@ body,
     inset 2px 2px 3px color-mix(in srgb, var(--gc-handle-highlight) 72%, transparent) !important;
 }
 
+/* 分步换装的语义输入端口跟随对应角色行，避免用户按节点高度猜测连线角色。 */
+.react-flow__handle.gc-staged-role-handle,
+.react-flow__handle.gc-staged-output-handle {
+  width: 8px;
+  height: 8px;
+  border-width: 1px;
+}
+
+.react-flow__handle.gc-staged-role-handle {
+  --gc-staged-port-color: #a3a3a3;
+  position: relative;
+  inset: auto;
+  flex: 0 0 8px;
+  transform: none;
+  background: var(--gc-staged-port-color);
+  border-color: color-mix(in srgb, var(--gc-staged-port-color) 72%, #252525) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--gc-staged-port-color) 48%, white),
+    0 1px 3px rgba(0, 0, 0, 0.32) !important;
+}
+
+.react-flow__handle.gc-staged-role-handle[data-connection-state="required"] {
+  --gc-staged-port-color: #f59e0b;
+}
+
+.react-flow__handle.gc-staged-role-handle[data-connection-state="connected"] {
+  --gc-staged-port-color: #10b981;
+}
+
+.react-flow__handle.gc-staged-output-handle {
+  box-shadow:
+    0 0 0 1px var(--gc-handle-ring),
+    0 1px 3px rgba(0, 0, 0, 0.32) !important;
+}
+
+.react-flow__handle.gc-staged-role-handle::after,
+.react-flow__handle.gc-staged-output-handle::after {
+  position: absolute;
+  inset: -6px;
+  content: "";
+  border-radius: 9999px;
+}
+
+.react-flow__node:not(.dragging):hover .react-flow__handle.gc-staged-output-handle,
+.react-flow__handle.gc-staged-output-handle:hover,
+.react-flow__handle.gc-staged-output-handle.connectingfrom {
+  box-shadow:
+    0 0 0 2px var(--gc-handle-ring),
+    0 0 8px var(--gc-handle-glow),
+    0 2px 4px rgba(0, 0, 0, 0.32) !important;
+}
+
+.react-flow__node:not(.dragging):hover .react-flow__handle.gc-staged-role-handle,
+.react-flow__handle.gc-staged-role-handle:hover,
+.react-flow__handle.gc-staged-role-handle.connectingto {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--gc-staged-port-color) 48%, white),
+    0 0 8px color-mix(in srgb, var(--gc-staged-port-color) 72%, transparent),
+    0 2px 4px rgba(0, 0, 0, 0.32) !important;
+}
+
 /* shadcn/Base UI 直接桥接到现有 data-theme 语义，不引入第二套主题状态。 */
 @theme inline {
   --font-heading: inherit;

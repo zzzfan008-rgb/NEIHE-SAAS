@@ -948,6 +948,47 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
   expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(420.875);
   expect((await rect(refineNode)).height).toBeLessThanOrEqual(637.4375);
 
+  for (const [node, portIds] of [
+    [stabilizeNode, ["person", "scene", "outfit", "detail"]],
+    [refineNode, ["baseline", "outfit", "material", "detail"]],
+  ] as const) {
+    for (const portId of portIds) {
+      const row = node.locator(`[data-port-row="${portId}"]`);
+      const port = row.locator(`.gc-staged-role-handle[data-handleid="${portId}"]`);
+      await expect(port).toBeVisible();
+      await expect(row.locator("[data-port-state]")).toHaveCount(0);
+      const [rowBox, portBox, labelBox] = await Promise.all([
+        row.boundingBox(),
+        port.boundingBox(),
+        row.locator("span").first().boundingBox(),
+      ]);
+      expect(rowBox).not.toBeNull();
+      expect(portBox).not.toBeNull();
+      expect(labelBox).not.toBeNull();
+      expect(portBox!.width).toBeLessThanOrEqual(8);
+      expect(portBox!.height).toBeLessThanOrEqual(8);
+      expect(portBox!.x).toBeGreaterThanOrEqual(rowBox!.x);
+      expect(portBox!.y).toBeGreaterThanOrEqual(rowBox!.y);
+      expect(portBox!.x + portBox!.width).toBeLessThanOrEqual(rowBox!.x + rowBox!.width);
+      expect(portBox!.y + portBox!.height).toBeLessThanOrEqual(rowBox!.y + rowBox!.height);
+      expect(portBox!.x + portBox!.width).toBeLessThanOrEqual(labelBox!.x);
+    }
+  }
+
+  await expect(stabilizeNode.locator('[data-handleid="person"]')).toHaveAttribute("data-connection-state", "required");
+  await expect(stabilizeNode.locator('[data-handleid="detail"]')).toHaveAttribute("data-connection-state", "optional");
+  await expect(refineNode.locator('[data-handleid="baseline"]')).toHaveAttribute("data-connection-state", "required");
+  await expect(refineNode.locator('[data-handleid="material"]')).toHaveAttribute("data-connection-state", "optional");
+
+  for (const node of [stabilizeNode, refineNode]) {
+    const output = node.locator('.gc-staged-output-handle[data-handleid="image"]');
+    await expect(output).toBeVisible();
+    const outputBox = await output.boundingBox();
+    expect(outputBox).not.toBeNull();
+    expect(outputBox!.width).toBeLessThanOrEqual(8);
+    expect(outputBox!.height).toBeLessThanOrEqual(8);
+  }
+
   await expectCurrentThemeContract(page);
   expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(420.875);
   expect((await rect(refineNode)).height).toBeLessThanOrEqual(637.4375);
@@ -1037,6 +1078,13 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
   await sourceHandle.dragTo(detailHandle);
   const roleDialog = page.getByRole("dialog", { name: "确认连接角色" });
   await expect(roleDialog).toBeVisible();
+  await expect(detailHandle).toHaveAttribute("data-connection-state", "optional");
+  await roleDialog.getByRole("button", { name: "取消" }).click();
+  await expect(roleDialog).toBeHidden();
+  await expect(detailHandle).toHaveAttribute("data-connection-state", "optional");
+
+  await sourceHandle.dragTo(detailHandle);
+  await expect(roleDialog).toBeVisible();
   await roleDialog.getByRole("radio", { name: /服装局部结构参考/ }).check();
   await roleDialog.getByRole("button", { name: "确认连接" }).click();
   await expect(roleDialog).toBeHidden();
@@ -1049,6 +1097,19 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
       edge.source === "e2e-role-source" && edge.target === "e2e-stabilize" && edge.targetHandle === "detail"
     ));
   })).toBe(true);
+  await expect(detailHandle).toHaveAttribute("data-connection-state", "connected");
+
+  await detailHandle.click({ button: "right" });
+  await expect.poll(async () => page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    return tab?.edges.some((edge: { source: string; target: string; targetHandle?: string | null }) => (
+      edge.source === "e2e-role-source" && edge.target === "e2e-stabilize" && edge.targetHandle === "detail"
+    ));
+  })).toBe(false);
+  await expect(detailHandle).toHaveAttribute("data-connection-state", "optional");
 
   await page.evaluate(async () => {
     const storeModulePath = "/src/store/flowStore.ts";

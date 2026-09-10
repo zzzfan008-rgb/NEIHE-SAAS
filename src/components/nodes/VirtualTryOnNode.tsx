@@ -27,18 +27,8 @@ function RatioIcon({ ratio }: { ratio: string }) {
 }
 
 function StageHandles({ data }: { data: VirtualTryOnNodeData }) {
-  if (data.workflowStage === "standard") return <Handle id="references" type="target" position={Position.Left} title="参考图" />;
-  const handles = inputPortSpecs(data);
-  return handles.map((port, index) => (
-    <Handle
-      key={port.id}
-      type="target"
-      position={Position.Left}
-      id={port.id}
-      title={`${port.label}${port.required ? "（必填）" : "（可选）"}`}
-      style={{ top: `${((index + 1) / (handles.length + 1)) * 100}%` }}
-    />
-  ));
+  if (data.workflowStage !== "standard") return null;
+  return <Handle id="references" type="target" position={Position.Left} title="参考图" />;
 }
 
 export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualTryOnNodeData>>) {
@@ -96,8 +86,25 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         {roleRows.length > 0 && (
           <div role="group" className="grid grid-cols-2 gap-1" aria-label="输入角色">
             {roleRows.map(({ port, connectedSource }) => (
-              <div key={port.id} className="flex min-w-0 items-center gap-1 rounded border border-[var(--gc-node-border)] px-1.5 py-1" title={connectedSource.join("、") || `${port.label}未连接`}>
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${connectedSource.length ? "bg-emerald-500" : port.required ? "bg-amber-500" : "bg-neutral-400"}`} />
+              <div
+                key={port.id}
+                data-port-row={port.id}
+                className="flex min-w-0 items-center gap-1 rounded border border-[var(--gc-node-border)] px-1.5 py-1"
+                title={connectedSource.join("、") || `${port.label}未连接`}
+              >
+                <Handle
+                  className="gc-staged-role-handle nodrag"
+                  data-connection-state={connectedSource.length ? "connected" : port.required ? "required" : "optional"}
+                  type="target"
+                  position={Position.Left}
+                  id={port.id}
+                  aria-label={connectedSource.length
+                    ? `${port.label}，已连接 ${connectedSource.join("、")}`
+                    : `${port.label}，${port.required ? "必填" : "可选"}，未连接`}
+                  title={connectedSource.length
+                    ? `${port.label}（已连接）`
+                    : `${port.label}${port.required ? "（必填，未连接）" : "（可选，未连接）"}`}
+                />
                 <span className="min-w-0 flex-1 truncate text-[8px] text-[var(--gc-node-muted)]">{port.label}</span>
                 {port.required && <span className="text-[7px] text-amber-600">必填</span>}
               </div>
@@ -162,7 +169,13 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         {running && <Developing />}
         <ImageGrid images={data.outputImages} />
       </NodeFrame>
-      <Handle id="image" type="source" position={Position.Right} title="生成图片" />
+      <Handle
+        className={staged ? "gc-staged-output-handle" : undefined}
+        id="image"
+        type="source"
+        position={Position.Right}
+        title="生成图片"
+      />
     </>
   );
 }

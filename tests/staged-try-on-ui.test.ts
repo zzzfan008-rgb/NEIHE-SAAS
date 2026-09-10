@@ -37,6 +37,13 @@ for (const roleLabel of [
 }
 assert.match(stagedNode, /已连接来源|sourceLabel|connectedSource/, "角色行必须显示已连接来源名称");
 assert.match(stagedNode, /必填|可选/, "角色行必须区分必填与可选");
+assert.match(stagedNode, /data-port-row=\{port\.id\}/, "分步换装输入端口必须挂载在对应角色行内");
+assert.match(stagedNode, /gc-staged-role-handle/, "分步换装输入端口必须使用紧凑样式");
+assert.match(stagedNode, /data-connection-state=\{connectedSource\.length \? "connected" : port\.required \? "required" : "optional"\}/, "分步换装端口必须同时呈现确认后的连接状态");
+assert.doesNotMatch(stagedNode, /data-port-state=\{port\.id\}/, "角色行不得保留与连线端口分离的第二个状态圆点");
+assert.doesNotMatch(stagedNode, /handles\.length \+ 1/, "分步换装输入端口不得再按节点整体高度平均排列");
+assert.match(stagedNode, /data\.workflowStage !== "standard"\) return null/, "普通一键换装必须继续使用原有独立输入端口");
+assert.match(stagedNode, /className=\{staged \? "gc-staged-output-handle" : undefined\}/, "紧凑输出端口只能应用于两轮分步换装节点");
 
 for (const field of ["garmentCategory", "materialSpec", "constructionSpec", "imageSize", "modelId"]) {
   assert.match(inspector, new RegExp(field), `完整分步设置“${field}”必须位于固定右侧属性面板`);
