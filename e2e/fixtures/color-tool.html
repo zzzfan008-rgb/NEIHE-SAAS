@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark-gold">
+  <head><meta charset="UTF-8"><title>色彩工具隔离验收</title></head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import React from "react";
+      import { createRoot } from "react-dom/client";
+      import { ColorToolPanel } from "/src/components/workbench/ColorToolPanel.tsx";
+      import { openColorTool } from "/src/lib/colorTool.ts";
+      import { Button } from "/src/components/ui/button.tsx";
+      import "/src/index.css";
+
+      // This harness uses no project, authentication, or backend writes.
+      const mode = new URLSearchParams(location.search).get("picker");
+      if (mode === "native") Object.defineProperty(window, "EyeDropper", { value: undefined, configurable: true });
+      if (mode === "success" || mode === "cancel" || mode === "failure") {
+        Object.defineProperty(window, "EyeDropper", { configurable: true, value: class {
+          async open() {
+            if (mode === "cancel") throw new DOMException("Cancelled", "AbortError");
+            if (mode === "failure") throw new DOMException("Failed", "NotAllowedError");
+            return { sRGBHex: "#123456" };
+          }
+        } });
+      }
+      window.addEventListener("garment:canvas-creation", (event) => {
+        document.querySelector("output").textContent = JSON.stringify(event.detail.intent);
+      });
+      createRoot(document.getElementById("root")).render(React.createElement(React.Fragment, null,
+        React.createElement(Button, { onClick: () => openColorTool({ tabId: "test-tab", projectId: "test-project", documentEpoch: 1 }) }, "开始取色测试"),
+        React.createElement("div", { style: { background: "#12ab34", width: 100, height: 100 }, "aria-label": "取色样本 #12AB34" }),
+        React.createElement("output", { "aria-label": "创建结果" }),
+        React.createElement(ColorToolPanel),
+      ));
+    </script>
+  </body>
+</html>

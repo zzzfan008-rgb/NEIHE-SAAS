@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import { Position, type NodeProps, type Node } from "@xyflow/react";
+import { NodeHandle as Handle } from "./NodeHandle";
 import { useShallow } from "zustand/react/shallow";
 import { useFlowStore, selectResultImages } from "@/store/flowStore";
 import { useResultExport } from "@/store/resultExportStore";

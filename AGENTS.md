@@ -1,49 +1,21 @@
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+# CodeGraph — Code Intelligence
 
-This project is indexed by GitNexus as **NEIHE-AI** (23831 symbols, 55814 relationships, 814 execution flows).
+Use CodeGraph for this project. Do not use GitNexus, either directly or through
+scripts, skills, or delegated reviews. This is the user's ongoing tool preference.
 
-> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
-
-## Always Do
-
-- **MUST run impact analysis before editing.** Use `impact({target: "symbolName", direction: "upstream"})` (MCP) or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .` (CLI fallback); report callers, processes, and risk. Never substitute grep for graph analysis. For unified PDG impact, add `mode: "pdg"` with optional `line: <N>` — it returns statement-level `affectedStatements` over CDG + REACHING_DEF and inter-procedural symbols in `interproceduralByDepth`/`byDepth`; no-layer/degraded PDG results are UNKNOWN-risk notes (`--pdg` layer). CLI equivalent: `node .gitnexus/run.cjs impact "symbolName" --direction upstream --mode pdg --line <N> --repo .`.
-- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
-- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
-- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
-- For control/data dependence, `pdg_query({mode: "controls", target: "fileOrSymbol"})` answers "under what condition does X run?" (CDG, incl. guard clauses) and `pdg_query({mode: "flows", target, variable})` traces "where does variable Y flow?" (REACHING_DEF). `--pdg` layer.
-
-## Never Do
-
-- NEVER edit a function, class, or method before MCP/CLI impact analysis.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
-- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
-- NEVER commit before MCP/CLI graph change analysis.
-
-## Resources
-
-| Resource | Use for |
-| --- | --- |
-| `gitnexus://repo/NEIHE-AI/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/NEIHE-AI/clusters` | All functional areas |
-| `gitnexus://repo/NEIHE-AI/processes` | All execution flows |
-| `gitnexus://repo/NEIHE-AI/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-| --- | --- |
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
-
-<!-- gitnexus:end -->
+- Check index freshness with `codegraph status .`; update with `codegraph sync .`.
+- Explore unfamiliar code with `codegraph explore "concept" -p .` and inspect
+  symbols with `codegraph node "symbolName" -p .`.
+- Before editing existing symbols, run
+  `codegraph impact "symbolName" -p . -j` and report affected callers/files.
+  Empty or incomplete graph results are unresolved, not proof of low risk;
+  supplement with source inspection and focused tests.
+- Before delivery or commit, sync the index, inspect the complete diff, and run
+  `codegraph affected <changed-source-files...> -p . -j` to select regression tests.
+  Include newly added files; do not treat graph coverage as exhaustive.
+- The existing `gate:codex` script still invokes GitNexus. Until separately migrated
+  to CodeGraph, do not run it or report the full gate as passed. Continue the
+  independent local tests/build checks and report the unavailable gate explicitly.
 
 # Garment Canvas — Current Project Rules
 
@@ -116,9 +88,9 @@ instruction, then verify drift-prone repository and release state live.
 
 ## 5. Change and Verification Workflow
 
-- Inspect relevant flows and tests first. Run GitNexus `impact` before editing a
-  function, class, method, route contract, or shared type; warn before proceeding
-  when risk is HIGH or CRITICAL.
+- Inspect relevant flows and tests first. Run CodeGraph `impact` before editing a
+  function, class, method, route contract, or shared type; report substantial
+  regression risks before proceeding.
 - Prefer the smallest evidence-backed patch. Do not mix UI work with unrelated
   security fixes, architecture rewrites, dependency upgrades, or formatting churn.
 - Add or update regression coverage for each behavior change. For desktop UI, assert
@@ -127,9 +99,10 @@ instruction, then verify drift-prone repository and release state live.
   `npm run build`. The isolated PostgreSQL runner owns test Compose lifecycle; do
   not replace it with ad-hoc direct Compose commands.
 - Before delivery or commit, run the relevant focused tests, `npm run check`,
-  `npm run build`, `git diff --check`, and GitNexus `detect_changes`. Report any
+  `npm run build`, `git diff --check`, and CodeGraph `sync` / `affected`. Report any
   unavailable or degraded gate instead of treating it as passed.
-- GitHub Actions is not a project gate. Run `npm run gate:codex -- --base origin/main`
+- GitHub Actions is not a project gate. Once the CodeGraph migration described
+  above is complete, run `npm run gate:codex -- --base origin/main`
   for a feature branch, or select an exact commit with `--commit SHA`. This runs the
   deterministic local suites on the exact minimum Node.js version pinned by `.nvmrc`,
   then a structured `codex exec` review without a model override, so the user's
@@ -144,7 +117,7 @@ instruction, then verify drift-prone repository and release state live.
   a local exact-SHA review using the configured local review model. It does not
   authorize merging to `main`, tagging, releasing, or deploying.
 - Do not trigger or wait for Codex Cloud review. The current review path is the
-  local Codex gate, GitNexus, exact head/base verification, and the user's explicit
+  local Codex gate, CodeGraph, exact head/base verification, and the user's explicit
   approval. GitHub Actions and CodeRabbit are not required evidence.
 - Merging a PR, tagging, publishing a release, and deploying each require explicit
   user authorization. Never merge automatically.

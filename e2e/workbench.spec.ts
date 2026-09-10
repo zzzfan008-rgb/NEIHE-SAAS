@@ -15,6 +15,160 @@ interface Rect {
   height: number;
 }
 
+test("color picker supports native fallback, direct selection, cancellation and failures", async ({ page }) => {
+  // Exercise the production panel without touching saved projects or real AI APIs.
+  await page.goto("/e2e/fixtures/color-tool.html?picker=native");
+  await page.getByRole("button", { name: "开始取色测试" }).click();
+  const dialog = page.getByRole("dialog", { name: "色彩工具" });
+  const nativeInput = page.getByLabel("系统颜色选择器");
+  await expect(dialog.getByText(/将打开系统颜色选择器/)).toBeVisible();
+  const box = await dialog.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  // OS color UI is outside Playwright's DOM; simulate only its return channel.
+  await nativeInput.evaluate((input: HTMLInputElement) => {
+    input.showPicker = () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "#12ab34");
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+  });
+  await dialog.getByRole("button", { name: "屏幕取色" }).click();
+  await expect(dialog.getByLabel("颜色值", { exact: true })).toHaveValue("#12ab34");
+  await expect(dialog.getByRole("button", { name: "创建新色板节点" })).toBeDisabled();
+  await dialog.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(dialog.getByText("已选 1/8")).toBeVisible();
+  await dialog.getByRole("button", { name: "创建新色板节点" }).click();
+  await expect(page.getByLabel("创建结果")).toContainText('"value":"#12AB34"');
+
+  for (const mode of ["success", "cancel", "failure"]) {
+    await page.goto(`/e2e/fixtures/color-tool.html?picker=${mode}`);
+    await page.getByRole("button", { name: "开始取色测试" }).click();
+    await dialog.getByRole("button", { name: "屏幕取色" }).click();
+    if (mode === "success") {
+      await expect(dialog.getByText("已选 1/8")).toBeVisible();
+      await dialog.getByRole("button", { name: "创建新色板节点" }).click();
+      await expect(page.getByLabel("创建结果")).toContainText('"source":"eyedropper"');
+      await expect(page.getByLabel("创建结果")).toContainText('"value":"#123456"');
+    } else {
+      await expect(dialog.getByRole("button", { name: "创建新色板节点" })).toBeDisabled();
+      if (mode === "cancel") await expect(dialog.getByRole("alert")).toHaveCount(0);
+      else await expect(dialog.getByRole("alert")).toContainText("屏幕取色失败");
+    }
+  }
+});
+
+test("node handles disconnect only their edges with one undo and preserve left drag", async ({ page }) => {
+  await openFreshBlankProject(page);
+  await page.evaluate(async (image) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const landingModulePath = "/src/lib/canvasLanding.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const { requestCanvasLanding } = await import(landingModulePath);
+    useFlowStore.getState().loadFlow({
+      projectId: `handle-test-${crypto.randomUUID()}`,
+      projectName: "连线点回归",
+      markDirty: true,
+      nodes: [
+        { id: "source", type: "result", position: { x: 0, y: 0 }, data: { kind: "result", label: "保留结果", status: "idle", images: [image, image] } },
+        { id: "text", type: "text-input", position: { x: 0, y: 550 }, data: { kind: "text-input", label: "保留提示词", status: "idle", text: "保留文本" } },
+        { id: "target", type: "ai-modify", position: { x: 550, y: 0 }, data: { kind: "ai-modify", label: "改款", status: "idle", prompt: "", modelId: "gpt-image-2", modelOptions: {}, aspectRatio: "1:1", batchSize: 1, outputImages: [] } },
+        { id: "sink", type: "result", position: { x: 1100, y: 0 }, data: { kind: "result", label: "汇总", status: "idle", images: [] } },
+      ],
+      edges: [
+        { id: "a", source: "source", sourceHandle: "image:0", target: "target", targetHandle: "references" },
+        { id: "b", source: "source", sourceHandle: "image:0", target: "sink", targetHandle: "references" },
+        { id: "c", source: "source", sourceHandle: "image:1", target: "target", targetHandle: "references" },
+        { id: "d", source: "text", sourceHandle: "text", target: "target", targetHandle: "prompt" },
+      ],
+    });
+    useFlowStore.temporal.getState().clear();
+    requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, fitView: true });
+  }, RESULTS_DENSITY_IMAGE);
+
+  const handle = (node: string, id: string, type: "source" | "target") => page.locator(`.react-flow__node[data-id="${node}"] .react-flow__handle.${type}[data-handleid="${id}"]`);
+  const source = handle("source", "image:0", "source");
+  const target = handle("target", "references", "target");
+  const state = () => page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storeModulePath);
+    const document = selectActiveDocument(useFlowStore.getState());
+    return {
+      edges: document.edges.map((edge: { id: string }) => edge.id).sort(),
+      history: useFlowStore.temporal.getState().pastStates.length,
+      nodes: document.nodes.map((node: BrowserFlowNode) => ({ id: node.id, data: node.data })),
+    };
+  });
+  const history = (action: "undo" | "redo") => page.evaluate(async (action) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState()[action]();
+  }, action);
+  await expect(source).toBeVisible();
+  await expect(target).toBeVisible();
+  await expect(source).toHaveAttribute("title", /右键取消连线/);
+  // Assert the hit targets are actually inside each supported desktop viewport.
+  for (const point of [source, target]) {
+    const box = await point.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  }
+  const before = await state();
+  await source.click({ button: "right" });
+  await expect.poll(async () => (await state()).edges).toEqual(["c", "d"]);
+  expect((await state()).history).toBe(before.history + 1);
+  expect((await state()).nodes).toEqual(before.nodes);
+  await history("undo");
+  await expect.poll(async () => (await state()).edges).toEqual(before.edges);
+  await history("redo");
+  await expect.poll(async () => (await state()).edges).toEqual(["c", "d"]);
+  // An empty port must not consume an undo entry or open the canvas menu.
+  await source.click({ button: "right" });
+  expect((await state()).history).toBe(before.history + 1);
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await history("undo");
+  await target.click({ button: "right" });
+  await expect.poll(async () => (await state()).edges).toEqual(["b", "d"]);
+  expect((await state()).history).toBe(before.history + 1);
+  await history("undo");
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.setState((state: { activeTabId: string; tabs: BrowserProjectTab[] }) => ({
+      tabs: state.tabs.map((tab) => tab.id === state.activeTabId ? { ...tab, readOnly: true } : tab),
+    }));
+  });
+  const readOnlyBefore = await state();
+  await source.click({ button: "right" });
+  await target.click({ button: "right" });
+  expect(await state()).toEqual(readOnlyBefore);
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.setState((state: { activeTabId: string; tabs: BrowserProjectTab[] }) => ({
+      tabs: state.tabs.map((tab) => tab.id === state.activeTabId ? { ...tab, readOnly: false } : tab),
+    }));
+  });
+  await target.click({ button: "right" });
+  const start = await source.boundingBox();
+  const end = await target.boundingBox();
+  if (!start || !end) throw new Error("连线点未渲染");
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 16 });
+  await page.mouse.up();
+  await expect.poll(async () => (await state()).edges.length).toBe(3);
+  await target.click({ button: "right" });
+  await expect.poll(async () => (await state()).edges).toEqual(["b", "d"]);
+  expect((await state()).nodes).toEqual(before.nodes);
+});
+
 interface BrowserFlowNode {
   id: string;
   data: { kind: string; stylePresetId?: string; [key: string]: unknown };

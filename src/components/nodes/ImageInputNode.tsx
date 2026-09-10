@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Handle, NodeResizer, Position, type NodeChange, type NodeProps, type Node } from "@xyflow/react";
+import { NodeResizer, Position, type NodeChange, type NodeProps, type Node } from "@xyflow/react";
+import { NodeHandle as Handle } from "./NodeHandle";
 import { ImagesIcon, MinusIcon, PlusIcon, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {

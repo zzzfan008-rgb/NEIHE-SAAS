@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +18,7 @@ import { useCustomColors } from "@/store/customColors";
 import type { ColorSwatchSource } from "@/types/workflow";
 import type { WorkbenchDocumentTarget } from "@/types/workbench";
 
-type EyeDropperConstructor = new () => { open: () => Promise<{ sRGBHex: string }> };
+type EyeDropperConstructor = new () => { open: (options: { signal: AbortSignal }) => Promise<{ sRGBHex: string }> };
 
 const MAX_COLORS = 8;
 
@@ -28,7 +28,16 @@ export function ColorToolPanel() {
   const [manual, setManual] = useState("");
   const [categoryId, setCategoryId] = useState(COLOR_CATEGORIES[0].id);
   const [error, setError] = useState<string>();
+  const nativePicker = useRef<HTMLInputElement>(null);
+  const activePicker = useRef<AbortController | null>(null);
+  const directPickingSupported = typeof window !== "undefined"
+    && typeof (window as typeof window & { EyeDropper?: EyeDropperConstructor }).EyeDropper === "function";
   const { colors, recent, favorites, add, rememberRecent, toggleFavorite } = useCustomColors();
+
+  useEffect(() => () => {
+    activePicker.current?.abort();
+    activePicker.current = null;
+  }, [target]);
 
   useEffect(() => {
     const listener = (event: Event) => {
@@ -72,12 +81,37 @@ export function ColorToolPanel() {
     }
   };
   const pick = async () => {
+    setError(undefined);
     const EyeDropper = (window as typeof window & { EyeDropper?: EyeDropperConstructor }).EyeDropper;
-    if (!EyeDropper) { setError("当前浏览器不支持屏幕取色，请使用色块或颜色值输入"); return; }
+    if (typeof EyeDropper !== "function") {
+      const input = nativePicker.current;
+      if (!input) return;
+      // Native color pickers remain available on LAN HTTP. Their own eyedropper
+      // is browser-owned; do not request screen capture or weaken browser security.
+      setManual(input.value);
+      try {
+        if (typeof input.showPicker === "function") input.showPicker();
+        else input.click();
+      } catch (failure) {
+        console.warn("[color-tool] native picker failed", { name: failure instanceof Error ? failure.name : "UnknownError" });
+        setError("无法打开系统颜色选择器，请重试或输入颜色值");
+      }
+      return;
+    }
+    if (activePicker.current) return;
+    const controller = new AbortController();
+    activePicker.current = controller;
     try {
-      const result = await new EyeDropper().open();
+      const result = await new EyeDropper().open({ signal: controller.signal });
+      if (controller.signal.aborted || activePicker.current !== controller) return;
       toggle(result.sRGBHex, "eyedropper");
-    } catch { /* user cancelled */ }
+    } catch (failure) {
+      if (controller.signal.aborted || (failure instanceof Error && failure.name === "AbortError")) return;
+      console.warn("[color-tool] screen picker failed", { name: failure instanceof Error ? failure.name : "UnknownError", secureContext: window.isSecureContext });
+      setError("屏幕取色失败，请重试或使用颜色值输入");
+    } finally {
+      if (activePicker.current === controller) activePicker.current = null;
+    }
   };
   const createPalette = () => {
     if (!target) return;
@@ -140,7 +174,11 @@ export function ColorToolPanel() {
                 placeholder="#RGB、#RRGGBB、rgb() 或 hsl()" className="h-9 min-w-0 flex-1 rounded-md border border-[var(--gc-border)] bg-[var(--gc-control)] px-3 font-mono text-xs outline-none focus:border-[var(--gc-accent)]" />
               <Button type="button" variant="outline" onClick={addManual}>添加</Button>
               <Button type="button" variant="outline" onClick={() => void pick()}>屏幕取色</Button>
+              <input ref={nativePicker} type="color" defaultValue="#000000" tabIndex={-1}
+                aria-label="系统颜色选择器" className="sr-only"
+                onChange={(event) => { setManual(event.target.value); setError(undefined); }} />
             </div>
+            {!directPickingSupported && <p className="text-xs text-[var(--gc-text-muted)]">将打开系统颜色选择器；如面板提供吸管，可用它进行屏幕取色。选好颜色后点击“添加”。</p>}
           </section>
           {selected.length > 0 && (
             <section className="space-y-2">

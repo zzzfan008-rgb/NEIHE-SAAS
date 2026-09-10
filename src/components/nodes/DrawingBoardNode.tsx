@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { Position, type Node, type NodeProps } from "@xyflow/react";
+import { NodeHandle as Handle } from "./NodeHandle";
 import { nanoid } from "nanoid";
 import { useAuth } from "@/auth/AuthContext";
 import { createEmptyDrawingDocument, type DrawingDocument } from "@/components/drawing/drawingModel";

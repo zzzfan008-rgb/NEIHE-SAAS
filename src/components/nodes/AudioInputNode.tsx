@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { LinkIcon } from "lucide-react";
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { Position, type Node, type NodeProps } from "@xyflow/react";
+import { NodeHandle as Handle } from "./NodeHandle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { selectActiveDocumentTarget, useFlowStore } from "@/store/flowStore";

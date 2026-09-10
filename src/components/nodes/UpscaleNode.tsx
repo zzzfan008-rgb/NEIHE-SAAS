@@ -1,4 +1,5 @@
-import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import { Position, type NodeProps, type Node } from "@xyflow/react";
+import { NodeHandle as Handle } from "./NodeHandle";
 import { useFlowStore } from "@/store/flowStore";
 import { isNodeRunActive, type UpscaleNodeData } from "@/types/workflow";
 import { NodeFrame, RunButton, Developing } from "./NodeFrame";

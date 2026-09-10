@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { Position, type Node, type NodeProps } from "@xyflow/react";
+import { NodeHandle as Handle } from "./NodeHandle";
 import {
   beginMaskWork,
   selectActiveDocumentTarget,

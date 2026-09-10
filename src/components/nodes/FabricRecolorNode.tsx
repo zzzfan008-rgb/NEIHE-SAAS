@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import { Position, type NodeProps, type Node } from "@xyflow/react";
+import { NodeHandle as Handle } from "./NodeHandle";
 import { selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
 import { useCustomColors } from "@/store/customColors";
 import { isNodeRunActive, type ColorPaletteNodeData, type FabricRecolorNodeData } from "@/types/workflow";

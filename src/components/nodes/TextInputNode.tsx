@@ -1,4 +1,5 @@
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { Position, type Node, type NodeProps } from "@xyflow/react";
+import { NodeHandle as Handle } from "./NodeHandle";
 import { useFlowStore } from "@/store/flowStore";
 import type { TextInputNodeData } from "@/types/workflow";
 import { NodeFrame, inputClass } from "./NodeFrame";

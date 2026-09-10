@@ -1,4 +1,5 @@
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { Position, type Node, type NodeProps } from "@xyflow/react";
+import { NodeHandle as Handle } from "./NodeHandle";
 import { Button } from "@/components/ui/button";
 import { selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
 import type { StageApprovalNodeData, WorkflowNodeData } from "@/types/workflow";
