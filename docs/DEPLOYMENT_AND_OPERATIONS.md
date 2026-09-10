@@ -18,14 +18,14 @@
 | --- | --- | --- | --- |
 | `APIYI_API_KEY` | 是 | 无 | API易图片网关密钥；就绪检查只验证非空，不会主动调用模型 |
 | `APIYI_BASE_URL` | 否 | `https://api.apiyi.com` | 覆盖默认网关时必须是 HTTPS URL |
-| `PORT` | 否 | 本地 3001；Compose 无配置时对外 3002 | 非 Docker 时是服务监听端口；Compose 容器内固定监听 3002，宿主机映射使用该值 |
+| `PORT` | 否 | 本地 3001 | 仅控制非 Docker 服务；Compose 应用内部固定 3002，代理入口固定 192.168.0.92:80 |
 | `API_PROXY_TARGET` | 否 | 跟随 `PORT` | 仅开发环境需要转发到独立 API 地址时设置 |
 | `DATA_DIR` | 否 | `./data` | 上传、生成文件与旧 SQLite 导入源目录 |
 | `DATABASE_URL` | 否 | 无 | 非 Docker 部署可使用完整 PostgreSQL 连接串；设置后优先于分项变量 |
 | `PGHOST` / `PGPORT` | 否 | `127.0.0.1` / `POSTGRES_HOST_PORT` | 非 Docker PostgreSQL 地址 |
 | `PGDATABASE` / `PGUSER` / `PGPASSWORD` | 否 | 回退到 `POSTGRES_*` | 非 Docker PostgreSQL 凭据 |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | Compose 必需 | 数据库名和用户有默认值 | `POSTGRES_PASSWORD` 必须使用长随机值 |
-| `POSTGRES_HOST_PORT` | 否 | `54329` | PostgreSQL 只绑定到本机开发端口 |
+| `POSTGRES_HOST_PORT` | 否 | `54329` | 仅显式加载 compose.development.yaml 时绑定本机；生产不发布数据库端口 |
 | `DATABASE_POOL_SIZE` | 否 | `10` | 连接池上限，服务端限制为 1–50 |
 | `INITIAL_ADMIN_ACCOUNT_ID` | 空库必需 | 无 | 仅数据库没有用户时创建首位管理员 |
 | `INITIAL_ADMIN_PASSWORD` | 空库必需 | 无 | 至少 10 位并同时含字母和数字；首次登录强制修改 |
@@ -41,7 +41,9 @@
 
 初始化成功并完成管理员改密后，可以从 `.env` 移除 `INITIAL_ADMIN_ACCOUNT_ID` 和 `INITIAL_ADMIN_PASSWORD`，避免长期保留临时凭据。
 
-Compose 会读取私有 `.env` 做端口插值：复制当前 `.env.example` 后宿主机网页端口是 3001；删除或不设置 `PORT` 时回退到 3002。Compose 部署通常不要再设置 `DATABASE_URL`，否则它会优先于容器内的 `PG*` 连接配置。
+Compose 的唯一生产入口是 `192.168.0.92:80`，由 Nginx 转发给内部 `app:3002`；不发布 IPv6、应用或数据库端口。`.env` 的 `PORT` 不控制 Docker 入口。Compose 部署通常不要再设置 `DATABASE_URL`，否则它会优先于容器内的 `PG*` 连接配置。
+
+本机必须持有 `192.168.0.92`，建议在路由器保留该 DHCP 地址。绑定局域网地址不替代路由器访问控制：不要配置公网 NAT/端口转发。本部署保留 HTTP 与 `COOKIE_SECURE=false`，仅用于可信局域网；不改变 VPN 或全局代理设置。
 
 ## 3. Docker 安装与升级
 
@@ -50,9 +52,10 @@ Compose 会读取私有 `.env` 做端口插值：复制当前 `.env.example` 后
 ```bash
 cp .env.example .env
 chmod 600 .env
-docker compose config
+docker compose config --quiet
+node tests/docker-lan-deployment.test.mjs
 docker compose up -d --build --wait
-curl --fail http://localhost:3001/api/ready
+curl --fail http://192.168.0.92/api/ready
 ```
 
 首次登录使用私有 `.env` 中的管理员临时凭据。界面会要求管理员本人完成最终密码修改；随后再通过账户菜单创建、停用、重置或删除普通用户。
@@ -63,7 +66,7 @@ curl --fail http://localhost:3001/api/ready
 git fetch origin
 git switch --detach <approved-release-commit>
 docker compose up -d --build --wait
-curl --fail http://localhost:3001/api/ready
+curl --fail http://192.168.0.92/api/ready
 ```
 
 不要在未复审的分支或漂移 SHA 上构建生产版本。升级数据库结构后，代码回滚不一定等于数据回滚；需要回退数据库时必须使用同一发布前备份。
@@ -129,7 +132,7 @@ docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES
 tar -C data -czf "$backup_dir/data.tar.gz" .
 shasum -a 256 "$backup_dir/postgres.dump" "$backup_dir/data.tar.gz" > "$backup_dir/SHA256SUMS"
 docker compose start app
-curl --fail http://localhost:3001/api/ready
+curl --fail http://192.168.0.92/api/ready
 ```
 
 备份完成后检查文件非空，并把整个时间戳目录复制到独立磁盘或受控备份系统。只有放在同一台机器同一磁盘上的副本不算灾备。
@@ -205,9 +208,9 @@ PostgreSQL 18 镜像挂载点为 `/var/lib/postgresql`，不能直接复用 17 �
 
 ```bash
 docker compose ps
-docker compose logs --tail=200 app postgres
-curl --fail http://localhost:3001/api/health
-curl --fail http://localhost:3001/api/ready
+docker compose logs --tail=200 proxy app postgres
+curl --fail http://192.168.0.92/api/health
+curl --fail http://192.168.0.92/api/ready
 ```
 
 ## 10. 安全基线

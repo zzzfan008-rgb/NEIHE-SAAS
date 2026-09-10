@@ -1,0 +1,5 @@
+# Explicit opt-in for a host-side development server; never used by production.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-54329}:5432"

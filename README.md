@@ -15,8 +15,10 @@ Garment Canvas 是面向服装设计师的桌面工作流画布，覆盖图片�
 docker compose up -d --build --wait
 ```
 
-复制当前 `.env.example` 后网页默认为 `http://localhost:3001`；Compose 容器内仍监听
-3002，宿主机端口由私有 `.env` 的 `PORT` 决定，未设置 `PORT` 时才回退到 3002。
+网页入口固定为 `http://192.168.0.92`，仅反向代理绑定 `192.168.0.92:80`，
+不发布到 `0.0.0.0` 或 IPv6。应用 3002 和 PostgreSQL 5432 仅在 Docker 网络内访问。
+私有 `.env` 的 `PORT` 不再控制 Docker 发布端口。本机必须持有该局域网 IP，
+建议在路由器设置 DHCP 地址保留；不要配置公网端口转发。
 PostgreSQL 18 数据保存在 Docker 命名卷
 `garment-canvas_postgres_data`，上传和生成文件仍保存在 `data/`。
 
@@ -32,7 +34,7 @@ SQLite 文件会保留，便于回退核对。
 要求 Node.js 22.20.0 或更高版本。先只启动 PostgreSQL，再启动开发服务：
 
 ```bash
-docker compose up -d postgres --wait
+docker compose -f compose.yaml -f compose.development.yaml up -d postgres --wait
 pnpm install --frozen-lockfile
 pnpm run dev
 ```
@@ -41,7 +43,9 @@ pnpm run dev
 占用、PostgreSQL 认证与只读 `SELECT 1`、Docker Engine 和 Vite API 代理目标。预检只读取连接状态，
 不会停止进程、启动容器、修改数据库或调用 AI。若提示旧 Vite/API 端口冲突，应先停止
 旧开发进程；若 PostgreSQL 不可达，按提示重新执行
-`docker compose up -d postgres --wait`。也可单独运行 `pnpm run dev:check` 排查环境。
+`docker compose -f compose.yaml -f compose.development.yaml up -d postgres --wait`。
+也可单独运行 `pnpm run dev:check` 排查环境。开发覆盖文件仅显式使用时发布本机数据库端口，
+不要用于局域网生产部署。
 
 前端开发服务器默认为 `http://localhost:5173`，API 默认为
 `http://localhost:3001`，本机 Node 通过 `POSTGRES_HOST_PORT`（默认 54329）连接容器。
