@@ -206,6 +206,7 @@ interface NodeLike {
   id: string;
   type?: string;
   position: { x: number; y: number };
+  resizeDocumentPosition?: { x: number; y: number };
   data: WorkflowNodeData;
 }
 
@@ -461,7 +462,8 @@ function createDocumentNode(node: NodeLike): DocumentNode {
   return {
     id: node.id,
     type: kind,
-    position: { x: node.position.x, y: node.position.y },
+    // 左/上角缩放会改变 React Flow 的运行时 position；持久化仍使用缩放前的文档坐标。
+    position: { ...(node.resizeDocumentPosition ?? node.position) },
     data: createDocumentNodeData(node.data),
   };
 }

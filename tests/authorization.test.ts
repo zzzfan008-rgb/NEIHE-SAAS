@@ -2204,6 +2204,62 @@ await test("画板版本按 owner/project/node/base 授权并以请求号幂等"
   `, [projectId]))?.count, 1);
 });
 
+await test("新建画板将不可变版本与完整项目节点原子提交并保持幂等", async () => {
+  const projectId = "drawing-create-project";
+  const nodeId = "drawing-created-node";
+  const project = await request("/projects", "owner", {
+    method: "POST",
+    body: JSON.stringify({
+      id: projectId,
+      name: "原子画板项目",
+      flow: { schemaVersion: 5, nodes: [], edges: [] },
+    }),
+  });
+  assert.equal(project.status, 200, await project.text());
+  const upload = await request("/files", "owner", {
+    method: "POST",
+    body: JSON.stringify({ dataUrl: PNG_DATA_URL }),
+  });
+  const preview = await upload.json() as { url: string; error?: string };
+  assert.equal(upload.status, 200, preview.error);
+  const document = {
+    version: 1,
+    canvas: { width: 1024, height: 768, background: "#FFFFFF" },
+    layers: [{ id: "layer-1", name: "图层 1", visible: true, locked: false, opacity: 1, objects: [] }],
+  };
+  const body = {
+    clientRequestId: "drawing-create-request-0001",
+    projectId,
+    nodeId,
+    position: { x: 320, y: 180 },
+    previewImageRef: preview.url,
+    document,
+  };
+  const created = await request("/drawing-boards/create", "owner", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  const createdText = await created.text();
+  assert.equal(created.status, 201, createdText);
+  const createdBody = JSON.parse(createdText) as { contentRef: string };
+  const persisted = await queryOne<{ flow_json: string }>("SELECT flow_json FROM projects WHERE id = $1", [projectId]);
+  const flow = JSON.parse(persisted!.flow_json) as { nodes: Array<{ id: string; position: { x: number; y: number }; data: Record<string, unknown> }> };
+  const node = flow.nodes.find((candidate) => candidate.id === nodeId);
+  assert.deepEqual(node?.position, body.position);
+  assert.equal(node?.data.contentRef, createdBody.contentRef);
+  assert.equal(node?.data.previewImageRef, preview.url);
+  assert.equal((await request("/drawing-boards/create", "other", {
+    method: "POST", body: JSON.stringify({ ...body, clientRequestId: "drawing-create-other" }),
+  })).status, 404);
+  const replay = await request("/drawing-boards/create", "owner", {
+    method: "POST", body: JSON.stringify(body),
+  });
+  assert.equal(replay.status, 200, await replay.text());
+  assert.equal((await queryOne<{ count: number }>(`
+    SELECT COUNT(*)::int AS count FROM drawing_document_versions WHERE project_id = $1 AND node_id = $2
+  `, [projectId, nodeId]))?.count, 1);
+});
+
 await test("历史分页固定在首次快照，期间新增记录不会推移游标造成缺口", async () => {
   for (const [id, startedAt] of [["snapshot-3", 3_000], ["snapshot-2", 2_000], ["snapshot-1", 1_000]] as const) {
     await query(`

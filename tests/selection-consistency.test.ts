@@ -217,7 +217,7 @@ test("画布空白 canonical command 会清除节点 IDs、primary 与 React Flo
   );
   assert.match(
     canvasSource,
-    /onPaneClick\s*=\s*\{\s*\(\)\s*=>\s*setSelectedNodeIds\(\s*\[\s*\]\s*\)\s*\}/,
+    /onPaneClick\s*=\s*\{\s*\(\)\s*=>\s*\{[\s\S]*?setSelectedNodeIds\(\s*\[\s*\]\s*\)[\s\S]*?setEdgeMenu\(null\)[\s\S]*?\}\s*\}/,
     "点击画布空白处必须通过 canonical selection action 清空选择",
   );
 });

@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requestCanvasCreation } from "@/lib/canvasCreation";
 import { OPEN_COLOR_TOOL_EVENT, type OpenColorToolRequest } from "@/lib/colorTool";
 import { normalizeColorSwatches, parseColorValue } from "@/lib/colorPalette";
@@ -19,12 +20,13 @@ import type { WorkbenchDocumentTarget } from "@/types/workbench";
 
 type EyeDropperConstructor = new () => { open: () => Promise<{ sRGBHex: string }> };
 
-const QUICK_COLORS = [...new Set(COLOR_CATEGORIES.flatMap((category) => category.swatches.map((swatch) => swatch.hex)))].slice(0, 32);
+const MAX_COLORS = 8;
 
 export function ColorToolPanel() {
   const [target, setTarget] = useState<WorkbenchDocumentTarget>();
   const [selected, setSelected] = useState<Array<{ value: string; source: ColorSwatchSource }>>([]);
   const [manual, setManual] = useState("");
+  const [categoryId, setCategoryId] = useState(COLOR_CATEGORIES[0].id);
   const [error, setError] = useState<string>();
   const { colors, recent, favorites, add, rememberRecent, toggleFavorite } = useCustomColors();
 
@@ -35,6 +37,7 @@ export function ColorToolPanel() {
       setTarget(detail.target);
       setSelected([]);
       setManual("");
+      setCategoryId(COLOR_CATEGORIES[0].id);
       setError(undefined);
     };
     window.addEventListener(OPEN_COLOR_TOOL_EVENT, listener);
@@ -45,11 +48,15 @@ export function ColorToolPanel() {
   const toggle = (raw: string, source: ColorSwatchSource) => {
     try {
       const value = parseColorValue(raw);
+      if (!selectedValues.has(value) && selectedValues.size >= MAX_COLORS) {
+        setError(`面料配色最多选择 ${MAX_COLORS} 个颜色`);
+        return;
+      }
       setError(undefined);
       rememberRecent(value);
       setSelected((current) => current.some((entry) => entry.value === value)
         ? current.filter((entry) => entry.value !== value)
-        : current.length >= 32 ? current : [...current, { value, source }]);
+        : current.length >= MAX_COLORS ? current : [...current, { value, source }]);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "颜色格式无效");
     }
@@ -106,10 +113,23 @@ export function ColorToolPanel() {
       <DialogContent className="max-h-[88vh] max-w-2xl overflow-auto">
         <DialogHeader>
           <DialogTitle>色彩工具</DialogTitle>
-          <DialogDescription>选择 1–32 个颜色。确认后始终新建色板节点，不修改画布中现有节点。</DialogDescription>
+          <DialogDescription>选择 1–8 个颜色。确认后新建色板节点，可连接到面料替换节点的色板输入。</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          {section("快速颜色", QUICK_COLORS, "quick")}
+          <Tabs value={categoryId} onValueChange={setCategoryId}>
+            <TabsList className="grid h-9 w-full grid-cols-3 bg-[var(--gc-control)]">
+              {COLOR_CATEGORIES.map((category) => (
+                <TabsTrigger key={category.id} value={category.id} className="text-xs">
+                  {category.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {COLOR_CATEGORIES.map((category) => (
+              <TabsContent key={category.id} value={category.id} className="pt-2">
+                {section(category.label, category.swatches.map((swatch) => swatch.hex), "quick")}
+              </TabsContent>
+            ))}
+          </Tabs>
           {section("我的颜色", colors, "custom")}
           {section("最近使用", recent, "recent")}
           {section("收藏", favorites, "favorite")}
@@ -124,7 +144,7 @@ export function ColorToolPanel() {
           </section>
           {selected.length > 0 && (
             <section className="space-y-2">
-              <div className="flex items-center justify-between"><h3 className="text-xs font-medium">已选 {selected.length}/32</h3><Button type="button" size="sm" variant="ghost" onClick={() => setSelected([])}>清空</Button></div>
+              <div className="flex items-center justify-between"><h3 className="text-xs font-medium">已选 {selected.length}/{MAX_COLORS}</h3><Button type="button" size="sm" variant="ghost" onClick={() => setSelected([])}>清空</Button></div>
               <div className="flex flex-wrap gap-2">{selected.map(({ value }) => (
                 <button key={value} type="button" onClick={() => toggle(value, "quick")} className="flex items-center gap-1 rounded-md border border-[var(--gc-border)] px-2 py-1 font-mono text-[10px]">
                   <span className="h-3 w-3 rounded-sm border border-white/15" style={{ backgroundColor: value }} />{value}

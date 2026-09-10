@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import { ImagesIcon, UploadIcon } from "lucide-react";
+import { Handle, NodeResizer, Position, type NodeChange, type NodeProps, type Node } from "@xyflow/react";
+import { ImagesIcon, MinusIcon, PlusIcon, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { selectActiveDocumentTarget, useFlowStore } from "@/store/flowStore";
+import {
+  selectActiveDocumentTarget,
+  selectActiveNodes,
+  selectActiveReadOnly,
+  useFlowStore,
+  type FlowNode,
+} from "@/store/flowStore";
 import type { ImageInputNodeData } from "@/types/workflow";
 import { OPEN_ASSET_PICKER_EVENT, type AssetPickerRequest } from "@/lib/overlayEvents";
 import { NodeFrame } from "./NodeFrame";
@@ -77,6 +83,9 @@ export function ImageFileInput({
   );
 }
 
+const IMAGE_NODE_MIN_WIDTH = 180;
+const IMAGE_NODE_MIN_HEIGHT = 120;
+const IMAGE_NODE_MAX_SIZE = 800;
 const IMAGE_NODE_LONG_EDGE = 280;
 
 export function fitImageNodeDimensions(width: number, height: number) {
@@ -88,6 +97,13 @@ export function fitImageNodeDimensions(width: number, height: number) {
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale)),
   };
+}
+export function boundedImageNodeScale(width: number, height: number, factor: number): number {
+  const minimumScale = Math.max(IMAGE_NODE_MIN_WIDTH / width, IMAGE_NODE_MIN_HEIGHT / height);
+  const maximumScale = Math.min(IMAGE_NODE_MAX_SIZE / width, IMAGE_NODE_MAX_SIZE / height);
+  return factor < 1
+    ? Math.min(1, Math.max(factor, minimumScale))
+    : Math.max(1, Math.min(factor, maximumScale));
 }
 
 function FilePickerButton({
@@ -117,9 +133,13 @@ function FilePickerButton({
   );
 }
 
-export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInputNodeData>>) {
+export function ImageInputNode({ id, data, selected, width, height }: NodeProps<Node<ImageInputNodeData>>) {
   const updateNodeDataInTab = useFlowStore((s) => s.updateNodeDataInTab);
   const assignImageInputInTab = useFlowStore((s) => s.assignImageInputInTab);
+  const onNodesChange = useFlowStore((s) => s.onNodesChange);
+  const explicitWidth = useFlowStore((state) => selectActiveNodes(state).find((node) => node.id === id)?.width);
+  const explicitHeight = useFlowStore((state) => selectActiveNodes(state).find((node) => node.id === id)?.height);
+  const readOnly = useFlowStore(selectActiveReadOnly);
   const uploadRequestRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -181,10 +201,28 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
   const fittedImage = imageDimensions && imageDimensions.url === data.imageUrl
     ? fitImageNodeDimensions(imageDimensions.width, imageDimensions.height)
     : fitImageNodeDimensions(280, 180);
+  const resizedWidth = typeof explicitWidth === "number" && explicitWidth > 0 ? explicitWidth : undefined;
+  const resizedHeight = typeof explicitHeight === "number" && explicitHeight > 0 ? explicitHeight : undefined;
   const imageNodeStyle = {
-    width: data.imageUrl ? fittedImage.width : IMAGE_NODE_LONG_EDGE,
+    width: resizedWidth ?? (data.imageUrl ? fittedImage.width : IMAGE_NODE_LONG_EDGE),
+    height: resizedHeight,
   } satisfies CSSProperties;
-
+  const resizeNodeBy = (factor: number) => {
+    const currentWidth = resizedWidth ?? (data.imageUrl ? fittedImage.width : width ?? IMAGE_NODE_LONG_EDGE);
+    const currentHeight = resizedHeight ?? (data.imageUrl ? fittedImage.height : height ?? IMAGE_NODE_MIN_HEIGHT);
+    const boundedScale = boundedImageNodeScale(currentWidth, currentHeight, factor);
+    if (boundedScale === 1) return;
+    const changes: NodeChange<FlowNode>[] = [{
+      id,
+      type: "dimensions",
+      dimensions: {
+        width: Math.round(currentWidth * boundedScale),
+        height: Math.round(currentHeight * boundedScale),
+      },
+      setAttributes: true,
+    }];
+    onNodesChange(changes);
+  };
   const dropHandlers = {
     onDragOver: (event: React.DragEvent) => {
       event.preventDefault();
@@ -200,6 +238,23 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
 
   return (
     <div className="gc-image-node relative" style={imageNodeStyle}>
+      <NodeResizer
+        isVisible={selected && !readOnly}
+        minWidth={IMAGE_NODE_MIN_WIDTH}
+        minHeight={IMAGE_NODE_MIN_HEIGHT}
+        maxWidth={IMAGE_NODE_MAX_SIZE}
+        maxHeight={IMAGE_NODE_MAX_SIZE}
+        color="var(--gc-node-accent)"
+        lineStyle={{ pointerEvents: "none" }}
+        handleStyle={{
+          zIndex: 30,
+          width: 12,
+          height: 12,
+          border: "2px solid var(--gc-node-accent)",
+          borderRadius: 3,
+          background: "var(--gc-node-main)",
+        }}
+      />
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={<MediaNodeActionToolbar nodeId={id} hasImage={Boolean(data.imageUrl)} sourceHandle="image" />}>
         {data.imageUrl?.startsWith("asset://") ? (
           <div className="rounded-md border border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-3 py-5 text-center text-[10px] text-[var(--gc-node-text)]">
@@ -209,7 +264,7 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
           <div
             {...dropHandlers}
             className={`gc-image-input-media relative overflow-hidden bg-white ${dragOver ? "gc-image-input-media--dragging" : ""}`}
-            style={{ height: fittedImage.height }}
+            style={{ height: resizedHeight ? "100%" : fittedImage.height }}
           >
             <img
               src={data.imageUrl}
@@ -217,7 +272,7 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
               decoding="async"
               draggable={false}
               alt="已上传图片"
-              className="block h-full w-full select-none object-cover"
+              className="block h-full w-full select-none object-contain"
               onLoad={(event) => {
                 const image = event.currentTarget;
                 setImageDimensions({
@@ -261,13 +316,23 @@ export function ImageInputNode({ id, data, selected }: NodeProps<Node<ImageInput
           </div>
         )}
       </NodeFrame>
-      {data.imageUrl && selected && (
+      {selected && !readOnly && (
         <div className="gc-image-node-actions nodrag nopan absolute left-1/2 top-[calc(100%+8px)] z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] p-1 shadow-xl">
+          <Button type="button" variant="ghost" size="icon-xs" onClick={() => resizeNodeBy(0.9)} aria-label="缩小参考图节点" title="缩小参考图节点">
+            <MinusIcon aria-hidden="true" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon-xs" onClick={() => resizeNodeBy(1.1)} aria-label="放大参考图节点" title="放大参考图节点">
+            <PlusIcon aria-hidden="true" />
+          </Button>
+          {data.imageUrl && (
+            <>
           <FilePickerButton label="重新上传" compact onFile={(file) => void handleFile(file)} />
           <Button type="button" variant="ghost" size="xs" onClick={openAssetPicker} className="text-[var(--gc-text-muted)] hover:text-[var(--gc-text)]">
             <ImagesIcon aria-hidden="true" />
             素材库
           </Button>
+            </>
+          )}
         </div>
       )}
       <Handle id="image" type="source" position={Position.Right} title="图片输出" />

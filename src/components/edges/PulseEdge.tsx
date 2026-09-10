@@ -52,6 +52,7 @@ export function PulseEdge({
       <BaseEdge
         id={id}
         path={path}
+        interactionWidth={20}
         className={`gc-workflow-edge gc-workflow-edge--${pathEmphasis}`}
         style={{ stroke: baseStroke, strokeWidth: selected || emphasized ? 2.2 : 1.6, opacity }}
       />

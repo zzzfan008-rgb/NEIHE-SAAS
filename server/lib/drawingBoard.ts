@@ -37,9 +37,14 @@ export function drawingBoardRequestSha256(input: {
   nodeId: string;
   baseContentRef: string | null;
   documentSha256: string;
+  creation?: {
+    position: { x: number; y: number };
+    previewImageRef: string;
+  };
 }): string {
   return createHash("sha256").update(JSON.stringify([
     input.projectId, input.nodeId, input.baseContentRef, input.documentSha256,
+    ...(input.creation ? [input.creation.position.x, input.creation.position.y, input.creation.previewImageRef] : []),
   ])).digest("hex");
 }
 

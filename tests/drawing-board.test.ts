@@ -8,6 +8,10 @@ import {
   type DrawingDocument,
 } from "../src/components/drawing/drawingModel";
 import {
+  DrawingBoardClientError,
+  drawingBoardCreationOutcomeIsUnknown,
+} from "../src/lib/drawingBoardClient";
+import {
   applyDrawingCommand,
   createDrawingHistory,
   drawingKeyboardCommand,
@@ -113,4 +117,11 @@ test("键盘命令映射确定且不截获输入框文本编辑", () => {
   assert.equal(drawingKeyboardCommand({ key: "z", metaKey: true }, "textarea"), null);
 });
 
+
+test("画板创建仅把明确未提交响应视为可取消，代理 5xx 与网络错误保持待确认", () => {
+  assert.equal(drawingBoardCreationOutcomeIsUnknown(new DrawingBoardClientError("参数错误", 400)), false);
+  assert.equal(drawingBoardCreationOutcomeIsUnknown(new DrawingBoardClientError("提交应答丢失", 500)), true);
+  assert.equal(drawingBoardCreationOutcomeIsUnknown(new DrawingBoardClientError("Bad Gateway", 502)), true);
+  assert.equal(drawingBoardCreationOutcomeIsUnknown(new TypeError("fetch failed")), true);
+});
 console.log(`画板文档与本地历史合同测试通过：${passed}`);

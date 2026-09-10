@@ -381,6 +381,12 @@ body,
 
 .gc-image-node > .gc-node-frame {
   width: 100%;
+  height: 100%;
+}
+
+.gc-image-node > .gc-node-frame > .gc-node-card,
+.gc-image-node > .gc-node-frame > .gc-node-card > .gc-node-body {
+  height: 100%;
 }
 
 .gc-node-card:has(.gc-image-input-media) {

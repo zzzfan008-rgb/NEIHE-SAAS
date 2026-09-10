@@ -70,8 +70,12 @@ import {
   isSeedanceVideoModel,
   normalizedSeedanceSettings,
 } from "@/lib/seedance";
+import type { DrawingDocument } from "@/components/drawing/drawingModel";
 
-export type FlowNode = Node<WorkflowNodeData>;
+export type FlowNode = Node<WorkflowNodeData> & {
+  /** 仅运行时：左/上角缩放改变显示坐标时，保留不随尺寸持久化的文档坐标。 */
+  resizeDocumentPosition?: { x: number; y: number };
+};
 export type ConnectedNodeDirection = "upstream" | "downstream";
 const SAFE_DOCUMENT_EDGE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -248,6 +252,8 @@ export interface FlowState {
   runNode: (id: string) => Promise<void>;
   /** 保存当前页签；返回服务端是否确认持久化成功。 */
   saveProject: () => Promise<boolean>;
+  /** 保存指定文档目标；供跨异步边界且可能切换页签的流程使用。 */
+  saveProjectInTab: (target: DocumentTarget) => Promise<boolean>;
   /**
    * 整组载入画布（打开项目 / 从模板新建）：
    * 替换 nodes/edges 并重置选择、对比、查看器与撤销历史。
@@ -459,6 +465,8 @@ const TRANSIENT_NODE_KEYS = new Set([
   "measured",
   "width",
   "height",
+  "resizing",
+  "resizeDocumentPosition",
 ]);
 
 const PRESERVED_NODE_TRANSIENT_KEYS = ["dragging", "measured", "width", "height"] as const;
@@ -483,6 +491,14 @@ function preserveNodeRuntimeAndTransients(
     if (key === "dragging" && options?.preserveDragging === false) continue;
     if (Object.prototype.hasOwnProperty.call(currentRecord, key)) nextRecord[key] = currentRecord[key];
     else delete nextRecord[key];
+  }
+  if (current.resizeDocumentPosition) {
+    const targetDocumentPosition = target.resizeDocumentPosition ?? target.position;
+    next.position = {
+      x: targetDocumentPosition.x + current.position.x - current.resizeDocumentPosition.x,
+      y: targetDocumentPosition.y + current.position.y - current.resizeDocumentPosition.y,
+    };
+    next.resizeDocumentPosition = { ...targetDocumentPosition };
   }
   return next;
 }
@@ -649,7 +665,12 @@ function rebaseDocumentOutsideTransaction(
       node.dragging === baseline?.dragging
     ) return node;
     changed = true;
-    return { ...node, position: { ...position }, dragging: baseline?.dragging };
+    return {
+      ...node,
+      position: { ...position },
+      resizeDocumentPosition: baseline?.resizeDocumentPosition,
+      dragging: baseline?.dragging,
+    };
   });
   return {
     projectName: document.projectName,
@@ -1524,6 +1545,72 @@ function patchDocumentTarget(
     return typeof patch === "function" ? patch(tab) : patch;
   });
   return matched;
+}
+
+const drawingCreationLocks = new Set<string>();
+
+/** 防止全量保存覆盖已提交但响应尚未确认的画板；未知结果期间保持锁定。 */
+export function acquireDrawingCreationLock(target: DocumentTarget): (() => void) | undefined {
+  const key = documentTargetKey(target);
+  if (drawingCreationLocks.has(key) || saveQueueByDocument.has(key)) return undefined;
+  drawingCreationLocks.add(key);
+  return () => { drawingCreationLocks.delete(key); };
+}
+
+export interface CreatedDrawingBoard {
+  nodeId: string;
+  baselineRevision: number;
+  position: { x: number; y: number };
+  document: DrawingDocument;
+  contentRef: string;
+  previewImageRef: string;
+}
+
+/** 服务端已原子创建版本与项目节点后，把完整节点作为唯一一次本地文档提交。 */
+export function commitCreatedDrawingBoard(target: DocumentTarget, created: CreatedDrawingBoard): boolean {
+  const state = useFlowStore.getState();
+  const tab = documentForTarget(state, target);
+  if (!tab || tab.readOnly || tab.nodes.some((node) => node.id === created.nodeId)) return false;
+  const node: FlowNode = {
+    id: created.nodeId,
+    type: "drawing-board",
+    position: created.position,
+    data: {
+      kind: "drawing-board",
+      label: "绘画工具",
+      status: "idle",
+      boardVersion: 1,
+      width: created.document.canvas.width,
+      height: created.document.canvas.height,
+      background: created.document.canvas.background,
+      contentRef: created.contentRef,
+      previewImageRef: created.previewImageRef,
+    },
+  };
+  const nodes = [...tab.nodes, node];
+  const before = temporalDocument(tab);
+  const current = temporalDocument({ ...tab, nodes });
+  if (state.activeTabId === target.tabId) recordHistoryEntry(before, current);
+  else recordInactiveTabHistory(target.tabId, before, current);
+  const nextRevision = tab.revision + 1;
+  const serverContainsLatestDocument = tab.revision === created.baselineRevision
+    && tab.savedRevision === created.baselineRevision
+    && !tab.dirty;
+  const nodePatch = state.activeTabId === target.tabId
+    ? normalizeNodeSelection(nodes, [created.nodeId])
+    : { nodes };
+  let committed = false;
+  runWithoutHistory(() => {
+    committed = patchDocumentTarget(useFlowStore.setState, target, {
+      ...nodePatch,
+      selectedResultId: null,
+      revision: nextRevision,
+      savedRevision: serverContainsLatestDocument ? nextRevision : tab.savedRevision,
+      dirty: !serverContainsLatestDocument,
+      saveState: serverContainsLatestDocument ? "saved" : tab.saveState === "saving" ? "saving" : "idle",
+    });
+  });
+  return committed;
 }
 
 function textEditDescriptorKey(descriptor: CoalescedTextEditDescriptor): string {
@@ -3401,6 +3488,9 @@ export const useFlowStore = create<FlowState>()(
       const saveTab = async (target: DocumentTarget): Promise<SaveTabResult> => {
         const tabId = target.tabId;
         const queueKey = documentTargetKey(target);
+        if (drawingCreationLocks.has(queueKey)) {
+          return { ok: false, error: "画板创建结果确认中，请稍后保存项目" };
+        }
         // Register an explicit retry before joining the transaction barrier. A
         // failed response may already be ahead of this save in the settlement
         // FIFO and must still observe the user's later retry intent.
@@ -3414,6 +3504,9 @@ export const useFlowStore = create<FlowState>()(
 
         const initialSettlement = waitForHistoryTransactionSettlement(tabId);
         if (initialSettlement) await initialSettlement;
+        if (drawingCreationLocks.has(queueKey)) {
+          return { ok: false, error: "画板创建结果确认中，请稍后保存项目" };
+        }
         const firstSnapshot = documentForTarget(get(), target);
         if (!firstSnapshot || firstSnapshot.readOnly) {
           return { ok: false, error: "项目已切换、不存在或当前页签为只读" };
@@ -3733,8 +3826,40 @@ export const useFlowStore = create<FlowState>()(
         const state = get();
         const tab = selectActiveDocument(state);
         const allowed = tab.readOnly ? changes.filter((change) => change.type === "select" || change.type === "dimensions") : changes;
-        const nodes = applyNodeChanges(allowed, tab.nodes);
+        const dimensionChangeIds = new Set(allowed.flatMap((change) => change.type === "dimensions" ? [change.id] : []));
+        const currentlyResizingIds = new Set(tab.nodes.flatMap((node) => node.resizing ? [node.id] : []));
+        const resizePositionIds = new Set(allowed.flatMap((change) => (
+          change.type === "position" && (dimensionChangeIds.has(change.id) || currentlyResizingIds.has(change.id))
+            ? [change.id]
+            : []
+        )));
+        let nodes = applyNodeChanges(allowed, tab.nodes);
         if (nodes === tab.nodes) return;
+        if (resizePositionIds.size > 0) {
+          nodes = nodes.map((node) => {
+            if (!resizePositionIds.has(node.id)) return node;
+            const previous = tab.nodes.find((candidate) => candidate.id === node.id);
+            if (!previous || previous.resizeDocumentPosition) return node;
+            return { ...node, resizeDocumentPosition: { ...previous.position } };
+          });
+        }
+        const documentPositionIds = new Set(allowed.flatMap((change) => (
+          change.type === "position" && !resizePositionIds.has(change.id) ? [change.id] : []
+        )));
+        if (documentPositionIds.size > 0) {
+          nodes = nodes.map((node) => {
+            if (!documentPositionIds.has(node.id)) return node;
+            const previous = tab.nodes.find((candidate) => candidate.id === node.id);
+            if (!previous?.resizeDocumentPosition) return node;
+            return {
+              ...node,
+              resizeDocumentPosition: {
+                x: previous.resizeDocumentPosition.x + node.position.x - previous.position.x,
+                y: previous.resizeDocumentPosition.y + node.position.y - previous.position.y,
+              },
+            };
+          });
+        }
         const selection = normalizeNodeSelection(
           nodes,
           selectionIdsAfterNodeChanges(tab.selectedNodeIds, nodes, allowed),
@@ -3743,9 +3868,11 @@ export const useFlowStore = create<FlowState>()(
           ...selection,
           ...(selection.selectedNodeIds.length > 0 ? { selectedResultId: null } : {}),
         };
-        const changesDocument = allowed.some(
-          (change) => change.type !== "select" && change.type !== "dimensions",
-        );
+        const changesDocument = allowed.some((change) => (
+          change.type !== "select"
+          && change.type !== "dimensions"
+          && !(change.type === "position" && resizePositionIds.has(change.id))
+        ));
         const onlyMovesNodes = changesDocument && allowed.every(
           (change) => change.type === "select" || change.type === "dimensions" || change.type === "position",
         );
@@ -4324,6 +4451,11 @@ export const useFlowStore = create<FlowState>()(
         // switch must save the rolled-back source tab, never the new active tab.
         flushActiveTextEdit();
         const target = selectActiveDocumentTarget(get());
+        return (await saveTab(target)).ok;
+      },
+
+      saveProjectInTab: async (target) => {
+        flushActiveTextEdit();
         return (await saveTab(target)).ok;
       },
 

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   ReactFlow,
   MiniMap,
   useNodesInitialized,
   useReactFlow,
+  type Edge,
   type NodeChange,
 } from "@xyflow/react";
 import {
@@ -30,6 +31,7 @@ import {
   type CanvasLandingIntent,
 } from "@/lib/canvasLanding";
 import { CanvasZoomControls } from "./CanvasZoomControls";
+import { CanvasMiniMapNode, minimapNodeColor } from "./CanvasMiniMapNode";
 import { detectDesktopShortcutPlatform } from "@/lib/keyboardShortcuts";
 import {
   CANVAS_CREATION_EVENT,
@@ -40,9 +42,17 @@ import {
   parseCanvasCreationDragPayload,
   type CanvasCreationRequest,
 } from "@/lib/canvasCreation";
+import { openDrawingTool } from "@/lib/drawingTool";
 import { OPEN_ASSET_PICKER_EVENT, type AssetPickerRequest } from "@/lib/overlayEvents";
 import type { CanvasCreationIntent } from "@/types/workbench";
 import { directedPathNodeIds } from "@/lib/graphLayout";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { UnlinkIcon } from "lucide-react";
 
 export const DND_MIME = "application/garment-node";
 
@@ -159,6 +169,12 @@ const MINIMAP_COLORS = {
   current: { bg: "#e2e2e2", node: "#8a8a8a", mask: "rgba(191,191,191,0.58)" },
 };
 
+interface EdgeContextMenuState {
+  edgeId: string;
+  clientX: number;
+  clientY: number;
+}
+
 export function CanvasFlow() {
   const nodes = useFlowStore(selectActiveNodes);
   const edges = useFlowStore(selectActiveEdges);
@@ -175,6 +191,7 @@ export function CanvasFlow() {
   const nodesInitialized = useNodesInitialized();
   const [landingVersion, setLandingVersion] = useState(0);
   const [compactMinimap, setCompactMinimap] = useState(false);
+  const [edgeMenu, setEdgeMenu] = useState<EdgeContextMenuState | null>(null);
   const minimapWidth = compactMinimap ? 128 : 200;
   const minimapHeight = compactMinimap ? 96 : 150;
   const minimap = MINIMAP_COLORS.current;
@@ -237,10 +254,15 @@ export function CanvasFlow() {
       })),
       preservePreferred: mode === "drop",
     });
+    if (intent.type === "drawing-board") {
+      openDrawingTool({
+        target: selectActiveDocumentTarget(useFlowStore.getState()),
+        position: resolved,
+      });
+      return;
+    }
     const normalizedIntent = intent.type === "asset-picker"
       ? { type: "node", kind: "image-input" as const }
-      : intent.type === "drawing-board"
-        ? { type: "node", kind: "drawing-board" as const }
         : intent.type === "color-palette"
           ? { type: "node", kind: "color-palette" as const, preset: { swatches: intent.swatches } }
           : intent;
@@ -367,6 +389,11 @@ export function CanvasFlow() {
     [onNodesChange],
   );
 
+
+  const openEdgeContextMenu = useCallback((event: ReactMouseEvent, edge: Edge) => {
+    event.preventDefault();
+    setEdgeMenu({ edgeId: edge.id, clientX: event.clientX, clientY: event.clientY });
+  }, []);
   return (
     <div ref={canvasContainerRef} className="min-h-0 flex-1">
       <ReactFlow
@@ -376,6 +403,7 @@ export function CanvasFlow() {
         nodeTypes={nodeTypes}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
+        onEdgeContextMenu={openEdgeContextMenu}
         onConnect={onConnect}
         isValidConnection={isValidConnection}
         onDrop={onDrop}
@@ -390,7 +418,10 @@ export function CanvasFlow() {
         onNodeDragStop={(event) => {
           finishDragHistoryTransaction(dragTransactionRef, event.timeStamp);
         }}
-        onPaneClick={() => setSelectedNodeIds([])}
+        onPaneClick={() => {
+          setSelectedNodeIds([]);
+          setEdgeMenu(null);
+        }}
         deleteKeyCode={readOnly ? null : ["Delete", "Backspace"]}
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
@@ -406,10 +437,11 @@ export function CanvasFlow() {
         defaultEdgeOptions={{ type: "pulse" }}
       >
         <DotWaveBackground />
-        <MiniMap
+        <MiniMap<FlowNode>
           position="bottom-right"
           bgColor={minimap.bg}
-          nodeColor={minimap.node}
+          nodeColor={(node) => minimapNodeColor(node.data)}
+          nodeComponent={CanvasMiniMapNode}
           maskColor={minimap.mask}
           style={{
             width: minimapWidth,
@@ -421,6 +453,43 @@ export function CanvasFlow() {
         />
         <CanvasZoomControls minimapWidth={minimapWidth} />
       </ReactFlow>
+      {edgeMenu && (
+        <DropdownMenu
+          open
+          onOpenChange={(open) => {
+            if (!open) setEdgeMenu(null);
+          }}
+        >
+          <DropdownMenuTrigger
+            render={(
+              <span
+                aria-hidden="true"
+                className="pointer-events-none fixed z-[71] size-px"
+                style={{ left: edgeMenu.clientX, top: edgeMenu.clientY }}
+              />
+            )}
+          />
+          <DropdownMenuContent
+            aria-label="连线操作"
+            align="start"
+            side="bottom"
+            sideOffset={2}
+            className="w-36 border border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)] ring-0"
+          >
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={readOnly}
+              onClick={() => {
+                onEdgesChange([{ id: edgeMenu.edgeId, type: "remove" }]);
+                setEdgeMenu(null);
+              }}
+            >
+              <UnlinkIcon aria-hidden="true" />
+              断开连线
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }

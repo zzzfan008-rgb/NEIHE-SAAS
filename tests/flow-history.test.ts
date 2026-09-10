@@ -6,10 +6,13 @@ import {
   registerDragInterruptionHandlers,
 } from "../src/components/CanvasFlow";
 import {
+  acquireDrawingCreationLock,
   applyRunEventToTab,
   beginHistoryTransaction,
   endHistoryTransaction,
+  commitCreatedDrawingBoard,
   ensureGeneratedResultNode,
+  persistedWorkflowForProjectTab,
   reconcileRunHistory,
   selectActiveDocument,
   selectResultImages,
@@ -17,6 +20,7 @@ import {
   type DocumentTarget,
   type FlowNode,
 } from "../src/store/flowStore";
+import { createEmptyDrawingDocument } from "../src/components/drawing/drawingModel";
 import type { WorkflowNodeData } from "../src/types/workflow";
 import { setGenerationSafetyBlockReason } from "../src/store/generationSafety";
 
@@ -846,6 +850,125 @@ await test("撤销文档不回退 React Flow 测量瞬态与服务端运行态",
   assert.equal(restored.height, 320);
   assert.equal(restored.data.status, "success");
   assert.equal(restored.data.kind === "ai-modify" ? restored.data.prompt : "", "保留衣身，修改领型");
+});
+
+
+await test("四角缩放的配套 position 与尺寸均保持瞬态，后续拖动只更新文档坐标", () => {
+  const imageNode: FlowNode = {
+    id: "resizable-image",
+    type: "image-input",
+    position: { x: 100, y: 100 },
+    data: { kind: "image-input", label: "参考图", status: "idle", imageRole: "reference", imageUrl: "/api/files/image.png" },
+  };
+  const { nodeId } = resetDocument(imageNode);
+  const beforeRevision = activeDocument().revision;
+  useFlowStore.getState().onNodesChange([
+    { id: nodeId, type: "position", position: { x: 80, y: 90 } },
+    { id: nodeId, type: "dimensions", dimensions: { width: 320, height: 220 }, resizing: true, setAttributes: true },
+  ]);
+  let resized = activeDocument().nodes[0];
+  assert.deepEqual(resized.position, { x: 80, y: 90 });
+  assert.deepEqual(resized.resizeDocumentPosition, { x: 100, y: 100 });
+  assert.equal(activeDocument().revision, beforeRevision);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 0);
+  let persisted = persistedWorkflowForProjectTab(activeDocument()).nodes[0];
+  assert.deepEqual(persisted.position, { x: 100, y: 100 });
+  assert.equal("width" in persisted, false);
+  assert.equal("height" in persisted, false);
+
+  useFlowStore.getState().onNodesChange([
+    { id: nodeId, type: "dimensions", dimensions: { width: 320, height: 220 }, resizing: false },
+  ]);
+  useFlowStore.getState().onNodesChange([
+    { id: nodeId, type: "position", position: { x: 120, y: 130 }, dragging: false },
+  ]);
+  resized = activeDocument().nodes[0];
+  assert.deepEqual(resized.resizeDocumentPosition, { x: 140, y: 140 });
+  assert.equal(activeDocument().revision, beforeRevision + 1);
+  persisted = persistedWorkflowForProjectTab(activeDocument()).nodes[0];
+  assert.deepEqual(persisted.position, { x: 140, y: 140 });
+  useFlowStore.getState().undo();
+  resized = activeDocument().nodes[0];
+  assert.deepEqual(resized.position, { x: 80, y: 90 });
+  assert.deepEqual(resized.resizeDocumentPosition, { x: 100, y: 100 });
+  assert.deepEqual(persistedWorkflowForProjectTab(activeDocument()).nodes[0].position, { x: 100, y: 100 });
+});
+await test("缩放后拖动期间并发文档更新，撤销保持缩放偏移并恢复文档坐标", () => {
+  const { nodeId } = resetDocument({
+    id: "resized-concurrent", type: "image-input", position: { x: 80, y: 90 },
+    resizeDocumentPosition: { x: 100, y: 100 }, width: 320, height: 220,
+    data: { kind: "image-input", label: "参考图", status: "idle", imageRole: "reference" },
+  });
+  const transaction = beginHistoryTransaction("resized-concurrent-drag");
+  useFlowStore.getState().onNodesChange([{
+    id: nodeId, type: "position", position: { x: 120, y: 130 }, dragging: true,
+  }]);
+  useFlowStore.getState().updateNodeData(nodeId, { imageUrl: "/api/files/late-upload.png" });
+  endHistoryTransaction(transaction);
+  useFlowStore.getState().undo();
+  const node = activeDocument().nodes[0];
+  assert.deepEqual(node.position, { x: 80, y: 90 });
+  assert.deepEqual(node.resizeDocumentPosition, { x: 100, y: 100 });
+  assert.equal(node.data.kind === "image-input" && node.data.imageUrl, "/api/files/late-upload.png");
+});
+
+await test("画板创建锁阻止同文档全量保存且拒绝重复创建锁", async () => {
+  const { tabId } = resetDocument(aiNode("drawing-lock-anchor"));
+  const target = documentTargetForTab(tabId);
+  const release = acquireDrawingCreationLock(target);
+  assert.ok(release);
+  try {
+    assert.equal(acquireDrawingCreationLock(target), undefined);
+    assert.equal(await useFlowStore.getState().saveProjectInTab(target), false);
+  } finally { release(); }
+  const nextRelease = acquireDrawingCreationLock(target);
+  assert.ok(nextRelease);
+  nextRelease();
+});
+
+await test("服务端原子创建成功后才提交完整画板节点与一次可撤销历史", () => {
+  const { tabId } = resetDocument(aiNode("drawing-create-anchor"));
+  const target = documentTargetForTab(tabId);
+  const before = activeDocument();
+  const nodeId = "created-drawing-board";
+  const document = createEmptyDrawingDocument();
+  assert.equal(commitCreatedDrawingBoard(target, {
+    nodeId,
+    baselineRevision: before.revision,
+    position: { x: 320, y: 180 },
+    document,
+    contentRef: "draw_created_v1",
+    previewImageRef: "/api/files/draw-created.png",
+  }), true);
+  const created = activeDocument().nodes.find((node) => node.id === nodeId);
+  assert.equal(created?.data.kind === "drawing-board" && created.data.contentRef, "draw_created_v1");
+  assert.equal(created?.data.kind === "drawing-board" && created.data.previewImageRef, "/api/files/draw-created.png");
+  assert.equal(activeDocument().revision, before.revision + 1);
+  assert.equal(activeDocument().savedRevision, before.revision + 1);
+  assert.equal(activeDocument().dirty, false);
+  assert.equal(useFlowStore.temporal.getState().pastStates.length, 1);
+  useFlowStore.getState().undo();
+  assert.equal(activeDocument().nodes.some((node) => node.id === nodeId), false);
+});
+
+await test("画板创建等待期间的新文档改动不能被误标为已保存", () => {
+  const { tabId, nodeId: anchorId } = resetDocument(aiNode("drawing-concurrent-anchor"));
+  const target = documentTargetForTab(tabId);
+  const baseline = activeDocument();
+  useFlowStore.getState().updateNodeData(anchorId, { prompt: "创建等待期间的新改动" });
+  const concurrent = activeDocument();
+  assert.equal(commitCreatedDrawingBoard(target, {
+    nodeId: "drawing-after-concurrent-change",
+    baselineRevision: baseline.revision,
+    position: { x: 200, y: 160 },
+    document: createEmptyDrawingDocument(),
+    contentRef: "draw_concurrent_v1",
+    previewImageRef: "/api/files/draw-concurrent.png",
+  }), true);
+  assert.equal(activeDocument().revision, concurrent.revision + 1);
+  assert.equal(activeDocument().savedRevision, concurrent.savedRevision);
+  assert.equal(activeDocument().dirty, true);
+  assert.equal(activeDocument().saveState, "idle");
 });
 
 await test("画板保存与导出各只形成一次全局历史且拒绝过期 DocumentTarget", () => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import { selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
 import { useCustomColors } from "@/store/customColors";
@@ -8,6 +8,8 @@ import { ImageGrid } from "./ImageGrid";
 import { ModelControls } from "./ModelControls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { PipetteIcon } from "lucide-react";
 import {
   COLOR_CATEGORIES,
   buildRecolorPrompt,
@@ -42,6 +44,9 @@ export function FabricRecolorNode({
   const colors = paletteNode ? paletteNode.data.swatches.map((swatch) => swatch.value) : localColors;
   const [hexInput, setHexInput] = useState("");
   const [categoryId, setCategoryId] = useState(COLOR_CATEGORIES[0].id);
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const [colorPickerError, setColorPickerError] = useState<string>();
+  const colorPickerTriggerRef = useRef<HTMLButtonElement>(null);
 
   const customColors = useCustomColors((s) => s.colors);
   const addCustomColor = useCustomColors((s) => s.add);
@@ -76,14 +81,30 @@ export function FabricRecolorNode({
     }
   };
 
-  const addCustomHex = () => {
-    if (!isValidHex(hexInput)) return;
-    const hex = normalizeHex(hexInput);
-    addCustomColor(hex); // 保存到自定义色分类（localStorage 持久化）
-    if (!paletteNode && !localColors.includes(hex) && localColors.length < MAX_COLORS) {
-      applyColors([...localColors, hex]);
+  const addCustomHex = (): boolean => {
+    if (!isValidHex(hexInput)) {
+      setColorPickerError("请输入有效的 #RRGGBB 色值");
+      return false;
     }
+    const hex = normalizeHex(hexInput);
+    if (!paletteNode && !localColors.includes(hex) && localColors.length >= MAX_COLORS) {
+      setColorPickerError(`最多选择 ${MAX_COLORS} 个颜色，请先移除一个颜色`);
+      return false;
+    }
+    addCustomColor(hex); // 保存到自定义色分类（localStorage 持久化）
+    if (!paletteNode && !localColors.includes(hex)) applyColors([...localColors, hex]);
+    setColorPickerError(undefined);
     setHexInput("");
+    return true;
+  };
+  const closeColorPicker = (discardDraft = false) => {
+    if (discardDraft) setHexInput("");
+    setColorPickerError(undefined);
+    setColorPickerOpen(false);
+    requestAnimationFrame(() => colorPickerTriggerRef.current?.focus());
+  };
+  const confirmCustomHex = () => {
+    if (addCustomHex()) closeColorPicker();
   };
 
   return (
@@ -130,7 +151,7 @@ export function FabricRecolorNode({
           </p>
         )}
 
-        {/* 已选配色（最多 3 色，点击移除） */}
+        {/* 已选配色（最多 8 色，点击移除） */}
         <div className="flex min-h-[22px] flex-wrap items-center gap-1 rounded-md border border-[#262626] bg-[#0f0f0f] px-1.5 py-1" aria-label="已选配色">
           {colors.length === 0 ? (
             <span className="text-[10px] text-neutral-600">已选配色（最多 8 色，每色出 1 张图）</span>
@@ -218,35 +239,69 @@ export function FabricRecolorNode({
             )}
           </div>
 
-          {/* 自定义色值输入（仅在自定义色页签内显示） */}
+          {/* 自定义取色器只在自定义色页签内显示，确认后才写入节点并关闭。 */}
           {categoryId === CUSTOM_CATEGORY_ID && (
-            <div className="mt-1.5 flex items-center gap-1">
-              <input
-                type="color"
-                value={isValidHex(hexInput) ? normalizeHex(hexInput) : "#C9A66B"}
-                onChange={(e) => setHexInput(e.target.value)}
-                aria-label="自定义取色"
-                className="h-6 w-7 cursor-pointer rounded-xs border border-[#333] bg-transparent p-0"
-                title="自定义取色"
-              />
-              <Input
-                type="text"
-                value={hexInput}
-                onChange={(e) => setHexInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addCustomHex()}
-                placeholder="#RRGGBB"
-                className="h-6 flex-1 rounded-xs border border-[#333] bg-[#0f0f0f] px-1.5 font-mono text-[10px] text-neutral-200 shadow-none placeholder:text-neutral-600 focus:border-gold/60 focus-visible:ring-0"
-              />
-              <Button
-                type="button"
-                onClick={addCustomHex}
-                disabled={!isValidHex(hexInput)}
-                variant="outline"
-                size="xs"
-                className="h-6 rounded-xs border border-[#333] px-2 text-[10px] text-neutral-300 hover:border-gold/60 disabled:opacity-40"
+            <div className="mt-1.5 flex justify-end">
+              <Popover
+                open={colorPickerOpen}
+                onOpenChange={(open) => {
+                  if (open) {
+                    setColorPickerError(undefined);
+                    if (!isValidHex(hexInput)) setHexInput("#C9A66B");
+                    setColorPickerOpen(true);
+                  } else {
+                    closeColorPicker(true);
+                  }
+                }}
               >
-                添加
-              </Button>
+                <PopoverTrigger
+                  render={(
+                    <Button
+                      ref={colorPickerTriggerRef}
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      disabled={Boolean(paletteNode)}
+                      aria-label="打开自定义取色器"
+                      className="h-7 border-[#333] text-[10px] text-neutral-300 hover:border-gold/60"
+                    >
+                      <PipetteIcon aria-hidden="true" />
+                      自定义取色
+                    </Button>
+                  )}
+                />
+                <PopoverContent side="right" align="start" className="w-64 space-y-3 p-3">
+                  <div>
+                    <h4 className="text-xs font-medium text-[var(--gc-text)]">自定义取色</h4>
+                    <p className="mt-1 text-[10px] text-[var(--gc-text-muted)]">选择颜色并确认后，颜色才会加入当前面料配色。</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={isValidHex(hexInput) ? normalizeHex(hexInput) : "#C9A66B"}
+                      onChange={(event) => setHexInput(event.target.value)}
+                      aria-label="自定义取色"
+                      className="h-9 w-11 cursor-pointer rounded-md border border-[var(--gc-border)] bg-transparent p-0"
+                    />
+                    <Input
+                      type="text"
+                      value={hexInput}
+                      onChange={(event) => setHexInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.nativeEvent.isComposing) confirmCustomHex();
+                      }}
+                      aria-label="自定义颜色值"
+                      placeholder="#RRGGBB"
+                      className="h-9 flex-1 font-mono text-xs"
+                    />
+                  </div>
+                  {colorPickerError && <p role="alert" className="text-[10px] text-[var(--gc-danger)]">{colorPickerError}</p>}
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => closeColorPicker(true)}>取消</Button>
+                    <Button type="button" size="sm" disabled={!isValidHex(hexInput)} onClick={confirmCustomHex}>确认</Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
           )}
         </div>

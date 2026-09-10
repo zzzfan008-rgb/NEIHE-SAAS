@@ -10,6 +10,7 @@ import {
   drawingDocumentSha256,
   drawingNodeFromFlow,
 } from "../lib/drawingBoard";
+import { assertImageReferencesAccessible, ImageReferenceAccessError } from "../lib/imageReferenceAccess";
 import { lockActiveOwner } from "../lib/ownerMutation";
 import { validateAndMigrateFlow, WorkflowValidationError } from "../lib/workflowSchema";
 import { DrawingBoardValidationError } from "../../src/components/drawing/drawingModel";
@@ -19,6 +20,128 @@ export const drawingBoardsRouter = Router();
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_.:-]{8,200}$/;
 
+
+drawingBoardsRouter.post("/create", asyncHandler(async (req, res) => {
+  const user = requestUser(req);
+  const { clientRequestId, projectId, nodeId, position, previewImageRef, document } = req.body as Record<string, unknown>;
+  const point = position as { x?: unknown; y?: unknown } | undefined;
+  if (
+    typeof clientRequestId !== "string" || !REQUEST_ID_PATTERN.test(clientRequestId) ||
+    typeof projectId !== "string" || !ID_PATTERN.test(projectId) ||
+    typeof nodeId !== "string" || !ID_PATTERN.test(nodeId) ||
+    !point || typeof point.x !== "number" || !Number.isFinite(point.x) || Math.abs(point.x) > 1_000_000 ||
+    typeof point.y !== "number" || !Number.isFinite(point.y) || Math.abs(point.y) > 1_000_000 ||
+    typeof previewImageRef !== "string" || !previewImageRef.startsWith("/api/files/")
+  ) {
+    res.status(400).json({ error: "clientRequestId、projectId、nodeId、position 或 previewImageRef 无效" });
+    return;
+  }
+
+  try {
+    const contentJson = canonicalDrawingDocumentJson(document);
+    const normalizedDocument = JSON.parse(contentJson) as { canvas: { width: number; height: number; background: string } };
+    const contentSha256 = drawingDocumentSha256(document);
+    const creation = {
+      position: { x: point.x, y: point.y },
+      previewImageRef,
+    };
+    const requestSha256 = drawingBoardRequestSha256({
+      projectId, nodeId, baseContentRef: null, documentSha256: contentSha256, creation,
+    });
+    const outcome = await transaction(async (client) => {
+      if (!await lockActiveOwner(client, user.id)) return { status: "owner-unavailable" as const };
+      const project = (await client.query<{ owner_id: string; flow_json: string }>(`
+        SELECT owner_id, flow_json FROM projects
+        WHERE id = $1 AND deleted_at IS NULL
+        FOR UPDATE
+      `, [projectId])).rows[0];
+      if (!project || project.owner_id !== user.id) return { status: "not-found" as const };
+      const flow = validateAndMigrateFlow(JSON.parse(project.flow_json));
+      const replay = (await client.query<{
+        request_sha256: string; content_ref: string; sha256: string; created_at: string;
+      }>(`
+        SELECT i.request_sha256, i.content_ref, v.sha256, v.created_at
+        FROM drawing_board_idempotency i
+        JOIN drawing_document_versions v ON v.id = i.content_ref
+        WHERE i.owner_id = $1 AND i.client_request_id = $2
+        FOR UPDATE OF i
+      `, [user.id, clientRequestId])).rows[0];
+      if (replay) {
+        if (replay.request_sha256 !== requestSha256) return { status: "idempotency-conflict" as const };
+        const existing = flow.nodes.find((candidate) => candidate.id === nodeId);
+        return existing?.data.kind === "drawing-board"
+          && existing.data.contentRef === replay.content_ref
+          && existing.data.previewImageRef === previewImageRef
+          ? { status: "replay" as const, contentRef: replay.content_ref, sha256: replay.sha256, createdAt: replay.created_at }
+          : { status: "not-found" as const };
+      }
+      if (flow.nodes.some((candidate) => candidate.id === nodeId)) return { status: "node-conflict" as const };
+      await assertImageReferencesAccessible(previewImageRef, user.id, client, { fileLock: "update" });
+      const contentRef = `draw_${nanoid(20)}`;
+      const createdAt = new Date().toISOString();
+      const nextFlow = validateAndMigrateFlow({
+        ...flow,
+        nodes: [...flow.nodes, {
+          id: nodeId,
+          type: "drawing-board",
+          position: creation.position,
+          data: {
+            kind: "drawing-board",
+            label: "绘画工具",
+            status: "idle",
+            boardVersion: 1,
+            width: normalizedDocument.canvas.width,
+            height: normalizedDocument.canvas.height,
+            background: normalizedDocument.canvas.background,
+            contentRef,
+            previewImageRef,
+          },
+        }],
+      });
+      await client.query(`
+        INSERT INTO drawing_document_versions (
+          id, owner_id, project_id, node_id, version, content_json, sha256, base_content_ref, created_at
+        ) VALUES ($1, $2, $3, $4, 1, $5, $6, NULL, $7)
+      `, [contentRef, user.id, projectId, nodeId, contentJson, contentSha256, createdAt]);
+      await client.query(`
+        INSERT INTO drawing_board_idempotency (
+          owner_id, client_request_id, request_sha256, content_ref, created_at
+        ) VALUES ($1, $2, $3, $4, $5)
+      `, [user.id, clientRequestId, requestSha256, contentRef, createdAt]);
+      await client.query(`
+        UPDATE projects SET flow_json = $1, updated_at = $2
+        WHERE id = $3 AND owner_id = $4
+      `, [JSON.stringify(nextFlow), createdAt, projectId, user.id]);
+      return { status: "created" as const, contentRef, sha256: contentSha256, createdAt };
+    });
+
+    if (outcome.status === "created" || outcome.status === "replay") {
+      res.status(outcome.status === "created" ? 201 : 200).json({
+        contentRef: outcome.contentRef, sha256: outcome.sha256, createdAt: outcome.createdAt,
+      });
+      return;
+    }
+    if (outcome.status === "owner-unavailable") {
+      res.status(409).json({ error: "账号已停用或删除，不能创建画板" });
+      return;
+    }
+    if (outcome.status === "not-found") {
+      res.status(404).json({ error: "项目或画板资源不存在" });
+      return;
+    }
+    if (outcome.status === "node-conflict") {
+      res.status(409).json({ error: "画板节点编号已存在" });
+      return;
+    }
+    res.status(409).json({ error: "同一请求号不能创建不同画板" });
+  } catch (error) {
+    const status = error instanceof DrawingBoardValidationError || error instanceof WorkflowValidationError
+      ? 400 : error instanceof ImageReferenceAccessError ? 403 : 500;
+    res.status(status).json({
+      error: error instanceof Error ? error.message : "画板创建失败",
+    });
+  }
+}));
 drawingBoardsRouter.post("/versions", asyncHandler(async (req, res) => {
   const user = requestUser(req);
   const { clientRequestId, projectId, nodeId, baseContentRef, document } = req.body as Record<string, unknown>;

@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ReactFlowProvider } from "@xyflow/react";
 import {
+  boundedImageNodeScale,
   fitImageNodeDimensions,
   ImageFileInput,
   ImageInputNode,
@@ -145,6 +146,24 @@ test("图片窗口保持真实宽高比并把长边收敛到 280px", () => {
   assert.deepEqual(fitImageNodeDimensions(1200, 800), { width: 280, height: 187 });
   assert.deepEqual(fitImageNodeDimensions(600, 1200), { width: 140, height: 280 });
   assert.deepEqual(fitImageNodeDimensions(0, 0), { width: 280, height: 180 });
+});
+
+test("键盘缩放保持比例且不会把窄幅自然尺寸越缩越大", () => {
+  assert.equal(boundedImageNodeScale(140, 280, 0.9), 1);
+  assert.equal(boundedImageNodeScale(280, 187, 0.9), 0.9);
+  assert.equal(boundedImageNodeScale(790, 790, 1.1), 800 / 790);
+});
+
+test("所有参考图节点提供四角实时缩放、自然尺寸初始值和键盘等价操作", () => {
+  const source = readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
+  assert.match(source, /NodeResizer/);
+  assert.match(source, /isVisible=\{selected && !readOnly\}/);
+  assert.match(source, /minWidth=\{IMAGE_NODE_MIN_WIDTH\}[\s\S]*?minHeight=\{IMAGE_NODE_MIN_HEIGHT\}[\s\S]*?maxWidth=\{IMAGE_NODE_MAX_SIZE\}[\s\S]*?maxHeight=\{IMAGE_NODE_MAX_SIZE\}/);
+  assert.match(source, /lineStyle=\{\{ pointerEvents: "none" \}\}/, "只能拖动四个角，边线不可拖动");
+  assert.match(source, /explicitWidth[\s\S]*?selectActiveNodes/, "只有显式节点宽高才能覆盖图片自然适配尺寸");
+  assert.match(source, /className="block h-full w-full select-none object-contain"/);
+  assert.match(source, /height: resizedHeight \? "100%" : fittedImage\.height/);
+  assert.match(source, /aria-label="缩小参考图节点"[\s\S]*?aria-label="放大参考图节点"/, "缩放必须提供键盘可操作的按钮");
 });
 
 test("上传完成态保留节点名称并维持图片外框样式", () => {

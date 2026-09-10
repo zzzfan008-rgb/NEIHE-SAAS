@@ -11,6 +11,7 @@ import {
   desktopShortcutPlatformFromValues,
   workbenchShortcutRows,
 } from "../src/lib/keyboardShortcuts";
+import { minimapNodeColor, minimapNodeThumbnail } from "../src/components/CanvasMiniMapNode";
 
 const testRoot = path.dirname(fileURLToPath(import.meta.url));
 const workbenchRoot = path.resolve(testRoot, "../src/components/workbench");
@@ -82,6 +83,21 @@ assert.equal(macShortcuts.find(({ label }) => label === "取消撤销")?.shortcu
 assert.equal(windowsShortcuts.find(({ label }) => label === "取消撤销")?.shortcut, "Ctrl Y");
 console.log("  ✓ 快捷键菜单按 macOS / Windows 显示对应修饰键与系统删除键");
 
+
+assert.equal(minimapNodeThumbnail({ kind: "image-input", imageUrl: "/api/files/ref.png" } as never), "/api/files/ref.png");
+assert.equal(minimapNodeThumbnail({ kind: "image-input", imageUrl: "asset://provider-only" } as never), undefined);
+assert.equal(minimapNodeThumbnail({ kind: "drawing-board", previewImageRef: "/api/files/drawing.png" } as never), "/api/files/drawing.png");
+assert.equal(minimapNodeThumbnail({ kind: "result", images: ["/api/files/result.png"] } as never), "/api/files/result.png");
+assert.equal(
+  minimapNodeThumbnail({ kind: "video-generate", outputImages: ["/api/files/clip.mp4", "/api/files/poster.webp"] } as never),
+  "/api/files/poster.webp",
+);
+assert.notEqual(
+  minimapNodeColor({ kind: "color-palette" } as never),
+  minimapNodeColor({ kind: "drawing-board" } as never),
+  "无图片节点必须按类型保留可区分色块",
+);
+console.log("  ✓ MiniMap 为图片、画板和结果节点选择缩略图，并为其他节点保留类型色块");
 const relative = (file: string) => path.relative(path.resolve(testRoot, ".."), file);
 const sources = files.map((file) => ({ file, source: fs.readFileSync(file, "utf8") }));
 const combined = sources.map(({ source }) => source).join("\n");
@@ -92,6 +108,14 @@ const shellSource = fs.readFileSync(
 );
 const canvasFlowSource = fs.readFileSync(
   path.resolve(testRoot, "../src/components/CanvasFlow.tsx"),
+  "utf8",
+);
+const drawingToolPanelSource = fs.readFileSync(
+  path.resolve(testRoot, "../src/components/workbench/DrawingToolPanel.tsx"),
+  "utf8",
+);
+const pulseEdgeSource = fs.readFileSync(
+  path.resolve(testRoot, "../src/components/edges/PulseEdge.tsx"),
   "utf8",
 );
 const canvasZoomControlsSource = fs.readFileSync(
@@ -121,6 +145,7 @@ const nodeFrameSource = fs.readFileSync(
 );
 const flowStoreSource = fs.readFileSync(path.resolve(testRoot, "../src/store/flowStore.ts"), "utf8");
 const runPlanRouteSource = fs.readFileSync(path.resolve(testRoot, "../server/routes/runPlan.ts"), "utf8");
+const drawingBoardsRouteSource = fs.readFileSync(path.resolve(testRoot, "../server/routes/drawingBoards.ts"), "utf8");
 const generationRecordDialogSource = fs.readFileSync(
   path.resolve(testRoot, "../src/components/GenerationRecordDialog.tsx"),
   "utf8",
@@ -162,8 +187,24 @@ assert.match(
   "Dock 开合必须维持画布中心对应的世界坐标",
 );
 assert.match(canvasFlowSource, /compactMinimap \? 128 : 200/, "窄画布必须缩小 MiniMap");
+assert.match(canvasFlowSource, /nodeComponent=\{CanvasMiniMapNode\}/, "MiniMap 必须使用带图片的自定义 SVG 节点");
+assert.match(canvasFlowSource, /intent\.type === "drawing-board"[\s\S]*?openDrawingTool\(\{[\s\S]*?position: resolved[\s\S]*?return;/, "绘画工具必须先打开编辑器并延后创建节点");
+assert.match(shellSource, /<DrawingToolPanel \/>/, "工作台必须挂载全局绘画编辑器");
+assert.match(drawingToolPanelSource, /saveProjectInTab\([\s\S]*?uploadDrawingPreview\([\s\S]*?createDrawingBoard\([\s\S]*?commitCreatedDrawingBoard\(/, "基线、预览和服务端节点原子创建成功后才能提交本地画板节点");
+assert.match(drawingBoardsRouteSource, /drawingBoardsRouter\.post\("\/create"[\s\S]*?INSERT INTO drawing_document_versions[\s\S]*?INSERT INTO drawing_board_idempotency[\s\S]*?UPDATE projects SET flow_json/, "画板版本和项目节点必须在同一服务端事务中创建");
+assert.doesNotMatch(drawingBoardsRouteSource, /not_committed/, "提交应答丢失时不得断言事务未提交");
+assert.match(drawingToolPanelSource, /drawingBoardCreationOutcomeIsUnknown\(failure\)[\s\S]*?requestId\.current && pendingPreview\.current/, "未知创建结果必须保留请求号并阻止直接取消");
+assert.doesNotMatch(drawingToolPanelSource, /\baddNode\(/, "绘画编辑器打开或失败时不得直接新增可见节点");
 assert.match(canvasFlowSource, /minZoom=\{0\.2\}/, "React Flow 必须真实开放到 20% 缩放");
 assert.match(canvasFlowSource, /maxZoom=\{3\}/, "React Flow 必须真实开放到 300% 缩放");
+assert.match(canvasFlowSource, /onEdgeContextMenu=\{openEdgeContextMenu\}/, "连线必须响应右键菜单");
+assert.match(canvasFlowSource, /DropdownMenuItem[\s\S]*?断开连线/, "右键菜单必须提供 shadcn 断开连线操作");
+assert.match(
+  canvasFlowSource,
+  /onEdgesChange\(\[\{ id: edgeMenu\.edgeId, type: "remove" \}\]\)/,
+  "断开操作必须复用 canonical store edge change",
+);
+assert.match(pulseEdgeSource, /interactionWidth=\{20\}/, "细连线必须扩大右键命中区域");
 assert.match(canvasFlowSource, /<CanvasZoomControls minimapWidth=\{minimapWidth\} \/>/, "缩放控制器必须按 MiniMap 宽度动态避让");
 assert.doesNotMatch(canvasFlowSource, /<Controls\b/, "画布不得继续使用 React Flow 竖向 Controls");
 assert.match(canvasZoomControlsSource, /@\/components\/ui\/slider/, "缩放拖动条必须使用本地 shadcn Slider");

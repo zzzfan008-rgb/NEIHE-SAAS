@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import { ToolRail } from "./ToolRail";
 import { ColorToolPanel } from "./ColorToolPanel";
+import { DrawingToolPanel } from "./DrawingToolPanel";
 import { ConnectionRoleDialog } from "./ConnectionRoleDialog";
 import { INITIAL_WORKBENCH_UI_STATE, workbenchUiReducer } from "./workbenchState";
 
@@ -40,6 +41,7 @@ export function WorkbenchShell({ inspector, results, children }: WorkbenchShellP
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <ConnectionRoleDialog />
         <ColorToolPanel />
+        <DrawingToolPanel />
         <Card
           size="sm"
           className="gc-panel absolute left-2 top-2 z-40 gap-0 rounded-xl bg-[var(--gc-panel)] p-0 shadow-lg ring-1 ring-[var(--gc-border)]"

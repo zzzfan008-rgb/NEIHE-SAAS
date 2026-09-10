@@ -430,6 +430,49 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   await expect.poll(async () => (await personMedia.boundingBox())?.y ?? 0).toBeGreaterThan(63);
   await personMedia.click();
   await expect(personNode).toHaveClass(/\bselected\b/);
+  const minimapThumbnail = page.locator(".gc-minimap-node-thumbnail").first();
+  await expect(minimapThumbnail).toBeVisible();
+  const resizeBefore = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { persistedWorkflowForProjectTab, useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId)!;
+    const node = tab.nodes.find((candidate: { id: string }) => candidate.id === "person")!;
+    return { position: node.position, revision: tab.revision, persistedPosition: persistedWorkflowForProjectTab(tab).nodes.find((candidate: { id: string }) => candidate.id === "person")?.position };
+  });
+  const cornerHandles = personNode.locator(".react-flow__resize-control.handle");
+  await expect(cornerHandles).toHaveCount(4);
+  const topLeftBox = await personNode.locator(".react-flow__resize-control.handle.top.left").boundingBox();
+  const nodeBoxBeforeResize = await personNode.boundingBox();
+  if (!topLeftBox || !nodeBoxBeforeResize) throw new Error("Reference image resize controls are missing");
+  expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.className, {
+    x: topLeftBox.x + topLeftBox.width / 2, y: topLeftBox.y + topLeftBox.height / 2,
+  })).toContain("react-flow__resize-control");
+  await page.mouse.move(topLeftBox.x + topLeftBox.width / 2, topLeftBox.y + topLeftBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(topLeftBox.x - 28, topLeftBox.y - 20, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await personNode.boundingBox())?.width ?? 0).toBeGreaterThan(nodeBoxBeforeResize.width);
+  const resizeAfter = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { persistedWorkflowForProjectTab, useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId)!;
+    const node = tab.nodes.find((candidate: { id: string }) => candidate.id === "person")!;
+    return {
+      position: node.position,
+      revision: tab.revision,
+      pastStates: useFlowStore.temporal.getState().pastStates.length,
+      persistedPosition: persistedWorkflowForProjectTab(tab).nodes.find((candidate: { id: string }) => candidate.id === "person")?.position,
+    };
+  });
+  expect(resizeAfter.position).not.toEqual(resizeBefore.position);
+  expect(resizeAfter.persistedPosition).toEqual(resizeBefore.persistedPosition);
+  expect(resizeAfter.revision).toBe(resizeBefore.revision);
+  expect(resizeAfter.pastStates).toBe(0);
+  const widthBeforeKeyboardResize = (await personNode.boundingBox())!.width;
+  await personNode.getByRole("button", { name: "放大参考图节点" }).click();
+  await expect.poll(async () => (await personNode.boundingBox())?.width ?? 0).toBeGreaterThan(widthBeforeKeyboardResize);
   await expect(page.getByRole("dialog", { name: "图片查看器" })).toHaveCount(0);
 
   const start = await page.evaluate(async () => {
@@ -451,13 +494,33 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     return useFlowStore.temporal.getState().pastStates.length;
   })).toBe(1);
   await page.keyboard.press(`${modifier}+z`);
-  await expect.poll(() => page.evaluate(async () => {
+  await expect.poll(() => page.evaluate(async (expected) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
-    return tab?.nodes.find((node: { id: string; position: { x: number; y: number } }) => node.id === "person")?.position;
-  })).toEqual(start);
+    const position = tab?.nodes.find((node: { id: string; position: { x: number; y: number } }) => node.id === "person")?.position;
+    return position ? Math.max(Math.abs(position.x - expected.x), Math.abs(position.y - expected.y)) : Infinity;
+  }, start)).toBeLessThan(0.001);
+  const removableEdgeId = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    return tab?.edges.find((edge: { source: string }) => edge.source === "person")?.id;
+  });
+  if (!removableEdgeId) throw new Error("Expected a person reference edge");
+  await page.locator(`.react-flow__edge[data-id="${removableEdgeId}"] .react-flow__edge-interaction`).click({ button: "right" });
+  const edgeMenu = page.getByRole("menu").filter({ hasText: "断开连线" });
+  await expect(edgeMenu).toBeVisible();
+  await edgeMenu.getByRole("menuitem", { name: "断开连线" }).click();
+  await expect.poll(() => page.evaluate(async (edgeId) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
+    return tab?.edges.some((edge: { id: string }) => edge.id === edgeId);
+  }, removableEdgeId)).toBe(false);
 });
 
 test("delayed style preset writes stay bound to the initiating document", async ({ page }, testInfo) => {
@@ -2032,26 +2095,52 @@ test("creation tools open an editable board and create a new typed palette witho
   const menu = page.getByRole("menu", { name: "创作工具" });
   await expect(menu).toBeVisible();
   await menu.getByRole("menuitem", { name: /绘画工具/ }).click();
-  await expect(canvasNodes).toHaveCount(before + 1);
-  const board = canvasNodes.filter({ hasText: "绘画工具" }).last();
-  await board.getByRole("button", { name: "打开画板" }).click();
-  const boardDialog = page.getByRole("dialog", { name: "绘画工具" });
+  const boardDialog = page.getByRole("dialog", { name: "绘画板" });
+  await expect(boardDialog).toBeVisible();
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("Desktop viewport is required");
+  expectInside(await rect(boardDialog), {
+    left: 0, top: 0, right: viewport.width, bottom: viewport.height, width: viewport.width, height: viewport.height,
+  });
+  await expect(canvasNodes).toHaveCount(before);
+  await boardDialog.getByRole("button", { name: "取消" }).click();
+  await expect(boardDialog).toHaveCount(0);
+  await expect(canvasNodes).toHaveCount(before);
+
+  await createTrigger.focus();
+  await createTrigger.press("Enter");
+  await menu.getByRole("menuitem", { name: /绘画工具/ }).click();
   await expect(boardDialog).toBeVisible();
   await expect(boardDialog.getByRole("toolbar", { name: "绘画工具" })).toBeVisible();
   await boardDialog.getByRole("button", { name: "文字" }).click();
   await boardDialog.getByRole("textbox", { name: "文字内容" }).fill("服装草图备注");
   await boardDialog.getByRole("button", { name: "添加文字" }).click();
-  await boardDialog.getByRole("button", { name: "新建" }).click();
-  await page.waitForTimeout(650);
-  await page.keyboard.press("Escape");
-  await expect(boardDialog).toHaveCount(0);
-
-  page.once("dialog", async (dialog) => dialog.accept());
-  await board.getByRole("button", { name: "打开画板" }).click();
+  const creationRequests: string[] = [];
+  await page.route("**/api/drawing-boards/create", async (route) => {
+    creationRequests.push(route.request().postData() ?? "");
+    const response = await route.fetch();
+    if (creationRequests.length === 1) {
+      await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "模拟提交后应答丢失" }) });
+    } else {
+      await route.fulfill({ response });
+    }
+  });
+  await boardDialog.getByRole("button", { name: "保存画板" }).click();
+  await expect(boardDialog.getByText("模拟提交后应答丢失", { exact: true })).toBeVisible();
+  await expect(canvasNodes).toHaveCount(before);
+  expect(await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    return useFlowStore.getState().saveProject();
+  })).toBe(false);
+  await boardDialog.getByRole("button", { name: "取消" }).click();
   await expect(boardDialog).toBeVisible();
-  await expect(boardDialog.getByText("图层 2", { exact: true })).toBeVisible();
   await boardDialog.getByRole("button", { name: "保存画板" }).click();
   await expect(boardDialog).toHaveCount(0);
+  expect(creationRequests).toHaveLength(2);
+  expect(creationRequests[1]).toBe(creationRequests[0]);
+  await expect(canvasNodes).toHaveCount(before + 1);
+  const board = canvasNodes.filter({ hasText: "绘画工具" }).last();
   await expect(board.getByAltText("画板已保存预览")).toBeVisible();
   await board.getByRole("button", { name: "导出为图片节点" }).click();
   await expect(canvasNodes).toHaveCount(before + 2);
@@ -2062,13 +2151,60 @@ test("creation tools open an editable board and create a new typed palette witho
   await menu.getByRole("menuitem", { name: /色彩工具/ }).click();
   const colorDialog = page.getByRole("dialog", { name: "色彩工具" });
   await expect(colorDialog).toBeVisible();
+  expectInside(await rect(colorDialog), {
+    left: 0, top: 0, right: viewport.width, bottom: viewport.height, width: viewport.width, height: viewport.height,
+  });
+  await expect(colorDialog.getByRole("tab", { name: "中性基础色" })).toBeVisible();
+  await expect(colorDialog.getByRole("tab", { name: "暖色系" })).toBeVisible();
+  await expect(colorDialog.getByRole("tab", { name: "冷色系" })).toBeVisible();
   await colorDialog.getByRole("button", { name: /选择 #[0-9A-F]{6}/ }).first().click();
+  await expect(colorDialog.getByText(/已选 1\/8/)).toBeVisible();
   await colorDialog.getByRole("button", { name: "创建新色板节点" }).click();
   await expect(colorDialog).toHaveCount(0);
   await expect(canvasNodes).toHaveCount(before + 3);
   await expect(canvasNodes.filter({ hasText: "色板" }).last()).toContainText(/#[0-9A-F]{6}/);
 });
 
+
+test("fabric recolor picker keeps the ninth color error visible and Escape cancels the draft", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  await rail.getByRole("button", { name: "服装设计", exact: true }).click();
+  await page.getByRole("menu", { name: "服装设计" }).getByRole("menuitem", { name: /面料替换/ }).click();
+  await expect(page.locator(".react-flow__node")).toHaveCount(3);
+  const nodeId = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId)!;
+    const node = tab.nodes.find((candidate: BrowserFlowNode) => candidate.data.kind === "fabric-recolor")!;
+    useFlowStore.getState().updateNodeData(node.id, {
+      colors: ["#111111", "#222222", "#333333", "#444444", "#555555", "#666666", "#777777", "#888888"],
+    });
+    useFlowStore.getState().setSelectedNodeIds([node.id]);
+    return node.id;
+  });
+  const node = page.locator(`.react-flow__node[data-id="${nodeId}"]`);
+  await node.getByRole("button", { name: "自定义色" }).click();
+  const pickerTrigger = node.getByRole("button", { name: "打开自定义取色器" });
+  await pickerTrigger.click();
+  const colorInput = page.getByRole("textbox", { name: "自定义颜色值" });
+  await colorInput.fill("#123456");
+  await page.getByRole("button", { name: "确认", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("最多选择 8 个颜色");
+  await expect(colorInput).toBeVisible();
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("Desktop viewport is required");
+  expectInside(await rect(page.getByText("选择颜色并确认后", { exact: false }).locator("..")), {
+    left: 0, top: 0, right: viewport.width, bottom: viewport.height, width: viewport.width, height: viewport.height,
+  });
+  await page.keyboard.press("Escape");
+  await expect(colorInput).toHaveCount(0);
+  await expect(pickerTrigger).toBeFocused();
+  await pickerTrigger.click();
+  await expect(page.getByRole("textbox", { name: "自定义颜色值" })).toHaveValue("#C9A66B");
+  await page.keyboard.press("Escape");
+});
 test("approved video capabilities open complete workflows without triggering generation", async ({ page }) => {
   await openFreshBlankProject(page);
   const generationPosts: string[] = [];

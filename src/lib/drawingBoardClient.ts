@@ -11,10 +11,18 @@ export interface LoadedDrawingBoardVersion extends DrawingBoardVersionMeta {
 }
 
 export class DrawingBoardClientError extends Error {
-  constructor(message: string, readonly status?: number) {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
     super(message);
     this.name = "DrawingBoardClientError";
   }
+}
+
+export function drawingBoardCreationOutcomeIsUnknown(failure: unknown): boolean {
+  if (!(failure instanceof DrawingBoardClientError)) return true;
+  return failure.status === undefined || failure.status >= 500;
 }
 
 type Fetcher = typeof fetch;
@@ -42,6 +50,27 @@ export async function saveDrawingBoardVersion(
     signal: options?.signal,
   });
   if (!response.ok) throw await boundedError(response, "画板内容保存失败");
+  return await response.json() as DrawingBoardVersionMeta;
+}
+
+export async function createDrawingBoard(
+  input: {
+    clientRequestId: string;
+    projectId: string;
+    nodeId: string;
+    position: { x: number; y: number };
+    previewImageRef: string;
+    document: DrawingDocument;
+  },
+  options?: { fetcher?: Fetcher; signal?: AbortSignal },
+): Promise<DrawingBoardVersionMeta> {
+  const response = await (options?.fetcher ?? fetch)("/api/drawing-boards/create", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+    signal: options?.signal,
+  });
+  if (!response.ok) throw await boundedError(response, "画板创建失败");
   return await response.json() as DrawingBoardVersionMeta;
 }
 
