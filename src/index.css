@@ -438,6 +438,18 @@ body,
 .gc-image-resize-corner.top.right { --gc-corner-angle: 225deg; }
 .gc-image-resize-corner.bottom.right { --gc-corner-angle: -45deg; }
 .gc-image-resize-corner.bottom.left { --gc-corner-angle: 45deg; }
+.gc-image-resize-keyboard,
+.gc-image-resize-keyboard:hover,
+.gc-image-resize-keyboard:active {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: inherit;
+  transform: none;
+  translate: none;
+}
 .gc-image-resize-arrows {
   width: 28px;
   height: 28px;

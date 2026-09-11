@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="current">
+  <head><meta charset="UTF-8"><title>生成图片自适应 · 隔离预览</title></head>
+  <body>
+    <div id="root" style="height:100vh"></div>
+    <script type="module">
+      import React from "react";
+      import { createRoot } from "react-dom/client";
+      import { ReactFlow, Background } from "@xyflow/react";
+      import { VirtualTryOnNode } from "/src/components/nodes/VirtualTryOnNode.tsx";
+      import { TooltipProvider } from "/src/components/ui/tooltip.tsx";
+      import { Button } from "/src/components/ui/button.tsx";
+      import { ImageViewer } from "/src/components/ImageViewer.tsx";
+      import { useFlowStore, selectActiveNodes } from "/src/store/flowStore.ts";
+      import "@xyflow/react/dist/style.css";
+      import "/src/index.css";
+      useFlowStore.getState().loadFlow({ projectName: "图片网格预览", nodes: [], edges: [] });
+      const id = useFlowStore.getState().addNode("virtual-try-on", { x: 100, y: 100 });
+      const first = "/assets/try-on-styles/soft-editorial.webp";
+      const second = "/assets/try-on-styles/commerce.webp";
+      useFlowStore.getState().updateNodeData(id, { label: "第一轮 · Gemini 场景化定版", workflowStage: "scene-stabilize", modelId: "gemini-3.1-flash-image", outputImages: [first] });
+      // Preview-only: no generation or persistence calls.
+      useFlowStore.setState({ runNode: async () => {}, saveProjectInTab: async () => true });
+      const nodeTypes = { "virtual-try-on": VirtualTryOnNode };
+      function Preview() {
+        const nodes = useFlowStore(selectActiveNodes);
+        return React.createElement(TooltipProvider, null,
+          React.createElement("div", { style: { position: "absolute", zIndex: 5, left: 20, top: 15, display: "flex", gap: 8 } },
+            React.createElement(Button, { onClick: () => useFlowStore.getState().updateNodeData(id, { outputImages: [first] }) }, "单张图片"),
+            React.createElement(Button, { onClick: () => useFlowStore.getState().updateNodeData(id, { outputImages: [first, second] }) }, "两张图片")),
+          React.createElement(ReactFlow, { nodes, edges: [], nodeTypes, onNodesChange: useFlowStore.getState().onNodesChange, defaultViewport: { x: 0, y: 0, zoom: 1 } }, React.createElement(Background)),
+          React.createElement(ImageViewer));
+      }
+      createRoot(document.getElementById("root")).render(React.createElement(Preview));
+    </script>
+  </body>
+</html>

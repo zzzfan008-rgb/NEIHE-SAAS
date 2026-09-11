@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { NodeResizeControl, Position, type NodeChange, type NodeProps, type Node, type ResizeParams } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
-import { ImagesIcon, MinusIcon, PlusIcon, UploadIcon } from "lucide-react";
+import { ImagesIcon, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   selectActiveDocumentTarget,
@@ -283,6 +283,9 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
           key={corner}
           position={corner}
           className="gc-image-resize-corner nopan"
+          // Keep this inline: CSS optimization can fold translate:none into
+          // transform, leaving the separate vendor stylesheet's -50% translate.
+          style={{ translate: "none" }}
           minWidth={hasDisplayImage ? Math.min(IMAGE_NODE_MIN_WIDTH, fittedImage.width) : IMAGE_NODE_MIN_WIDTH}
           minHeight={hasDisplayImage ? Math.min(IMAGE_NODE_MIN_HEIGHT, fittedImage.height) : IMAGE_NODE_MIN_HEIGHT}
           maxWidth={IMAGE_NODE_MAX_SIZE}
@@ -293,12 +296,29 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
           onResize={onResize}
           onResizeEnd={onResizeEnd}
         >
-          <svg className="gc-image-resize-arrows" width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M5 10 10.5 15.5 Q14 19 17.5 15.5 L23 10" />
-            <svg className="gc-image-resize-arrow-inner" x="9.5" y="4.5" width="9" height="9" viewBox="0 0 28 28" stroke="currentColor">
-              <path d="M5 10 10.5 15.5 Q14 19 17.5 15.5 L23 10" strokeWidth={1.5 * 28 / 9} />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="gc-image-resize-keyboard"
+            aria-label={`调整参考图尺寸：${corner}`}
+            title="拖动缩放；聚焦后按上/右键放大，下/左键缩小"
+            onKeyDown={(event) => {
+              const grow = ["ArrowUp", "ArrowRight", "+", "="].includes(event.key);
+              const shrink = ["ArrowDown", "ArrowLeft", "-"].includes(event.key);
+              if (!grow && !shrink) return;
+              event.preventDefault();
+              event.stopPropagation();
+              resizeNodeBy(grow ? 1.1 : 0.9);
+            }}
+          >
+            <svg className="gc-image-resize-arrows" width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M5 10 10.5 15.5 Q14 19 17.5 15.5 L23 10" />
+              <svg className="gc-image-resize-arrow-inner" x="9.5" y="4.5" width="9" height="9" viewBox="0 0 28 28" stroke="currentColor">
+                <path d="M5 10 10.5 15.5 Q14 19 17.5 15.5 L23 10" strokeWidth={1.5 * 28 / 9} />
+              </svg>
             </svg>
-          </svg>
+          </Button>
         </NodeResizeControl>
       ))}
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={<MediaNodeActionToolbar nodeId={id} hasImage={Boolean(data.imageUrl)} sourceHandle="image" />}>
@@ -362,23 +382,13 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
           </div>
         )}
       </NodeFrame>
-      {selected && !readOnly && (
+      {selected && !readOnly && data.imageUrl && (
         <div className="gc-image-node-actions nodrag nopan absolute left-1/2 top-[calc(100%+8px)] z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] p-1 shadow-xl">
-          <Button type="button" variant="ghost" size="icon-xs" onClick={() => resizeNodeBy(0.9)} aria-label="缩小参考图节点" title="缩小参考图节点">
-            <MinusIcon aria-hidden="true" />
-          </Button>
-          <Button type="button" variant="ghost" size="icon-xs" onClick={() => resizeNodeBy(1.1)} aria-label="放大参考图节点" title="放大参考图节点">
-            <PlusIcon aria-hidden="true" />
-          </Button>
-          {data.imageUrl && (
-            <>
           <FilePickerButton label="重新上传" compact onFile={(file) => void handleFile(file)} />
           <Button type="button" variant="ghost" size="xs" onClick={openAssetPicker} className="text-[var(--gc-text-muted)] hover:text-[var(--gc-text)]">
             <ImagesIcon aria-hidden="true" />
             素材库
           </Button>
-            </>
-          )}
         </div>
       )}
       <Handle id="image" type="source" position={Position.Right} title="图片输出" />

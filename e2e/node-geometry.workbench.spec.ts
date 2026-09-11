@@ -34,11 +34,11 @@ test("every node shares rounded outer and inner frames", async ({ page }) => {
   }
 });
 
-async function loadImageNode(page: Page, naturalWidth: number, naturalHeight: number) {
-  const image = `data:image/png;base64,${(await sharp({ create: { width: naturalWidth, height: naturalHeight, channels: 3, background: "#b9aaa1" } }).png().toBuffer()).toString("base64")}`;
+async function loadImageNode(page: Page, naturalWidth: number, naturalHeight: number, legacySize = true) {
+  const image = naturalWidth ? `data:image/png;base64,${(await sharp({ create: { width: naturalWidth, height: naturalHeight, channels: 3, background: "#b9aaa1" } }).png().toBuffer()).toString("base64")}` : undefined;
   await page.goto("/");
   await expect(page.getByRole("button", { name: "打开项目中心" })).toBeVisible();
-  await page.evaluate(async ({ image }) => {
+  await page.evaluate(async ({ image, legacySize }) => {
     const path = "/src/store/flowStore.ts";
     const landingPath = "/src/lib/canvasLanding.ts";
     const { useFlowStore } = await import(path);
@@ -48,17 +48,18 @@ async function loadImageNode(page: Page, naturalWidth: number, naturalHeight: nu
       data: { kind: "image-input", label: "主穿搭图（必需）", status: "success", imageUrl: image },
     }], edges: [] });
     // Simulate an old, freely resized image without changing document history.
-    useFlowStore.getState().onNodesChange([{ id: "ratio-image", type: "dimensions", dimensions: { width: 240, height: 240 }, setAttributes: true }]);
+    if (legacySize) useFlowStore.getState().onNodesChange([{ id: "ratio-image", type: "dimensions", dimensions: { width: 240, height: 240 }, setAttributes: true }]);
     useFlowStore.getState().setSelectedNodeIds(["ratio-image"]);
     useFlowStore.temporal.getState().clear();
     requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, fitView: true });
-  }, { image });
+  }, { image, legacySize });
   const node = page.locator('.react-flow__node[data-id="ratio-image"]');
   await expect(node.locator(".gc-image-resize-corner")).toHaveCount(4);
   return node;
 }
 
 async function assertRatio(node: Locator, ratio: number) {
+  if (!ratio) return;
   const shape = await node.evaluate((element) => {
     const image = element.querySelector("img")!;
     const card = element.querySelector(".gc-node-card")!;
@@ -77,10 +78,30 @@ async function assertRatio(node: Locator, ratio: number) {
   expect(shape.radius).toBe("20px");
 }
 
-for (const [name, w, h] of [["portrait", 360, 600], ["landscape", 800, 500]] as const) {
+async function assertCornerAnchors(node: Locator) {
+  const gaps = await node.evaluate((element) => {
+    const card = element.querySelector<HTMLElement>(".gc-node-card")!;
+    const rect = card.getBoundingClientRect();
+    const scale = rect.width / parseFloat(getComputedStyle(card).width);
+    return [...element.querySelectorAll(".gc-image-resize-corner")].map((handle) => {
+      const box = handle.getBoundingClientRect();
+      return {
+        horizontal: (handle.classList.contains("left") ? box.left - rect.left : rect.right - box.right) / scale,
+        vertical: (handle.classList.contains("top") ? box.top - rect.top : rect.bottom - box.bottom) / scale,
+      };
+    });
+  });
+  for (const gap of gaps) {
+    expect(gap.horizontal).toBeCloseTo(4, 0);
+    expect(gap.vertical).toBeCloseTo(4, 0);
+  }
+}
+
+for (const [name, w, h] of [["empty", 0, 1], ["portrait", 360, 600], ["landscape", 800, 500]] as const) {
   test(`image corners lock original ratio and reverse arrows: ${name}`, async ({ page }, testInfo) => {
     const node = await loadImageNode(page, w, h);
     await assertRatio(node, w / h);
+    await assertCornerAnchors(node);
     const stateBefore = await page.evaluate(async () => {
       const path = "/src/store/flowStore.ts";
       const { useFlowStore, selectActiveDocument, persistedWorkflowForProjectTab } = await import(path);
@@ -98,10 +119,11 @@ for (const [name, w, h] of [["portrait", 360, 600], ["landscape", 800, 500]] as 
       expect(handleStyle).toEqual({ background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" });
       const arrowStyle = await handle.locator(".gc-image-resize-arrows").evaluate((element) => {
         const style = getComputedStyle(element);
-        const control = getComputedStyle(element.parentElement!);
+        const handle = element.closest(".gc-image-resize-corner")!;
+        const control = getComputedStyle(handle);
         return { width: style.width, height: style.height, stroke: style.strokeWidth,
-          vertical: element.parentElement!.classList.contains("top") ? control.top : control.bottom,
-          horizontal: element.parentElement!.classList.contains("left") ? control.left : control.right };
+          vertical: handle.classList.contains("top") ? control.top : control.bottom,
+          horizontal: handle.classList.contains("left") ? control.left : control.right };
       });
       expect(arrowStyle).toEqual({ width: "28px", height: "28px", stroke: "1.5px", vertical: "4px", horizontal: "4px" });
       const pair = await handle.evaluate((element) => {
@@ -132,12 +154,14 @@ for (const [name, w, h] of [["portrait", 360, 600], ["landscape", 800, 500]] as 
       await expect(node.locator(".gc-image-node")).toHaveAttribute("data-resize-direction", "out");
       expect((await node.boundingBox())!.width).toBeGreaterThan(outer.width);
       await assertRatio(node, w / h);
+      await assertCornerAnchors(node);
       await page.mouse.move(x + dx / 2, y + dy / 2, { steps: 8 });
       await expect(node.locator(".gc-image-node")).toHaveAttribute("data-resize-direction", "in");
       expect(await handle.locator(".gc-image-resize-arrows").evaluate((svg) => getComputedStyle(svg).transform)).not.toBe(matrix);
       await page.mouse.up();
       await expect(node.locator(".gc-image-node")).toHaveAttribute("data-resize-direction", "out");
       await assertRatio(node, w / h);
+      await assertCornerAnchors(node);
     }
     await page.mouse.move(0, 0);
     await node.screenshot({ path: testInfo.outputPath(`corners-${name}.png`) });
@@ -150,8 +174,15 @@ for (const [name, w, h] of [["portrait", 360, 600], ["landscape", 800, 500]] as 
     expect(after.revision).toBe(stateBefore.revision);
     expect(after.snapshot).toEqual(stateBefore.snapshot);
     expect(after.undoCount).toBe(0);
-    await node.getByRole("button", { name: "放大参考图节点" }).click();
-    await node.getByRole("button", { name: "缩小参考图节点" }).click();
+    await expect(node.getByRole("button", { name: /^(放大|缩小)参考图节点$/ })).toHaveCount(0);
+    await expect(node.locator(".gc-image-node-actions")).toHaveCount(w ? 1 : 0);
+    const keyboardCorner = node.getByRole("button", { name: "调整参考图尺寸：bottom-right" });
+    await keyboardCorner.focus();
+    const beforeKeyboard = (await node.boundingBox())!.width;
+    await keyboardCorner.press("ArrowUp");
+    expect((await node.boundingBox())!.width).toBeGreaterThan(beforeKeyboard);
+    await keyboardCorner.press("ArrowDown");
+    await assertCornerAnchors(node);
     await assertRatio(node, w / h);
     await page.evaluate(async () => {
       const path = "/src/store/flowStore.ts";
@@ -161,3 +192,43 @@ for (const [name, w, h] of [["portrait", 360, 600], ["landscape", 800, 500]] as 
     await expect(node.locator(".gc-image-resize-corner")).toHaveCount(0);
   });
 }
+
+test("natural-size empty and uploaded nodes keep their four corner anchors", async ({ page }) => {
+  for (const [w, h] of [[0, 1], [360, 600], [800, 500]]) {
+    const node = await loadImageNode(page, w, h, false);
+    await assertCornerAnchors(node);
+    await assertRatio(node, w / h);
+    await expect(node.locator(".gc-image-node-actions")).toHaveCount(w ? 1 : 0);
+  }
+});
+
+test("corners neutralize vendor translate even when production CSS drops its reset", async ({ page }) => {
+  for (const [w, h] of [[0, 1], [360, 600], [800, 500]]) {
+    const node = await loadImageNode(page, w, h, false);
+    // Production converts the app's translate:none to transform:translate(0),
+    // while the separately emitted React Flow CSS retains translate:-50% -50%.
+    await page.evaluate(() => {
+      for (const sheet of document.styleSheets) {
+        for (const rule of sheet.cssRules) {
+          if (rule instanceof CSSStyleRule && rule.selectorText.includes(".gc-image-node .react-flow__resize-control.handle.gc-image-resize-corner")) {
+            rule.style.removeProperty("translate");
+            rule.style.setProperty("transform", "translate(0)");
+          }
+        }
+      }
+    });
+    await assertCornerAnchors(node);
+    const handle = node.locator(".gc-image-resize-corner.bottom.right");
+    const box = (await handle.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 40, y + 40, { steps: 8 });
+    await assertCornerAnchors(node);
+    await page.mouse.move(x + 20, y + 20, { steps: 8 });
+    await assertCornerAnchors(node);
+    await page.mouse.up();
+    await assertRatio(node, w / h);
+  }
+});

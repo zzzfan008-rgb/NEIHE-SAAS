@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Position, type NodeProps, type Node } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
 import { useShallow } from "zustand/react/shallow";
@@ -8,7 +8,7 @@ import type { ResultNodeData } from "@/types/workflow";
 import { imageExtensionFromReference, type ImageFileExtension } from "@/lib/imageFormat";
 import { NodeFrame } from "./NodeFrame";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
-import { CircleIcon, Columns2Icon, DownloadIcon, EyeIcon, MoreHorizontalIcon } from "lucide-react";
+import { Columns2Icon, DownloadIcon, EyeIcon, MoreHorizontalIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -24,7 +24,9 @@ function downloadImage(url: string, index: number, extension?: ImageFileExtensio
   a.remove();
 }
 
-function ResultSaveControls({ images }: { images: string[] }) {
+function ResultSaveControls({ images, selected, children }: { images: string[]; selected: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (!selected) setOpen(false); }, [selected]);
   const store = useResultExport(
     useShallow((s) => ({
       supported: s.supported,
@@ -97,8 +99,10 @@ function ResultSaveControls({ images }: { images: string[] }) {
   };
 
   return (
-    <Popover>
-      <PopoverTrigger render={<Button variant="ghost" size="icon-xs" className="gc-result-more nodrag nopan" aria-label="结果保存选项" />}>
+    <div hidden={!selected} className="gc-result-toolbar nodrag nopan">
+    {children}
+    <Popover open={open && selected} onOpenChange={setOpen}>
+      <PopoverTrigger render={<Button variant="outline" size="icon" className="gc-result-more nodrag nopan" aria-label="结果保存选项" />}>
         <MoreHorizontalIcon aria-hidden="true" />
       </PopoverTrigger>
       <PopoverContent side="right" className="nodrag nopan nowheel w-72 space-y-3 p-3" aria-label="结果保存选项">
@@ -144,6 +148,7 @@ function ResultSaveControls({ images }: { images: string[] }) {
       {status && <p role="status" className="text-xs text-[var(--gc-text-muted)]">{status}</p>}
       </PopoverContent>
     </Popover>
+    </div>
   );
 }
 
@@ -186,9 +191,10 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
   return (
     <div className="gc-result-node">
       <Handle id="references" type="target" position={Position.Left} title="媒体输入" />
-      <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={<MediaNodeActionToolbar nodeId={id} imageActions={videos.length === 0} hasImage={stillImages.length > 0} sourceHandle={`image:${selectedImageIndex}`} />}>
-        <CircleIcon aria-hidden="true" className="gc-result-status" />
-        <ResultSaveControls images={stillImages} />
+      <ResultSaveControls images={stillImages} selected={Boolean(selected)}>
+        <MediaNodeActionToolbar nodeId={id} imageActions={videos.length === 0} hasImage={stillImages.length > 0} sourceHandle={`image:${selectedImageIndex}`} />
+      </ResultSaveControls>
+      <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
         {selectedImage ? <Button variant="ghost" aria-label="查看生成结果大图" className="gc-result-image nodrag nopan" onClick={viewImage}>
           <img src={selectedImage} alt={data.label} decoding="async" />
         </Button> : videos.length === 0 && <div className="gc-result-empty">连接上游节点后自动汇总媒体</div>}

@@ -32,6 +32,26 @@ async function noteValue(page: Page) {
   });
 }
 
+test("result title stays centered when production CSS folds the translate reset", async ({ page }) => {
+  const node = await seedResult(page);
+  await page.evaluate(() => {
+    for (const sheet of document.styleSheets) {
+      for (const rule of sheet.cssRules) {
+        if (rule instanceof CSSStyleRule && rule.selectorText === ".gc-result-node .gc-node-floating-title" && rule.style.translate === "none") {
+          rule.style.removeProperty("translate");
+          rule.style.transform = "translate(0)";
+        }
+      }
+    }
+  });
+  const offset = await node.evaluate((element) => {
+    const title = element.querySelector(".gc-node-floating-title")!.getBoundingClientRect();
+    const card = element.querySelector(".gc-node-card")!.getBoundingClientRect();
+    return Math.abs((title.left + title.right - card.left - card.right) / 2);
+  });
+  expect(offset).toBeLessThan(1);
+});
+
 test("result node reference layout and explicit note save persist after reload", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -47,12 +67,22 @@ test("result node reference layout and explicit note save persist after reload",
     const image = element.querySelector(".gc-result-image img") as HTMLImageElement;
     const title = element.querySelector(".gc-node-floating-title")!.getBoundingClientRect();
     const card = element.querySelector(".gc-node-card")!.getBoundingClientRect();
-    return { fit: getComputedStyle(image).objectFit, titleInside: title.left >= card.left && title.right <= card.right && title.top >= card.top && title.bottom <= image.getBoundingClientRect().top,
+    const body = element.querySelector(".gc-node-body")!;
+    const media = element.querySelector(".gc-result-image")!.getBoundingClientRect();
+    return { fit: getComputedStyle(image).objectFit, titleAbove: title.bottom <= card.top,
+      centerOffset: Math.abs((title.left + title.right - card.left - card.right) / 2),
+      topPadding: getComputedStyle(body).paddingTop,
+      mediaGap: media.top - body.getBoundingClientRect().top,
       buttons: [...element.querySelectorAll(".gc-result-footer button")].map((button) => ({ width: button.getBoundingClientRect().width, top: button.getBoundingClientRect().top })),
     };
   });
   expect(geometry.fit).toBe("contain");
-  expect(geometry.titleInside).toBe(true);
+  expect(geometry.titleAbove).toBe(true);
+  expect(geometry.centerOffset).toBeLessThan(1);
+  expect(geometry.topPadding).toBe("8px");
+  expect(geometry.mediaGap).toBeCloseTo(8, 0);
+  await expect(node.locator(".gc-result-status")).toHaveCount(0);
+  await expect(node.locator(".gc-node-body .gc-result-more")).toHaveCount(0);
   expect(Math.max(...geometry.buttons.map((b) => b.width)) - Math.min(...geometry.buttons.map((b) => b.width))).toBeLessThan(1);
   expect(new Set(geometry.buttons.map((b) => b.top)).size).toBe(1);
   await page.mouse.move(0, 0);
@@ -116,6 +146,7 @@ test("result node preserves media actions and discards note on document replacem
   await chooser.getByRole("button", { name: "对比 2 张", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "结果对比", exact: true })).toBeVisible();
   await page.getByTitle("关闭（Esc）").click();
+  await node.locator(".gc-node-floating-title").click();
   await node.getByRole("button", { name: "结果保存选项" }).click();
   await expect(page.getByRole("button", { name: "下载图片 2" })).toBeVisible();
   await page.keyboard.press("Escape");

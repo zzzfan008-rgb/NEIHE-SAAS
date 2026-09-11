@@ -3,16 +3,9 @@
   border-radius: var(--gc-node-radius) !important;
   border-color: color-mix(in srgb, var(--gc-node-border) 30%, var(--gc-node-main)) !important;
 }
-.gc-result-node .gc-node-body { padding: 40px 8px 8px; }
-.gc-result-node .gc-node-floating-title {
-  top: 10px;
-  bottom: auto;
-  left: 25px;
-  width: calc(100% - 65px);
-  transform: none;
-  translate: none;
-  text-align: left;
-}
+.gc-result-node { position: relative; }
+.gc-result-node .gc-node-body { padding: 8px; }
+/* Reuse NodeFrame's centering; resetting translate here is lost in CSS builds. */
 .gc-result-node .gc-node-floating-title > span {
   padding: 0;
   border-radius: 0;
@@ -21,21 +14,21 @@
   line-height: 20px;
   letter-spacing: 0;
 }
-.gc-result-node .gc-node-floating-title input { text-align: left; }
-.gc-result-node .gc-result-status {
+.gc-result-node .gc-node-floating-title input { text-align: center; }
+.gc-result-toolbar {
   position: absolute;
-  top: 17px;
-  left: 13px;
-  width: 7px;
-  height: 7px;
-  color: var(--gc-node-muted);
-  fill: currentColor;
+  bottom: calc(100% + 27px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
+.gc-result-toolbar[hidden] { display: none; }
 .gc-result-node .gc-result-more {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  color: var(--gc-node-muted);
+  color: var(--gc-text);
+  background: var(--gc-control);
 }
 .gc-result-node .gc-result-image {
   display: flex;

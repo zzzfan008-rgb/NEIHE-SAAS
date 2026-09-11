@@ -19,8 +19,9 @@
       useFlowStore.getState().loadFlow({ projectName: "节点圆角与等比缩放预览", nodes: [
         { id: "preview-input", type: "image-input", position: { x: 170, y: 150 }, data: { kind: "image-input", label: "主穿搭图（必需）", status: "success", imageUrl: "/assets/try-on-styles/soft-editorial.webp" } },
         { id: "preview-result", type: "result", position: { x: 580, y: 150 }, data: { kind: "result", label: "图3 · 生成结果", status: "idle", note: "", images: ["/assets/try-on-styles/soft-editorial.webp"] } },
+        { id: "preview-empty", type: "image-input", position: { x: 170, y: 480 }, data: { kind: "image-input", label: "眼镜参考图（可选）", status: "idle" } },
       ], edges: [] });
-      useFlowStore.getState().setSelectedNodeIds(["preview-input"]);
+      useFlowStore.getState().setSelectedNodeIds(["preview-input", "preview-empty"]);
       useFlowStore.setState({ saveProjectInTab: async () => true });
       const nodeTypes = { "image-input": ImageInputNode, result: ResultNode };
       function Preview() {

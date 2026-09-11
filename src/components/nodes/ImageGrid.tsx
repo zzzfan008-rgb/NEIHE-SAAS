@@ -28,7 +28,7 @@ export function ImageGrid({ images, empty = "暂无生成结果", renderAction, 
   }
 
   return (
-    <div className="grid grid-cols-2 gap-1.5">
+    <div className={`gc-output-image-grid grid items-start gap-1.5 ${safeImages.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
       {safeImages.map((url, i) => (
         <div
           key={`${url}-${i}`}
@@ -47,7 +47,7 @@ export function ImageGrid({ images, empty = "暂无生成结果", renderAction, 
               alt={`生成结果 ${i + 1}`}
               loading="lazy"
               decoding="async"
-              className="aspect-square w-full object-cover transition-transform group-hover:scale-105"
+              className="block h-auto w-full object-contain"
             />
           </Button>
           {onSelect && (
