@@ -2,14 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { Position, type NodeProps, type Node } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
 import { useShallow } from "zustand/react/shallow";
-import { useFlowStore, selectResultImages } from "@/store/flowStore";
+import { useFlowStore, selectResultImages, selectActiveCompareIds, selectActiveDocumentTarget } from "@/store/flowStore";
 import { useResultExport } from "@/store/resultExportStore";
 import type { ResultNodeData } from "@/types/workflow";
 import { imageExtensionFromReference, type ImageFileExtension } from "@/lib/imageFormat";
-import { NodeFrame, inputClass } from "./NodeFrame";
-import { ImageGrid } from "./ImageGrid";
-import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
+import { NodeFrame } from "./NodeFrame";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
+import { CircleIcon, Columns2Icon, DownloadIcon, EyeIcon, MoreHorizontalIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { OPEN_COMPARE_EVENT } from "@/lib/overlayEvents";
+import { ResultNoteControl } from "./ResultNoteControl";
 
 function downloadImage(url: string, index: number, extension?: ImageFileExtension) {
   const a = document.createElement("a");
@@ -69,10 +73,6 @@ function ResultSaveControls({ images }: { images: string[] }) {
     };
   }, [images, autoSave, supported, directoryName, permission, saveAll]);
 
-  if (!supported) {
-    return <p className="text-[9px] text-neutral-600">当前浏览器不支持保存到文件夹，已回退为逐张下载。</p>;
-  }
-
   const onChoose = async () => {
     try {
       await chooseDirectory();
@@ -97,42 +97,78 @@ function ResultSaveControls({ images }: { images: string[] }) {
   };
 
   return (
-    <div className="space-y-1.5 rounded-md border border-[#262626] p-2">
+    <Popover>
+      <PopoverTrigger render={<Button variant="ghost" size="icon-xs" className="gc-result-more nodrag nopan" aria-label="结果保存选项" />}>
+        <MoreHorizontalIcon aria-hidden="true" />
+      </PopoverTrigger>
+      <PopoverContent side="right" className="nodrag nopan nowheel w-72 space-y-3 p-3" aria-label="结果保存选项">
+      <div className="space-y-1">
+        {images.map((url, index) => <Button key={`${url}-${index}`} variant="ghost" size="sm" className="w-full justify-start" onClick={() => downloadImage(url, index, imageExtensionFromReference(url))}>
+          <DownloadIcon aria-hidden="true" />下载图片 {index + 1}
+        </Button>)}
+      </div>
+      {!supported ? <p className="text-xs text-[var(--gc-text-muted)]">当前浏览器不支持保存到文件夹，可使用逐张下载。</p> : <>
       <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
         <span className="text-neutral-500">保存到:</span>
         <span className="truncate text-gold">{directoryName ?? "未设置"}</span>
-        <button
+        <Button variant="outline" size="xs"
           type="button"
           onClick={() => void onChoose()}
           className="nodrag ml-auto shrink-0 rounded-sm border border-[#333] px-1.5 py-0.5 hover:border-gold hover:text-gold"
         >
           选择文件夹
-        </button>
+        </Button>
         {directoryName && (
-          <button
+          <Button variant="outline" size="xs"
             type="button"
             onClick={() => void clearDirectory()}
             className="nodrag shrink-0 rounded-sm border border-[#333] px-1.5 py-0.5 hover:border-gold hover:text-gold"
           >
             清除
-          </button>
+          </Button>
         )}
       </div>
       <label className="flex items-center gap-1.5 text-[10px] text-neutral-400">
-        <input type="checkbox" className="nodrag" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
+        <Switch aria-label="自动保存新结果图" className="nodrag" checked={autoSave} onCheckedChange={setAutoSave} />
         自动保存新结果图
       </label>
-      <button
+      <Button size="sm"
         type="button"
         disabled={busy || !directoryName || images.length === 0}
         onClick={() => void onSaveAll()}
         className="nodrag w-full rounded-md bg-gold py-1 text-[10px] font-medium text-ink disabled:opacity-40"
       >
         保存全部到文件夹
-      </button>
-      {status && <p className="text-[9px] text-neutral-500">{status}</p>}
-    </div>
+      </Button>
+      </>}
+      {status && <p role="status" className="text-xs text-[var(--gc-text-muted)]">{status}</p>}
+      </PopoverContent>
+    </Popover>
   );
+}
+
+function ResultCompareControl({ image }: { image?: string }) {
+  const records = useFlowStore(useShallow((s) => s.recentResults.filter((r) => r.status === "success" && r.image && !/\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(r.image) && !r.image.startsWith("data:video/"))));
+  const compareIds = useFlowStore(selectActiveCompareIds);
+  const [open, setOpen] = useState(false);
+  return <Popover open={open} onOpenChange={(next) => {
+    setOpen(next);
+    const record = records.find((r) => r.image === image);
+    if (next && record && !compareIds.includes(record.id) && compareIds.length < 4) useFlowStore.getState().toggleCompareId(record.id);
+  }}>
+    <PopoverTrigger render={<Button variant="outline" className="gc-result-action" disabled={!image} />}><Columns2Icon aria-hidden="true" />对比</PopoverTrigger>
+    <PopoverContent className="nodrag nopan nowheel w-72 space-y-3 p-3" aria-label="选择对比结果">
+      <p className="text-xs">选择 2–4 张生成结果</p>
+      {records.length === 0 && <p className="text-xs text-[var(--gc-text-muted)]">暂无可对比的生成记录</p>}
+      <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto">
+        {records.map((r) => <Button key={r.id} variant="outline" className="h-auto flex-col p-1" aria-label={`对比 ${r.nodeLabel}`} aria-pressed={compareIds.includes(r.id)} disabled={!compareIds.includes(r.id) && compareIds.length >= 4} onClick={() => useFlowStore.getState().toggleCompareId(r.id)}>
+          <img src={r.image} alt="" className="h-20 w-full object-contain" />
+          <span className="max-w-full truncate text-xs">{compareIds.includes(r.id) ? "已选 · " : ""}{r.nodeLabel}</span>
+        </Button>)}
+      </div>
+      <Button className="w-full" disabled={compareIds.length < 2} onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent(OPEN_COMPARE_EVENT)); }}>对比 {compareIds.length} 张</Button>
+    </PopoverContent>
+  </Popover>;
 }
 
 export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData>>) {
@@ -143,48 +179,30 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
   useEffect(() => {
     if (selectedImageIndex >= stillImages.length) setSelectedImageIndex(Math.max(0, stillImages.length - 1));
   }, [selectedImageIndex, stillImages.length]);
-  const noteEdit = useCoalescedTextEdit(
-    { kind: "node-data", nodeId: id, field: "note" },
-    { multiline: true },
-  );
+  const target = useFlowStore(useShallow(selectActiveDocumentTarget));
+  const selectedImage = stillImages[Math.min(selectedImageIndex, stillImages.length - 1)];
+  const viewImage = () => { if (selectedImage) useFlowStore.getState().openViewer({ url: selectedImage, title: data.label }); };
 
   return (
-    <>
+    <div className="gc-result-node">
       <Handle id="references" type="target" position={Position.Left} title="媒体输入" />
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={<MediaNodeActionToolbar nodeId={id} imageActions={videos.length === 0} hasImage={stillImages.length > 0} sourceHandle={`image:${selectedImageIndex}`} />}>
-        <ImageGrid images={stillImages} empty={videos.length ? "" : "连接上游节点后自动汇总媒体"} selectedIndex={selectedImageIndex} onSelect={(_, index) => setSelectedImageIndex(index)} />
+        <CircleIcon aria-hidden="true" className="gc-result-status" />
+        <ResultSaveControls images={stillImages} />
+        {selectedImage ? <Button variant="ghost" aria-label="查看生成结果大图" className="gc-result-image nodrag nopan" onClick={viewImage}>
+          <img src={selectedImage} alt={data.label} decoding="async" />
+        </Button> : videos.length === 0 && <div className="gc-result-empty">连接上游节点后自动汇总媒体</div>}
+        {stillImages.length > 1 && <div className="nodrag nopan nowheel flex gap-1 overflow-x-auto" aria-label="结果图片选择">
+          {stillImages.map((url, index) => <Button key={`${url}-${index}`} variant="outline" aria-label={`选择生成结果 ${index + 1}`} aria-pressed={selectedImageIndex === index} className="gc-result-thumbnail" onClick={() => setSelectedImageIndex(index)}><img src={url} alt="" /></Button>)}
+        </div>}
         {videos.map((video) => <video key={video} src={video} controls preload="metadata" className="nodrag max-h-52 w-full rounded-md bg-black" />)}
-        {stillImages.length > 0 && (
-          <>
-            <ResultSaveControls images={stillImages} />
-            <div className="grid grid-cols-2 gap-1.5">
-              {images.map((url, i) => {
-                const extension = imageExtensionFromReference(url);
-                return (
-                  <button
-                    key={`${url}-${i}`}
-                    type="button"
-                    onClick={() => downloadImage(url, i, extension)}
-                    className="nodrag rounded-md border border-[#262626] py-1 text-[10px] text-neutral-400 hover:border-gold hover:text-gold"
-                  >
-                    {extension ? `下载 ${extension.toUpperCase()} ${i + 1}` : `下载图片 ${i + 1}`}
-                  </button>
-                );
-              })}
-            </div>
-          </>
-        )}
-        {videos.map((video, index) => <a key={`download-${video}`} href={video} download={`garment-video-${index + 1}.mp4`} className="nodrag block rounded-md border border-[#262626] py-1 text-center text-[10px] text-neutral-400 hover:border-gold hover:text-gold">下载视频 {index + 1}</a>)}
-        <label className="block space-y-1">
-          <span className="text-[10px] text-neutral-500">备注</span>
-          <textarea
-            value={data.note ?? ""}
-            {...noteEdit.bind}
-            rows={2}
-            placeholder="记录这一版结果的说明…"
-            className={`${inputClass} resize-none`}
-          />
-        </label>
+        {videos.map((video, index) => <Button key={`download-${video}`} variant="outline" className="gc-result-action w-full" render={<a href={video} download={`garment-video-${index + 1}.mp4`} />}>下载视频 {index + 1}</Button>)}
+        <div className="gc-result-footer nodrag nopan">
+          <Button variant="outline" className="gc-result-action" disabled={!selectedImage} onClick={viewImage}><EyeIcon aria-hidden="true" />查看</Button>
+          <ResultCompareControl key={`${target.tabId}:${target.documentEpoch}`} image={selectedImage} />
+          <Button variant="outline" className="gc-result-action" disabled={!selectedImage} onClick={() => selectedImage && downloadImage(selectedImage, selectedImageIndex, imageExtensionFromReference(selectedImage))}><DownloadIcon aria-hidden="true" />下载</Button>
+          <ResultNoteControl key={`${target.tabId}:${target.projectId}:${target.documentEpoch}:${id}`} nodeId={id} target={target} />
+        </div>
       </NodeFrame>
       {stillImages.map((_, index) => (
         <Handle
@@ -196,6 +214,6 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
           style={{ top: `${((index + 1) / (stillImages.length + 1)) * 100}%` }}
         />
       ))}
-    </>
+    </div>
   );
 }

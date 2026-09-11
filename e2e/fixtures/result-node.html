@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="current">
+  <head><meta charset="UTF-8"><title>结果节点 · 隔离预览</title></head>
+  <body>
+    <div id="root" style="height:100vh"></div>
+    <script type="module">
+      import React from "react";
+      import { createRoot } from "react-dom/client";
+      import { ReactFlow, Background } from "@xyflow/react";
+      import { ResultNode } from "/src/components/nodes/ResultNode.tsx";
+      import { TooltipProvider } from "/src/components/ui/tooltip.tsx";
+      import { ImageViewer } from "/src/components/ImageViewer.tsx";
+      import { useFlowStore, selectActiveNodes, selectActiveEdges } from "/src/store/flowStore.ts";
+      import "@xyflow/react/dist/style.css";
+      import "/src/index.css";
+
+      // Isolated visual harness: never boot auth, write backend projects, or call AI.
+      useFlowStore.getState().loadFlow({ projectName: "结果节点隔离预览", nodes: [{
+        id: "preview-result", type: "result", position: { x: 160, y: 70 },
+        data: { kind: "result", label: "图3 · 生成结果", status: "idle", note: "", images: ["/assets/try-on-styles/soft-editorial.webp"] },
+      }], edges: [] });
+      useFlowStore.setState({ saveProjectInTab: async () => true });
+      const nodeTypes = { result: ResultNode };
+      function Preview() {
+        const nodes = useFlowStore(selectActiveNodes);
+        const edges = useFlowStore(selectActiveEdges);
+        return React.createElement(TooltipProvider, null,
+          React.createElement("p", { style: { position: "absolute", zIndex: 5, left: 20, top: 15, color: "#555", fontSize: 12 } }, "结果节点隔离预览 · 备注仅供交互演示，不写入正式项目"),
+          React.createElement(ReactFlow, { nodes, edges, nodeTypes, onNodesChange: useFlowStore.getState().onNodesChange, defaultViewport: { x: 0, y: 0, zoom: 1 }, minZoom: 0.3, maxZoom: 2 }, React.createElement(Background, { gap: 24, size: 1 })),
+          React.createElement(ImageViewer),
+        );
+      }
+      createRoot(document.getElementById("root")).render(React.createElement(Preview));
+    </script>
+  </body>
+</html>

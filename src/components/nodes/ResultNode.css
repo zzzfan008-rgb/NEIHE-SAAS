@@ -1,0 +1,74 @@
+/* Result-only framing: other node types keep their existing floating titles. */
+.gc-result-node .gc-node-card {
+  border-radius: 5px !important;
+  border-color: color-mix(in srgb, var(--gc-node-border) 30%, var(--gc-node-main)) !important;
+}
+.gc-result-node .gc-node-body { padding: 40px 8px 8px; }
+.gc-result-node .gc-node-floating-title {
+  top: 10px;
+  bottom: auto;
+  left: 25px;
+  width: calc(100% - 65px);
+  transform: none;
+  translate: none;
+  text-align: left;
+}
+.gc-result-node .gc-node-floating-title > span {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+.gc-result-node .gc-node-floating-title input { text-align: left; }
+.gc-result-node .gc-result-status {
+  position: absolute;
+  top: 17px;
+  left: 13px;
+  width: 7px;
+  height: 7px;
+  color: var(--gc-node-muted);
+  fill: currentColor;
+}
+.gc-result-node .gc-result-more {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: var(--gc-node-muted);
+}
+.gc-result-node .gc-result-image {
+  display: flex;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  margin-top: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--gc-node-border) 18%, var(--gc-node-main));
+  border-radius: 4px;
+  background: var(--gc-node-inner);
+}
+.gc-result-image img { display: block; width: 100%; height: auto; max-height: 440px; object-fit: contain; }
+.gc-result-empty { padding: 70px 8px; text-align: center; color: var(--gc-node-muted); font-size: 11px; }
+.gc-result-footer { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.gc-result-action {
+  height: 30px;
+  min-width: 0;
+  gap: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border-color: color-mix(in srgb, var(--gc-node-border) 25%, var(--gc-node-main));
+  background: var(--gc-node-main);
+  color: var(--gc-node-text);
+  font-size: 11px;
+  font-weight: 400;
+}
+.gc-result-action:hover { background: var(--gc-node-inner); color: var(--gc-node-text); }
+.gc-result-action svg { width: 12px; height: 12px; }
+.gc-result-thumbnail { width: 44px; height: 48px; padding: 2px; border-radius: 4px; background: var(--gc-node-main); }
+.gc-result-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
+.gc-result-thumbnail[aria-pressed="true"] { border-color: var(--gc-node-accent); }
+@media (prefers-reduced-motion: reduce) {
+  .gc-result-node button, .gc-result-node .gc-node-card { transition: none; }
+}
