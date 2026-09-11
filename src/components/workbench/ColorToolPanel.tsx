@@ -162,25 +162,27 @@ export function ColorToolPanel() {
         <div className="grid grid-cols-8 gap-1.5">
           {values.map((value, index) => {
             const favorite = favorites.includes(value);
+            const rgb = Number.parseInt(value.slice(1), 16);
+            const brightness = ((rgb >> 16) * 299 + ((rgb >> 8) & 255) * 587 + (rgb & 255) * 114) / 1000;
             return (
               <div key={`${source}:${value}`}
-                className={`flex h-10 overflow-hidden rounded-md border ${selectedValues.has(value) ? "border-[var(--gc-accent)] ring-2 ring-[var(--gc-accent)]/40" : "border-white/15"}`}>
-                <button type="button" aria-label={`${selectedValues.has(value) ? "移除" : "选择"} ${value}`}
+                className={`gc-color-swatch relative h-10 overflow-hidden rounded-md border ${selectedValues.has(value) ? "border-[var(--gc-accent)] ring-2 ring-[var(--gc-accent)]/40" : "border-white/15"}`}>
+                <Button type="button" variant="ghost" aria-label={`${selectedValues.has(value) ? "移除" : "选择"} ${value}`}
                   aria-pressed={selectedValues.has(value)} onClick={() => toggle(value, source)}
-                  className="min-w-0 flex-1 transition-[filter] hover:brightness-110 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--gc-accent)]"
+                  className="gc-color-swatch-select block h-full w-full min-w-0 rounded-none border-0 p-0 transition-[filter] hover:brightness-110 focus-visible:ring-inset focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--gc-accent)]"
                   style={{ backgroundColor: value }} />
                 {favoriteControls && (
                   <Button ref={(button) => {
                     const key = `${source}:${value}`;
                     if (button) favoriteControlRefs.current.set(key, button);
                     else favoriteControlRefs.current.delete(key);
-                  }} type="button" size="icon" variant="ghost"
+                  }} type="button" size="icon-xs" variant="ghost"
                     aria-label={`${favorites.includes(value) ? "取消收藏" : "收藏"} ${value}`}
                     aria-pressed={favorite}
                     onClick={() => toggleFavoriteFromControl(value, source, values, index)}
-                    className="h-full min-h-0 min-w-7 shrink-0 rounded-none border-l border-white/15 bg-[var(--gc-control)] p-0 text-[var(--gc-text-muted)] hover:bg-[var(--gc-control-hover)] hover:text-[var(--gc-text)]"
-                    style={{ width: 28, height: "100%" }}>
-                    <StarIcon aria-hidden="true" className="size-3.5" fill={favorite ? "currentColor" : "none"} />
+                    style={{ color: brightness > 180 ? "#52565c" : "#fff8eb" }}
+                    className="gc-color-swatch-favorite absolute right-0.5 top-0.5 z-10 items-start justify-end border-0 p-0.5 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--gc-accent)]">
+                    <StarIcon aria-hidden="true" className="size-2.5" strokeWidth={1.75} fill={favorite ? "var(--gc-accent)" : "none"} />
                   </Button>
                 )}
               </div>

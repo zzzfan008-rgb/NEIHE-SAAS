@@ -455,6 +455,13 @@ body,
   transform: rotate(calc(var(--gc-corner-angle) + 180deg));
 }
 
+.gc-color-swatch-favorite,
+.gc-color-swatch-favorite:hover,
+.gc-color-swatch-favorite:active {
+  background: transparent !important;
+  box-shadow: none;
+}
+
 .gc-node-header {
   background-color: var(--gc-node-header) !important;
   border-color: var(--gc-node-border) !important;

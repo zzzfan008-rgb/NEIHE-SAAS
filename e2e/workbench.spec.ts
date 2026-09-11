@@ -177,7 +177,8 @@ test("color series favorites sync and remain available in My Favorites", async (
   const favoritesPanel = dialog.getByRole("tabpanel", { name: "我的收藏" });
   await expect(favoritesPanel.getByRole("button", { name: "选择 #161616" })).toBeVisible();
   await expect(favoritesPanel.getByRole("button", { name: "取消收藏 #161616" })).toBeVisible();
-  await favoritesPanel.getByRole("button", { name: "选择 #161616" }).click();
+  // The favorite now overlays the upper-right corner; select the uncovered color area.
+  await favoritesPanel.getByRole("button", { name: "选择 #161616" }).click({ position: { x: 5, y: 30 } });
   await expect(dialog.getByText("已选 1/8")).toBeVisible();
 
   await page.reload();
