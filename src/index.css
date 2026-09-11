@@ -241,6 +241,8 @@ body {
   --gc-node-text: #25282c;
   --gc-node-muted: #676c73;
   --gc-node-accent: #b18745;
+  --gc-node-radius: 20px;
+  --gc-node-media-radius: 14px;
   --gc-handle-highlight: #f2ddb2;
   --gc-handle-mid: #b18745;
   --gc-handle-dark: #61451f;
@@ -305,7 +307,7 @@ body {
   background-color: var(--gc-node-main) !important;
   border-color: var(--gc-node-border) !important;
   border-width: 0.8px !important;
-  border-radius: 10px !important;
+  border-radius: var(--gc-node-radius) !important;
   color: var(--gc-node-text) !important;
   box-shadow: 0 5px 14px rgba(35, 35, 35, 0.16) !important;
 }
@@ -392,6 +394,10 @@ body,
 
 .gc-node-card:has(.gc-image-input-media) {
   overflow: hidden;
+  /* Overlay the outline rather than subtracting borders from the image ratio. */
+  border-width: 0 !important;
+  outline: 0.8px solid var(--gc-node-border);
+  outline-offset: -0.8px;
 }
 
 .gc-node-card:has(.gc-image-input-media) .gc-node-body {
@@ -400,6 +406,53 @@ body,
 
 .gc-image-input-media--dragging {
   box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--gc-node-accent) 62%, transparent);
+}
+
+.gc-node-body :is(div, section, label, p).border,
+.gc-node-error,
+.gc-node-media,
+.gc-node-body video,
+.gc-node-body > img {
+  border-radius: var(--gc-node-media-radius);
+}
+
+.gc-image-node .react-flow__resize-control.handle.gc-image-resize-corner {
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--gc-node-accent);
+  box-shadow: none;
+  transform: none;
+  translate: none;
+}
+.gc-image-node .react-flow__resize-control.gc-image-resize-corner.top { top: 4px; }
+.gc-image-node .react-flow__resize-control.gc-image-resize-corner.bottom { top: auto; bottom: 4px; }
+.gc-image-node .react-flow__resize-control.gc-image-resize-corner.left { left: 4px; }
+.gc-image-node .react-flow__resize-control.gc-image-resize-corner.right { left: auto; right: 4px; }
+.gc-image-resize-corner.top.left { --gc-corner-angle: 135deg; }
+.gc-image-resize-corner.top.right { --gc-corner-angle: 225deg; }
+.gc-image-resize-corner.bottom.right { --gc-corner-angle: -45deg; }
+.gc-image-resize-corner.bottom.left { --gc-corner-angle: 45deg; }
+.gc-image-resize-arrows {
+  width: 28px;
+  height: 28px;
+  stroke-width: 1.5;
+  color: var(--gc-node-border);
+  pointer-events: none;
+  transform: rotate(var(--gc-corner-angle));
+}
+.gc-image-resize-arrow-inner {
+  width: 9px;
+  height: 9px;
+  color: var(--gc-node-accent);
+}
+.gc-image-node[data-resize-direction="in"] .gc-image-resize-arrows {
+  transform: rotate(calc(var(--gc-corner-angle) + 180deg));
 }
 
 .gc-node-header {

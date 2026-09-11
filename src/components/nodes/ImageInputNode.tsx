@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { NodeResizer, Position, type NodeChange, type NodeProps, type Node } from "@xyflow/react";
+import { NodeResizeControl, Position, type NodeChange, type NodeProps, type Node, type ResizeParams } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
 import { ImagesIcon, MinusIcon, PlusIcon, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -88,6 +88,17 @@ const IMAGE_NODE_MIN_WIDTH = 180;
 const IMAGE_NODE_MIN_HEIGHT = 120;
 const IMAGE_NODE_MAX_SIZE = 800;
 const IMAGE_NODE_LONG_EDGE = 280;
+const IMAGE_RESIZE_CORNERS = ["top-left", "top-right", "bottom-right", "bottom-left"] as const;
+
+/** Display-only geometry: a legacy free-resize height must never stretch the source. */
+export function aspectLockedImageDimensions(naturalWidth: number, naturalHeight: number, preferredWidth?: number) {
+  const valid = Number.isFinite(naturalWidth) && Number.isFinite(naturalHeight) && naturalWidth > 0 && naturalHeight > 0;
+  const ratio = valid ? naturalWidth / naturalHeight : 280 / 180;
+  const fittedWidth = IMAGE_NODE_LONG_EDGE * Math.min(1, ratio);
+  const requestedWidth = typeof preferredWidth === "number" && Number.isFinite(preferredWidth) && preferredWidth > 0 ? preferredWidth : fittedWidth;
+  const width = Math.min(requestedWidth, IMAGE_NODE_MAX_SIZE, IMAGE_NODE_MAX_SIZE * ratio);
+  return { width, height: width / ratio };
+}
 
 export function fitImageNodeDimensions(width: number, height: number) {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -144,6 +155,21 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
   const uploadRequestRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [resizeDirection, setResizeDirection] = useState<"out" | "in">("out");
+  const previousResizeArea = useRef(0);
+  // Keep callbacks stable: changing them during a drag recreates XYFlow's resizer.
+  const onResizeStart = useCallback((_: unknown, params: ResizeParams) => {
+    previousResizeArea.current = params.width * params.height;
+    setResizeDirection("out");
+  }, []);
+  const onResize = useCallback((_: unknown, params: ResizeParams) => {
+    const area = params.width * params.height;
+    if (Math.abs(area - previousResizeArea.current) > 0.1) {
+      setResizeDirection(area > previousResizeArea.current ? "out" : "in");
+      previousResizeArea.current = area;
+    }
+  }, []);
+  const onResizeEnd = useCallback(() => setResizeDirection("out"), []);
   const [imageDimensions, setImageDimensions] = useState<{
     url: string;
     width: number;
@@ -204,21 +230,34 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
     : fitImageNodeDimensions(280, 180);
   const resizedWidth = typeof explicitWidth === "number" && explicitWidth > 0 ? explicitWidth : undefined;
   const resizedHeight = typeof explicitHeight === "number" && explicitHeight > 0 ? explicitHeight : undefined;
+  const hasLoadedImage = Boolean(imageDimensions && imageDimensions.url === data.imageUrl);
+  const lockedSize = aspectLockedImageDimensions(
+    hasLoadedImage ? imageDimensions!.width : 280,
+    hasLoadedImage ? imageDimensions!.height : 180,
+    resizedWidth,
+  );
+  const hasDisplayImage = Boolean(data.imageUrl && !data.imageUrl.startsWith("asset://"));
   const imageNodeStyle = {
-    width: resizedWidth ?? (data.imageUrl ? fittedImage.width : IMAGE_NODE_LONG_EDGE),
-    height: resizedHeight,
+    width: hasDisplayImage ? lockedSize.width : resizedWidth ?? IMAGE_NODE_LONG_EDGE,
+    height: hasDisplayImage ? lockedSize.height : resizedHeight,
   } satisfies CSSProperties;
+  useEffect(() => {
+    if (!hasLoadedImage || readOnly || resizedWidth === undefined) return;
+    if (Math.abs(resizedWidth - lockedSize.width) < 0.6 && resizedHeight !== undefined && Math.abs(resizedHeight - lockedSize.height) < 0.6) return;
+    // The store treats dimensions as transient, outside document history/save data.
+    onNodesChange([{ id, type: "dimensions", dimensions: lockedSize, setAttributes: true }]);
+  }, [hasLoadedImage, readOnly, id, resizedWidth, resizedHeight, lockedSize.width, lockedSize.height, onNodesChange]);
   const resizeNodeBy = (factor: number) => {
-    const currentWidth = resizedWidth ?? (data.imageUrl ? fittedImage.width : width ?? IMAGE_NODE_LONG_EDGE);
-    const currentHeight = resizedHeight ?? (data.imageUrl ? fittedImage.height : height ?? IMAGE_NODE_MIN_HEIGHT);
+    const currentWidth = hasDisplayImage ? lockedSize.width : resizedWidth ?? width ?? IMAGE_NODE_LONG_EDGE;
+    const currentHeight = hasDisplayImage ? lockedSize.height : resizedHeight ?? height ?? IMAGE_NODE_MIN_HEIGHT;
     const boundedScale = boundedImageNodeScale(currentWidth, currentHeight, factor);
     if (boundedScale === 1) return;
     const changes: NodeChange<FlowNode>[] = [{
       id,
       type: "dimensions",
       dimensions: {
-        width: Math.round(currentWidth * boundedScale),
-        height: Math.round(currentHeight * boundedScale),
+        width: currentWidth * boundedScale,
+        height: currentHeight * boundedScale,
       },
       setAttributes: true,
     }];
@@ -238,24 +277,30 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
   };
 
   return (
-    <div className="gc-image-node relative" style={imageNodeStyle}>
-      <NodeResizer
-        isVisible={selected && !readOnly}
-        minWidth={IMAGE_NODE_MIN_WIDTH}
-        minHeight={IMAGE_NODE_MIN_HEIGHT}
-        maxWidth={IMAGE_NODE_MAX_SIZE}
-        maxHeight={IMAGE_NODE_MAX_SIZE}
-        color="var(--gc-node-accent)"
-        lineStyle={{ pointerEvents: "none" }}
-        handleStyle={{
-          zIndex: 30,
-          width: 12,
-          height: 12,
-          border: "2px solid var(--gc-node-accent)",
-          borderRadius: 3,
-          background: "var(--gc-node-main)",
-        }}
-      />
+    <div className="gc-image-node relative" style={imageNodeStyle} data-resize-direction={resizeDirection}>
+      {selected && !readOnly && (!hasDisplayImage || hasLoadedImage) && IMAGE_RESIZE_CORNERS.map((corner) => (
+        <NodeResizeControl
+          key={corner}
+          position={corner}
+          className="gc-image-resize-corner nopan"
+          minWidth={hasDisplayImage ? Math.min(IMAGE_NODE_MIN_WIDTH, fittedImage.width) : IMAGE_NODE_MIN_WIDTH}
+          minHeight={hasDisplayImage ? Math.min(IMAGE_NODE_MIN_HEIGHT, fittedImage.height) : IMAGE_NODE_MIN_HEIGHT}
+          maxWidth={IMAGE_NODE_MAX_SIZE}
+          maxHeight={IMAGE_NODE_MAX_SIZE}
+          keepAspectRatio={hasDisplayImage}
+          autoScale={false}
+          onResizeStart={onResizeStart}
+          onResize={onResize}
+          onResizeEnd={onResizeEnd}
+        >
+          <svg className="gc-image-resize-arrows" width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 10 10.5 15.5 Q14 19 17.5 15.5 L23 10" />
+            <svg className="gc-image-resize-arrow-inner" x="9.5" y="4.5" width="9" height="9" viewBox="0 0 28 28" stroke="currentColor">
+              <path d="M5 10 10.5 15.5 Q14 19 17.5 15.5 L23 10" strokeWidth={1.5 * 28 / 9} />
+            </svg>
+          </svg>
+        </NodeResizeControl>
+      ))}
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={<MediaNodeActionToolbar nodeId={id} hasImage={Boolean(data.imageUrl)} sourceHandle="image" />}>
         {data.imageUrl?.startsWith("asset://") ? (
           <div className="rounded-md border border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-3 py-5 text-center text-[10px] text-[var(--gc-node-text)]">
@@ -265,7 +310,7 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
           <div
             {...dropHandlers}
             className={`gc-image-input-media relative overflow-hidden bg-white ${dragOver ? "gc-image-input-media--dragging" : ""}`}
-            style={{ height: resizedHeight ? "100%" : fittedImage.height }}
+            style={{ height: "100%" }}
           >
             <img
               src={data.imageUrl}

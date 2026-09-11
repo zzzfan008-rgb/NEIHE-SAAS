@@ -1,6 +1,6 @@
 /* Result-only framing: other node types keep their existing floating titles. */
 .gc-result-node .gc-node-card {
-  border-radius: 5px !important;
+  border-radius: var(--gc-node-radius) !important;
   border-color: color-mix(in srgb, var(--gc-node-border) 30%, var(--gc-node-main)) !important;
 }
 .gc-result-node .gc-node-body { padding: 40px 8px 8px; }
@@ -46,7 +46,7 @@
   padding: 0;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--gc-node-border) 18%, var(--gc-node-main));
-  border-radius: 4px;
+  border-radius: var(--gc-node-media-radius);
   background: var(--gc-node-inner);
 }
 .gc-result-image img { display: block; width: 100%; height: auto; max-height: 440px; object-fit: contain; }

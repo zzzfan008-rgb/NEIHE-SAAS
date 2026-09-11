@@ -32,7 +32,7 @@ export function ImageGrid({ images, empty = "暂无生成结果", renderAction, 
       {safeImages.map((url, i) => (
         <div
           key={`${url}-${i}`}
-          className={`nodrag group relative overflow-hidden rounded-md border bg-[var(--gc-control)] ${onSelect && selectedIndex === i ? "border-[var(--gc-accent)] ring-1 ring-[var(--gc-accent)]/50" : "border-[var(--gc-border)]"}`}
+          className={`gc-node-media nodrag group relative overflow-hidden rounded-md border bg-[var(--gc-control)] ${onSelect && selectedIndex === i ? "border-[var(--gc-accent)] ring-1 ring-[var(--gc-accent)]/50" : "border-[var(--gc-border)]"}`}
         >
           <Button
             type="button"

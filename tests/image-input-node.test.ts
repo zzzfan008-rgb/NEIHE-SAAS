@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ReactFlowProvider } from "@xyflow/react";
 import {
   boundedImageNodeScale,
+  aspectLockedImageDimensions,
   fitImageNodeDimensions,
   ImageFileInput,
   ImageInputNode,
@@ -156,14 +157,26 @@ test("键盘缩放保持比例且不会把窄幅自然尺寸越缩越大", () =>
 
 test("所有参考图节点提供四角实时缩放、自然尺寸初始值和键盘等价操作", () => {
   const source = readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
-  assert.match(source, /NodeResizer/);
-  assert.match(source, /isVisible=\{selected && !readOnly\}/);
-  assert.match(source, /minWidth=\{IMAGE_NODE_MIN_WIDTH\}[\s\S]*?minHeight=\{IMAGE_NODE_MIN_HEIGHT\}[\s\S]*?maxWidth=\{IMAGE_NODE_MAX_SIZE\}[\s\S]*?maxHeight=\{IMAGE_NODE_MAX_SIZE\}/);
-  assert.match(source, /lineStyle=\{\{ pointerEvents: "none" \}\}/, "只能拖动四个角，边线不可拖动");
+  assert.match(source, /NodeResizeControl/);
+  assert.match(source, /selected && !readOnly/);
+  assert.match(source, /keepAspectRatio=\{hasDisplayImage\}/);
+  assert.match(source, /IMAGE_RESIZE_CORNERS = \["top-left", "top-right", "bottom-right", "bottom-left"\]/, "只提供四角缩放控制，不增加边线拖动");
   assert.match(source, /explicitWidth[\s\S]*?selectActiveNodes/, "只有显式节点宽高才能覆盖图片自然适配尺寸");
   assert.match(source, /className="block h-full w-full select-none object-contain"/);
-  assert.match(source, /height: resizedHeight \? "100%" : fittedImage\.height/);
+  assert.match(source, /height: "100%"/);
   assert.match(source, /aria-label="缩小参考图节点"[\s\S]*?aria-label="放大参考图节点"/, "缩放必须提供键盘可操作的按钮");
+});
+
+test("按原图比例修正旧的自由缩放尺寸，横竖图均不超过 800px", () => {
+  for (const [w, h] of [[1200, 800], [600, 1200], [300, 300], [10000, 100], [100, 10000]]) {
+    for (const preferred of [undefined, 180, 500, 2000]) {
+      const dimensions = aspectLockedImageDimensions(w, h, preferred);
+      assert.ok(Math.abs(dimensions.width / dimensions.height - w / h) < 0.00001);
+      assert.ok(dimensions.width <= 800 && dimensions.height <= 800);
+    }
+  }
+  assert.deepEqual(aspectLockedImageDimensions(600, 1200, 200), { width: 200, height: 400 });
+  assert.deepEqual(aspectLockedImageDimensions(0, 0), { width: 280, height: 180 });
 });
 
 test("上传完成态保留节点名称并维持图片外框样式", () => {
