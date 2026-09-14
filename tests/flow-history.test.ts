@@ -9,6 +9,7 @@ import {
   acquireDrawingCreationLock,
   applyRunEventToTab,
   beginHistoryTransaction,
+  commitDocumentMutation,
   endHistoryTransaction,
   commitCreatedDrawingBoard,
   ensureGeneratedResultNode,
@@ -657,6 +658,80 @@ await test("成功生成输出作为一次提交，撤销输出时保留最新�
   assert.deepEqual(
     redone.kind === "ai-modify" ? redone.outputImages : [],
     ["/api/files/final-a.png", "/api/files/final-b.png"],
+  );
+});
+
+await test("运行期间的色板修改撤销后仍保留新生成结果", () => {
+  const palette: FlowNode = {
+    id: "history-palette",
+    type: "color-palette",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "color-palette",
+      label: "目标色板",
+      status: "idle",
+      paletteVersion: 1,
+      swatches: [{ id: "black", value: "#000000", source: "quick" }],
+    },
+  };
+  const recolor: FlowNode = {
+    id: "history-recolor",
+    type: "fabric-recolor",
+    position: { x: 360, y: 0 },
+    data: {
+      kind: "fabric-recolor",
+      label: "配色替换",
+      status: "running",
+      operationMode: "color",
+      colors: ["#000000"],
+      prompt: "",
+      outputImages: [],
+    },
+  };
+  useFlowStore.getState().loadFlow({
+    projectId: "history-recolor-project",
+    projectName: "配色运行历史",
+    nodes: [palette, recolor],
+    edges: [{
+      id: "history-palette-recolor",
+      source: palette.id,
+      sourceHandle: "colors",
+      target: recolor.id,
+      targetHandle: "palette",
+    }],
+  });
+  useFlowStore.temporal.getState().clear();
+  commitDocumentMutation((tab) => ({
+    nodes: tab.nodes.map((node) => node.id === palette.id && node.data.kind === "color-palette"
+      ? {
+          ...node,
+          data: {
+            ...node.data,
+            swatches: [...node.data.swatches, { id: "beige", value: "#F5F0E6", source: "quick" }],
+          },
+        }
+      : node),
+  }));
+  const target = documentTargetForTab(useFlowStore.getState().activeTabId);
+  applyRunEventToTab(target, recolor.id, {
+    type: "node-status",
+    nodeId: recolor.id,
+    status: "success",
+    images: ["/api/files/recolor-result.png"],
+  });
+  const resultId = activeDocument().nodes.find((node) => node.data.kind === "result")?.id;
+  assert.ok(resultId);
+
+  useFlowStore.getState().undo();
+  useFlowStore.getState().undo();
+  assert.ok(activeDocument().nodes.some((node) => node.id === resultId));
+  assert.ok(activeDocument().edges.some((edge) => edge.source === recolor.id && edge.target === resultId));
+  const restoredPalette = activeDocument().nodes.find((node) => node.id === palette.id);
+  assert.deepEqual(
+    restoredPalette?.data.kind === "color-palette"
+      ? restoredPalette.data.swatches.map((swatch) => swatch.value)
+      : [],
+    ["#000000"],
   );
 });
 

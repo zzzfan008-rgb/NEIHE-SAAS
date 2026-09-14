@@ -184,6 +184,39 @@ await test("入队立即返回且数据库重连后 queued 任务仍可执行并
   assert.deepEqual(replay?.map((event) => event.seq), allEvents.slice(2).map((event) => event.seq));
 });
 
+await test("领取旧版超量配色任务时同步规范化历史请求数量", async () => {
+  sequence += 1;
+  const nodeId = `legacy-recolor-count-${sequence}`;
+  const recolorStep: NodeExecution = {
+    nodeId,
+    kind: "fabric-recolor",
+    inputImages: [PNG_DATA_URL],
+    params: {
+      prompt: "",
+      operationMode: "color",
+      colors: Array.from({ length: 32 }, (_, index) => `#${index.toString(16).padStart(6, "0")}`),
+      modelId: "gpt-image-2-vip",
+      modelOptions: {},
+    },
+  };
+  const run = await queue.enqueueGenerationRun({ steps: [recolorStep] }, owner.id, {
+    ...context(nodeId),
+    kind: "fabric-recolor",
+    requestedCount: 32,
+  });
+  try {
+    await database.query("UPDATE generation_jobs SET available_at = 0 WHERE run_id = $1", [run.id]);
+    const claimed = await queue.claimNextJob("legacy-recolor-count-worker", tick(), 60_000);
+    assert.equal(claimed?.runId, run.id);
+    assert.equal((await database.queryOne<{ requested_count: number }>(
+      "SELECT requested_count FROM generation_runs WHERE id = $1",
+      [run.id],
+    ))?.requested_count, 8);
+  } finally {
+    await database.query("DELETE FROM generation_runs WHERE id = $1", [run.id]);
+  }
+});
+
 await test("持久队列保留分步角色，场景只做文字分析且未提交配饰不进入提示词", async () => {
   const testId = ++sequence;
   const personImage = await solidImage(4, 4, { r: 210, g: 60, b: 35 });

@@ -132,6 +132,21 @@ const DEFAULT_PROMPTS: Partial<Record<NodeExecution["kind"], string>> = {
   "fabric-recolor": "保持服装款式、细节、光影与背景不变，仅替换面料质感",
 };
 
+export function normalizedRequestedCountForStep(
+  kind: string,
+  params: Record<string, unknown>,
+): number {
+  return kind === "fabric-recolor"
+    ? params.operationMode === "fabric"
+      ? 1
+      : Math.max(1, Math.min(8, Array.isArray(params.colors) ? params.colors.length : 1))
+    : kind === "print-mutate"
+      ? Math.max(1, Math.min(8, Number(params.count) || 4))
+      : kind === "sketch-to-render" || kind === "ai-modify" || kind === "ai-styling"
+        ? Math.max(1, Math.min(8, Number(params.batchSize) || 1))
+        : 1;
+}
+
 export function fabricRecolorPrompt(
   operationMode: "combined" | "fabric" | "color",
   color?: string,

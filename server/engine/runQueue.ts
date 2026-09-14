@@ -30,6 +30,7 @@ import {
 } from "../providers/base";
 import {
   executeStep,
+  normalizedRequestedCountForStep,
   type ExecuteStepOptions,
   type ProviderResolver,
   type RunEvent,
@@ -361,6 +362,14 @@ export async function claimNextJob(
     if (!row) return undefined;
     const run = await lockRun(client, row.run_id);
     if (!run || isTerminalRunStatus(run.status) || run.status === "cancel_requested") return undefined;
+    const step = parseJson<NodeExecution | undefined>(row.step_json, undefined);
+    if (!step) throw new Error("generation step payload is invalid");
+    if (row.step_id === row.target_step_id && step.kind === "fabric-recolor") {
+      await client.query(`
+        UPDATE generation_runs SET requested_count = $1
+        WHERE id = $2 AND requested_count <> $1
+      `, [normalizedRequestedCountForStep(step.kind, step.params), row.run_id]);
+    }
     await client.query(`
       UPDATE generation_jobs SET status = 'running', worker_id = $1, lease_expires_at = $2,
         attempt_started_at = NULL, updated_at = $3 WHERE id = $4
@@ -376,8 +385,6 @@ export async function claimNextJob(
     await appendRunEvent(client, row.run_id, {
       type: "node-status", nodeId: row.node_id, status: "running", startedAt: now,
     }, now);
-    const step = parseJson<NodeExecution | undefined>(row.step_json, undefined);
-    if (!step) throw new Error("generation step payload is invalid");
     return {
       id: row.id,
       runId: row.run_id,

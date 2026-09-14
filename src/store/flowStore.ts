@@ -1733,26 +1733,75 @@ function flushActiveTextEditForTarget(target: DocumentTarget): boolean {
   return flushActiveTextEdit(edit.token);
 }
 
-function rebaseActiveTextEditResult(
+function rebaseTemporalDocumentWithSystemResult(
+  document: FlowTemporalState,
+  resultNode: FlowNode,
+  resultEdge?: Edge,
+): FlowTemporalState {
+  if (resultNode.data.kind !== "result") return document;
+  const resultImages = resultNode.data.images;
+  let resultFound = false;
+  let nodesChanged = false;
+  let nodes = document.nodes.map((node) => {
+    if (node.id !== resultNode.id) return node;
+    resultFound = true;
+    if (node.data.kind !== "result" || sameStringList(node.data.images, resultImages)) return node;
+    nodesChanged = true;
+    return { ...node, data: { ...node.data, images: [...resultImages] } };
+  });
+  if (!resultFound) {
+    nodes = [...nodes, resultNode];
+    nodesChanged = true;
+  }
+  const canRestoreEdge = Boolean(
+    resultEdge
+    && nodes.some((node) => node.id === resultEdge.source)
+    && !document.edges.some((edge) => (
+      edge.source === resultEdge.source
+      && edge.sourceHandle === resultEdge.sourceHandle
+      && edge.target === resultEdge.target
+      && edge.targetHandle === resultEdge.targetHandle
+    )),
+  );
+  if (!nodesChanged && !canRestoreEdge) return document;
+  return {
+    projectName: document.projectName,
+    nodes,
+    edges: canRestoreEdge ? [...document.edges, resultEdge!] : document.edges,
+  };
+}
+
+/** System-created results survive every pre-existing undo/redo snapshot. */
+function rebaseSystemResultHistory(
   target: DocumentTarget,
-  resultNodeId: string,
-  images: string[],
+  resultNode: FlowNode,
+  resultEdge?: Edge,
 ): void {
+  const rebase = (document: FlowTemporalState) => (
+    rebaseTemporalDocumentWithSystemResult(document, resultNode, resultEdge)
+  );
   const edit = activeTextEdit;
   if (
-    !edit ||
-    edit.token.target.tabId !== target.tabId ||
-    edit.token.target.projectId !== target.projectId ||
-    edit.token.target.documentEpoch !== target.documentEpoch
-  ) return;
-  edit.before = {
-    ...edit.before,
-    nodes: edit.before.nodes.map((node) => (
-      node.id === resultNodeId && node.data.kind === "result"
-        ? { ...node, data: { ...node.data, images: [...images] } }
-        : node
-    )),
-  };
+    edit
+    && edit.token.target.tabId === target.tabId
+    && edit.token.target.projectId === target.projectId
+    && edit.token.target.documentEpoch === target.documentEpoch
+  ) edit.before = rebase(edit.before);
+
+  if (useFlowStore.getState().activeTabId === target.tabId) {
+    const history = useFlowStore.temporal.getState();
+    useFlowStore.temporal.setState({
+      pastStates: history.pastStates.map((document) => rebase(document as FlowTemporalState)),
+      futureStates: history.futureStates.map((document) => rebase(document as FlowTemporalState)),
+    });
+    return;
+  }
+  const history = temporalHistoryByTab.get(target.tabId);
+  if (!history) return;
+  temporalHistoryByTab.set(target.tabId, {
+    pastStates: history.pastStates.map(rebase),
+    futureStates: history.futureStates.map(rebase),
+  });
 }
 
 /** Restore only the field owned by the active editor, without creating history. */
@@ -3470,14 +3519,7 @@ function updateTabFromRunEvent(
   const currentDocument = documentForTarget(currentState, target);
   if (!currentDocument) return;
   if (commitsOutput) {
-    const fixedResultReceivesEvent = Boolean(
-      fixedResultId
-      && currentDocument.nodes.some((node) => node.id === fixedResultId && node.data.kind === "result")
-      && currentDocument.edges.some((edge) => edge.source === nodeId && edge.target === fixedResultId),
-    );
-    if (fixedResultId && fixedResultReceivesEvent) {
-      rebaseActiveTextEditResult(target, fixedResultId, event.images!);
-    }
+    let generatedResultId = "";
     // 先把自动结果节点放入当前文档但不写撤销历史。随后单独提交生成
     // 输出，使用户仍可撤销/重做生成内容，而结果节点本身不会被误删。
     runWithoutHistory(() => {
@@ -3488,12 +3530,22 @@ function updateTabFromRunEvent(
           nodeId,
           event.images!,
         );
+        generatedResultId = generated.resultNodeId;
         return {
           nodes: generated.nodes,
           edges: generated.edges,
         };
       });
     });
+    const documentWithResult = documentForTarget(useFlowStore.getState(), target);
+    const generatedResult = documentWithResult?.nodes.find((node) => node.id === generatedResultId);
+    if (generatedResult?.data.kind === "result") {
+      rebaseSystemResultHistory(
+        target,
+        generatedResult,
+        documentWithResult?.edges.find((edge) => edge.source === nodeId && edge.target === generatedResultId),
+      );
+    }
     // A system result may arrive while a drag transaction is still live. Keep
     // that result outside undo history, but rebase the transaction snapshot so
     // cancelling the drag cannot roll the generated output/result node back.
