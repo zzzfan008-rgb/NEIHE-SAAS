@@ -195,6 +195,118 @@ await test("异步成功回写前先提交文本，撤销顺序保持为 success
   assert.equal(prompt(), "初始提示词");
 });
 
+await test("AI 搭配运行中编辑补充要求不会让后续撤销清空固定结果", () => {
+  flushActiveTextEdit();
+  const stylingNode: FlowNode = {
+    id: "styling-edit",
+    type: "ai-styling",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "ai-styling",
+      label: "AI 搭配",
+      status: "running",
+      prompt: "初始要求",
+      aspectRatio: "3:4",
+      batchSize: 1,
+      preserve: "upper",
+      extras: { outerwear: false, shoes: false, bag: false, accessories: false, hat: false },
+      resultNodeId: "styling-result",
+      outputImages: [],
+      modelId: "gpt-image-2-vip",
+      modelOptions: {},
+    },
+  };
+  const resultNode: FlowNode = {
+    id: "styling-result",
+    type: "result",
+    position: { x: 400, y: 0 },
+    data: { kind: "result", label: "搭配结果", status: "running", images: [] },
+  };
+  useFlowStore.getState().loadFlow({
+    projectId: "styling-edit-project",
+    projectName: "AI 搭配文本回写",
+    nodes: [stylingNode, resultNode],
+    edges: [{
+      id: "styling-result-edge",
+      source: stylingNode.id,
+      sourceHandle: "image",
+      target: resultNode.id,
+      targetHandle: "references",
+    }],
+  });
+  useFlowStore.temporal.getState().clear();
+  const token = updateCoalescedTextEdit(
+    { kind: "node-data", nodeId: stylingNode.id, field: "prompt" },
+    "下一轮使用的新要求",
+  );
+  assert.ok(token);
+  applyRunEventToTab(activeTarget(), stylingNode.id, {
+    type: "node-status",
+    nodeId: stylingNode.id,
+    status: "success",
+    images: ["/api/files/styling-success.png"],
+  });
+
+  useFlowStore.getState().undo();
+  useFlowStore.getState().undo();
+  const document = activeDocument();
+  const styling = document.nodes.find((node) => node.id === stylingNode.id);
+  const result = document.nodes.find((node) => node.id === resultNode.id);
+  assert.equal(styling?.data.kind === "ai-styling" && styling.data.prompt, "初始要求");
+  assert.deepEqual(result?.data.kind === "result" ? result.data.images : [], ["/api/files/styling-success.png"]);
+});
+
+await test("AI 搭配固定结果连线已删除时不会把运行结果注入文本撤销基线", () => {
+  flushActiveTextEdit();
+  const stylingNode: FlowNode = {
+    id: "styling-disconnected",
+    type: "ai-styling",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "ai-styling",
+      label: "AI 搭配",
+      status: "running",
+      prompt: "初始要求",
+      aspectRatio: "3:4",
+      batchSize: 1,
+      preserve: "upper",
+      extras: { outerwear: false, shoes: false, bag: false, accessories: false, hat: false },
+      resultNodeId: "disconnected-result",
+      outputImages: [],
+      modelId: "gpt-image-2-vip",
+      modelOptions: {},
+    },
+  };
+  const resultNode: FlowNode = {
+    id: "disconnected-result",
+    type: "result",
+    position: { x: 400, y: 0 },
+    data: { kind: "result", label: "已断开结果", status: "idle", images: ["/api/files/old.png"] },
+  };
+  useFlowStore.getState().loadFlow({
+    projectId: "styling-disconnected-project",
+    projectName: "AI 搭配断开结果",
+    nodes: [stylingNode, resultNode],
+    edges: [],
+  });
+  useFlowStore.temporal.getState().clear();
+  updateCoalescedTextEdit(
+    { kind: "node-data", nodeId: stylingNode.id, field: "prompt" },
+    "下一轮使用的新要求",
+  );
+  applyRunEventToTab(activeTarget(), stylingNode.id, {
+    type: "node-status",
+    nodeId: stylingNode.id,
+    status: "success",
+    images: ["/api/files/should-not-enter-result.png"],
+  });
+
+  useFlowStore.getState().undo();
+  useFlowStore.getState().undo();
+  const result = activeDocument().nodes.find((node) => node.id === resultNode.id);
+  assert.deepEqual(result?.data.kind === "result" ? result.data.images : [], ["/api/files/old.png"]);
+});
+
 await test("后台页签 success 不会拆分前台页签的输入或 IME 事务", () => {
   resetDocument("background-success");
   const backgroundTarget = activeTarget();

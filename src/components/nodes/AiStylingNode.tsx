@@ -24,9 +24,13 @@ export function AiStylingNode({ id, data, selected }: NodeProps<Node<AiStylingNo
   const runtimeKey = stylingRuntimeKey(target, id);
   const runtime = useStylingRuntime((state) => state.analyses[runtimeKey]);
   const update = useFlowStore((state) => state.updateNodeDataInTab);
+  const runAccepted = useFlowStore((state) => state.recentResults.some((record) => (
+    record.projectId === target.projectId && record.nodeId === id && Boolean(record.runId) && isNodeRunActive(record.status)
+  )));
   const promptEdit = useCoalescedTextEdit({ kind: "node-data", nodeId: id, field: "prompt" }, { multiline: true });
   const active = isNodeRunActive(data.status);
   const disabled = document.readOnly || active;
+  const promptDisabled = document.readOnly || (data.status === "queued" && !runAccepted);
   const analysis = validStylingAnalysis(target, id);
   const protectedOuterwear = analysis?.result && ((data.preserve === "whole" && analysis.result.existingExtras.outerwear) || (data.preserve === "upper" && analysis.result.upperIsOuterwear));
   const reason = stylingBlockReason(data, input.images, Boolean(analysis), Boolean(protectedOuterwear));
@@ -56,7 +60,7 @@ export function AiStylingNode({ id, data, selected }: NodeProps<Node<AiStylingNo
       </div>
       <p className="text-[10px] text-[var(--gc-text-muted)]">关闭：保留原有单品、不新增。开启：允许搭配或替换。{protectedOuterwear ? "原外套属于受保护服饰，不替换。" : ""}</p>
       <label className="block space-y-1"><span className="text-xs">补充要求（可选）</span>
-        <Textarea value={data.prompt} disabled={disabled} {...promptEdit.bind} rows={3} placeholder="例如：秋季通勤，搭配简洁利落；可指定场景" className="nodrag nopan nowheel resize-none" />
+        <Textarea value={data.prompt} disabled={promptDisabled} {...promptEdit.bind} rows={3} placeholder="例如：秋季通勤，搭配简洁利落；可指定场景" className="nodrag nopan nowheel resize-none" />
       </label>
       <label className="block space-y-1"><span className="text-xs">生成数量</span>
         <Select value={String(data.batchSize)} disabled={disabled} onValueChange={(value) => { if (value) update(target, id, { batchSize: Number(value) }); }}>

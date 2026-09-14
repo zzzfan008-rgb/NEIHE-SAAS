@@ -19,6 +19,15 @@ test("AI 搭配三节点、显式识别、开关及主图失效", async ({ page 
   },template);
   const node=page.locator('.react-flow__node[data-id="styling"]');
   await expect(page.locator('.react-flow__node')).toHaveCount(3);
+  const supplementalRequirements=node.getByPlaceholder("例如：秋季通勤，搭配简洁利落；可指定场景");
+  await page.evaluate(async()=>{const path="/src/store/flowStore.ts";const {useFlowStore}=await import(path);useFlowStore.getState().updateNodeData("styling",{status:"queued"});});
+  await expect(supplementalRequirements).toBeDisabled();
+  await page.evaluate(async()=>{const path="/src/store/flowStore.ts";const {useFlowStore}=await import(path);useFlowStore.getState().updateNodeData("styling",{status:"running"});});
+  await expect(supplementalRequirements).toBeEnabled();
+  await supplementalRequirements.fill("秋季通勤，简洁利落");
+  await supplementalRequirements.press("Tab");
+  await expect.poll(()=>page.evaluate(async()=>{const path="/src/store/flowStore.ts";const {selectActiveNodes,useFlowStore}=await import(path);return selectActiveNodes(useFlowStore.getState()).find((item:{id:string})=>item.id==="styling")?.data.prompt;})).toBe("秋季通勤，简洁利落");
+  await page.evaluate(async()=>{const path="/src/store/flowStore.ts";const {useFlowStore}=await import(path);useFlowStore.getState().updateNodeData("styling",{status:"idle"});});
   const reference=page.locator('.react-flow__node[data-id="reference"]');
   await expect(node.getByRole("button",{name:"识别服饰",exact:true})).toBeDisabled();
   const png=await sharp({create:{width:60,height:90,channels:3,background:"white"}}).png().toBuffer();

@@ -13,10 +13,12 @@ import {
   mergeRecentResults,
   normalizeRunEvent,
   requestedResultCount,
+  requestedResultCountForNode,
   resumeRecentResults,
   selectActiveDocument,
   trimRecentResults,
   useFlowStore,
+  type FlowNode,
   type RecentResult,
   type RunEvent,
 } from "../src/store/flowStore";
@@ -178,6 +180,45 @@ test("各批量节点正确计算用户选择的卡片数量", () => {
     prompt: "",
     outputImages: [],
   }), 3);
+
+  const palette: FlowNode = {
+    id: "palette",
+    type: "color-palette",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "color-palette",
+      label: "目标色板",
+      status: "idle",
+      paletteVersion: 1,
+      swatches: ["#111111", "#222222", "#333333"].map((value, index) => ({
+        id: `color-${index}`,
+        value: value as `#${string}`,
+        source: "quick",
+      })),
+    },
+  };
+  const recolor: FlowNode = {
+    id: "recolor",
+    type: "fabric-recolor",
+    position: { x: 100, y: 0 },
+    data: {
+      kind: "fabric-recolor",
+      label: "配色",
+      status: "idle",
+      operationMode: "color",
+      colors: ["#111111"],
+      prompt: "",
+      outputImages: [],
+    },
+  };
+  assert.equal(requestedResultCountForNode({
+    nodes: [palette, recolor],
+    edges: [{ id: "palette-recolor", source: "palette", sourceHandle: "colors", target: "recolor", targetHandle: "palette" }],
+  }, recolor), 3);
+  assert.equal(requestedResultCountForNode({
+    nodes: [palette, { ...recolor, data: { ...recolor.data, operationMode: "fabric" } }],
+    edges: [{ id: "palette-recolor", source: "palette", sourceHandle: "colors", target: "recolor", targetHandle: "palette" }],
+  }, { ...recolor, data: { ...recolor.data, operationMode: "fabric" } }), 1);
 });
 
 test("部分成功时用错误卡补足用户选择数量而不增减卡片", () => {

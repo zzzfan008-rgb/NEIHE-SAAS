@@ -383,7 +383,7 @@ export function buildExecutionPlan(
       const paletteEdge = edges.find((edge) => edge.target === id && edge.targetHandle === "palette");
       const paletteNode = paletteEdge ? nodeMap.get(paletteEdge.source) : undefined;
       if (paletteNode?.data.kind === "color-palette") {
-        params.colors = paletteNode.data.swatches.map((swatch) => swatch.value);
+        params.colors = paletteNode.data.swatches.slice(0, 8).map((swatch) => swatch.value);
         params.paletteSourceNodeId = paletteNode.id;
       }
     }

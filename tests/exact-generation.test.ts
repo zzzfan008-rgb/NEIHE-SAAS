@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import sharp from "sharp";
-import { postProcessGeneratedOutputImages } from "../server/engine/runner";
+import { executeStep, postProcessGeneratedOutputImages } from "../server/engine/runner";
 import {
   EXACT_ASPECT_DIMENSIONS,
   fitGeneratedImageToAspect,
@@ -143,6 +143,48 @@ await test("内容安全拒绝是确定失败，不会为同一输入重复付�
 await test("印花裂变缺省 requested_count 与实际默认 4 张一致", async () => {
   assert.equal(requestedCountForStep("print-mutate", {}), 4);
   assert.equal(requestedCountForStep("print-mutate", { count: 7 }), 7);
+});
+
+await test("仅面料模式的客户端、服务端与实际输出均固定为 1 张", async () => {
+  assert.equal(requestedCountForStep("fabric-recolor", {
+    operationMode: "fabric",
+    colors: ["#111111", "#222222", "#333333"],
+  }), 1);
+  assert.equal(requestedCountForStep("fabric-recolor", {
+    operationMode: "color",
+    colors: ["#111111", "#222222", "#333333"],
+  }), 3);
+  assert.equal(requestedCountForStep("fabric-recolor", {
+    operationMode: "color",
+    colors: Array.from({ length: 9 }, (_, index) => `#00000${index}`),
+  }), 8);
+});
+
+await test("配色执行对旧队列中的超量颜色仍限制为 8 张", async () => {
+  let calls = 0;
+  const provider: AIProvider = {
+    id: "stub",
+    async generate() { throw new Error("unexpected generate"); },
+    async edit() {
+      calls += 1;
+      return { images: [`image-${calls}`], model: "stub-model" };
+    },
+  };
+  const image = await fixtureDataUrl(16, 16);
+  const result = await executeStep({
+    nodeId: "recolor",
+    kind: "fabric-recolor",
+    inputImages: [image],
+    params: {
+      modelId: "gpt-image-2-vip",
+      modelOptions: {},
+      operationMode: "color",
+      colors: Array.from({ length: 9 }, (_, index) => `#00000${index}`),
+      prompt: "",
+    },
+  } as never, [image], () => provider);
+  assert.equal(calls, 8);
+  assert.equal(result.images.length, 8);
 });
 
 await test("直连与 DAG 的 AI 批量生成统一限制为最多 8 张", async () => {

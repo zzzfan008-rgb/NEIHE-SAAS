@@ -79,6 +79,36 @@ test("连接色板作为执行参数且不会计入参考图片，优先于节�
   assert.equal(step.params.paletteSourceNodeId, "palette");
 });
 
+test("配色节点只消费连接色板的前 8 个颜色", () => {
+  const image = {
+    id: "garment", type: "image-input", data: {
+      kind: "image-input", label: "服装", status: "idle", imageRole: "garment",
+      imageUrl: "/api/files/garment.png",
+    } as WorkflowNodeData,
+  };
+  const palette = {
+    id: "palette", type: "color-palette", data: {
+      kind: "color-palette", label: "色板", status: "idle", paletteVersion: 1,
+      swatches: Array.from({ length: 9 }, (_, index) => ({
+        id: `color-${index}`,
+        value: `#00000${index}` as `#${string}`,
+        source: "quick" as const,
+      })),
+    } as WorkflowNodeData,
+  };
+  const recolor = {
+    id: "recolor", type: "fabric-recolor", data: {
+      kind: "fabric-recolor", label: "配色替换", status: "idle", operationMode: "color",
+      colors: ["#111111"], prompt: "", outputImages: [], modelId: "gpt-image-2-vip", modelOptions: {},
+    } as WorkflowNodeData,
+  };
+  const plan = buildExecutionPlan([image, palette, recolor], [
+    { source: image.id, sourceHandle: "image", target: recolor.id, targetHandle: "references" },
+    { source: palette.id, sourceHandle: "colors", target: recolor.id, targetHandle: "palette" },
+  ], { onlyNodeId: recolor.id, includeDownstream: false });
+  assert.deepEqual(plan.steps[0].params.colors, Array.from({ length: 8 }, (_, index) => `#00000${index}`));
+});
+
 test("已提交画板以普通图片快照进入 DAG，未提交画板不伪造图片", () => {
   const committed = {
     id: "board", type: "drawing-board", data: {

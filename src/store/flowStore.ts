@@ -1733,6 +1733,28 @@ function flushActiveTextEditForTarget(target: DocumentTarget): boolean {
   return flushActiveTextEdit(edit.token);
 }
 
+function rebaseActiveTextEditResult(
+  target: DocumentTarget,
+  resultNodeId: string,
+  images: string[],
+): void {
+  const edit = activeTextEdit;
+  if (
+    !edit ||
+    edit.token.target.tabId !== target.tabId ||
+    edit.token.target.projectId !== target.projectId ||
+    edit.token.target.documentEpoch !== target.documentEpoch
+  ) return;
+  edit.before = {
+    ...edit.before,
+    nodes: edit.before.nodes.map((node) => (
+      node.id === resultNodeId && node.data.kind === "result"
+        ? { ...node, data: { ...node.data, images: [...images] } }
+        : node
+    )),
+  };
+}
+
 /** Restore only the field owned by the active editor, without creating history. */
 export function cancelCoalescedTextEdit(token: CoalescedTextEditToken): boolean {
   const edit = activeTextEdit;
@@ -3063,6 +3085,24 @@ export function requestedResultCount(data: WorkflowNodeData): number {
   }
 }
 
+export function requestedResultCountForNode(
+  document: Pick<ProjectTab, "nodes" | "edges">,
+  node: FlowNode,
+): number {
+  if (node.data.kind !== "fabric-recolor") return requestedResultCount(node.data);
+  if (node.data.operationMode === "fabric") return 1;
+  const paletteSourceId = document.edges.find((edge) => (
+    edge.target === node.id && edge.targetHandle === "palette"
+  ))?.source;
+  const palette = paletteSourceId
+    ? document.nodes.find((candidate) => candidate.id === paletteSourceId)
+    : undefined;
+  const colorCount = palette?.data.kind === "color-palette"
+    ? palette.data.swatches.length
+    : node.data.colors.length;
+  return Math.max(1, Math.min(8, colorCount || 1));
+}
+
 function pendingResultCardId(recordId: string, index: number): string {
   return `${recordId}:pending:${index}`;
 }
@@ -3427,8 +3467,17 @@ function updateTabFromRunEvent(
   const currentState = useFlowStore.getState();
   // A tab container can be reused for another project. Reject its old run
   // before any durable branch can flush the replacement document's editor.
-  if (!documentForTarget(currentState, target)) return;
+  const currentDocument = documentForTarget(currentState, target);
+  if (!currentDocument) return;
   if (commitsOutput) {
+    const fixedResultReceivesEvent = Boolean(
+      fixedResultId
+      && currentDocument.nodes.some((node) => node.id === fixedResultId && node.data.kind === "result")
+      && currentDocument.edges.some((edge) => edge.source === nodeId && edge.target === fixedResultId),
+    );
+    if (fixedResultId && fixedResultReceivesEvent) {
+      rebaseActiveTextEditResult(target, fixedResultId, event.images!);
+    }
     // 先把自动结果节点放入当前文档但不写撤销历史。随后单独提交生成
     // 输出，使用户仍可撤销/重做生成内容，而结果节点本身不会被误删。
     runWithoutHistory(() => {
@@ -4390,7 +4439,7 @@ export const useFlowStore = create<FlowState>()(
         const ambiguousClientRequestId = ambiguousRunRequestIds.get(submissionKey);
         const clientRequestId = ambiguousClientRequestId ?? nanoid(16);
         const retryingAmbiguousSubmission = ambiguousClientRequestId !== undefined;
-        const requestedCount = requestedResultCount(node.data);
+        const requestedCount = requestedResultCountForNode(initialDocument, node);
         let terminalRecorded = false;
         let knownRunId: string | undefined;
 

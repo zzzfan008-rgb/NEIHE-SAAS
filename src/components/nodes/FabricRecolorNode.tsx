@@ -1,7 +1,13 @@
 import { useRef, useState } from "react";
 import { Position, type NodeProps, type Node } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
-import { selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
+import {
+  commitDocumentMutation,
+  selectActiveDocument,
+  selectActiveEdges,
+  selectActiveNodes,
+  useFlowStore,
+} from "@/store/flowStore";
 import { useCustomColors } from "@/store/customColors";
 import { isNodeRunActive, type ColorPaletteNodeData, type FabricRecolorNodeData } from "@/types/workflow";
 import { NodeFrame, RunButton, Developing } from "./NodeFrame";
@@ -29,6 +35,7 @@ export function FabricRecolorNode({
 }: NodeProps<Node<FabricRecolorNodeData>>) {
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
   const runNode = useFlowStore((s) => s.runNode);
+  const document = useFlowStore(selectActiveDocument);
   const hasFabricInput = useFlowStore((state) => {
     const inputs = selectActiveEdges(state).filter((edge) => edge.target === id);
     return inputs.some((edge) => edge.targetHandle === "fabric")
@@ -40,6 +47,10 @@ export function FabricRecolorNode({
     return source?.data.kind === "color-palette" ? source as Node<ColorPaletteNodeData> : undefined;
   });
   const running = isNodeRunActive(data.status);
+  const runAccepted = useFlowStore((state) => state.recentResults.some((record) => (
+    record.projectId === document.projectId && record.nodeId === id && Boolean(record.runId) && isNodeRunActive(record.status)
+  )));
+  const colorEditingDisabled = document.readOnly || (data.status === "queued" && !runAccepted);
 
   const localColors = data.colors ?? [];
   const colors = paletteNode ? paletteNode.data.swatches.map((swatch) => swatch.value) : localColors;
@@ -66,6 +77,30 @@ export function FabricRecolorNode({
       : (COLOR_CATEGORIES.find((c) => c.id === categoryId) ?? COLOR_CATEGORIES[0]).swatches;
 
   const applyColors = (next: string[]) => {
+    if (paletteNode) {
+      if (next.length === 0) return;
+      const existing = new Map(paletteNode.data.swatches.map((swatch) => [swatch.value.toLowerCase(), swatch]));
+      const swatches: ColorPaletteNodeData["swatches"] = next.map((value) => (
+        existing.get(value.toLowerCase()) ?? {
+          id: `recolor-${value.slice(1).toLowerCase()}`,
+          value: value as `#${string}`,
+          name: nameOfColor(value),
+          source: categoryId === CUSTOM_CATEGORY_ID ? "custom" : "quick",
+        }
+      ));
+      commitDocumentMutation((tab) => ({
+        nodes: tab.nodes.map((node) => {
+          if (node.id === paletteNode.id && node.data.kind === "color-palette") {
+            return { ...node, data: { ...node.data, swatches, error: undefined } };
+          }
+          if (node.id === id && node.data.kind === "fabric-recolor") {
+            return { ...node, data: { ...node.data, error: undefined } };
+          }
+          return node;
+        }),
+      }));
+      return;
+    }
     updateNodeData(id, {
       colors: next,
       prompt: next.length > 0 ? buildRecolorPrompt(next) : "",
@@ -74,26 +109,27 @@ export function FabricRecolorNode({
   };
 
   const toggleColor = (hex: string) => {
-    if (paletteNode) return;
-    if (localColors.includes(hex)) {
-      applyColors(localColors.filter((c) => c !== hex));
-    } else if (localColors.length < MAX_COLORS) {
-      applyColors([...localColors, hex]);
+    if (colorEditingDisabled) return;
+    if (colors.includes(hex)) {
+      applyColors(colors.filter((c) => c !== hex));
+    } else if (colors.length < MAX_COLORS) {
+      applyColors([...colors, hex]);
     }
   };
 
   const addCustomHex = (): boolean => {
+    if (colorEditingDisabled) return false;
     if (!isValidHex(hexInput)) {
       setColorPickerError("请输入有效的 #RRGGBB 色值");
       return false;
     }
     const hex = normalizeHex(hexInput);
-    if (!paletteNode && !localColors.includes(hex) && localColors.length >= MAX_COLORS) {
+    if (!colors.includes(hex) && colors.length >= MAX_COLORS) {
       setColorPickerError(`最多选择 ${MAX_COLORS} 个颜色，请先移除一个颜色`);
       return false;
     }
     addCustomColor(hex); // 保存到自定义色分类（localStorage 持久化）
-    if (!paletteNode && !localColors.includes(hex)) applyColors([...localColors, hex]);
+    if (!colors.includes(hex)) applyColors([...colors, hex]);
     setColorPickerError(undefined);
     setHexInput("");
     return true;
@@ -148,7 +184,11 @@ export function FabricRecolorNode({
 
         {paletteNode && (
           <p className="rounded-md border border-gold/30 bg-gold/10 px-2 py-1 text-[9px] text-gold">
-            已连接“{paletteNode.data.label}”：使用其 {colors.length} 个颜色；节点内临时颜色仅作断开后的备用。
+            已连接“{paletteNode.data.label}”：
+            {colors.length > MAX_COLORS
+              ? `色板超过 8 色，本节点仅按顺序使用前 8 个，后 ${colors.length - MAX_COLORS} 个不会生成；`
+              : `使用其 ${colors.length} 个颜色；`}
+            点击下方颜色会同步更新该色板。
           </p>
         )}
 
@@ -158,20 +198,23 @@ export function FabricRecolorNode({
             <span className="text-[10px] text-neutral-600">已选配色（最多 8 色，每色出 1 张图）</span>
           ) : (
             colors.map((hex) => (
-              <button
+              <Button
                 key={hex}
                 type="button"
+                variant="ghost"
+                size="xs"
                 onClick={() => toggleColor(hex)}
-                title={`${nameOfColor(hex)} ${hex} · 点击移除`}
+                title={paletteNode && colors.length === 1 ? `${nameOfColor(hex)} ${hex} · 至少保留一个颜色` : `${nameOfColor(hex)} ${hex} · 点击移除`}
+                disabled={colorEditingDisabled || Boolean(paletteNode && colors.length === 1)}
                 aria-pressed="true"
-                className="flex items-center gap-1 rounded-xs border border-[#333] bg-[#161616] px-1 py-0.5 text-[9px] text-neutral-300 outline-hidden transition-colors hover:border-red-400/60 focus-visible:border-gold focus-visible:ring-2 focus-visible:ring-gold/40"
+                className="h-auto rounded-xs border border-[#333] bg-[#161616] px-1 py-0.5 text-[9px] font-normal text-neutral-300 hover:border-red-400/60 hover:bg-[#161616] focus-visible:border-gold focus-visible:ring-2 focus-visible:ring-gold/40"
               >
                 <span
                   className="h-2.5 w-2.5 rounded-[2px]"
                   style={{ backgroundColor: hex }}
                 />
                 {nameOfColor(hex)}
-              </button>
+              </Button>
             ))
           )}
         </div>
@@ -202,13 +245,16 @@ export function FabricRecolorNode({
             ) : (
               activeSwatches.map((c) => {
                 const active = colors.includes(c.hex);
+                const cannotRemoveLastPaletteColor = Boolean(paletteNode && active && colors.length === 1);
                 return (
-                  <button
+                  <Button
                     key={c.hex}
                     type="button"
-                    title={`${c.name} ${c.hex}`}
+                    variant="ghost"
+                    size="xs"
+                    title={cannotRemoveLastPaletteColor ? `${c.name} ${c.hex} · 至少保留一个颜色` : `${c.name} ${c.hex}`}
                     onClick={() => toggleColor(c.hex)}
-                    disabled={Boolean(paletteNode)}
+                    disabled={colorEditingDisabled || cannotRemoveLastPaletteColor}
                     onContextMenu={(e) => {
                       // 自定义色：右键从色板删除
                       if (categoryId === CUSTOM_CATEGORY_ID) {
@@ -217,7 +263,7 @@ export function FabricRecolorNode({
                       }
                     }}
                     aria-pressed={active}
-                    className="flex flex-col items-center gap-0.5 outline-hidden transition-opacity focus-visible:opacity-90"
+                    className="h-auto min-w-0 flex-col gap-0.5 rounded-none p-0 font-normal hover:bg-transparent focus-visible:opacity-90"
                   >
                     <span
                       className={`h-5 w-full rounded-xs border transition-transform hover:scale-105 ${
@@ -234,7 +280,7 @@ export function FabricRecolorNode({
                     >
                       {c.name}
                     </span>
-                  </button>
+                  </Button>
                 );
               })
             )}
@@ -262,7 +308,7 @@ export function FabricRecolorNode({
                       type="button"
                       variant="outline"
                       size="xs"
-                      disabled={Boolean(paletteNode)}
+                      disabled={colorEditingDisabled}
                       aria-label="打开自定义取色器"
                       className="h-7 border-[#333] text-[10px] text-neutral-300 hover:border-gold/60"
                     >
@@ -279,6 +325,7 @@ export function FabricRecolorNode({
                   <div className="flex items-center gap-2">
                     <input
                       type="color"
+                      disabled={colorEditingDisabled}
                       value={isValidHex(hexInput) ? normalizeHex(hexInput) : "#C9A66B"}
                       onChange={(event) => setHexInput(event.target.value)}
                       aria-label="自定义取色"
@@ -286,10 +333,11 @@ export function FabricRecolorNode({
                     />
                     <Input
                       type="text"
+                      disabled={colorEditingDisabled}
                       value={hexInput}
                       onChange={(event) => setHexInput(event.target.value)}
                       onKeyDown={(event) => {
-                        if (event.key === "Enter" && !event.nativeEvent.isComposing) confirmCustomHex();
+                        if (event.key === "Enter" && !event.nativeEvent.isComposing && !colorEditingDisabled) confirmCustomHex();
                       }}
                       aria-label="自定义颜色值"
                       placeholder="#RRGGBB"
@@ -299,7 +347,7 @@ export function FabricRecolorNode({
                   {colorPickerError && <p role="alert" className="text-[10px] text-[var(--gc-danger)]">{colorPickerError}</p>}
                   <div className="flex justify-end gap-2">
                     <Button type="button" size="sm" variant="outline" onClick={() => closeColorPicker(true)}>取消</Button>
-                    <Button type="button" size="sm" disabled={!isValidHex(hexInput)} onClick={confirmCustomHex}>确认</Button>
+                    <Button type="button" size="sm" disabled={colorEditingDisabled || !isValidHex(hexInput)} onClick={confirmCustomHex}>确认</Button>
                   </div>
                 </PopoverContent>
               </Popover>

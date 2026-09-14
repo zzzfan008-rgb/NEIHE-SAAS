@@ -984,7 +984,7 @@ export async function executeStep(
           ? step.params.operationMode
           : "combined";
         const colors = Array.isArray(step.params.colors)
-          ? step.params.colors.filter((value): value is string => typeof value === "string")
+          ? step.params.colors.filter((value): value is string => typeof value === "string").slice(0, 8)
           : [];
         if (operationMode !== "fabric" && colors.length === 0) {
           throw new Error("配色替换必须选择颜色或连接色板");

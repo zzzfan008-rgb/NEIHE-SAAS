@@ -35,7 +35,9 @@ export const runPlanRouter = Router();
 
 export function requestedCountForStep(kind: string, params: Record<string, unknown>): number {
   return kind === "fabric-recolor"
-    ? Math.max(1, Array.isArray(params.colors) ? params.colors.length : 1)
+    ? params.operationMode === "fabric"
+      ? 1
+      : Math.max(1, Math.min(8, Array.isArray(params.colors) ? params.colors.length : 1))
     : kind === "print-mutate"
       ? Math.max(1, Math.min(8, Number(params.count) || 4))
       : kind === "sketch-to-render" || kind === "ai-modify" || kind === "ai-styling"
