@@ -6,7 +6,7 @@ test("AI 搭配三节点、显式识别、开关及主图失效", async ({ page 
   await page.route("**/api/outfit-analysis", async route => {
     recognitionCalls++;
     const body=route.request().postDataJSON();
-    await route.fulfill({json:{id:"mock-analysis",sourceNodeId:"reference",images:body.images,status:"succeeded",referenceFingerprint:"mock-fingerprint",result:{categories:["upper"],description:"白衬衫",hasPerson:true,ambiguous:false,upperIsOuterwear:false,existingExtras:{outerwear:false,shoes:false,bag:false,accessories:false,hat:false}}}});
+    await route.fulfill({json:{id:"mock-analysis",sourceNodeId:"reference",images:body.images,status:"succeeded",referenceFingerprint:"mock-fingerprint",result:{categories:["upper","lower","whole"],description:"白衬衫与黑色长裤",hasPerson:true,ambiguous:false,upperIsOuterwear:false,existingExtras:{outerwear:false,shoes:false,bag:false,accessories:false,hat:false}}}});
   });
   await page.goto("/");
   await expect(page.getByRole("button",{name:"打开项目中心"})).toBeVisible();
@@ -35,9 +35,12 @@ test("AI 搭配三节点、显式识别、开关及主图失效", async ({ page 
   await expect(reference.getByRole("button",{name:"将参考图 2 设为主图"})).toBeVisible();
   expect(recognitionCalls).toBe(0);
   await node.getByRole("button",{name:"识别服饰",exact:true}).click();
-  await expect(node.getByText("白衬衫",{exact:true})).toBeVisible();
+  await expect(node.getByText("白衬衫与黑色长裤",{exact:true})).toBeVisible();
+  await expect(node.getByText("识别类别：上装、下装、整套服装",{exact:true})).toBeVisible();
   expect(recognitionCalls).toBe(1);
-  await expect(node.getByRole("combobox",{name:"保留对象"})).toContainText("上装");
+  await node.getByRole("combobox",{name:"保留对象"}).click();
+  await page.getByRole("option",{name:"保留上装",exact:true}).click();
+  await expect(node.getByRole("combobox",{name:"保留对象"})).toContainText("保留上装");
   for(const label of ["外套","鞋履","包袋","配饰","帽子"]){
     const button=node.getByRole("button",{name:label,exact:true});
     await expect(button).toHaveAttribute("aria-pressed","false");

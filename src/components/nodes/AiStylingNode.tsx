@@ -16,6 +16,12 @@ import { isNodeRunActive, type AiStylingNodeData } from "@/types/workflow";
 import type { StylingPreserve } from "@/types/styling";
 
 const ICONS = { outerwear: ShirtIcon, shoes: FootprintsIcon, bag: ShoppingBagIcon, accessories: GemIcon, hat: HardHatIcon };
+const CATEGORY_LABELS: Record<StylingPreserve, string> = {
+  upper: "上装",
+  lower: "下装",
+  "one-piece": "连体服饰",
+  whole: "整套服装",
+};
 export function AiStylingNode({ id, data, selected }: NodeProps<Node<AiStylingNodeData>>) {
   const target = useFlowStore(useShallow(selectActiveDocumentTarget));
   const document = useFlowStore(selectActiveDocument);
@@ -47,6 +53,11 @@ export function AiStylingNode({ id, data, selected }: NodeProps<Node<AiStylingNo
       <p role="status" className="text-xs text-[var(--gc-text-muted)]">
         {runtime?.error ?? (analysis?.result?.description || (runtime?.record?.result?.ambiguous ? "服饰不明确，请更换或裁剪主图后重新识别" : runtime?.record?.result?.categories.length === 0 ? "未识别到有效服饰，请更换或裁剪主图后重新识别" : "上传完成后点击识别服饰"))}
       </p>
+      {analysis?.result && (
+        <p className="text-xs text-[var(--gc-text-muted)]">
+          识别类别：{analysis.result.categories.map((category) => CATEGORY_LABELS[category]).join("、")}
+        </p>
+      )}
       <label className="block space-y-1"><span className="text-xs">保留对象</span>
         <Select value={data.preserve ?? ""} disabled={disabled || !analysis} onValueChange={(value) => { if (value) update(target, id, { preserve: value as StylingPreserve }); }}>
           <SelectTrigger aria-label="保留对象" className="nodrag nopan w-full"><SelectValue placeholder="请选择要保留的服饰">{data.preserve ? STYLING_PRESERVE_LABELS[data.preserve] : "请选择要保留的服饰"}</SelectValue></SelectTrigger>

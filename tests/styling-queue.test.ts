@@ -115,6 +115,23 @@ try {
     }
     console.log('styling checkpoint cancellation / lease recovery contracts passed');
     const fileStore = await import('../server/lib/fileStore');
+    {
+        const run = await queue.enqueueGenerationRun({ steps: [step(1)] }, owner.id, { userId: owner.id, nodeId: 'styling', nodeLabel: '搭配', kind: 'ai-styling', requestedCount: 1 });
+        const beforeFiles = new Set(fs.readdirSync(fileStore.uploadsDir()));
+        const workerId = 'styling-checkpoint-owner';
+        const provider: AIProvider = {
+            id: 'gemini-3.1-flash-image',
+            generate: async () => { throw new Error('must edit'); },
+            edit: async () => {
+                await db.query("UPDATE generation_jobs SET worker_id='styling-checkpoint-successor' WHERE run_id=$1", [run.id]);
+                return { images: [image], model: 'gemini-3.1-flash-image' };
+            },
+        };
+        await queue.processNextGenerationJob(workerId, { resolveProvider: () => provider });
+        const leakedFiles = fs.readdirSync(fileStore.uploadsDir()).filter(file => !beforeFiles.has(file));
+        assert.deepEqual(leakedFiles, [], '租约丢失导致检查点事务回滚时必须清理未登记的生成图');
+        await db.query('DELETE FROM generation_runs WHERE id=$1', [run.id]);
+    }
     const ref = await fileStore.persistImageRef(image);
     await db.query("INSERT INTO files(id,owner_id,source_type,created_at) VALUES($1,$2,'upload',$3)", [ref.slice('/api/files/'.length), owner.id, new Date().toISOString()]);
     const flow = { schemaVersion: WORKFLOW_SCHEMA_VERSION, nodes: [{ id: 'reference', type: 'outfit-reference', position: { x: 0, y: 0 }, data: { kind: 'outfit-reference', label: '参考图', status: 'idle', images: [ref], mainImage: ref } }, { id: 'styling', type: 'ai-styling', position: { x: 360, y: 0 }, data: { kind: 'ai-styling', label: '搭配', status: 'idle', prompt: '', aspectRatio: '3:4', batchSize: 1, modelId: 'gemini-3.1-flash-image', modelOptions: defaultImageModelOptions('gemini-3.1-flash-image', '3:4'), outputImages: [], preserve: null, extras: analysis.existingExtras } }], edges: [{ id: 'edge', source: 'reference', target: 'styling', sourceHandle: 'image', targetHandle: 'references' }] };

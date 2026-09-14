@@ -548,24 +548,36 @@ async function compensatePersistedImages(
   }
 }
 
+async function compensateUnregisteredImage(receipt: PersistedImageReceipt): Promise<void> {
+  if (!receipt.created) return;
+  const registered = await queryOne<{ id: string }>("SELECT id FROM files WHERE id = $1", [receipt.id])
+    .catch(() => ({ id: receipt.id }));
+  if (!registered) deleteStoredImage(receipt.id);
+}
+
 async function checkpointStyling(job:ClaimedJob,workerId:string,ordinal:number,image:string,prompt:string,model:string):Promise<string> {
   const receipt=await persistMediaRefWithReceipt(image,`${job.runId}:${job.stepId}:styling:${ordinal}`);
-  await transaction(async client=>{
-    const locked=await queryOne<{worker_id:string;status:string}>('SELECT worker_id,status FROM generation_jobs WHERE id=$1 FOR UPDATE',[job.id],client);
-    if(!locked||locked.worker_id!==workerId||!['running','cancel_requested'].includes(locked.status)) throw new Error('generation job lease was lost');
-    const run=await lockRun(client,job.runId);
-    if(!run||isTerminalRunStatus(run.status)) throw new Error('generation run unavailable');
-    const now=Date.now();
-    await client.query('INSERT INTO styling_checkpoints(step_id,ordinal,image,prompt,model,created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(step_id,ordinal) DO NOTHING',[job.stepId,ordinal,receipt.url,prompt,model,now]);
-    await client.query("INSERT INTO files(id,owner_id,source_type,project_id,node_id,run_id,created_at) VALUES($1,$2,'generated',$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING",[receipt.id,run.owner_id,run.project_id,job.nodeId,run.id,new Date(now).toISOString()]);
-    const rows=await query<{image:string;prompt:string}>('SELECT image,prompt FROM styling_checkpoints WHERE step_id=$1 ORDER BY ordinal',[job.stepId],client);
-    const meta={styling:{completed:rows.length,total:Number(job.step.params.batchSize)}};
-    await client.query('UPDATE generation_run_steps SET output_images_json=$2,prompts_json=$3,model=$4,execution_meta_json=$5 WHERE id=$1',[job.stepId,JSON.stringify(rows.map(r=>r.image)),JSON.stringify(rows.map(r=>r.prompt)),model,JSON.stringify(meta)]);
-    await client.query('UPDATE generation_jobs SET attempt_started_at=NULL WHERE id=$1',[job.id]);
-    await client.query("INSERT INTO generation_outputs(id,run_id,image,prompt,status,created_at) VALUES($1,$2,$3,$4,'success',$5)",[nanoid(12),run.id,receipt.url,prompt,now]);
-    await client.query('UPDATE generation_runs SET successful_count=$2,model=$3,updated_at=$4 WHERE id=$1',[run.id,rows.length,model,now]);
-    await appendRunEvent(client,run.id,{type:'node-status',nodeId:job.nodeId,status:'running',images:rows.map(r=>r.image),prompts:rows.map(r=>r.prompt),model,executionMeta:meta},now);
-  });
+  try {
+    await transaction(async client=>{
+      const locked=await queryOne<{worker_id:string;status:string}>('SELECT worker_id,status FROM generation_jobs WHERE id=$1 FOR UPDATE',[job.id],client);
+      if(!locked||locked.worker_id!==workerId||!['running','cancel_requested'].includes(locked.status)) throw new Error('generation job lease was lost');
+      const run=await lockRun(client,job.runId);
+      if(!run||isTerminalRunStatus(run.status)) throw new Error('generation run unavailable');
+      const now=Date.now();
+      await client.query('INSERT INTO styling_checkpoints(step_id,ordinal,image,prompt,model,created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(step_id,ordinal) DO NOTHING',[job.stepId,ordinal,receipt.url,prompt,model,now]);
+      await client.query("INSERT INTO files(id,owner_id,source_type,project_id,node_id,run_id,created_at) VALUES($1,$2,'generated',$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING",[receipt.id,run.owner_id,run.project_id,job.nodeId,run.id,new Date(now).toISOString()]);
+      const rows=await query<{image:string;prompt:string}>('SELECT image,prompt FROM styling_checkpoints WHERE step_id=$1 ORDER BY ordinal',[job.stepId],client);
+      const meta={styling:{completed:rows.length,total:Number(job.step.params.batchSize)}};
+      await client.query('UPDATE generation_run_steps SET output_images_json=$2,prompts_json=$3,model=$4,execution_meta_json=$5 WHERE id=$1',[job.stepId,JSON.stringify(rows.map(r=>r.image)),JSON.stringify(rows.map(r=>r.prompt)),model,JSON.stringify(meta)]);
+      await client.query('UPDATE generation_jobs SET attempt_started_at=NULL WHERE id=$1',[job.id]);
+      await client.query("INSERT INTO generation_outputs(id,run_id,image,prompt,status,created_at) VALUES($1,$2,$3,$4,'success',$5)",[nanoid(12),run.id,receipt.url,prompt,now]);
+      await client.query('UPDATE generation_runs SET successful_count=$2,model=$3,updated_at=$4 WHERE id=$1',[run.id,rows.length,model,now]);
+      await appendRunEvent(client,run.id,{type:'node-status',nodeId:job.nodeId,status:'running',images:rows.map(r=>r.image),prompts:rows.map(r=>r.prompt),model,executionMeta:meta},now);
+    });
+  } catch (error) {
+    await compensateUnregisteredImage(receipt);
+    throw error;
+  }
   return receipt.url;
 }
 
