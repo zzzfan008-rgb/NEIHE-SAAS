@@ -556,7 +556,8 @@ async function compensateUnregisteredImage(receipt: PersistedImageReceipt): Prom
 }
 
 async function checkpointStyling(job:ClaimedJob,workerId:string,ordinal:number,image:string,prompt:string,model:string):Promise<string> {
-  const receipt=await persistMediaRefWithReceipt(image,`${job.runId}:${job.stepId}:styling:${ordinal}`);
+  // Worker-scoped staging prevents a successor from reusing a file that this worker may compensate.
+  const receipt=await persistMediaRefWithReceipt(image,`${job.runId}:${job.stepId}:styling:${ordinal}:${workerId}`);
   try {
     await transaction(async client=>{
       const locked=await queryOne<{worker_id:string;status:string}>('SELECT worker_id,status FROM generation_jobs WHERE id=$1 FOR UPDATE',[job.id],client);

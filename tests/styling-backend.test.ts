@@ -46,7 +46,8 @@ const whole = await executeStep({ nodeId: 's', kind: 'ai-styling', inputImages: 
 assert.match(whole.prompts![0], /外套：允许新增/);
 assert.doesNotMatch(whole.prompts![0], /用户补充要求/);
 const onePieceAnalysis = { ...analysis, categories: ['one-piece'], description: '黑色连体裤' };
-const onePiece = await executeStep({ nodeId: 's', kind: 'ai-styling', inputImages: [image], params: { modelId: 'gemini-3.1-flash-image', batchSize: 1, preserve: 'one-piece', extras: { ...analysis.existingExtras, outerwear: true }, prompt: '', outfitAnalysis: onePieceAnalysis } } as never, [image], () => provider as never, { onStylingCheckpoint: async (_index, generated) => generated });
-assert.match(onePiece.prompts![0], /只保留主图中的连体服饰/);
+const onePiece = await executeStep({ nodeId: 's', kind: 'ai-styling', inputImages: [image], params: { modelId: 'gemini-3.1-flash-image', batchSize: 1, preserve: 'one-piece', extras: { ...analysis.existingExtras, shoes: false, outerwear: true }, prompt: '', outfitAnalysis: onePieceAnalysis } } as never, [image], () => provider as never, { onStylingCheckpoint: async (_index, generated) => generated });
+assert.match(onePiece.prompts![0], /保留主图中的连体服饰；其他服装与单品严格遵循下方各项开关/);
 assert.match(onePiece.prompts![0], /外套：允许新增/);
+assert.match(onePiece.prompts![0], /鞋履：不新增，保留原图已有单品/);
 assert.doesNotMatch(onePiece.prompts![0], /保持所有原有服装/);
