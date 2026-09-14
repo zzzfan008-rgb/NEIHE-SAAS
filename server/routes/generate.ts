@@ -39,13 +39,14 @@ import {
 
 export const generateRouter = Router();
 
-export type DirectGenerateKind = Exclude<NodeKind, "image-input" | "result">;
+export type DirectGenerateKind = Exclude<NodeKind, "image-input" | "result" | "ai-styling">;
 
 export type DirectGenerateValidation =
   | { ok: true; kind?: DirectGenerateKind }
   | { ok: false; error: string };
 
 function isDirectGenerateKind(value: unknown): value is DirectGenerateKind {
+  if (value === "ai-styling") return false;
   if (typeof value !== "string" || !Object.prototype.hasOwnProperty.call(NODE_SPECS, value)) return false;
   return Boolean(NODE_SPECS[value as NodeKind].providerId);
 }
@@ -57,6 +58,9 @@ export function validateDirectGenerateRequest(
 ): DirectGenerateValidation {
   // Backward compatibility: legacy direct callers did not send a node kind.
   if (kind === undefined) return { ok: true };
+  if (kind === "ai-styling") {
+    return { ok: false, error: "ai-styling requires saved references and outfit analysis; use /api/run-plan" };
+  }
   if (!isDirectGenerateKind(kind)) {
     return { ok: false, error: "kind must identify a supported AI node" };
   }

@@ -40,6 +40,7 @@ export const TOOL_GROUPS: readonly ToolGroup[] = [
     id: "try-on", label: "模特换装", icon: "user-round", items: [
       available("white-background", "白底图制作", "frame", "打开已连线的白底图工作流。", { type: "workflow-template", templateId: "builtin-tool-white-background" }),
       available("one-click-try-on", "一键换装", "shirt", "打开简洁的一键换装工作流。", { type: "workflow-template", templateId: "builtin-tool-one-click-try-on" }),
+      available("ai-styling", "AI 搭配", "shirt", "识别参考服饰，生成协调的全身搭配。", { type: "workflow-template", templateId: "builtin-tool-ai-styling" }),
       available("style-transfer", "风格迁移", "blend", "打开已连线的风格迁移工作流。", { type: "workflow-template", templateId: "builtin-tool-style-transfer" }),
     ],
   },

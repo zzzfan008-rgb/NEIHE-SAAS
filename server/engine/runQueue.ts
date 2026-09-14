@@ -541,6 +541,27 @@ async function compensatePersistedImages(
   }
 }
 
+async function checkpointStyling(job:ClaimedJob,workerId:string,ordinal:number,image:string,prompt:string,model:string):Promise<string> {
+  const receipt=await persistMediaRefWithReceipt(image,`${job.runId}:${job.stepId}:styling:${ordinal}`);
+  await transaction(async client=>{
+    const locked=await queryOne<{worker_id:string;status:string}>('SELECT worker_id,status FROM generation_jobs WHERE id=$1 FOR UPDATE',[job.id],client);
+    if(!locked||locked.worker_id!==workerId||!['running','cancel_requested'].includes(locked.status)) throw new Error('generation job lease was lost');
+    const run=await lockRun(client,job.runId);
+    if(!run||isTerminalRunStatus(run.status)) throw new Error('generation run unavailable');
+    const now=Date.now();
+    await client.query('INSERT INTO styling_checkpoints(step_id,ordinal,image,prompt,model,created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(step_id,ordinal) DO NOTHING',[job.stepId,ordinal,receipt.url,prompt,model,now]);
+    await client.query("INSERT INTO files(id,owner_id,source_type,project_id,node_id,run_id,created_at) VALUES($1,$2,'generated',$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING",[receipt.id,run.owner_id,run.project_id,job.nodeId,run.id,new Date(now).toISOString()]);
+    const rows=await query<{image:string;prompt:string}>('SELECT image,prompt FROM styling_checkpoints WHERE step_id=$1 ORDER BY ordinal',[job.stepId],client);
+    const meta={styling:{completed:rows.length,total:Number(job.step.params.batchSize)}};
+    await client.query('UPDATE generation_run_steps SET output_images_json=$2,prompts_json=$3,model=$4,execution_meta_json=$5 WHERE id=$1',[job.stepId,JSON.stringify(rows.map(r=>r.image)),JSON.stringify(rows.map(r=>r.prompt)),model,JSON.stringify(meta)]);
+    await client.query('UPDATE generation_jobs SET attempt_started_at=NULL WHERE id=$1',[job.id]);
+    await client.query("INSERT INTO generation_outputs(id,run_id,image,prompt,status,created_at) VALUES($1,$2,$3,$4,'success',$5)",[nanoid(12),run.id,receipt.url,prompt,now]);
+    await client.query('UPDATE generation_runs SET successful_count=$2,model=$3,updated_at=$4 WHERE id=$1',[run.id,rows.length,model,now]);
+    await appendRunEvent(client,run.id,{type:'node-status',nodeId:job.nodeId,status:'running',images:rows.map(r=>r.image),prompts:rows.map(r=>r.prompt),model,executionMeta:meta},now);
+  });
+  return receipt.url;
+}
+
 async function finalizeSuccessfulRun(
   client: PoolClient,
   run: DurableRunRow,
@@ -835,7 +856,14 @@ async function terminateRun(
     UPDATE generation_runs SET status = $1, error = $2, provider_requests = $3,
       model = COALESCE($4, model), finished_at = $5, updated_at = $5 WHERE id = $6
   `, [status, message, aggregate?.provider_requests ?? 0, aggregate?.model ?? null, finishedAt, row.run_id]);
-  await client.query("DELETE FROM generation_outputs WHERE run_id = $1", [row.run_id]);
+  const stylingRows=await query<{image:string;prompt:string}>('SELECT image,prompt FROM styling_checkpoints WHERE step_id=$1 ORDER BY ordinal',[row.step_id],client);
+  if(!stylingRows.length) await client.query("DELETE FROM generation_outputs WHERE run_id = $1", [row.run_id]);
+  else {
+    await client.query('UPDATE generation_runs SET successful_count=$2 WHERE id=$1',[row.run_id,stylingRows.length]);
+    await client.query(`INSERT INTO usage_events(id,owner_id,run_id,project_id,node_id,model,successful_count,provider_requests,duration_ms,created_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(run_id) DO UPDATE SET successful_count=excluded.successful_count,provider_requests=excluded.provider_requests`,
+      [nanoid(12),run.owner_id,run.id,run.project_id,run.node_id,aggregate?.model??null,stylingRows.length,aggregate?.provider_requests??0,Math.max(0,finishedAt-run.started_at),new Date(finishedAt).toISOString()]);
+  }
   if (status === "failed") {
     await client.query(`
       INSERT INTO generation_outputs (id, run_id, image, status, error, created_at)
@@ -845,6 +873,7 @@ async function terminateRun(
   const clientStatus = status === "failed" ? "error" : status;
   await appendRunEvent(client, row.run_id, {
     type: "node-status", nodeId: row.node_id, status: clientStatus, error: message,
+    ...(stylingRows.length?{images:stylingRows.map(r=>r.image),prompts:stylingRows.map(r=>r.prompt),executionMeta:{styling:{completed:stylingRows.length,total:Number(parseJson<NodeExecution>(row.step_json,{params:{}} as NodeExecution).params.batchSize)}}}:{}),
     startedAt: row.step_started_at ?? undefined, finishedAt,
   } as RunEvent, finishedAt);
   if (status === "failed") {
@@ -897,6 +926,12 @@ async function handleJobError(
       return;
     }
     const failedStep = parseJson<NodeExecution | undefined>(row.step_json, undefined);
+    if(failedStep?.kind==='ai-styling') {
+      // An uncertain paid call, including a failed checkpoint commit, cannot be replayed.
+      const uncertain=error instanceof ProviderError?error.category==='outcome_unknown':row.attempt_started_at!==null;
+      await terminateRun(client,row,uncertain?'outcome_unknown':'failed',uncertain?'搭配结果未知，已暂停后续请求，未自动重试':message,now);
+      return;
+    }
     const gpt25 = String(failedStep?.params.modelId ?? "").startsWith("gpt-image-2.5-")
       || error instanceof ProviderError && Boolean(error.providerId?.startsWith("gpt-image-2.5-"));
     if (gpt25 && error instanceof ProviderError && error.category === "outcome_unknown") {
@@ -940,6 +975,10 @@ export async function recoverExpiredGenerationJobs(now = Date.now()): Promise<nu
     for (const row of rows) {
       if (row.attempt_started_at !== null) {
         const step = parseJson<NodeExecution | undefined>(row.step_json, undefined);
+        if(step?.kind==='ai-styling') {
+          await terminateRun(client,row,'outcome_unknown','搭配请求后 Worker 中断，已保留成功方案并停止后续请求',now);
+          continue;
+        }
         if (step?.kind === "video-generate" && !row.provider_task_id) {
           await terminateRun(
             client,
@@ -1023,6 +1062,8 @@ export async function processNextGenerationJob(
       options.resolveProvider ?? getProvider,
       {
         runId: job.runId,
+        stylingCompleted: job.step.kind==='ai-styling'?await query<{image:string;prompt:string;model:string|null}>('SELECT image,prompt,model FROM styling_checkpoints WHERE step_id=$1 ORDER BY ordinal',[job.stepId]):undefined,
+        onStylingCheckpoint: job.step.kind==='ai-styling'?(ordinal,image,prompt,model)=>checkpointStyling(job,workerId,ordinal,image,prompt,model):undefined,
         referenceRoles: input.referenceRoles,
         sceneAnalyzer: options.sceneAnalyzer,
         identityAnchorer: options.identityAnchorer,

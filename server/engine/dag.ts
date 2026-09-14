@@ -26,6 +26,7 @@ import {
 } from "../../src/types/imageModels";
 import { effectiveIncomingSources, isBypassedMaskRepair } from "../../src/lib/maskRepair";
 import { imagesForSourceHandle } from "../../src/lib/workflowPorts";
+import { orderedOutfitImages } from "../../src/lib/styling";
 import {
   SEEDANCE_MODEL_CAPABILITIES,
   SEEDANCE_OUTPUT_FORMATS,
@@ -425,6 +426,10 @@ export function buildExecutionPlan(
 /** 从节点 data 提取该节点当前已知的输出图片 */
 function extractOutputImages(data: WorkflowNodeData, sourceHandle?: string | null): string[] {
   switch (data.kind) {
+    case "outfit-reference":
+      return orderedOutfitImages(data);
+    case "ai-styling":
+      return data.outputImages ?? [];
     case "image-input":
       return data.imageUrl ? [data.imageUrl] : [];
     case "drawing-board":
@@ -470,6 +475,13 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
     };
   };
   switch (data.kind) {
+    case "outfit-reference":
+      return { images: orderedOutfitImages(data), mainImage: data.mainImage };
+    case "ai-styling":
+      return { prompt: data.prompt, aspectRatio: data.aspectRatio, batchSize: data.batchSize,
+        preserve: data.preserve, extras: data.extras, analysisId: data.analysisId,
+        referenceFingerprint: data.referenceFingerprint, resultNodeId: data.resultNodeId,
+        ...modelFields(data.aspectRatio) };
     case "image-input":
       return { imageUrl: data.imageUrl, imageRole: data.imageRole };
     case "text-input":

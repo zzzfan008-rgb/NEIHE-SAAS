@@ -6,6 +6,7 @@
  *   GET  /api/run-plan/:id/events SSE 事件流（含重放，事件见 engine/runner.ts RunEvent）
  */
 import { Router, type Request, type Response } from "express";
+import { assertStylingAnalyses } from './outfitAnalysis';
 import { isDeepStrictEqual } from "node:util";
 import { WORKFLOW_SCHEMA_VERSION } from "../../src/types/workflow";
 import { assertPlanInputs, buildExecutionPlan, DagError } from "../engine/dag";
@@ -37,7 +38,7 @@ export function requestedCountForStep(kind: string, params: Record<string, unkno
     ? Math.max(1, Array.isArray(params.colors) ? params.colors.length : 1)
     : kind === "print-mutate"
       ? Math.max(1, Math.min(8, Number(params.count) || 4))
-      : kind === "sketch-to-render" || kind === "ai-modify"
+      : kind === "sketch-to-render" || kind === "ai-modify" || kind === "ai-styling"
         ? Math.max(1, Math.min(8, Number(params.batchSize) || 1))
         : 1;
 }
@@ -103,6 +104,7 @@ runPlanRouter.post("/", asyncHandler(async (req, res) => {
       if (plan.steps.length === 0) return { status: "empty" as const };
       assertPlanInputs(plan, flow.edges);
       await assertImageReferencesAccessible(plan, user.id, client);
+      await assertStylingAnalyses(plan,user.id,projectId,client);
       const targetStep = plan.steps.find((step) => step.nodeId === onlyNodeId) ?? plan.steps[plan.steps.length - 1];
       const targetNode = flow.nodes.find((node) => node.id === targetStep.nodeId);
       const params = targetStep.params;

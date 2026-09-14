@@ -41,6 +41,31 @@ function parseJson<T>(value: unknown, fallback: T): T {
   }
 }
 
+/** Keep successful checkpoints and synthesize stable cards for the unfinished batch. */
+export function expandStylingHistoryRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const output: Record<string, unknown>[] = [];
+  const seen = new Set<unknown>();
+  for (const row of rows) {
+    if (row.kind !== "ai-styling") { output.push(row); continue; }
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    const batch = rows.filter(candidate => candidate.id === row.id);
+    const successes = batch.filter(candidate => candidate.output_status === "success" && candidate.image);
+    output.push(...successes);
+    const active = ["queued", "running", "retry_wait", "cancel_requested"].includes(String(row.status));
+    const requested = Math.max(1, Math.min(4, Number(row.requested_count) || 1));
+    const remaining = Math.max(active ? 1 : 0, requested - successes.length);
+    for (let index = 0; index < remaining; index++) {
+      output.push({ ...row, output_id: index === 0 ? row.id : `${row.id}:pending:${index}`,
+        image: "", output_prompt: null, provider_output_size: null,
+        output_status: null, output_error: null,
+        ...(row.status === "succeeded" ? { status: "failed", error: row.error ?? "搭配方案未完成" } : {}),
+      });
+    }
+  }
+  return output;
+}
+
 historyRouter.get("/", asyncHandler(async (req, res) => {
   const user = requestUser(req);
   const requestedUserId = typeof req.query.userId === "string" ? req.query.userId : undefined;
@@ -94,7 +119,7 @@ historyRouter.get("/", asyncHandler(async (req, res) => {
     WHERE r.id = ANY($1::text[])
     ORDER BY r.started_at DESC, r.id DESC, o.created_at ASC, o.id ASC
   `, [pageRuns.map((run) => run.id)]);
-  const records = rows.map((row) => {
+  const records = expandStylingHistoryRows(rows).map((row) => {
     const runStatus = row.status === "succeeded" ? "success" : row.status === "failed" ? "error" : row.status;
     return ({
     id: (row.output_id as string | null) ?? (row.id as string),

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { invalidateStylingRequest } from "./stylingRequestVersions";
 import { temporal } from "zundo";
 import {
   applyNodeChanges,
@@ -694,6 +695,14 @@ function commitDocumentMutationWithSet(
   set((state) => {
     const tab = selectActiveDocument(state);
     const patch = typeof mutation === "function" ? mutation(tab) : mutation;
+    if (patch.edges && patch.edges !== tab.edges) {
+      const edgeKey = (edges: Edge[], id: string) => JSON.stringify(edges.filter(edge => edge.target === id).map(edge => [edge.source, edge.sourceHandle, edge.targetHandle]));
+      patch.nodes = (patch.nodes ?? tab.nodes).map(node => {
+        if (node.data.kind !== "ai-styling" || edgeKey(tab.edges, node.id) === edgeKey(patch.edges!, node.id)) return node;
+        invalidateStylingRequest({tabId:tab.id,projectId:tab.projectId,documentEpoch:tab.documentEpoch},node.id);
+        return { ...node, data: { ...node.data, analysisId: undefined, referenceFingerprint: undefined, preserve: null } };
+      });
+    }
     if (!documentMutationChanged(tab, patch)) {
       // 同一次 action 可能只更新运行态或选择投影；应用它，但不写 history/revision。
       // 完全同引用的真正 no-op 仍直接返回空 patch。
@@ -1016,6 +1025,12 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
   const spec = NODE_SPECS[kind];
   const base = { label: spec.title, status: "idle" as NodeRunStatus };
   switch (kind) {
+    case "outfit-reference":
+      return { ...base, kind, images: [], mainImage: null };
+    case "ai-styling":
+      return { ...base, kind, prompt: "", aspectRatio: "3:4", batchSize: 1, outputImages: [], preserve: null,
+        extras: { outerwear: false, shoes: false, bag: false, accessories: false, hat: false },
+        modelId: DEFAULT_GENERATION_MODEL_ID, modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID, "3:4") };
     case "image-input":
       return { ...base, kind, imageRole: "default" };
     case "text-input":
@@ -1156,6 +1171,8 @@ function defaultNodeDataWithPreset(kind: NodeKind, preset?: Record<string, unkno
 
 /** 从节点 data 中取它对外输出的图片 */
 function nodeOutputImages(data: WorkflowNodeData, sourceHandle?: string | null): string[] {
+  if (data.kind === "outfit-reference") return data.mainImage && data.images.includes(data.mainImage)
+    ? [data.mainImage, ...data.images.filter((ref) => ref !== data.mainImage)] : [];
   if (data.kind === "image-input") return data.imageUrl ? [data.imageUrl] : [];
   if (data.kind === "drawing-board") return data.previewImageRef ? [data.previewImageRef] : [];
   if (data.kind === "stage-approval") return data.approvedBaselineRef ? [data.approvedBaselineRef] : [];
@@ -2030,6 +2047,21 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
   }
 
   switch (kind) {
+    case "outfit-reference":
+      data.images = stringArray(input.images)?.slice(0, 8) ?? [];
+      data.mainImage = typeof input.mainImage === "string" && (data.images as string[]).includes(input.mainImage) ? input.mainImage : (data.images as string[])[0] ?? null;
+      break;
+    case "ai-styling": {
+      data.prompt = typeof input.prompt === "string" ? input.prompt : "";
+      data.aspectRatio = typeof input.aspectRatio === "string" ? input.aspectRatio : "3:4";
+      data.batchSize = input.batchSize === 2 || input.batchSize === 4 ? input.batchSize : 1;
+      data.preserve = ["upper", "lower", "one-piece", "whole"].includes(String(input.preserve)) ? input.preserve : null;
+      const extras = input.extras && typeof input.extras === "object" ? input.extras as Record<string, unknown> : {};
+      data.extras = Object.fromEntries(["outerwear", "shoes", "bag", "accessories", "hat"].map((key) => [key, extras[key] === true]));
+      data.outputImages = stringArray(input.outputImages) ?? [];
+      for (const key of ["analysisId", "referenceFingerprint", "resultNodeId"]) if (typeof input[key] !== "string") delete data[key];
+      break;
+    }
     case "image-input":
       data.imageRole = typeof input.imageRole === "string" && ["default", "sketch", "garment", "fabric", "reference"].includes(input.imageRole)
         ? input.imageRole
@@ -2882,7 +2914,7 @@ export type NodeStatusRunEvent =
       type: "node-status";
       nodeId: string;
       status: "queued" | "running" | "retry_wait" | "cancel_requested";
-      images?: never;
+      images?: string[];
     })
   | (RunEventMeta & {
       type: "node-status";
@@ -2896,7 +2928,7 @@ export type NodeStatusRunEvent =
       nodeId: string;
       status: "error" | "outcome_unknown" | "cancelled";
       error: string;
-      images?: never;
+      images?: string[];
     });
 
 export type RunEvent =
@@ -2977,10 +3009,10 @@ export function normalizeRunEvent(value: unknown): RunEvent {
   if (raw.status === "error" || raw.status === "outcome_unknown" || raw.status === "cancelled") {
     const { error: commonError, ...meta } = common;
     const fallback = raw.status === "cancelled" ? "任务已取消" : raw.status === "outcome_unknown" ? "生成结果未知" : "生成失败";
-    return { ...meta, type: "node-status", nodeId, status: raw.status, error: commonError ?? fallback };
+    return { ...meta, type: "node-status", nodeId, status: raw.status, error: commonError ?? fallback, ...(Array.isArray(raw.images) ? { images: stringArray(raw.images) } : {}) };
   }
   if (raw.status === "queued" || raw.status === "running" || raw.status === "retry_wait" || raw.status === "cancel_requested") {
-    return { ...common, type: "node-status", nodeId, status: raw.status };
+    return { ...common, type: "node-status", nodeId, status: raw.status, ...(Array.isArray(raw.images) ? { images: stringArray(raw.images) } : {}) };
   }
   throw new Error("运行事件状态无效");
 }
@@ -3000,6 +3032,7 @@ export function applyRunEventToNode(
   }
   return {
     ...data,
+    ...(data.kind === "ai-styling" && event.images?.length ? { outputImages: event.images } : {}),
     status: event.status,
     error: event.error,
   } as WorkflowNodeData;
@@ -3014,6 +3047,8 @@ function recordPrompt(data: WorkflowNodeData): string | undefined {
 
 export function requestedResultCount(data: WorkflowNodeData): number {
   switch (data.kind) {
+    case "ai-styling":
+      return data.batchSize === 2 || data.batchSize === 4 ? data.batchSize : 1;
     case "sketch-to-render":
     case "ai-modify":
       return Math.max(1, Math.min(8, Number(data.batchSize) || 1));
@@ -3063,14 +3098,40 @@ export function applyRunEventToRecentResults(
     (Boolean(current.runId) && record.runId === current.runId);
   if (isNodeRunActive(event.status)) {
     const status = event.status;
+    if (current.kind === "ai-styling" && event.images?.length) {
+      const images = event.images;
+      const total = Math.max(images.length, current.requestedCount ?? 1);
+      const cards: RecentResult[] = Array.from({ length: total }, (_, index) => ({
+        ...current,
+        id: index === 0 ? recordId : pendingResultCardId(recordId, index),
+        image: images[index] ?? "",
+        thumbnail: undefined,
+        status: images[index] ? "success" : status,
+        error: images[index] ? undefined : event.error,
+        prompt: event.prompts?.[index] ?? current.prompt,
+        model: event.model ?? current.model,
+        executionMeta: event.executionMeta ?? current.executionMeta,
+        startedAt: event.startedAt ?? current.startedAt,
+      }));
+      // Keep one active anchor during the final checkpoint-to-terminal interval.
+      if (images.length >= total) cards.push({ ...current, id: pendingResultCardId(recordId, total), image: "", status, executionMeta: event.executionMeta });
+      let inserted = false;
+      return records.flatMap(record => {
+        if (!isBatchSibling(record)) return [record];
+        if (inserted) return [];
+        inserted = true;
+        return cards;
+      });
+    }
     return records.map((record) =>
       isBatchSibling(record)
         ? {
             ...record,
-            status,
+            status: current.kind === "ai-styling" && record.image && record.status === "success" ? "success" : status,
             error: event.error,
             model: event.model ?? record.model,
             startedAt: event.startedAt ?? record.startedAt,
+            executionMeta: event.executionMeta ?? record.executionMeta,
           }
         : record,
     );
@@ -3343,7 +3404,9 @@ function updateTabFromRunEvent(
   nodeId: string,
   event: NodeStatusRunEvent,
 ): void {
-  const commitsOutput = event.status === "success" && event.images.length > 0;
+  const currentNode = documentForTarget(useFlowStore.getState(), target)?.nodes.find((node) => node.id === nodeId);
+  const commitsOutput = Boolean(event.images?.length && (event.status === "success" || currentNode?.data.kind === "ai-styling"));
+  const fixedResultId = currentNode?.data.kind === "ai-styling" ? currentNode.data.resultNodeId : undefined;
   const updateNodes = (nodes: FlowNode[]) => nodes.map((node) =>
     node.id === nodeId
       ? {
@@ -3357,7 +3420,9 @@ function updateTabFromRunEvent(
               : updated;
           })(),
         }
-      : node,
+      : node.id === fixedResultId && node.data.kind === "result"
+        ? { ...node, data: { ...node.data, status: event.status, error: event.error } }
+        : node,
   );
   const currentState = useFlowStore.getState();
   // A tab container can be reused for another project. Reject its old run
@@ -3372,7 +3437,7 @@ function updateTabFromRunEvent(
           tab.nodes,
           tab.edges,
           nodeId,
-          event.images,
+          event.images!,
         );
         return {
           nodes: generated.nodes,
@@ -3417,6 +3482,12 @@ export function ensureGeneratedResultNode(
 ): { nodes: FlowNode[]; edges: Edge[]; resultNodeId: string } {
   const source = nodes.find((node) => node.id === sourceNodeId);
   if (!source || media.length === 0) return { nodes, edges, resultNodeId: "" };
+  if (source.data.kind === "ai-styling") {
+    const resultNodeId = source.data.resultNodeId;
+    if (!resultNodeId || !edges.some((edge) => edge.source === sourceNodeId && edge.target === resultNodeId)) return { nodes, edges, resultNodeId: "" };
+    return { nodes: nodes.map((node) => node.id === resultNodeId && node.data.kind === "result"
+      ? { ...node, data: { ...node.data, images: [...media], status: "success" as const } } : node), edges, resultNodeId };
+  }
   const resultNodeId = `result-${nanoid(8)}`;
   const siblingCount = edges.filter((edge) => edge.source === sourceNodeId && edge.target.startsWith("result-")).length;
   const resultNode: FlowNode = {
@@ -4176,9 +4247,18 @@ export const useFlowStore = create<FlowState>()(
           target,
           (nodes) => {
             if (!nodes.some((node) => node.id === id)) return nodes;
+            const tab = documentForTarget(get(), target)!;
+            const source = nodes.find((node) => node.id === id);
+            const invalidatesAnalysis = source?.data.kind === "outfit-reference" &&
+              ((patch.images !== undefined && JSON.stringify(patch.images) !== JSON.stringify(source.data.images)) ||
+              (patch.mainImage !== undefined && patch.mainImage !== source.data.mainImage));
+            const dependentIds = new Set(invalidatesAnalysis ? tab.edges.filter((edge) => edge.source === id).map((edge) => edge.target) : []);
+            for (const dependentId of dependentIds) invalidateStylingRequest(target, dependentId);
             return nodes.map((node) =>
               node.id === id
                 ? { ...node, data: { ...node.data, ...patch } as WorkflowNodeData }
+                : node.data.kind === "ai-styling" && dependentIds.has(node.id)
+                  ? { ...node, data: { ...node.data, analysisId: undefined, referenceFingerprint: undefined, preserve: null } }
                 : node,
             );
           },
@@ -4275,7 +4355,16 @@ export const useFlowStore = create<FlowState>()(
         if (node.data.kind === "mask-redraw" && node.data.executionMode === "bypass") return;
         const spec = NODE_SPECS[kind];
         if (!spec.providerId) return;
-        const preparationError = virtualTryOnRunBlockReason(node, initialDocument);
+        let preparationError = virtualTryOnRunBlockReason(node, initialDocument);
+        if (node.data.kind === "ai-styling") {
+          const { validStylingAnalysis, stylingInput } = await import("./stylingRuntime");
+          const { stylingBlockReason } = await import("../lib/styling");
+          const currentDocument = documentForTarget(get(), target);
+          if (!currentDocument || currentDocument.readOnly || currentDocument.nodes.find(candidate => candidate.id === id)?.data !== node.data || stylingInput(currentDocument, id).key !== stylingInput(initialDocument, id).key) return;
+          const analysis = validStylingAnalysis(target, id);
+          const protectedOuterwear = Boolean(analysis?.result && ((node.data.preserve === "whole" && analysis.result.existingExtras.outerwear) || (node.data.preserve === "upper" && analysis.result.upperIsOuterwear)));
+          preparationError = stylingBlockReason(node.data, stylingInput(initialDocument, id).images, Boolean(analysis), protectedOuterwear) ?? undefined;
+        }
         if (preparationError) {
           runWithoutHistory(() => {
             updateTabNodes(set, target, (nodes) => nodes.map((candidate) =>
@@ -4323,7 +4412,7 @@ export const useFlowStore = create<FlowState>()(
         const queuedRecords = createQueuedResultCards(initialRecord, requestedCount);
         set((state) => recentResultsPatch(state, trimRecentResults([
             ...queuedRecords,
-            ...initialState.recentResults,
+            ...state.recentResults,
           ])));
 
         try {
@@ -4428,7 +4517,7 @@ export const useFlowStore = create<FlowState>()(
               state,
               applyRunEventToRecentResults(state.recentResults, recordId, event),
             ));
-            updateTabFromRunEvent(set, target, id, event);
+            if (kind !== "ai-styling" || isLatestTrackedRun(get().recentResults, { projectId: target.projectId, nodeId: id, runId: knownRunId, startedAt: localStartedAt })) updateTabFromRunEvent(set, target, id, event);
             if (isNodeRunTerminal(event.status)) terminalRecorded = true;
           });
         } catch (err) {
@@ -4454,7 +4543,7 @@ export const useFlowStore = create<FlowState>()(
               state,
               applyRunEventToRecentResults(state.recentResults, recordId, event),
             ));
-            updateTabFromRunEvent(set, target, id, event);
+            if (kind !== "ai-styling" || !knownRunId || isLatestTrackedRun(get().recentResults, { projectId: target.projectId, nodeId: id, runId: knownRunId, startedAt: localStartedAt })) updateTabFromRunEvent(set, target, id, event);
           }
         } finally {
           runPreparations.delete(preparationKey);
