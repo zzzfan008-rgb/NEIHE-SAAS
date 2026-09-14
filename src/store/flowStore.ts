@@ -1736,7 +1736,7 @@ function flushActiveTextEditForTarget(target: DocumentTarget): boolean {
 function rebaseTemporalDocumentWithSystemResult(
   document: FlowTemporalState,
   resultNode: FlowNode,
-  resultEdge?: Edge,
+  createdTopology?: { edge?: Edge },
 ): FlowTemporalState {
   if (resultNode.data.kind !== "result") return document;
   const resultImages = resultNode.data.images;
@@ -1750,24 +1750,24 @@ function rebaseTemporalDocumentWithSystemResult(
     return { ...node, data: { ...node.data, images: [...resultImages] } };
   });
   if (!resultFound) {
+    if (!createdTopology) return document;
     nodes = [...nodes, resultNode];
     nodesChanged = true;
   }
-  const canRestoreEdge = Boolean(
-    resultEdge
-    && nodes.some((node) => node.id === resultEdge.source)
+  const createdEdge = createdTopology?.edge;
+  const canRestoreEdge = createdEdge !== undefined
+    && nodes.some((node) => node.id === createdEdge.source)
     && !document.edges.some((edge) => (
-      edge.source === resultEdge.source
-      && edge.sourceHandle === resultEdge.sourceHandle
-      && edge.target === resultEdge.target
-      && edge.targetHandle === resultEdge.targetHandle
-    )),
-  );
+      edge.source === createdEdge.source
+      && edge.sourceHandle === createdEdge.sourceHandle
+      && edge.target === createdEdge.target
+      && edge.targetHandle === createdEdge.targetHandle
+    ));
   if (!nodesChanged && !canRestoreEdge) return document;
   return {
     projectName: document.projectName,
     nodes,
-    edges: canRestoreEdge ? [...document.edges, resultEdge!] : document.edges,
+    edges: canRestoreEdge ? [...document.edges, createdEdge] : document.edges,
   };
 }
 
@@ -1775,10 +1775,10 @@ function rebaseTemporalDocumentWithSystemResult(
 function rebaseSystemResultHistory(
   target: DocumentTarget,
   resultNode: FlowNode,
-  resultEdge?: Edge,
+  createdTopology?: { edge?: Edge },
 ): void {
   const rebase = (document: FlowTemporalState) => (
-    rebaseTemporalDocumentWithSystemResult(document, resultNode, resultEdge)
+    rebaseTemporalDocumentWithSystemResult(document, resultNode, createdTopology)
   );
   const edit = activeTextEdit;
   if (
@@ -3540,10 +3540,13 @@ function updateTabFromRunEvent(
     const documentWithResult = documentForTarget(useFlowStore.getState(), target);
     const generatedResult = documentWithResult?.nodes.find((node) => node.id === generatedResultId);
     if (generatedResult?.data.kind === "result") {
+      const resultTopologyWasCreated = !currentDocument.nodes.some((node) => node.id === generatedResultId);
       rebaseSystemResultHistory(
         target,
         generatedResult,
-        documentWithResult?.edges.find((edge) => edge.source === nodeId && edge.target === generatedResultId),
+        resultTopologyWasCreated
+          ? { edge: documentWithResult?.edges.find((edge) => edge.source === nodeId && edge.target === generatedResultId) }
+          : undefined,
       );
     }
     // A system result may arrive while a drag transaction is still live. Keep

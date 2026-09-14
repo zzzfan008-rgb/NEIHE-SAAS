@@ -735,6 +735,63 @@ await test("运行期间的色板修改撤销后仍保留新生成结果", () =>
   );
 });
 
+await test("固定搭配结果完成后仍可撤销用户的删除与重连", () => {
+  const styling: FlowNode = {
+    id: "history-styling",
+    type: "ai-styling",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "ai-styling",
+      label: "AI 搭配",
+      status: "running",
+      prompt: "",
+      aspectRatio: "3:4",
+      batchSize: 1,
+      preserve: "upper",
+      extras: { outerwear: false, shoes: false, bag: false, accessories: false, hat: false },
+      resultNodeId: "history-styling-result",
+      outputImages: [],
+    },
+  };
+  const result: FlowNode = {
+    id: "history-styling-result",
+    type: "result",
+    position: { x: 400, y: 0 },
+    data: { kind: "result", label: "搭配结果", status: "running", images: [] },
+  };
+  const resultEdge = {
+    id: "history-styling-result-edge",
+    source: styling.id,
+    sourceHandle: "image",
+    target: result.id,
+    targetHandle: "references",
+  };
+  useFlowStore.getState().loadFlow({
+    projectId: "history-styling-topology-project",
+    projectName: "搭配结果拓扑历史",
+    nodes: [styling, result],
+    edges: [resultEdge],
+  });
+  useFlowStore.temporal.getState().clear();
+  useFlowStore.getState().onEdgesChange([{ id: resultEdge.id, type: "remove" }]);
+  useFlowStore.getState().onConnect(resultEdge);
+  applyRunEventToTab(documentTargetForTab(useFlowStore.getState().activeTabId), styling.id, {
+    type: "node-status",
+    nodeId: styling.id,
+    status: "success",
+    images: ["/api/files/styling-topology-result.png"],
+  });
+
+  useFlowStore.getState().undo();
+  useFlowStore.getState().undo();
+  assert.ok(!activeDocument().edges.some((edge) => edge.source === styling.id && edge.target === result.id));
+  const preservedResult = activeDocument().nodes.find((node) => node.id === result.id);
+  assert.ok(preservedResult?.data.kind === "result");
+  assert.deepEqual(preservedResult.data.images, ["/api/files/styling-topology-result.png"]);
+  useFlowStore.getState().undo();
+  assert.ok(activeDocument().edges.some((edge) => edge.source === styling.id && edge.target === result.id));
+});
+
 await test("拖拽期间的成功输出与位置历史彼此独立", () => {
   const { tabId, nodeId } = resetDocument(aiNode("concurrent-success"));
   const beforeRevision = activeDocument().revision;
