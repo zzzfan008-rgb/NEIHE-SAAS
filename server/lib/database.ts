@@ -697,6 +697,30 @@ async function migrate(): Promise<void> {
       );
     }
 
+    if (!applied.has(21)) {
+      await client.query(`
+        CREATE TABLE outfit_analyses (
+          id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          node_id TEXT NOT NULL, source_node_id TEXT NOT NULL, images JSONB NOT NULL,
+          fingerprint TEXT NOT NULL, cache_key TEXT NOT NULL, client_request_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','outcome_unknown')),
+          result JSONB, error TEXT, provider_requests INTEGER NOT NULL DEFAULT 0,
+          created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+          UNIQUE(owner_id, client_request_id)
+        );
+        CREATE INDEX outfit_analyses_lookup ON outfit_analyses(owner_id,project_id,node_id,fingerprint);
+        CREATE INDEX outfit_analyses_cache ON outfit_analyses(owner_id,cache_key) WHERE status='succeeded';
+        CREATE TABLE styling_checkpoints (
+          step_id TEXT NOT NULL REFERENCES generation_run_steps(id) ON DELETE CASCADE,
+          ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 1 AND 4),
+          image TEXT NOT NULL, prompt TEXT NOT NULL, model TEXT, created_at BIGINT NOT NULL,
+          PRIMARY KEY(step_id,ordinal)
+        );
+        INSERT INTO schema_migrations(version,name,applied_at) VALUES(21,'ai_styling',NOW()::text);
+      `);
+    }
+
     // SQLite can be restored after an empty database has already applied migration 17.
     if (!applied.has(17) || imported !== undefined) {
       await client.query(`

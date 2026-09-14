@@ -654,3 +654,15 @@ body,
   --color-sidebar-border: var(--gc-border);
   --color-sidebar-ring: var(--gc-accent);
 }
+/* AI 搭配的多图输入与配置面板保持既有节点框架，只设定专用宽度。 */
+.gc-ai-styling > .gc-node-frame { width: 320px; }
+.gc-node-card .gc-styling-control {
+  background: var(--gc-node-main);
+  color: var(--gc-node-text);
+  border-color: var(--gc-node-border);
+}
+.gc-node-card .gc-styling-control[aria-pressed="true"] {
+  background: var(--gc-handle-highlight);
+  border-color: var(--gc-node-accent);
+}
+.gc-node-card .gc-styling-control:hover:not(:disabled) { border-color: var(--gc-node-accent); }

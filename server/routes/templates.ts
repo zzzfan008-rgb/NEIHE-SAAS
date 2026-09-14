@@ -38,12 +38,21 @@ interface StoredWorkflowTemplate extends WorkflowTemplate {
   purgeAfter?: string;
 }
 
-function sanitizeTemplateFlow(flow: PersistedWorkflow): PersistedWorkflow {
+export function sanitizeTemplateFlow(flow: PersistedWorkflow): PersistedWorkflow {
   return {
     ...flow,
     nodes: flow.nodes.map((node) => {
       const data = { ...node.data } as Record<string, unknown>;
       delete data.error;
+      if (node.data.kind === "outfit-reference") {
+        data.images = [];
+        data.mainImage = null;
+      }
+      if (node.data.kind === "ai-styling") {
+        delete data.analysisId;
+        delete data.referenceFingerprint;
+        data.preserve = null;
+      }
       if (node.data.kind === "image-input") delete data.imageUrl;
       if (node.data.kind === "video-input") delete data.videoUrl;
       if (node.data.kind === "audio-input") delete data.audioUrl;
@@ -330,6 +339,14 @@ function toolWorkflowTemplates(): WorkflowTemplate[] {
     },
   });
   return [
+    template("builtin-tool-ai-styling", "AI 搭配", "识别参考服饰并搭配完整穿搭，保持原服饰一致性。", [
+      { id: "reference", type: "outfit-reference", position: { x: 0, y: 0 }, data: { kind: "outfit-reference", label: "上传参考图", status: "idle", images: [], mainImage: null } },
+      { id: "styling", type: "ai-styling", position: { x: 360, y: 0 }, data: { kind: "ai-styling", label: "AI 搭配", status: "idle", prompt: "", aspectRatio: "3:4", batchSize: 1, preserve: null, extras: { outerwear: false, shoes: false, bag: false, accessories: false, hat: false }, outputImages: [], resultNodeId: "result", modelId: DEFAULT_GENERATION_MODEL_ID, modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID, "3:4") } },
+      { id: "result", type: "result", position: { x: 760, y: 0 }, data: { kind: "result", label: "搭配结果", status: "idle", images: [] } },
+    ], [
+      { id: "reference-styling", source: "reference", sourceHandle: "image", target: "styling", targetHandle: "references" },
+      { id: "styling-result", source: "styling", sourceHandle: "image", target: "result", targetHandle: "references" },
+    ]),
     template("builtin-tool-sketch-render", "草图到效果图", "上传草图并渲染；成功后自动创建结果节点。", [image("sketch", "服装草图", 0, 0, "sketch"), imageGenerator("generate", "sketch-to-render", "草图渲染", 380, 0)], [{ id: "sketch-generate", source: "sketch", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
     template("builtin-tool-ai-modify", "AI 改款", "款式图与改款要求已连接；成功后自动创建结果节点。", [image("garment", "原款式图", 0, -120, "garment"), text("prompt", "改款要求", 0, 180), imageGenerator("generate", "ai-modify", "AI 改款", 420, 0)], [{ id: "garment-generate", source: "garment", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
     template("builtin-tool-fabric-replace", "面料替换", "主服装与面料参考同时连接到替换节点。", [image("garment", "主服装图", 0, -120, "garment"), image("fabric", "目标面料图", 0, 180, "fabric"), { id: "generate", type: "fabric-recolor", position: { x: 420, y: 0 }, data: { kind: "fabric-recolor", label: "面料替换", status: "idle", operationMode: "fabric", colors: [], prompt: "保持服装版型、结构、配饰和构图，仅替换为目标面料的纹理、光泽、厚薄与垂感。", outputImages: [], modelId: DEFAULT_GENERATION_MODEL_ID, modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID) } }], [{ id: "garment-generate", source: "garment", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "fabric-generate", source: "fabric", sourceHandle: "image", target: "generate", targetHandle: "references" }]),

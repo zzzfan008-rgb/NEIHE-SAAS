@@ -39,6 +39,8 @@ import { Switch } from "@/components/ui/switch";
 import { TryOnQualityControls } from "./TryOnQualityControls";
 
 const UPSTREAM_SUGGESTIONS: Record<NodeKind, NodeKind[]> = {
+  "outfit-reference": [],
+  "ai-styling": ["outfit-reference"],
   "image-input": [],
   "text-input": [],
   "drawing-board": [],
@@ -59,6 +61,8 @@ const UPSTREAM_SUGGESTIONS: Record<NodeKind, NodeKind[]> = {
 };
 
 const DOWNSTREAM_SUGGESTIONS: Record<NodeKind, NodeKind[]> = {
+  "outfit-reference": ["ai-styling"],
+  "ai-styling": ["result"],
   "image-input": ["sketch-to-render", "ai-modify", "virtual-try-on", "print-extract"],
   "text-input": [],
   "drawing-board": ["sketch-to-render", "ai-modify", "virtual-try-on", "print-extract"],

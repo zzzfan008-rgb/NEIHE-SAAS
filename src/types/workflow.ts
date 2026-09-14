@@ -7,6 +7,8 @@ import type { TryOnQualityMode } from "../lib/tryOnStylePresets";
 
 // ---------- 节点类型 ----------
 export type NodeKind =
+  | "outfit-reference"
+  | "ai-styling"
   | "image-input"        // 图片上传（草图/款式图/面料参考）
   | "text-input"         // 画布文本说明（typed text 输出）
   | "drawing-board"      // 可编辑画板（提交后输出预览图）
@@ -144,6 +146,25 @@ export interface ImageInputNodeData extends BaseNodeData {
 export interface ImageInputAutoConnectTarget {
   targetNodeId: string;
   targetHandle: WorkflowInputRole;
+}
+
+export interface OutfitReferenceNodeData extends BaseNodeData {
+  kind: "outfit-reference";
+  images: string[];
+  mainImage: string | null;
+}
+
+export interface AiStylingNodeData extends BaseNodeData, ModelSelectableNodeData {
+  kind: "ai-styling";
+  prompt: string;
+  aspectRatio: string;
+  batchSize: 1 | 2 | 4;
+  preserve: import("./styling").StylingPreserve | null;
+  extras: import("./styling").StylingExtras;
+  analysisId?: string;
+  referenceFingerprint?: string;
+  resultNodeId?: string;
+  outputImages: string[];
 }
 
 export interface TextInputNodeData extends BaseNodeData {
@@ -335,6 +356,8 @@ export interface ResultNodeData extends BaseNodeData {
 }
 
 export type WorkflowNodeData =
+  | OutfitReferenceNodeData
+  | AiStylingNodeData
   | ImageInputNodeData
   | TextInputNodeData
   | DrawingBoardNodeData
@@ -355,11 +378,11 @@ export type WorkflowNodeData =
 
 // ---------- 持久化工作流（项目 / 模板共用）----------
 /**
- * 版本 12 统一使用 Nano Banana 2 正式模型名；
- * 读取 v0-v11 时服务端确定性迁移，旧 Preview 图片模型映射到正式模型；
+ * 版本 13 添加多角度服饰参考图和 AI 搭配节点；
+ * 读取 v0-v12 时服务端确定性迁移，旧 Preview 图片模型映射到正式模型；
  * 新版本不得静默降级读取。
  */
-export const WORKFLOW_SCHEMA_VERSION = 12 as const;
+export const WORKFLOW_SCHEMA_VERSION = 13 as const;
 export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
 
 export interface PersistedWorkflowNode {
@@ -530,6 +553,15 @@ const imageAndPromptPorts = (maxSources: number): readonly NodePortSpec[] => [
 const noPorts: readonly NodePortSpec[] = [];
 
 export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
+  "outfit-reference": {
+    kind: "outfit-reference", title: "上传参考图", description: "主图确定服饰与人物，细节图补充服饰信息",
+    inputs: 0, outputs: "images", inputPorts: noPorts, outputPorts: [imageOutputPort()],
+  },
+  "ai-styling": {
+    kind: "ai-styling", title: "AI 搭配", description: "识别参考服饰并生成协调的全身搭配",
+    providerId: "apiyi", inputs: 8, outputs: "images",
+    inputPorts: [{ ...imageInputPort(1), required: true }], outputPorts: [imageOutputPort()],
+  },
   "image-input": {
     kind: "image-input",
     title: "图片上传",

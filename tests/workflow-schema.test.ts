@@ -1014,7 +1014,7 @@ async function main() {
       assert.equal(fs.existsSync(path.join(builtinDir, "builtin-style-transfer.json")), false);
       assert.equal(fs.existsSync(path.join(builtinDir, "builtin-dual-model-staged-try-on.json")), false);
       const refreshedFiles = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(refreshedFiles.length, 21);
+      assert.equal(refreshedFiles.length, 22);
       for (const required of [
         "builtin-sketch-recolor.json",
         "builtin-tool-one-click-try-on.json",
@@ -1075,7 +1075,7 @@ async function main() {
 
       const builtinDir = path.join(dir, "templates", "builtin");
       const files = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(files.length, 21);
+      assert.equal(files.length, 22);
       for (const file of files) {
         const template = JSON.parse(fs.readFileSync(path.join(builtinDir, file), "utf-8")) as {
           schemaVersion: unknown;

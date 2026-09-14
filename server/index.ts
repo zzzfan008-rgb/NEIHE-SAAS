@@ -7,6 +7,7 @@ import path from "node:path";
 import { config, ROOT_DIR } from "./config";
 import { generateRouter } from "./routes/generate";
 import { runPlanRouter } from "./routes/runPlan";
+import { outfitAnalysisRouter } from "./routes/outfitAnalysis";
 import { filesRouter } from "./routes/files";
 import { projectsRouter } from "./routes/projects";
 import { templatesRouter } from "./routes/templates";
@@ -99,6 +100,8 @@ app.use("/api/prompt-optimize", aiRateLimit, promptOptimizeRouter);
 // 仅入队请求消耗 AI 限流额度；状态与 SSE 重连必须始终可达。
 app.post("/api/run-plan", aiRateLimit);
 app.use("/api/run-plan", runPlanRouter);
+app.post("/api/outfit-analysis", aiRateLimit);
+app.use("/api/outfit-analysis", outfitAnalysisRouter);
 app.use("/api/files", filesRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api/drawing-boards", drawingBoardsRouter);

@@ -43,6 +43,8 @@ import {
 } from "../../src/lib/seedance";
 
 const NODE_KINDS: readonly NodeKind[] = [
+  "outfit-reference",
+  "ai-styling",
   "image-input",
   "text-input",
   "drawing-board",
@@ -261,6 +263,12 @@ function migratedModelFields(
 function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<string, unknown> {
   // v0/v1 文件保留现有值，只补后来新增且运行时依赖的确定性默认字段。
   switch (kind) {
+    case "outfit-reference":
+      return { images: [], mainImage: null, ...raw };
+    case "ai-styling":
+      return { prompt: "", aspectRatio: "3:4", batchSize: 1, preserve: null,
+        extras: { outerwear: false, shoes: false, bag: false, accessories: false, hat: false },
+        outputImages: [], ...raw, ...migratedModelFields(kind, raw, "3:4") };
     case "image-input":
       return { imageRole: "default", ...raw };
     case "text-input":
@@ -388,6 +396,26 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
   validateModelSelection(kind, raw, path);
 
   switch (kind) {
+    case "outfit-reference": {
+      const images = imageReferenceArray(raw.images, `${path}.images`, 8);
+      if (raw.mainImage !== null) {
+        const main = imageReference(raw.mainImage, `${path}.mainImage`);
+        if (!images.includes(main)) fail(`${path}.mainImage`, "must belong to images");
+      }
+      if (images.length && raw.mainImage === null) fail(`${path}.mainImage`, "must select a main image");
+      break;
+    }
+    case "ai-styling": {
+      stringValue(raw.prompt, `${path}.prompt`);
+      oneOf(raw.aspectRatio, ASPECT_RATIOS, `${path}.aspectRatio`);
+      oneOf(raw.batchSize, [1, 2, 4] as const, `${path}.batchSize`);
+      if (raw.preserve !== null) oneOf(raw.preserve, ["upper", "lower", "one-piece", "whole"] as const, `${path}.preserve`);
+      const extras = record(raw.extras, `${path}.extras`);
+      for (const key of ["outerwear", "shoes", "bag", "accessories", "hat"]) booleanValue(extras[key], `${path}.extras.${key}`);
+      for (const key of ["analysisId", "referenceFingerprint", "resultNodeId"]) optionalString(raw[key], `${path}.${key}`);
+      imageReferenceArray(raw.outputImages, `${path}.outputImages`, 4);
+      break;
+    }
     case "image-input":
       oneOf(raw.imageRole, IMAGE_ROLES, `${path}.imageRole`);
       optionalImageReference(raw.imageUrl, `${path}.imageUrl`);

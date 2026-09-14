@@ -177,6 +177,7 @@ export function connectionCompatibilityError(options: {
 }): string | undefined {
   const { source, target, sourceHandle, targetHandle, existingEdges = [] } = options;
   if (source.id === target.id) return "节点不能连接到自身";
+  if (target.data.kind === "ai-styling" && source.data.kind !== "outfit-reference") return "AI 搭配需要连接服饰参考图节点";
   if (
     source.data.kind === "image-input"
     && source.data.imageUrl?.startsWith("asset://")

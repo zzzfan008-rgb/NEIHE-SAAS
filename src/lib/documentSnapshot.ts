@@ -28,6 +28,12 @@ interface GenerationModelDocumentFields {
 }
 
 export type DocumentNodeData =
+  | { kind: "outfit-reference"; label: string; images: string[]; mainImage: string | null }
+  | ({ kind: "ai-styling"; label: string; prompt: string; aspectRatio: string; batchSize: 1 | 2 | 4;
+      preserve: import("../types/styling").StylingPreserve | null;
+      extras: import("../types/styling").StylingExtras;
+      analysisId?: string; referenceFingerprint?: string; resultNodeId?: string; outputImages: string[];
+    } & GenerationModelDocumentFields)
   | {
       kind: "image-input";
       label: string;
@@ -285,6 +291,15 @@ function virtualTryOnModelFields(
 
 function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
   switch (data.kind) {
+    case "outfit-reference":
+      return { kind: data.kind, label: data.label, images: [...data.images], mainImage: data.mainImage };
+    case "ai-styling":
+      return { kind: data.kind, label: data.label, prompt: data.prompt, aspectRatio: data.aspectRatio,
+        batchSize: data.batchSize, preserve: data.preserve,
+        extras: { outerwear: data.extras.outerwear, shoes: data.extras.shoes, bag: data.extras.bag, accessories: data.extras.accessories, hat: data.extras.hat },
+        ...optionalString("analysisId", data.analysisId), ...optionalString("referenceFingerprint", data.referenceFingerprint),
+        ...optionalString("resultNodeId", data.resultNodeId), outputImages: [...data.outputImages],
+        ...generationModelFields(data.kind, data.modelId, data.modelOptions, data.aspectRatio) };
     case "image-input":
       return {
         kind: data.kind,

@@ -16,8 +16,12 @@ import { AudioInputNode } from "./AudioInputNode";
 import { StageApprovalNode } from "./StageApprovalNode";
 import { DrawingBoardNode } from "./DrawingBoardNode";
 import { ColorPaletteNode } from "./ColorPaletteNode";
+import { OutfitReferenceNode } from "./OutfitReferenceNode";
+import { AiStylingNode } from "./AiStylingNode";
 
 export const nodeTypes: NodeTypes = {
+  "outfit-reference": OutfitReferenceNode,
+  "ai-styling": AiStylingNode,
   "image-input": ImageInputNode,
   "text-input": TextInputNode,
   "video-input": VideoInputNode,

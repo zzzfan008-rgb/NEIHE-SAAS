@@ -25,7 +25,7 @@ export type TemplateLaunchMode = "default" | "upload" | "text";
 export function inferTemplateLaunchMode(
   template: Pick<WorkflowTemplate, "flow">,
 ): TemplateLaunchMode {
-  if (template.flow.nodes.some((node) => node.data.kind === "image-input")) {
+  if (template.flow.nodes.some((node) => node.data.kind === "image-input" || node.data.kind === "outfit-reference")) {
     return "upload";
   }
   if (template.flow.nodes.some((node) => node.data.kind === "sketch-to-render")) {
@@ -35,6 +35,8 @@ export function inferTemplateLaunchMode(
 }
 
 function isMissingParameter(data: WorkflowNodeData): boolean {
+  if (data.kind === "outfit-reference") return !data.mainImage;
+  if (data.kind === "ai-styling") return !data.analysisId;
   if (data.kind === "image-input") return !data.imageUrl;
   if (
     data.kind === "sketch-to-render" ||
@@ -54,7 +56,7 @@ export function templateLandingNodeId(
   mode: TemplateLaunchMode,
 ): string | undefined {
   if (mode === "upload") {
-    return nodes.find((node) => node.data.kind === "image-input" && !node.data.imageUrl)?.id;
+    return nodes.find((node) => (node.data.kind === "image-input" && !node.data.imageUrl) || (node.data.kind === "outfit-reference" && !node.data.mainImage))?.id;
   }
   if (mode === "text") {
     return nodes.find((node) => node.data.kind === "sketch-to-render")?.id;
@@ -67,6 +69,8 @@ function cloneNodes(nodes: WorkflowTemplate["flow"]["nodes"]): FlowNode[] {
   return structuredClone(nodes).map((node) => {
     const data = { ...node.data } as Record<string, unknown>;
     delete data.error;
+    if (node.data.kind === "outfit-reference") { data.images = []; data.mainImage = null; data.status = "idle"; }
+    if (node.data.kind === "ai-styling") { delete data.analysisId; delete data.referenceFingerprint; data.preserve = null; data.status = "idle"; }
     if (node.data.kind === "image-input") delete data.imageUrl;
     if (node.data.kind === "drawing-board") {
       delete data.contentRef;
