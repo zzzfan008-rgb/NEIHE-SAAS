@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { NodeResizeControl, Position, type NodeChange, type NodeProps, type Node, type ResizeParams } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
-import { ImagesIcon, MinusIcon, PlusIcon, UploadIcon } from "lucide-react";
+import { CropIcon, ImagesIcon, MinusIcon, PlusIcon, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   selectActiveDocumentTarget,
@@ -9,11 +9,15 @@ import {
   selectActiveReadOnly,
   useFlowStore,
   type FlowNode,
+  type DocumentTarget,
 } from "@/store/flowStore";
 import type { ImageInputNodeData } from "@/types/workflow";
 import { OPEN_ASSET_PICKER_EVENT, type AssetPickerRequest } from "@/lib/overlayEvents";
 import { NodeFrame } from "./NodeFrame";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
+
+const ImageCropDialog = lazy(() => import("./ImageCropDialog"));
+interface CropSession { source: string; target: DocumentTarget }
 
 interface NormalizedUploadResponse {
   id: string;
@@ -153,6 +157,36 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
   const explicitHeight = useFlowStore((state) => selectActiveNodes(state).find((node) => node.id === id)?.height);
   const readOnly = useFlowStore(selectActiveReadOnly);
   const uploadRequestRef = useRef(0);
+  const [cropSession, setCropSession] = useState<CropSession | null>(null);
+  const cropSessionRef = useRef<CropSession | null>(null);
+  const activeDocumentKey = useFlowStore((state) => JSON.stringify(selectActiveDocumentTarget(state)));
+  const cropTriggerRef = useRef<HTMLButtonElement>(null);
+  const closeCrop = useCallback(() => {
+    cropSessionRef.current = null;
+    setCropSession(null);
+    cropTriggerRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    // A replaced document, a new source or a read-only transition invalidates the editor.
+    if (cropSessionRef.current) closeCrop();
+  }, [activeDocumentKey, data.imageUrl, readOnly, closeCrop]);
+  useEffect(() => () => { cropSessionRef.current = null; }, []);
+  const saveCrop = async (file: File) => {
+    // Capture this render's session: an older canvas export must not adopt a newer editor.
+    const session = cropSession;
+    if (!session) return;
+    const stillCurrent = () => {
+      const state = useFlowStore.getState();
+      const tab = state.tabs.find((tab) => tab.id === session.target.tabId && tab.projectId === session.target.projectId && tab.documentEpoch === session.target.documentEpoch);
+      return cropSessionRef.current === session && state.activeTabId === session.target.tabId && tab?.readOnly === false && tab.nodes.some((node) => node.id === id && node.data.kind === "image-input" && node.data.imageUrl === session.source);
+    };
+    if (!stillCurrent()) throw new Error("图片或项目已变更，请重新打开裁切");
+    const requestId = ++uploadRequestRef.current;
+    const upload = await uploadFile(file);
+    if (!stillCurrent() || requestId !== uploadRequestRef.current) return;
+    assignImageInputInTab(session.target, id, upload.url);
+    closeCrop();
+  };
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<"out" | "in">("out");
@@ -211,7 +245,7 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
 
   // Ctrl+V 粘贴（节点被选中时生效）
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || cropSession) return;
     const onPaste = (e: ClipboardEvent) => {
       const file = Array.from(e.clipboardData?.files ?? []).find((f) =>
         f.type.startsWith("image/"),
@@ -223,7 +257,7 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
     };
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
-  }, [selected, handleFile]);
+  }, [selected, cropSession, handleFile]);
 
   const fittedImage = imageDimensions && imageDimensions.url === data.imageUrl
     ? fitImageNodeDimensions(imageDimensions.width, imageDimensions.height)
@@ -377,11 +411,17 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
             <ImagesIcon aria-hidden="true" />
             素材库
           </Button>
+          {hasDisplayImage && <Button ref={cropTriggerRef} type="button" variant="ghost" size="xs" disabled={!hasLoadedImage || uploading} onClick={() => {
+            const session = { source: data.imageUrl!, target: selectActiveDocumentTarget(useFlowStore.getState()) };
+            cropSessionRef.current = session;
+            setCropSession(session);
+          }}><CropIcon aria-hidden="true" />裁切</Button>}
             </>
           )}
         </div>
       )}
       <Handle id="image" type="source" position={Position.Right} title="图片输出" />
+      {cropSession && <Suspense fallback={<span role="status" className="sr-only">正在加载裁切工具…</span>}><ImageCropDialog source={cropSession.source} onSave={saveCrop} onClose={closeCrop} /></Suspense>}
     </div>
   );
 }
