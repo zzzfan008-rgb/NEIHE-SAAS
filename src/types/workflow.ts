@@ -19,7 +19,7 @@ export type NodeKind =
   | "video-generate"    // Seedance 2.5 / 2.0 视频生成与编辑
   | "sketch-to-render"   // 草图→效果图（节点内选择 API易模型）
   | "ai-modify"          // AI 改款/变体（gpt-image-2）
-  | "fabric-recolor"     // 面料/配色替换（gpt-image-2）
+  | "fabric-recolor"     // 面料配色替换（支持面料、配色或组合模式；gpt-image-2）
   | "upscale"            // 高清放大（节点内选择 API易模型，业务侧 2K/4K）
   | "print-extract"      // 印花提取（gpt-image-2，抠出印花平铺展开）
   | "print-mutate"       // 印花裂变（gpt-image-2，1~8 张风格一致变体）
@@ -659,7 +659,7 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
   },
   "fabric-recolor": {
     kind: "fabric-recolor",
-    title: "面料/配色替换",
+    title: "面料配色替换",
     description: "选择模型替换面料纹理与配色",
     providerId: "apiyi",
     inputs: MAX_REFERENCE_IMAGES,

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 6,
   "id": "builtin-tool-fabric-replace",
-  "name": "面料替换",
+  "name": "面料配色替换",
   "description": "主服装与面料参考同时连接到替换节点。",
   "builtIn": true,
   "createdAt": "2026-09-03T08:00:00.000Z",
@@ -45,7 +45,7 @@
         },
         "data": {
           "kind": "fabric-recolor",
-          "label": "面料替换",
+          "label": "面料配色替换",
           "status": "idle",
           "operationMode": "fabric",
           "colors": [],

@@ -33,6 +33,10 @@ import {
 
 export const templatesRouter = Router();
 
+const RETIRED_BUILTIN_TEMPLATE_IDS = new Set([
+  "builtin-tool-color-replace",
+]);
+
 interface StoredWorkflowTemplate extends WorkflowTemplate {
   deletedAt?: string;
   purgeAfter?: string;
@@ -349,8 +353,7 @@ function toolWorkflowTemplates(): WorkflowTemplate[] {
     ]),
     template("builtin-tool-sketch-render", "草图到效果图", "上传草图并渲染；成功后自动创建结果节点。", [image("sketch", "服装草图", 0, 0, "sketch"), imageGenerator("generate", "sketch-to-render", "草图渲染", 380, 0)], [{ id: "sketch-generate", source: "sketch", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
     template("builtin-tool-ai-modify", "AI 改款", "款式图与改款要求已连接；成功后自动创建结果节点。", [image("garment", "原款式图", 0, -120, "garment"), text("prompt", "改款要求", 0, 180), imageGenerator("generate", "ai-modify", "AI 改款", 420, 0)], [{ id: "garment-generate", source: "garment", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
-    template("builtin-tool-fabric-replace", "面料替换", "主服装与面料参考同时连接到替换节点。", [image("garment", "主服装图", 0, -120, "garment"), image("fabric", "目标面料图", 0, 180, "fabric"), { id: "generate", type: "fabric-recolor", position: { x: 420, y: 0 }, data: { kind: "fabric-recolor", label: "面料替换", status: "idle", operationMode: "fabric", colors: [], prompt: "保持服装版型、结构、配饰和构图，仅替换为目标面料的纹理、光泽、厚薄与垂感。", outputImages: [], modelId: DEFAULT_GENERATION_MODEL_ID, modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID) } }], [{ id: "garment-generate", source: "garment", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "fabric-generate", source: "fabric", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
-    template("builtin-tool-color-replace", "配色替换", "主服装与目标色板已连接。", [image("garment", "主服装图", 0, -100, "garment"), { id: "palette", type: "color-palette", position: { x: 0, y: 180 }, data: { kind: "color-palette", label: "目标色板", status: "idle", paletteVersion: 1, swatches: [{ id: "black", value: "#000000", source: "quick" }] } }, { id: "generate", type: "fabric-recolor", position: { x: 420, y: 0 }, data: { kind: "fabric-recolor", label: "配色替换", status: "idle", operationMode: "color", colors: ["#000000"], prompt: "", outputImages: [], modelId: DEFAULT_GENERATION_MODEL_ID, modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID) } }], [{ id: "garment-generate", source: "garment", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "palette-generate", source: "palette", sourceHandle: "colors", target: "generate", targetHandle: "palette" }]),
+    template("builtin-tool-fabric-replace", "面料配色替换", "主服装与面料参考同时连接到替换节点。", [image("garment", "主服装图", 0, -120, "garment"), image("fabric", "目标面料图", 0, 180, "fabric"), { id: "generate", type: "fabric-recolor", position: { x: 420, y: 0 }, data: { kind: "fabric-recolor", label: "面料配色替换", status: "idle", operationMode: "fabric", colors: [], prompt: "保持服装版型、结构、配饰和构图，仅替换为目标面料的纹理、光泽、厚薄与垂感。", outputImages: [], modelId: DEFAULT_GENERATION_MODEL_ID, modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID) } }], [{ id: "garment-generate", source: "garment", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "fabric-generate", source: "fabric", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
     template("builtin-tool-print-extract", "印花提取", "从上传图中提取可复用印花。", [image("source", "印花来源图", 0, 0), imageGenerator("generate", "print-extract", "印花提取", 380, 0)], [{ id: "source-generate", source: "source", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
     template("builtin-tool-print-mutate", "印花裂变", "原始印花与裂变方向已连接。", [image("source", "原始印花", 0, -120), text("prompt", "裂变方向", 0, 180), imageGenerator("generate", "print-mutate", "印花裂变", 420, 0)], [{ id: "source-generate", source: "source", sourceHandle: "image", target: "generate", targetHandle: "references" }, { id: "prompt-generate", source: "prompt", sourceHandle: "text", target: "generate", targetHandle: "prompt" }]),
     template("builtin-tool-white-background", "白底图制作", "上传主体后制作纯白背景图。", [image("source", "商品或模特图", 0, 0), imageGenerator("generate", "ai-modify", "白底图制作", 380, 0, "保持主体外观、人物身份、服装和配饰细节，移除原背景，生成干净均匀的纯白背景与自然接触阴影。")], [{ id: "source-generate", source: "source", sourceHandle: "image", target: "generate", targetHandle: "references" }]),
@@ -422,7 +425,7 @@ function builtinTemplates(): WorkflowTemplate[] {
             position: { x: 1140, y: 0 },
             data: {
               kind: "fabric-recolor",
-              label: "面料/配色替换",
+              label: "面料配色替换",
               status: "idle",
               operationMode: "combined",
               colors: [],
@@ -525,7 +528,7 @@ function builtinTemplates(): WorkflowTemplate[] {
             position: { x: 380, y: 0 },
             data: {
               kind: "fabric-recolor",
-              label: "面料/配色替换",
+              label: "面料配色替换",
               status: "idle",
               operationMode: "combined",
               colors: [],
@@ -733,8 +736,9 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as {
       schemaVersion?: unknown;
+      name?: unknown;
       flow?: {
-        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown } }>;
+        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown; label?: unknown } }>;
         edges?: Array<{ id?: unknown; targetHandle?: unknown }>;
       };
     };
@@ -746,6 +750,10 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
         || nodeById.get("garment-detail")?.type !== "mask-redraw"
         || nodeById.get("garment-detail")?.data?.executionMode !== "repair"
         || ["upper-repair", "pants-repair", "accessory-repair", "logo-correct"].some((id) => nodeById.has(id));
+    }
+    if (templateId === "builtin-tool-fabric-replace") {
+      const nodeById = new Map(raw.flow?.nodes?.map((node) => [node.id, node]) ?? []);
+      return raw.name !== "面料配色替换" || nodeById.get("generate")?.data?.label !== "面料配色替换";
     }
     if ([
       "builtin-tool-text-to-video",
@@ -770,6 +778,9 @@ export function ensureBuiltinTemplates(): void {
   fs.rmSync(templatePath("builtin", "builtin-dual-model-staged-try-on"), { force: true });
   fs.rmSync(templatePath("builtin", "builtin-tool-multi-image-video"), { force: true });
   fs.rmSync(templatePath("builtin", "builtin-tool-video-to-video"), { force: true });
+  for (const templateId of RETIRED_BUILTIN_TEMPLATE_IDS) {
+    fs.rmSync(templatePath("builtin", templateId), { force: true });
+  }
   for (const tpl of builtinTemplates()) {
     const filePath = templatePath("builtin", tpl.id);
     if (!fs.existsSync(filePath) || !builtinTemplateIsReadable(filePath) || managedBuiltinNeedsRefresh(filePath, tpl.id)) {
@@ -788,6 +799,10 @@ function readTemplates(sub: "builtin" | "user"): StoredWorkflowTemplate[] {
     if (!f.endsWith(".json")) continue;
     try {
       const template = readTemplateFile(path.join(dir, f));
+      if (sub === "builtin" && RETIRED_BUILTIN_TEMPLATE_IDS.has(template.id)) {
+        fs.rmSync(path.join(dir, f), { force: true });
+        continue;
+      }
       if (sub === "user" && template.deletedAt) continue;
       list.push(template);
     } catch {
@@ -858,6 +873,11 @@ templatesRouter.get("/:id", (req, res) => {
   const id = req.params.id;
   const userFilePath = templatePath("user", id);
   const isUserTemplate = fs.existsSync(userFilePath);
+  if (!isUserTemplate && RETIRED_BUILTIN_TEMPLATE_IDS.has(id)) {
+    fs.rmSync(templatePath("builtin", id), { force: true });
+    res.status(404).json({ error: "template not found" });
+    return;
+  }
   const filePath = isUserTemplate ? userFilePath : templatePath("builtin", id);
   if (!fs.existsSync(filePath)) {
     res.status(404).json({ error: "template not found" });

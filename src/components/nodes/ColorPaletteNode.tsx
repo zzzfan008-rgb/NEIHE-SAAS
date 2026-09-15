@@ -16,7 +16,7 @@ export function ColorPaletteNode({ id, data, selected }: NodeProps<Node<ColorPal
           ))}
         </div>
         <p className="text-[9px] leading-4 text-[var(--gc-node-muted)]">
-          连接到配色替换节点后，本色板优先于节点内的临时颜色。
+          连接到面料配色替换节点后，本色板优先于节点内的临时颜色。
         </p>
       </NodeFrame>
       <Handle type="source" position={Position.Right} id="colors" title="颜色数据输出" />

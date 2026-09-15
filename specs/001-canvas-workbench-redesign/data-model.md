@@ -259,7 +259,7 @@ operationMode: "combined" | "fabric" | "color";
 ```
 
 - v4 nodes migrate to `combined` and preserve behavior.
-- “面料替换” creation intent uses `fabric`; “配色替换” uses `color`.
+- “面料配色替换” creation intent uses `fabric`; 配色通过同一节点的 `color` 或 `combined` 模式完成，不再提供独立的配色替换创建意图。
 - A connected palette is the execution-time colors source; without a palette, the node's own colors remain the fallback.
 
 ## 6. Drawing resources

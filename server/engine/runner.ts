@@ -993,7 +993,7 @@ export async function executeStep(
           : "换装补充要求不能重新定义图1、图2等参考图编号；请只描述最终穿搭效果");
       }
 
-      // 配色替换：每个颜色独立调用，保证一色一图；部分失败也保留成功结果。
+      // 面料配色替换的配色模式：每个颜色独立调用，保证一色一图；部分失败也保留成功结果。
       if (step.kind === "fabric-recolor") {
         const operationMode = step.params.operationMode === "fabric" || step.params.operationMode === "color"
           ? step.params.operationMode
@@ -1002,7 +1002,7 @@ export async function executeStep(
           ? step.params.colors.filter((value): value is string => typeof value === "string").slice(0, 8)
           : [];
         if (operationMode !== "fabric" && colors.length === 0) {
-          throw new Error("配色替换必须选择颜色或连接色板");
+          throw new Error("面料配色替换的配色模式必须选择颜色或连接色板");
         }
         if (operationMode !== "fabric" && colors.length > 0) {
           const images: string[] = [];

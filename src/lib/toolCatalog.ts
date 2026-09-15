@@ -30,8 +30,7 @@ export const TOOL_GROUPS: readonly ToolGroup[] = [
     id: "apparel", label: "服装设计", icon: "shirt", items: [
       available("sketch-render", "草图到效果图", "wand-sparkles", "打开已连线的草图渲染工作流。", { type: "workflow-template", templateId: "builtin-tool-sketch-render" }),
       available("ai-modify", "AI 改款", "scissors", "打开已连线的服装改款工作流。", { type: "workflow-template", templateId: "builtin-tool-ai-modify" }),
-      available("fabric-replace", "面料替换", "layers", "打开已连线的面料替换工作流。", { type: "workflow-template", templateId: "builtin-tool-fabric-replace" }),
-      available("color-replace", "配色替换", "palette", "打开已连线的配色替换工作流。", { type: "workflow-template", templateId: "builtin-tool-color-replace" }),
+      available("fabric-replace", "面料配色替换", "layers", "打开已连线的面料配色替换工作流。", { type: "workflow-template", templateId: "builtin-tool-fabric-replace" }),
       available("print-extract", "印花提取", "scan", "打开已连线的印花提取工作流。", { type: "workflow-template", templateId: "builtin-tool-print-extract" }),
       available("print-mutate", "印花裂变", "sparkles", "打开已连线的印花裂变工作流。", { type: "workflow-template", templateId: "builtin-tool-print-mutate" }),
     ],

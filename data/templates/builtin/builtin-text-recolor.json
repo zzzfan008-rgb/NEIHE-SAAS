@@ -34,7 +34,7 @@
         },
         "data": {
           "kind": "fabric-recolor",
-          "label": "面料/配色替换",
+          "label": "面料配色替换",
           "status": "idle",
           "colors": [],
           "prompt": "",

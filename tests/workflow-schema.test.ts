@@ -1007,14 +1007,16 @@ async function main() {
       }
       fs.writeFileSync(path.join(builtinDir, "builtin-style-transfer.json"), "deprecated", "utf-8");
       fs.writeFileSync(path.join(builtinDir, "builtin-dual-model-staged-try-on.json"), "deprecated", "utf-8");
+      fs.writeFileSync(path.join(builtinDir, "builtin-tool-color-replace.json"), "deprecated", "utf-8");
 
       ensureBuiltinTemplates();
 
       assert.equal(fs.readFileSync(existingPath, "utf-8"), existingJson);
       assert.equal(fs.existsSync(path.join(builtinDir, "builtin-style-transfer.json")), false);
       assert.equal(fs.existsSync(path.join(builtinDir, "builtin-dual-model-staged-try-on.json")), false);
+      assert.equal(fs.existsSync(path.join(builtinDir, "builtin-tool-color-replace.json")), false);
       const refreshedFiles = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(refreshedFiles.length, 22);
+      assert.equal(refreshedFiles.length, 21);
       for (const required of [
         "builtin-sketch-recolor.json",
         "builtin-tool-one-click-try-on.json",
@@ -1075,7 +1077,8 @@ async function main() {
 
       const builtinDir = path.join(dir, "templates", "builtin");
       const files = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(files.length, 22);
+      assert.equal(files.length, 21);
+      assert.equal(files.includes("builtin-tool-color-replace.json"), false);
       for (const file of files) {
         const template = JSON.parse(fs.readFileSync(path.join(builtinDir, file), "utf-8")) as {
           schemaVersion: unknown;

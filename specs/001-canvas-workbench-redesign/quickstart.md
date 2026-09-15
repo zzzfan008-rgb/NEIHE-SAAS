@@ -126,7 +126,7 @@ Pass conditions: only the selected component moves, it has no overlaps, other co
 2. Use local undo/redo, simulate an interrupted session, recover the draft, then save.
 3. Save, connect the board's committed preview directly to an image-compatible node, then separately export it as an image node.
 4. Choose quick, custom and eyedropper colors while other nodes are selected; enter valid `#RGB`, `#RRGGBB`, `rgb()` and `hsl()` values plus invalid alpha, malformed and out-of-range values.
-5. Connect the resulting palette node to a compatible color-replacement node.
+5. Connect the resulting palette node to the 面料配色替换 node.
 6. Repeat the brush, shape, text, layer and color-format path with keyboard only and verify visible focus and focus restoration.
 
 Pass conditions: local edits create zero project history until save, recovery creates no duplicate entry, the unsaved board cannot connect, direct committed-preview connection and export both preserve the board, valid formats normalize to uppercase `#RRGGBB`, invalid formats are not clamped, every color choice creates a palette node only, keyboard operation remains complete, and provider request count stays 0 until the user explicitly runs a valid paid node.

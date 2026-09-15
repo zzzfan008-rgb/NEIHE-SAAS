@@ -2529,7 +2529,7 @@ test("fabric recolor picker keeps the ninth color error visible and Escape cance
   await openFreshBlankProject(page);
   const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
   await rail.getByRole("button", { name: "服装设计", exact: true }).click();
-  await page.getByRole("menu", { name: "服装设计" }).getByRole("menuitem", { name: /面料替换/ }).click();
+  await page.getByRole("menu", { name: "服装设计" }).getByRole("menuitem", { name: /面料配色替换/ }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(3);
   const nodeId = await page.evaluate(async () => {
     const storeModulePath = "/src/store/flowStore.ts";

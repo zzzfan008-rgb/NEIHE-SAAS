@@ -374,6 +374,28 @@ await test("色彩收藏由服务端按账号隔离、规范化并跨会话读�
   }
 });
 
+await test("已退役的配色替换内置模板即使被旧服务重写也不会暴露", async () => {
+  const builtinDir = path.join(temp, "templates", "builtin");
+  const retiredPath = path.join(builtinDir, "builtin-tool-color-replace.json");
+  fs.writeFileSync(retiredPath, JSON.stringify({
+    schemaVersion: 1,
+    id: "builtin-tool-color-replace",
+    name: "配色替换",
+    description: "旧服务遗留的内置模板",
+    builtIn: true,
+    flow: flow(),
+    createdAt: now,
+  }));
+
+  const listResponse = await request("/templates", "owner");
+  assert.equal(listResponse.status, 200);
+  const templates = await listResponse.json() as Array<{ id: string; name: string }>;
+  assert.equal(templates.some((template) => template.id === "builtin-tool-color-replace"), false);
+  assert.equal(templates.find((template) => template.id === "builtin-tool-fabric-replace")?.name, "面料配色替换");
+  assert.equal(fs.existsSync(retiredPath), false);
+  assert.equal((await request("/templates/builtin-tool-color-replace", "owner")).status, 404);
+});
+
 await test("用户模板按账号隔离，其他用户无法读取或删除，管理员可审计", async () => {
   const create = async (user: keyof typeof users, name: string) => {
     const response = await request("/templates", user, {

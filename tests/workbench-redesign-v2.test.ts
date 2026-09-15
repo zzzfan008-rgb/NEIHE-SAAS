@@ -48,7 +48,7 @@ assert.match(store, /runWithoutHistory\([\s\S]*ensureGeneratedResultNode/);
 
 const items = TOOL_GROUPS.flatMap((group) => group.items);
 for (const name of [
-  "草图到效果图", "AI 改款", "面料替换", "配色替换", "印花提取", "印花裂变",
+  "草图到效果图", "AI 改款", "面料配色替换", "印花提取", "印花裂变",
   "白底图制作", "一键换装", "风格迁移",
 ]) {
   const item = items.find((candidate) => candidate.name === name);
@@ -89,7 +89,7 @@ assert.match(colorTool, /from "@\/components\/ui\/tabs"/);
 assert.match(colorTool, /const MAX_COLORS = 8/);
 assert.match(colorTool, /COLOR_CATEGORIES\.map\(\(category\) =>/);
 assert.match(colorTool, /已选 \{selected\.length\}\/\{MAX_COLORS\}/);
-assert.doesNotMatch(colorTool, /1–32|\/32|>= 32/, "色彩工具必须遵守面料替换的最多八色约束");
+assert.doesNotMatch(colorTool, /1–32|\/32|>= 32/, "色彩工具必须遵守面料配色替换的最多八色约束");
 assert.match(colorTool, /MY_FAVORITES_CATEGORY_ID/);
 assert.match(colorTool, /grid-cols-4/);
 assert.match(colorTool, />我的收藏</);

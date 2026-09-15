@@ -41,8 +41,8 @@ Initial availability:
 | 添加节点 | 从资产库中选择 | Opens the existing owner-scoped AssetPicker; selecting creates one image-input. |
 | 服装设计 | 草图到效果图 | Creates `sketch-to-render`. |
 | 服装设计 | AI 改款 | Creates `ai-modify`. |
-| 服装设计 | 面料替换 | Creates `fabric-recolor` preset to `operationMode=fabric`. |
-| 服装设计 | 配色替换 | Creates `fabric-recolor` preset to `operationMode=color`. |
+| 服装设计 | 面料配色替换 | Creates `fabric-recolor` preset to `operationMode=fabric`. |
+| 服装设计 | 面料配色替换中的配色模式 | Uses the same `fabric-recolor` node with `operationMode=color` or `combined`. |
 | 服装设计 | 印花提取 | Creates `print-extract`. |
 | 服装设计 | 印花裂变 | Creates `print-mutate`. |
 | 模特换装 | 白底图制作 | Unavailable until its image role/prompt/output acceptance contract is approved. |

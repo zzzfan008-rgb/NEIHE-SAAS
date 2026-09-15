@@ -202,7 +202,7 @@ export function ColorToolPanel() {
       <DialogContent className="max-h-[88vh] max-w-2xl overflow-auto">
         <DialogHeader>
           <DialogTitle>色彩工具</DialogTitle>
-          <DialogDescription>选择 1–8 个颜色。确认后新建色板节点，可连接到面料替换节点的色板输入。</DialogDescription>
+          <DialogDescription>选择 1–8 个颜色。确认后新建色板节点，可连接到面料配色替换节点的色板输入。</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <Tabs value={categoryId} onValueChange={setCategoryId}>
