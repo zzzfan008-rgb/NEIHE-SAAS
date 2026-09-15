@@ -10,7 +10,10 @@ const result = spawnSync('docker', ['compose', 'config', '--format', 'json'], {
 assert.equal(result.status, 0, 'Compose configuration must validate');
 const config = JSON.parse(result.stdout);
 const { app, postgres, proxy } = config.services;
-assert.equal(app.ports?.length ?? 0, 0, 'App must not publish host ports');
+assert.equal(app.ports?.length, 1, 'App must publish exactly one localhost-only port');
+assert.equal(app.ports[0].host_ip, '127.0.0.1');
+assert.equal(String(app.ports[0].published), '3002');
+assert.equal(app.ports[0].target, 3002);
 assert.equal(postgres.ports?.length ?? 0, 0, 'Database must not publish host ports');
 assert.equal(proxy.ports.length, 1);
 assert.equal(proxy.ports[0].host_ip, '192.168.0.92');
@@ -27,4 +30,4 @@ assert.match(nginx, /proxy_buffering off;/);
 assert.match(nginx, /client_max_body_size 50m;/);
 const ignored = readFileSync(new URL('../.dockerignore', import.meta.url), 'utf8');
 assert.match(ignored, /^data\/$/m, 'Business files must not enter the build context');
-console.log('LAN deployment contract passed: only 192.168.0.92:80 is published.');
+console.log('Deployment contract passed: app is localhost-only on 3002; proxy is LAN-only on 192.168.0.92:80.');
