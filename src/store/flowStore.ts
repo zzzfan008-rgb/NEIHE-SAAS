@@ -1041,7 +1041,7 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
       return {
         ...base,
         kind,
-        paletteVersion: 1,
+        paletteVersion: 2,
         swatches: [{ id: "black", value: "#000000", source: "quick" }],
       };
     case "stage-approval":
@@ -1126,9 +1126,10 @@ function defaultNodeDataWithPreset(kind: NodeKind, preset?: Record<string, unkno
     try {
       return {
         ...data,
-        swatches: normalizeColorSwatches(preset.swatches as Array<{
-          id?: string; value: string; name?: string; source: ColorSwatch["source"];
-        }>),
+        paletteVersion: 2,
+        swatches: normalizeColorSwatches(
+          preset.swatches as Array<Omit<ColorSwatch, "id"> & { id?: string }>,
+        ),
       };
     } catch {
       return data;
@@ -2154,19 +2155,35 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       if (typeof input.exportImageRef !== "string") delete data.exportImageRef;
       break;
     case "color-palette": {
-      data.paletteVersion = 1;
+      const paletteVersion = input.paletteVersion === 2 ? 2 : 1;
+      data.paletteVersion = paletteVersion;
       const seen = new Set<string>();
       data.swatches = Array.isArray(input.swatches)
         ? input.swatches.flatMap((value) => {
             if (!value || typeof value !== "object") return [];
             const swatch = value as Record<string, unknown>;
             if (typeof swatch.id !== "string" || typeof swatch.value !== "string") return [];
-            const color = swatch.value.toUpperCase();
-            if (!/^#[0-9A-F]{6}$/.test(color) || seen.has(color)) return [];
-            const source = ["quick", "custom", "recent", "favorite", "eyedropper"].includes(String(swatch.source))
-              ? swatch.source : "custom";
-            seen.add(color);
-            return [{ id: swatch.id, value: color, source, ...(typeof swatch.name === "string" ? { name: swatch.name } : {}) }];
+            const source = [
+              "quick", "custom", "recent", "favorite", "eyedropper", "pantone", "brand",
+            ].includes(String(swatch.source)) ? swatch.source as ColorSwatch["source"] : "custom";
+            if (paletteVersion === 1 && (source === "pantone" || source === "brand")) return [];
+            try {
+              const [normalized] = normalizeColorSwatches([{
+                id: swatch.id,
+                value: swatch.value,
+                source,
+                ...(typeof swatch.name === "string" ? { name: swatch.name } : {}),
+                ...(swatch.pantone && typeof swatch.pantone === "object"
+                  ? { pantone: swatch.pantone as ColorSwatch["pantone"] } : {}),
+              }]);
+              const identityKey = normalized.pantone
+                ? `pantone:${normalized.pantone.catalogId}` : `hex:${normalized.value}`;
+              if (seen.has(identityKey)) return [];
+              seen.add(identityKey);
+              return [normalized];
+            } catch {
+              return [];
+            }
           }).slice(0, 32)
         : defaults.swatches;
       if ((data.swatches as unknown[]).length === 0) data.swatches = defaults.swatches;

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createStore, type StateCreator, type StoreApi } from "zustand/vanilla";
 import { parseColorValue } from "@/lib/colorPalette";
+import type { PantoneColorReference } from "@/types/colorPreferences";
 
 const STORAGE_PREFIX = "garment-canvas-color-preferences:v1:";
 const MAX_CUSTOM_COLORS = 128;
@@ -10,13 +11,29 @@ interface StoredColorPreferences {
   colors: string[];
   recent: string[];
   favorites: string[];
+  pantoneFavorites: PantoneColorReference[];
+}
+
+interface FavoriteGatewayResult {
+  favorites: unknown;
+  pantoneFavorites?: unknown;
 }
 
 export interface FavoriteColorsGateway {
-  load: (ownerId: string) => Promise<{ favorites: unknown; initialized: boolean }>;
-  initialize: (ownerId: string, favorites: readonly string[]) => Promise<unknown>;
+  load: (ownerId: string) => Promise<{
+    favorites: unknown; pantoneFavorites?: unknown; initialized: boolean;
+  }>;
+  initialize: (
+    ownerId: string, favorites: readonly string[],
+    pantoneFavorites?: readonly PantoneColorReference[],
+  ) => Promise<unknown>;
   setFavorite: (
     ownerId: string, color: string, favorite: boolean, bootstrapFavorites: readonly string[],
+    bootstrapPantoneFavorites: readonly PantoneColorReference[],
+  ) => Promise<unknown>;
+  setPantoneFavorite?: (
+    ownerId: string, color: PantoneColorReference, favorite: boolean,
+    bootstrapFavorites: readonly string[], bootstrapPantoneFavorites: readonly PantoneColorReference[],
   ) => Promise<unknown>;
 }
 
@@ -30,10 +47,13 @@ export interface CustomColorsState extends StoredColorPreferences {
   rememberRecent: (value: string) => void;
   refreshFavorites: () => Promise<void>;
   toggleFavorite: (value: string) => Promise<void>;
+  togglePantoneFavorite: (value: PantoneColorReference) => Promise<void>;
 }
 
 type ColorStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-const emptyPreferences = (): StoredColorPreferences => ({ colors: [], recent: [], favorites: [] });
+const emptyPreferences = (): StoredColorPreferences => ({
+  colors: [], recent: [], favorites: [], pantoneFavorites: [],
+});
 const storageKey = (ownerId: string) => `${STORAGE_PREFIX}${encodeURIComponent(ownerId)}`;
 
 function normalizeList(value: unknown, max: number): string[] {
@@ -51,6 +71,56 @@ function normalizeList(value: unknown, max: number): string[] {
   return output;
 }
 
+function normalizePantoneList(value: unknown, max: number): PantoneColorReference[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const output: PantoneColorReference[] = [];
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const color = candidate as Record<string, unknown>;
+    if (typeof color.catalogId !== "string" || !/^[0-9a-f]{64}$/.test(color.catalogId)
+      || typeof color.releaseId !== "string" || !color.releaseId.trim()
+      || typeof color.libraryKey !== "string" || !color.libraryKey.trim()
+      || typeof color.code !== "string" || !color.code.trim()
+      || typeof color.hex !== "string") continue;
+    try {
+      const normalized: PantoneColorReference = {
+        catalogId: color.catalogId,
+        releaseId: color.releaseId.trim(),
+        libraryKey: color.libraryKey.trim(),
+        code: color.code.trim(),
+        hex: parseColorValue(color.hex),
+      };
+      if (!seen.has(normalized.catalogId)) {
+        seen.add(normalized.catalogId);
+        output.push(normalized);
+      }
+    } catch { /* discard corrupt preferences */ }
+    if (output.length >= max) break;
+  }
+  return output;
+}
+
+function gatewayPreferences(
+  value: unknown,
+  fallback: Pick<StoredColorPreferences, "favorites" | "pantoneFavorites">,
+): Pick<StoredColorPreferences, "favorites" | "pantoneFavorites"> {
+  if (Array.isArray(value)) {
+    return {
+      favorites: normalizeList(value, MAX_CUSTOM_COLORS),
+      pantoneFavorites: fallback.pantoneFavorites,
+    };
+  }
+  const result: FavoriteGatewayResult = value && typeof value === "object"
+    ? value as FavoriteGatewayResult : { favorites: [] };
+  return {
+    favorites: normalizeList(result.favorites, MAX_CUSTOM_COLORS),
+    pantoneFavorites: Object.prototype.hasOwnProperty.call(result, "pantoneFavorites")
+      ? normalizePantoneList(result.pantoneFavorites, MAX_CUSTOM_COLORS)
+      : fallback.pantoneFavorites,
+  };
+}
+
 function load(storage: ColorStorage | null, ownerId: string): StoredColorPreferences {
   if (!storage) return emptyPreferences();
   try {
@@ -59,6 +129,7 @@ function load(storage: ColorStorage | null, ownerId: string): StoredColorPrefere
       colors: normalizeList(parsed.colors, MAX_CUSTOM_COLORS),
       recent: normalizeList(parsed.recent, MAX_RECENT_COLORS),
       favorites: normalizeList(parsed.favorites, MAX_CUSTOM_COLORS),
+      pantoneFavorites: normalizePantoneList(parsed.pantoneFavorites, MAX_CUSTOM_COLORS),
     };
   } catch {
     return emptyPreferences();
@@ -77,13 +148,18 @@ function syncErrorMessage(error: unknown): string {
 interface FavoriteColorsResponse {
   ownerId?: unknown;
   favorites?: unknown;
+  pantoneFavorites?: unknown;
   initialized?: unknown;
   error?: unknown;
 }
 
-function responseFavorites(body: FavoriteColorsResponse, ownerId: string): unknown {
+function responsePreferences(body: FavoriteColorsResponse, ownerId: string): FavoriteGatewayResult {
   if (body.ownerId !== ownerId) throw new Error("登录账号已切换，请刷新后重试");
-  return body.favorites;
+  return {
+    favorites: body.favorites,
+    ...(Object.prototype.hasOwnProperty.call(body, "pantoneFavorites")
+      ? { pantoneFavorites: body.pantoneFavorites } : {}),
+  };
 }
 
 const browserGateway: FavoriteColorsGateway | null = typeof window === "undefined" ? null : {
@@ -94,27 +170,37 @@ const browserGateway: FavoriteColorsGateway | null = typeof window === "undefine
     });
     const body = await response.json().catch(() => ({})) as FavoriteColorsResponse;
     if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "无法读取收藏颜色");
-    return { favorites: responseFavorites(body, ownerId), initialized: body.initialized === true };
+    return { ...responsePreferences(body, ownerId), initialized: body.initialized === true };
   },
-  initialize: async (ownerId, favorites) => {
+  initialize: async (ownerId, favorites, pantoneFavorites = []) => {
     const response = await fetch("/api/auth/color-preferences", {
       method: "PUT",
       headers: { "Content-Type": "application/json", "X-Expected-User-Id": ownerId },
-      body: JSON.stringify({ favorites }),
+      body: JSON.stringify({ favorites, pantoneFavorites }),
     });
     const body = await response.json().catch(() => ({})) as FavoriteColorsResponse;
     if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "无法初始化收藏颜色");
-    return responseFavorites(body, ownerId);
+    return responsePreferences(body, ownerId);
   },
-  setFavorite: async (ownerId, color, favorite, bootstrapFavorites) => {
+  setFavorite: async (ownerId, color, favorite, bootstrapFavorites, bootstrapPantoneFavorites) => {
     const response = await fetch("/api/auth/color-preferences", {
       method: "PATCH",
       headers: { "Content-Type": "application/json", "X-Expected-User-Id": ownerId },
-      body: JSON.stringify({ color, favorite, bootstrapFavorites }),
+      body: JSON.stringify({ color, favorite, bootstrapFavorites, bootstrapPantoneFavorites }),
     });
     const body = await response.json().catch(() => ({})) as FavoriteColorsResponse;
     if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "无法保存收藏颜色");
-    return responseFavorites(body, ownerId);
+    return responsePreferences(body, ownerId);
+  },
+  setPantoneFavorite: async (ownerId, color, favorite, bootstrapFavorites, bootstrapPantoneFavorites) => {
+    const response = await fetch("/api/auth/color-preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-Expected-User-Id": ownerId },
+      body: JSON.stringify({ pantone: color, favorite, bootstrapFavorites, bootstrapPantoneFavorites }),
+    });
+    const body = await response.json().catch(() => ({})) as FavoriteColorsResponse;
+    if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "无法保存 Pantone 收藏");
+    return responsePreferences(body, ownerId);
   },
 };
 
@@ -127,6 +213,7 @@ const initializer = (
   let favoriteWriteQueue = Promise.resolve();
   let favoritesRefreshToken = 0;
   let confirmedFavorites: string[] = [];
+  let confirmedPantoneFavorites: PantoneColorReference[] = [];
 
   const persist = (preferences: StoredColorPreferences) => {
     save(storage, get().ownerId, preferences);
@@ -138,16 +225,19 @@ const initializer = (
       colors: patch.colors ?? state.colors,
       recent: patch.recent ?? state.recent,
       favorites: patch.favorites ?? state.favorites,
+      pantoneFavorites: patch.pantoneFavorites ?? state.pantoneFavorites,
     };
     persist(next);
     set(next);
   };
-  const replaceFavorites = (favorites: string[]) => {
+  const replaceFavorites = (
+    favorites: string[], pantoneFavorites: PantoneColorReference[],
+  ) => {
     const state = get();
     if (!state.ownerId) return;
-    const next = { colors: state.colors, recent: state.recent, favorites };
+    const next = { colors: state.colors, recent: state.recent, favorites, pantoneFavorites };
     persist(next);
-    set({ favorites });
+    set({ favorites, pantoneFavorites });
   };
 
   const refreshFavorites = async () => {
@@ -165,15 +255,23 @@ const initializer = (
     try {
       const remote = await gateway.load(ownerId);
       if (get().ownerId !== ownerId || ownerGeneration !== generation || favoritesRefreshToken !== refreshToken) return;
-      const localFavorites = get().favorites;
-      const remoteFavorites = normalizeList(remote.favorites, MAX_CUSTOM_COLORS);
-      const synchronizedFavorites = !remote.initialized && localFavorites.length > 0
-        ? normalizeList(await gateway.initialize(ownerId, localFavorites), MAX_CUSTOM_COLORS)
-        : remoteFavorites;
+      const local = {
+        favorites: get().favorites,
+        pantoneFavorites: get().pantoneFavorites,
+      };
+      const remotePreferences = gatewayPreferences(remote, local);
+      const synchronized = !remote.initialized
+        && (local.favorites.length > 0 || local.pantoneFavorites.length > 0)
+        ? gatewayPreferences(
+            await gateway.initialize(ownerId, local.favorites, local.pantoneFavorites),
+            local,
+          )
+        : remotePreferences;
       if (get().ownerId !== ownerId || ownerGeneration !== generation
           || favoritesRefreshToken !== refreshToken || favoritesRevision !== revision) return;
-      confirmedFavorites = [...synchronizedFavorites];
-      replaceFavorites(synchronizedFavorites);
+      confirmedFavorites = [...synchronized.favorites];
+      confirmedPantoneFavorites = [...synchronized.pantoneFavorites];
+      replaceFavorites(synchronized.favorites, synchronized.pantoneFavorites);
       set({ favoritesSyncing: false, favoritesSyncError: undefined });
     } catch (error) {
       if (get().ownerId === ownerId && ownerGeneration === generation
@@ -196,11 +294,13 @@ const initializer = (
       favoriteWriteQueue = Promise.resolve();
       if (!ownerId) {
         confirmedFavorites = [];
+        confirmedPantoneFavorites = [];
         set({ ownerId: null, ...emptyPreferences(), favoritesSyncing: false, favoritesSyncError: undefined });
         return;
       }
       const preferences = load(storage, ownerId);
       confirmedFavorites = [...preferences.favorites];
+      confirmedPantoneFavorites = [...preferences.pantoneFavorites];
       set({ ownerId, ...preferences, favoritesSyncing: false, favoritesSyncError: undefined });
     },
     add: (value) => {
@@ -222,8 +322,9 @@ const initializer = (
       const state = get();
       if (!state.ownerId) return;
       const previous = state.favorites;
+      const previousPantone = state.pantoneFavorites;
       const favorite = !previous.includes(color);
-      if (favorite && previous.length >= MAX_CUSTOM_COLORS) {
+      if (favorite && previous.length + previousPantone.length >= MAX_CUSTOM_COLORS) {
         set({ favoritesSyncError: `收藏颜色最多保存 ${MAX_CUSTOM_COLORS} 项` });
         return;
       }
@@ -241,20 +342,75 @@ const initializer = (
       const operation = favoriteWriteQueue.catch(() => undefined).then(async () => {
         if (get().ownerId !== ownerId || ownerGeneration !== generation) return;
         try {
-          const savedFavorites = normalizeList(
-            await gateway.setFavorite(ownerId, color, favorite, previous),
-            MAX_CUSTOM_COLORS,
+          const saved = gatewayPreferences(
+            await gateway.setFavorite(ownerId, color, favorite, previous, previousPantone),
+            { favorites: previous, pantoneFavorites: previousPantone },
           );
           if (get().ownerId === ownerId && ownerGeneration === generation) {
-            confirmedFavorites = [...savedFavorites];
+            confirmedFavorites = [...saved.favorites];
+            confirmedPantoneFavorites = [...saved.pantoneFavorites];
             if (favoritesRevision === operationRevision) {
-              replaceFavorites(savedFavorites);
+              replaceFavorites(saved.favorites, saved.pantoneFavorites);
               set({ favoritesSyncing: false, favoritesSyncError: undefined });
             }
           }
         } catch (error) {
           if (get().ownerId === ownerId && ownerGeneration === generation && favoritesRevision === operationRevision) {
-            replaceFavorites([...confirmedFavorites]);
+            replaceFavorites([...confirmedFavorites], [...confirmedPantoneFavorites]);
+            set({ favoritesSyncing: false, favoritesSyncError: syncErrorMessage(error) });
+          }
+        }
+      });
+      favoriteWriteQueue = operation;
+      await operation;
+    },
+    togglePantoneFavorite: async (value) => {
+      const [color] = normalizePantoneList([value], 1);
+      const state = get();
+      if (!color || !state.ownerId) return;
+      const previous = state.pantoneFavorites;
+      const previousHex = state.favorites;
+      const favorite = !previous.some((candidate) => candidate.catalogId === color.catalogId);
+      if (favorite && previous.length + previousHex.length >= MAX_CUSTOM_COLORS) {
+        set({ favoritesSyncError: `收藏颜色最多保存 ${MAX_CUSTOM_COLORS} 项` });
+        return;
+      }
+      if (gateway && !gateway.setPantoneFavorite) {
+        set({ favoritesSyncError: "当前服务不支持 Pantone 收藏，请刷新后重试" });
+        return;
+      }
+      const pantoneFavorites = favorite
+        ? [...previous, color]
+        : previous.filter((candidate) => candidate.catalogId !== color.catalogId);
+      favoritesRevision += 1;
+      const operationRevision = favoritesRevision;
+      const generation = ownerGeneration;
+      const ownerId = state.ownerId;
+      commit({ pantoneFavorites });
+      set({ favoritesSyncing: Boolean(gateway), favoritesSyncError: undefined });
+      if (!gateway?.setPantoneFavorite) return;
+
+      const operation = favoriteWriteQueue.catch(() => undefined).then(async () => {
+        if (get().ownerId !== ownerId || ownerGeneration !== generation) return;
+        try {
+          const saved = gatewayPreferences(
+            await gateway.setPantoneFavorite!(
+              ownerId, color, favorite, previousHex, previous,
+            ),
+            { favorites: previousHex, pantoneFavorites: previous },
+          );
+          if (get().ownerId === ownerId && ownerGeneration === generation) {
+            confirmedFavorites = [...saved.favorites];
+            confirmedPantoneFavorites = [...saved.pantoneFavorites];
+            if (favoritesRevision === operationRevision) {
+              replaceFavorites(saved.favorites, saved.pantoneFavorites);
+              set({ favoritesSyncing: false, favoritesSyncError: undefined });
+            }
+          }
+        } catch (error) {
+          if (get().ownerId === ownerId && ownerGeneration === generation
+              && favoritesRevision === operationRevision) {
+            replaceFavorites([...confirmedFavorites], [...confirmedPantoneFavorites]);
             set({ favoritesSyncing: false, favoritesSyncError: syncErrorMessage(error) });
           }
         }

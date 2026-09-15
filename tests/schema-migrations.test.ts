@@ -39,7 +39,10 @@ assert.deepEqual(versions, [
   { version: 16, name: "preserve_small_upload_images" },
   { version: 17, name: "asset_library_categories" },
   { version: 18, name: "user_color_preferences" },
+  { version: 19, name: "versioned_color_catalog" },
+  { version: 20, name: "brand_color_management" },
   { version: 21, name: "ai_styling" },
+  { version: 22, name: "material_analysis_and_assets" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
 
@@ -650,6 +653,46 @@ await closeDatabaseForTests();
 await initializeDatabase();
 assert.equal((await queryOne<{ category: string }>("SELECT category FROM assets WHERE id = 'category-generated'"))?.category, "fabric");
 console.log("  ✓ 分类迁移只处理已有且来源明确的素材，保留印花、布料和未知来源，重启不覆盖用户分类");
+
+await query("DROP TABLE styling_checkpoints");
+await query("DROP TABLE outfit_analyses");
+await query("DELETE FROM schema_migrations WHERE version IN (21, 22)");
+await query(
+  "INSERT INTO schema_migrations(version,name,applied_at) VALUES (21,'material_analysis_and_assets',$1)",
+  [now],
+);
+await closeDatabaseForTests();
+await initializeDatabase();
+assert.deepEqual(
+  await query<{ version: number; name: string }>(
+    "SELECT version,name FROM schema_migrations WHERE version IN (21,22) ORDER BY version",
+  ),
+  [
+    { version: 21, name: "ai_styling" },
+    { version: 22, name: "material_analysis_and_assets" },
+  ],
+);
+assert.equal(
+  (
+    await queryOne<{ table_name: string | null }>(
+      "SELECT to_regclass('public.outfit_analyses')::text AS table_name",
+    )
+  )?.table_name,
+  "outfit_analyses",
+);
+await closeDatabaseForTests();
+await initializeDatabase();
+assert.equal(
+  (
+    await queryOne<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM schema_migrations WHERE version IN (21,22)",
+    )
+  )?.count,
+  2,
+);
+console.log(
+  "  ✓ feature 分支的材质迁移 21 可原子让位给 AI styling 21，并重标为材质迁移 22",
+);
 
 await closeDatabaseForTests();
 fs.rmSync(temp, { recursive: true, force: true });

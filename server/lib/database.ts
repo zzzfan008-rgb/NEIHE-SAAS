@@ -3,6 +3,9 @@ import { nanoid } from "nanoid";
 import { config } from "../config";
 import { hashPassword, validatePassword } from "./password";
 import { importSqliteIfNeeded } from "./sqliteImport";
+import { migrateColorCatalog } from "./colorCatalogMigration";
+import { migrateBrandColors } from "./brandColorMigration";
+import { migrateMaterialAnalysis } from "./materialAnalysisMigration";
 
 const { Pool, types } = pg;
 types.setTypeParser(20, Number);
@@ -102,12 +105,36 @@ async function migrate(): Promise<void> {
       )
     `);
     await client.query("LOCK TABLE schema_migrations IN EXCLUSIVE MODE");
-    const appliedRows = await query<{ version: number }>(
-      "SELECT version FROM schema_migrations",
+    const appliedRows = await query<{ version: number; name: string }>(
+      "SELECT version, name FROM schema_migrations",
       [],
       client,
     );
+    const legacyMaterialMigration = appliedRows.find(
+      (row) => row.version === 21 && row.name === "material_analysis_and_assets",
+    );
+    if (legacyMaterialMigration) {
+      const migration22 = appliedRows.find((row) => row.version === 22);
+      if (migration22 && migration22.name !== "material_analysis_and_assets") {
+        throw new Error(
+          `Migration 22 is already assigned to ${migration22.name}; cannot remap legacy material migration`,
+        );
+      }
+      if (migration22) {
+        await client.query(
+          "DELETE FROM schema_migrations WHERE version=21 AND name='material_analysis_and_assets'",
+        );
+      } else {
+        await client.query(
+          "UPDATE schema_migrations SET version=22 WHERE version=21 AND name='material_analysis_and_assets'",
+        );
+      }
+    }
     const applied = new Set(appliedRows.map((row) => row.version));
+    if (legacyMaterialMigration) {
+      applied.delete(21);
+      applied.add(22);
+    }
 
     if (!applied.has(1)) {
       await client.query(`
@@ -697,6 +724,9 @@ async function migrate(): Promise<void> {
       );
     }
 
+    if (!applied.has(19)) await migrateColorCatalog(client);
+    if (!applied.has(20)) await migrateBrandColors(client);
+
     if (!applied.has(21)) {
       await client.query(`
         CREATE TABLE outfit_analyses (
@@ -720,6 +750,8 @@ async function migrate(): Promise<void> {
         INSERT INTO schema_migrations(version,name,applied_at) VALUES(21,'ai_styling',NOW()::text);
       `);
     }
+
+    if (!applied.has(22)) await migrateMaterialAnalysis(client, config.sceneAnalysisModel());
 
     // SQLite can be restored after an empty database has already applied migration 17.
     if (!applied.has(17) || imported !== undefined) {

@@ -74,7 +74,9 @@ const VIRTUAL_TRY_ON_STAGES = ["standard", "scene-stabilize", "garment-refine"] 
 const GARMENT_CATEGORIES = ["knit", "woven", "other"] as const;
 const TRY_ON_QUALITY_MODES = ["fast", "balanced", "best"] as const;
 const FABRIC_OPERATION_MODES = ["combined", "fabric", "color"] as const;
-const COLOR_SWATCH_SOURCES = ["quick", "custom", "recent", "favorite", "eyedropper"] as const;
+const COLOR_SWATCH_SOURCES = [
+  "quick", "custom", "recent", "favorite", "eyedropper", "pantone", "brand",
+] as const;
 const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
   "person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet",
   "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
@@ -449,20 +451,35 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       optionalImageReference(raw.exportImageRef, `${path}.exportImageRef`);
       break;
     case "color-palette": {
-      oneOf(raw.paletteVersion, [1] as const, `${path}.paletteVersion`);
+      const paletteVersion = oneOf(raw.paletteVersion, [1, 2] as const, `${path}.paletteVersion`);
       if (!Array.isArray(raw.swatches) || raw.swatches.length < 1 || raw.swatches.length > 32) {
         fail(`${path}.swatches`, "must contain from 1 to 32 colors");
       }
-      const values = new Set<string>();
+      const identities = new Set<string>();
       raw.swatches.forEach((value, index) => {
-        const swatch = record(value, `${path}.swatches[${index}]`);
-        stringValue(swatch.id, `${path}.swatches[${index}].id`, { nonEmpty: true });
-        const color = stringValue(swatch.value, `${path}.swatches[${index}].value`, { nonEmpty: true });
-        if (!/^#[0-9A-F]{6}$/.test(color)) fail(`${path}.swatches[${index}].value`, "must be canonical uppercase #RRGGBB");
-        if (values.has(color)) fail(`${path}.swatches[${index}].value`, "must be unique");
-        values.add(color);
-        optionalString(swatch.name, `${path}.swatches[${index}].name`);
-        oneOf(swatch.source, COLOR_SWATCH_SOURCES, `${path}.swatches[${index}].source`);
+        const swatchPath = `${path}.swatches[${index}]`;
+        const swatch = record(value, swatchPath);
+        stringValue(swatch.id, `${swatchPath}.id`, { nonEmpty: true });
+        const color = stringValue(swatch.value, `${swatchPath}.value`, { nonEmpty: true });
+        if (!/^#[0-9A-F]{6}$/.test(color)) fail(`${swatchPath}.value`, "must be canonical uppercase #RRGGBB");
+        optionalString(swatch.name, `${swatchPath}.name`);
+        const source = oneOf(swatch.source, COLOR_SWATCH_SOURCES, `${swatchPath}.source`);
+        const expectsPantone = source === "pantone" || source === "brand";
+        if (paletteVersion === 1 && expectsPantone) fail(`${swatchPath}.source`, "Pantone sources require paletteVersion 2");
+        let identityKey = `hex:${color}`;
+        if (expectsPantone) {
+          const identity = record(swatch.pantone, `${swatchPath}.pantone`);
+          const catalogId = stringValue(identity.catalogId, `${swatchPath}.pantone.catalogId`, { nonEmpty: true });
+          if (!/^[0-9a-f]{64}$/.test(catalogId)) fail(`${swatchPath}.pantone.catalogId`, "must be a 64-character lowercase digest");
+          for (const field of ["releaseId", "libraryKey", "code"] as const) {
+            stringValue(identity[field], `${swatchPath}.pantone.${field}`, { nonEmpty: true });
+          }
+          identityKey = `pantone:${catalogId}`;
+        } else if (swatch.pantone !== undefined) {
+          fail(`${swatchPath}.pantone`, "ordinary colors must not carry Pantone identity");
+        }
+        if (identities.has(identityKey)) fail(swatchPath, "identity must be unique");
+        identities.add(identityKey);
       });
       break;
     }

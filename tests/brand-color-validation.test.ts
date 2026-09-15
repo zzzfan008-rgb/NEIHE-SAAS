@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import { colorReferences, importDecisions, revision, fields, referenceRatio } from "../server/lib/brandColorValidation";
+const a = "a".repeat(64); const b = "b".repeat(64);
+assert.deepEqual(colorReferences([{ catalogId: a, releaseId: b, ratio: null }]), [{ catalogId: a, releaseId: b, ratio: null }]);
+assert.throws(() => colorReferences([{ catalogId: a, releaseId: b }, { catalogId: a, releaseId: a }]));
+assert.throws(() => colorReferences([{ catalogId: a, releaseId: b, hex: "#000000" }]));
+assert.throws(() => colorReferences(Array(5001).fill({ catalogId: a, releaseId: b })));
+assert.equal(referenceRatio(1e-7), 1e-7);
+for (const invalid of [-1, 1.01, Infinity, NaN, "38%"] as unknown[]) assert.throws(() => referenceRatio(invalid));
+for (const invalid of [undefined, 0, -1, "1", 1.5]) assert.throws(() => revision(invalid));
+assert.equal(revision(1), 1);
+assert.throws(() => fields({ role: "admin" }, ["name"]));
+assert.throws(() => importDecisions([{ action: "confirm", catalogId: a }], 1));
+assert.throws(() => importDecisions([{ action: "skip", catalogId: a }], 1));
+assert.throws(() => importDecisions([], 1));
+assert.deepEqual(importDecisions([{ action: "confirm", catalogId: a, ratio: null }, { action: "pending" }], 2), [{ action: "confirm", catalogId: a, ratio: null }, { action: "pending" }]);
+console.log("品牌颜色校验：身份去重、比例、revision、只读字段与显式导入决定通过");

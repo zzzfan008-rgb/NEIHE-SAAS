@@ -276,6 +276,23 @@ await test("色彩收藏由服务端按账号隔离、规范化并跨会话读�
     return request(pathname, user, { ...init, headers });
   };
   try {
+    const releaseId = "d".repeat(64);
+    const pantoneA = {
+      catalogId: "c".repeat(64), releaseId, libraryKey: "pantone-tcx",
+      code: "11-1000 TCX", hex: "#AABBCC",
+    };
+    const pantoneB = {
+      catalogId: "b".repeat(64), releaseId, libraryKey: "pantone-tcx",
+      code: "11-1001 TCX", hex: "#AABBCC",
+    };
+    await query("INSERT INTO color_catalog_releases(id, created_at, color_count) VALUES ($1, $2, 2)", [releaseId, new Date().toISOString()]);
+    for (const color of [pantoneA, pantoneB]) {
+      await query("INSERT INTO color_catalog_identities(id, library_key, code) VALUES ($1, $2, $3)", [color.catalogId, color.libraryKey, color.code]);
+      await query(`
+        INSERT INTO color_catalog_versions(release_id, color_id, status, hex, hue, out_of_gamut, data)
+        VALUES ($1, $2, 'ready', $3, 'neutral', FALSE, '{}'::jsonb)
+      `, [releaseId, color.catalogId, color.hex]);
+    }
     const ownerSave = await authenticatedRequest("/auth/color-preferences", "owner", ownerSession.token, {
       method: "PUT",
       body: JSON.stringify({ favorites: ["#abc", "rgb(255, 0, 0)", "#AABBCC"] }),
@@ -288,11 +305,13 @@ await test("色彩收藏由服务端按账号隔离、规范化并跨会话读�
     assert.equal(ownerRead.status, 200);
     assert.equal(ownerRead.headers.get("cache-control"), "no-store");
     assert.deepEqual(await ownerRead.json(), {
-      ownerId: users.owner.id, favorites: ["#AABBCC", "#FF0000"], initialized: true,
+      ownerId: users.owner.id, favorites: ["#AABBCC", "#FF0000"],
+      pantoneFavorites: [], initialized: true,
     });
     assert.deepEqual(await (await authenticatedRequest("/auth/color-preferences", "other", otherSession.token)).json(), {
       ownerId: users.other.id,
       favorites: [],
+      pantoneFavorites: [],
       initialized: false,
     });
 
@@ -330,6 +349,39 @@ await test("色彩收藏由服务端按账号隔离、规范化并跨会话读�
     const afterConcurrentAdds = await authenticatedRequest("/auth/color-preferences", "owner", ownerSession.token);
     const concurrentFavorites = (await afterConcurrentAdds.json() as { favorites: string[] }).favorites;
     assert.deepEqual([...concurrentFavorites].sort(), ["#112233", "#445566", "#AABBCC", "#FF0000"].sort());
+
+    for (const pantone of [pantoneA, pantoneB]) {
+      const response = await authenticatedRequest(
+        "/auth/color-preferences", "owner", ownerSession.token, {
+          method: "PATCH",
+          body: JSON.stringify({
+            pantone, favorite: true,
+            bootstrapFavorites: [], bootstrapPantoneFavorites: [],
+          }),
+        },
+      );
+      assert.equal(response.status, 200, await response.text());
+    }
+    const withPantone = await authenticatedRequest(
+      "/auth/color-preferences", "owner", ownerSession.token,
+    );
+    const withPantoneBody = await withPantone.json() as {
+      favorites: string[]; pantoneFavorites: typeof pantoneA[];
+    };
+    assert.deepEqual(withPantoneBody.pantoneFavorites, [pantoneA, pantoneB]);
+    assert.equal(withPantoneBody.favorites.includes("#AABBCC"), true);
+    const rawPreferences = await queryOne<{ favorite_colors: unknown[] }>(`
+      SELECT favorite_colors FROM user_color_preferences WHERE user_id = $1
+    `, [users.owner.id]);
+    assert.equal((rawPreferences?.favorite_colors.filter((value) => typeof value === "object") ?? []).length, 2);
+
+    const forgedPantone = await authenticatedRequest(
+      "/auth/color-preferences", "owner", ownerSession.token, {
+        method: "PATCH",
+        body: JSON.stringify({ pantone: { ...pantoneA, code: "FAKE" }, favorite: true }),
+      },
+    );
+    assert.equal(forgedPantone.status, 409);
 
     const removeFavorite = await patchFavorite("#112233", false);
     assert.equal(removeFavorite.status, 200, await removeFavorite.text());
@@ -370,6 +422,9 @@ await test("色彩收藏由服务端按账号隔离、规范化并跨会话读�
     const ownerAfterInvalidBody = await ownerAfterInvalid.json() as { favorites: string[] };
     assert.deepEqual(ownerAfterInvalidBody.favorites, ["#AABBCC", "#FF0000", "#445566"]);
   } finally {
+    await query("DELETE FROM color_catalog_versions WHERE release_id = $1", ["d".repeat(64)]);
+    await query("DELETE FROM color_catalog_identities WHERE id = ANY($1::text[])", [["c".repeat(64), "b".repeat(64)]]);
+    await query("DELETE FROM color_catalog_releases WHERE id = $1", ["d".repeat(64)]);
     await query("DELETE FROM sessions WHERE user_id = ANY($1::text[])", [[users.owner.id, users.other.id]]);
   }
 });
@@ -462,12 +517,30 @@ await test("账号转移、15 天回收与到期清理同步覆盖用户模板",
     assert.equal(createResponse.status, 200);
     templateId = createBody.id;
 
+    const analysisId = "transferred-material-analysis";
+    await query(`
+      INSERT INTO material_analyses(id,owner_id,status,source_image,crop_image,crop,created_at,updated_at)
+      VALUES ($1,$2,'draft','/api/files/transfer-source.png','/api/files/transfer-crop.png',
+        '{"x":0,"y":0,"width":1,"height":1}'::jsonb,$3,$3)
+    `, [analysisId, source.id, now]);
+    await query("UPDATE material_analyses SET status='analyzing' WHERE id=$1", [analysisId]);
+    const blockedTransfer = await request(`/auth/users/${source.id}`, "admin", {
+      method: "DELETE",
+      headers: { cookie: `${SESSION_COOKIE}=${adminSession.token}` },
+      body: JSON.stringify({ transferToUserId: target.id }),
+    });
+    assert.equal(blockedTransfer.status, 409);
+    assert.match((await blockedTransfer.json() as { error: string }).error, /材质分析/);
+    await query("UPDATE material_analyses SET updated_at=$1 WHERE id=$2", [new Date(Date.now() - 16 * 60_000).toISOString(), analysisId]);
     const transfer = await request(`/auth/users/${source.id}`, "admin", {
       method: "DELETE",
       headers: { cookie: `${SESSION_COOKIE}=${adminSession.token}` },
       body: JSON.stringify({ transferToUserId: target.id }),
     });
     assert.equal(transfer.status, 200, await transfer.text());
+    assert.deepEqual(await queryOne<{ owner_id: string; status: string }>("SELECT owner_id,status FROM material_analyses WHERE id=$1", [analysisId]), {
+      owner_id: target.id, status: "outcome_unknown",
+    });
     const targetTemplates = await (await request("/templates", targetKey)).json() as Array<{ id: string }>;
     assert.equal(targetTemplates.some((template) => template.id === templateId), true);
     const templateFile = path.join(legacyTemplateDir, `${templateId}.json`);
@@ -578,7 +651,7 @@ await test("Run 状态与 SSE 仅任务所有者可读，管理员也不隐式�
   assert.equal((await request(`/run-plan/${run.id}/events`, "other")).status, 404);
 });
 
-await test("所有鉴权图片禁止缓存，撤回共享后立即恢复访问控制", async () => {
+await test("所有鉴权图片禁止缓存，未共享资源返回非披露 404，撤回共享后立即恢复访问控制", async () => {
   const upload = await request("/files", "owner", {
     method: "POST",
     body: JSON.stringify({
@@ -603,7 +676,7 @@ await test("所有鉴权图片禁止缓存，撤回共享后立即恢复访问�
     assert.match(privateResponse.headers.get("vary") ?? "", /(?:^|,\s*)Cookie(?:,|$)/i);
     await privateResponse.arrayBuffer();
 
-    assert.equal((await request(pathname, "other")).status, 403);
+    assert.equal((await request(pathname, "other")).status, 404);
   }
 
   await query(`
@@ -627,7 +700,7 @@ await test("所有鉴权图片禁止缓存，撤回共享后立即恢复访问�
 
   for (const pathname of [`/files/${uploaded.id}`, `/files/${uploaded.id}/thumbnail`]) {
     const denied = await request(pathname, "other");
-    assert.equal(denied.status, 403);
+    assert.equal(denied.status, 404);
     await denied.arrayBuffer();
 
     const ownerResponse = await request(pathname, "owner");
@@ -661,7 +734,7 @@ await test("私有换装风格预设按账号隔离并校验参考图权限", as
   assert.equal((await request(`/try-on-style-presets/${created.id}`, "owner", { method: "DELETE" })).status, 200);
 });
 
-await test("没有 files 元数据的物理孤儿文件拒绝所有账号读取", async () => {
+await test("没有 files 元数据的物理孤儿文件对所有账号返回非披露 404", async () => {
   const orphanId = "purge-failed-orphan.png";
   fs.writeFileSync(
     path.join(uploadsDir(), orphanId),
@@ -669,8 +742,8 @@ await test("没有 files 元数据的物理孤儿文件拒绝所有账号读取"
   );
   assert.equal(await queryOne("SELECT id FROM files WHERE id = $1", [orphanId]), undefined);
   for (const actor of ["owner", "other", "admin"] as const) {
-    assert.equal((await request(`/files/${orphanId}`, actor)).status, 403);
-    assert.equal((await request(`/files/${orphanId}/thumbnail`, actor)).status, 403);
+    assert.equal((await request(`/files/${orphanId}`, actor)).status, 404);
+    assert.equal((await request(`/files/${orphanId}/thumbnail`, actor)).status, 404);
   }
   deleteStoredImage(orphanId);
 });
@@ -850,7 +923,7 @@ await test("管理员创建通用素材时解除底层文件的个人归属", as
     ),
     { owner_id: users.admin.id, deleted_at: null, purge_after: null },
   );
-  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 403);
+  assert.equal((await request(`/files/${uploaded.id}`, "other")).status, 404);
 
   const republished = await request(`/assets/${created.id}`, "admin", {
     method: "PATCH",

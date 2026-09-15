@@ -9,9 +9,11 @@ export function ColorPaletteNode({ id, data, selected }: NodeProps<Node<ColorPal
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
         <div className="grid grid-cols-4 gap-1.5" aria-label={`${data.swatches.length} 个目标颜色`}>
           {data.swatches.map((swatch) => (
-            <div key={swatch.id} className="space-y-1" title={`${swatch.name ?? "颜色"} ${swatch.value}`}>
+            <div key={swatch.id} className="space-y-1" title={`${swatch.pantone?.code ?? swatch.name ?? "颜色"} ${swatch.value}`}>
               <span className="block h-9 rounded-md border border-white/15" style={{ backgroundColor: swatch.value }} />
-              <span className="block truncate text-center font-mono text-[8px] text-[var(--gc-node-muted)]">{swatch.value}</span>
+              <span className="block truncate text-center font-mono text-[8px] text-[var(--gc-node-muted)]">
+                {swatch.pantone?.code ?? swatch.value}
+              </span>
             </div>
           ))}
         </div>

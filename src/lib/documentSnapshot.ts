@@ -63,7 +63,7 @@ export type DocumentNodeData =
   | {
       kind: "color-palette";
       label: string;
-      paletteVersion: 1;
+      paletteVersion: 1 | 2;
       swatches: ColorSwatch[];
     }
   | {
@@ -329,7 +329,10 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         kind: data.kind,
         label: data.label,
         paletteVersion: data.paletteVersion,
-        swatches: data.swatches.map((swatch) => ({ ...swatch })),
+        swatches: data.swatches.map((swatch) => ({
+          ...swatch,
+          ...(swatch.pantone ? { pantone: { ...swatch.pantone } } : {}),
+        })),
       };
     case "stage-approval":
       return {

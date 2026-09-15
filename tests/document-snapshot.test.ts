@@ -4,7 +4,7 @@ import {
   documentSnapshotToPersistedWorkflow,
 } from "../src/lib/documentSnapshot";
 import { validateAndMigrateFlow } from "../server/lib/workflowSchema";
-import { WORKFLOW_SCHEMA_VERSION } from "../src/types/workflow";
+import { WORKFLOW_SCHEMA_VERSION, type WorkflowNodeData } from "../src/types/workflow";
 
 const source = {
   projectName: "2027 春夏胶囊系列",
@@ -398,7 +398,23 @@ const v5Snapshot = createDocumentSnapshot({
   nodes: [
     { id: "text-v5", type: "text-input", position: { x: 0, y: 0 }, selected: true, data: { kind: "text-input", label: "说明", status: "running", text: "面料说明", editorSelection: [0, 2] } },
     { id: "board-v5", type: "drawing-board", position: { x: 100, y: 0 }, data: { kind: "drawing-board", label: "画板", status: "idle", boardVersion: 1, width: 1200, height: 900, background: "#FFFFFF", contentRef: "/api/drawings/content-1", previewImageRef: "/api/files/preview.png", exportImageRef: "/api/files/export.png", drawingRecoveryDraft: { private: true } } },
-    { id: "palette-v5", type: "color-palette", position: { x: 200, y: 0 }, data: { kind: "color-palette", label: "色板", status: "idle", paletteVersion: 1, swatches: [{ id: "red", value: "#FF0000", name: "红色", source: "custom" }], recentColors: ["#000000"] } },
+    {
+      id: "palette-v5", type: "color-palette", position: { x: 200, y: 0 },
+      data: {
+        kind: "color-palette", label: "色板", status: "idle", paletteVersion: 2,
+        swatches: [
+          {
+            id: "pantone-red", value: "#FF0000", name: "11-1000 TCX", source: "pantone",
+            pantone: {
+              catalogId: "a".repeat(64), releaseId: "release-a",
+              libraryKey: "pantone-tcx", code: "11-1000 TCX",
+            },
+          },
+          { id: "red", value: "#FF0000", name: "红色", source: "custom" },
+        ],
+        recentColors: ["#000000"],
+      },
+    },
     { id: "approval-v5", type: "stage-approval", position: { x: 300, y: 0 }, data: { kind: "stage-approval", label: "确认基准", status: "success", approvalKind: "scene-baseline", approvedSourceNodeId: "stabilize-v5", approvedBaselineRef: "/api/files/baseline.png", approvedBasisRevision: 3, approvedAt: "2026-09-03T00:00:00.000Z", approvalDialogOpen: true } },
     { id: "stabilize-v5", type: "virtual-try-on", position: { x: 400, y: 0 }, data: { kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize", prompt: "", modelId: "gemini-3.1-flash-image", modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, imageSize: "2K", basisRevision: 3, outputImages: ["/api/files/baseline.png"], displayState: "ready" } },
     { id: "fabric-v5", type: "fabric-recolor", position: { x: 500, y: 0 }, data: { kind: "fabric-recolor", label: "配色替换", status: "idle", operationMode: "color", colors: ["#FF0000"], prompt: "", outputImages: [], modelId: "gpt-image-2-vip", modelOptions: { size: "2048x2048" } } },
@@ -415,6 +431,13 @@ assert.deepEqual(v5Snapshot.nodes.map((node) => node.data.kind), ["text-input", 
 assert.equal((v5Snapshot.nodes[0].data as Record<string, unknown>).editorSelection, undefined);
 assert.equal((v5Snapshot.nodes[1].data as Record<string, unknown>).drawingRecoveryDraft, undefined);
 assert.equal((v5Snapshot.nodes[2].data as Record<string, unknown>).recentColors, undefined);
+const v5Palette = v5Wire.nodes[2].data as Extract<WorkflowNodeData, { kind: "color-palette" }>;
+assert.equal(v5Palette.paletteVersion, 2);
+assert.equal(v5Palette.swatches.length, 2);
+assert.deepEqual(v5Palette.swatches[0].pantone, {
+  catalogId: "a".repeat(64), releaseId: "release-a",
+  libraryKey: "pantone-tcx", code: "11-1000 TCX",
+});
 assert.equal((v5Snapshot.nodes[3].data as Record<string, unknown>).approvalDialogOpen, undefined);
 assert.equal((v5Snapshot.nodes[4].data as Record<string, unknown>).displayState, undefined);
 assert.deepEqual(v5Wire.edges, [

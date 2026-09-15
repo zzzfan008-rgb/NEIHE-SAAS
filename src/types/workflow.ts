@@ -4,6 +4,7 @@
  */
 import type { GenerationImageModelId, ImageModelOptions } from "./imageModels";
 import type { TryOnQualityMode } from "../lib/tryOnStylePresets";
+import type { MaterialAssetMetadata } from "./materialAnalysis";
 
 // ---------- 节点类型 ----------
 export type NodeKind =
@@ -183,18 +184,28 @@ export interface DrawingBoardNodeData extends BaseNodeData {
   exportImageRef?: string;
 }
 
-export type ColorSwatchSource = "quick" | "custom" | "recent" | "favorite" | "eyedropper";
+export type ColorSwatchSource =
+  | "quick" | "custom" | "recent" | "favorite" | "eyedropper"
+  | "pantone" | "brand";
+
+export interface PantoneSwatchIdentity {
+  catalogId: string;
+  releaseId: string;
+  libraryKey: string;
+  code: string;
+}
 
 export interface ColorSwatch {
   id: string;
   value: `#${string}`;
   name?: string;
   source: ColorSwatchSource;
+  pantone?: PantoneSwatchIdentity;
 }
 
 export interface ColorPaletteNodeData extends BaseNodeData {
   kind: "color-palette";
-  paletteVersion: 1;
+  paletteVersion: 1 | 2;
   swatches: ColorSwatch[];
 }
 
@@ -498,6 +509,7 @@ export interface Asset {
   thumbnail?: string;
   /** 来源说明（如来自哪个节点/项目） */
   sourceNote?: string;
+  material?: MaterialAssetMetadata;
   createdAt: string;
   deletedAt?: string | null;
   purgeAfter?: string | null;

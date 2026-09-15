@@ -157,8 +157,8 @@ test("color series favorites sync and remain available in My Favorites", async (
   await bindOwner();
   await page.getByRole("button", { name: "开始取色测试" }).click();
   const dialog = page.getByRole("dialog", { name: "色彩工具" });
-  await expect(dialog.getByRole("tab")).toHaveCount(4);
-  await expect(dialog.getByRole("tab").allTextContents()).resolves.toEqual(["中性基础色", "暖色系", "冷色系", "我的收藏"]);
+  await expect(dialog.getByRole("tab")).toHaveCount(5);
+  await expect(dialog.getByRole("tab").allTextContents()).resolves.toEqual(["中性基础色", "暖色系", "冷色系", "Pantone", "我的收藏"]);
 
   const favoriteControl = dialog.getByRole("button", { name: "收藏 #161616" });
   const selectControl = dialog.getByRole("button", { name: "选择 #161616" });
@@ -195,7 +195,7 @@ test("color series favorites sync and remain available in My Favorites", async (
   const colorInput = dialog.getByRole("textbox", { name: "颜色值", exact: true });
   await colorInput.fill("#123456");
   releaseRemoval?.();
-  await expect(dialog.getByText("还没有收藏颜色")).toBeVisible();
+  await expect(dialog.getByText("还没有普通颜色收藏")).toBeVisible();
   await expect(colorInput).toBeFocused();
 
   await dialog.getByRole("button", { name: "取消", exact: true }).click();

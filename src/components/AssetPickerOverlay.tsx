@@ -27,7 +27,9 @@ import { ASSET_CATEGORIES, isEditableAssetCategory, type EditableAssetCategory }
 import type { Asset } from "@/types/workflow";
 import { thumbnailImageUrl } from "@/lib/images";
 import type { AssetPickerRequest } from "@/lib/overlayEvents";
-import { EyeIcon, Trash2Icon } from "lucide-react";
+import { EyeIcon, InfoIcon, Trash2Icon } from "lucide-react";
+import { MaterialAnalysisDialog } from "@/components/MaterialAnalysisDialog";
+import { MaterialAssetDetailsDialog } from "@/components/MaterialAssetDetailsDialog";
 
 const CATEGORY_TABS = [
   ["all", "全部"],
@@ -62,6 +64,8 @@ export function AssetPickerOverlay({
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
   const [savingCategoryId, setSavingCategoryId] = useState<string | null>(null);
   const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [materialAsset, setMaterialAsset] = useState<Asset | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const requestGeneration = useRef(0);
   const previewButtons = useRef(new Map<string, HTMLButtonElement>());
@@ -186,9 +190,9 @@ export function AssetPickerOverlay({
   return (
     <>
       <Dialog
-        open={!viewer}
+        open={!viewer && !analysisOpen && !materialAsset}
         onOpenChange={(open) => {
-          if (!open && !viewer) onRequestChange(null);
+          if (!open && !viewer && !analysisOpen && !materialAsset) onRequestChange(null);
         }}
       >
         <DialogContent
@@ -223,6 +227,11 @@ export function AssetPickerOverlay({
                 </TabsTrigger>
               ))}
               </TabsList>
+            {request.mode === "browse" && (
+              <Button type="button" size="xs" onClick={() => { setCategory("fabric"); setAnalysisOpen(true); }}>
+                上传并分析
+              </Button>
+            )}
             <label className="ml-auto w-44">
               <span className="sr-only">搜索素材名称</span>
               <Input
@@ -292,6 +301,14 @@ export function AssetPickerOverlay({
                       </span>
                     </Button>
                     <div className="absolute right-1.5 top-1.5 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                      {asset.category === "fabric" && (
+                        <Button type="button" variant="secondary" size="icon-xs"
+                          aria-label={`查看面料校准信息 ${asset.name}`} title="面料校准信息"
+                          onClick={() => setMaterialAsset(asset)}
+                          className="border border-[var(--gc-border)] bg-[var(--gc-panel)]/95 text-[var(--gc-text)] shadow-sm hover:bg-[var(--gc-panel-hover)]">
+                          <InfoIcon />
+                        </Button>
+                      )}
                       <Button
                         ref={(element) => {
                           if (element) previewButtons.current.set(asset.id, element);
@@ -361,6 +378,18 @@ export function AssetPickerOverlay({
           </Tabs>
         </DialogContent>
       </Dialog>
+
+      <MaterialAnalysisDialog
+        open={analysisOpen}
+        onOpenChange={setAnalysisOpen}
+        onSaved={() => { setCategory("fabric"); refreshAssets(); }}
+      />
+
+      <MaterialAssetDetailsDialog
+        asset={materialAsset}
+        onOpenChange={(open) => { if (!open) setMaterialAsset(null); }}
+        onUpdated={refreshAssets}
+      />
 
       <AlertDialog
         open={assetToDelete !== null}

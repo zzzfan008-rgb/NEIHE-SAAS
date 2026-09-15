@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createCustomColorsStore } from "../src/store/customColors";
+import type { PantoneColorReference } from "../src/types/colorPreferences";
 
 class MemoryStorage implements Pick<Storage, "getItem" | "setItem" | "removeItem"> {
   readonly values = new Map<string, string>();
@@ -20,10 +21,24 @@ assert.deepEqual(store.getState().colors, ["#AABBCC"]);
 assert.deepEqual(store.getState().recent, ["#FF0000"]);
 assert.deepEqual(store.getState().favorites, ["#0000FF"]);
 
+
+const pantoneA: PantoneColorReference = {
+  catalogId: "a".repeat(64), releaseId: "release-a", libraryKey: "pantone-tcx",
+  code: "11-1000 TCX", hex: "#0000FF",
+};
+const pantoneB: PantoneColorReference = {
+  catalogId: "b".repeat(64), releaseId: "release-a", libraryKey: "pantone-tcx",
+  code: "11-1001 TCX", hex: "#0000FF",
+};
+await store.getState().togglePantoneFavorite(pantoneA);
+await store.getState().togglePantoneFavorite(pantoneB);
+assert.deepEqual(store.getState().pantoneFavorites, [pantoneA, pantoneB]);
+assert.deepEqual(store.getState().favorites, ["#0000FF"]);
 store.getState().bindOwner(null);
 assert.deepEqual(store.getState().colors, []);
 assert.deepEqual(store.getState().recent, []);
 assert.deepEqual(store.getState().favorites, []);
+assert.deepEqual(store.getState().pantoneFavorites, []);
 
 store.getState().bindOwner("owner-b");
 assert.deepEqual(store.getState().colors, []);
@@ -32,6 +47,7 @@ store.getState().bindOwner("owner-a");
 assert.deepEqual(store.getState().colors, ["#AABBCC"]);
 assert.deepEqual(store.getState().recent, ["#FF0000"]);
 assert.deepEqual(store.getState().favorites, ["#0000FF"]);
+assert.deepEqual(store.getState().pantoneFavorites, [pantoneA, pantoneB]);
 console.log("  ✓ A → logout → B → A 不枚举或覆盖其他账号偏好");
 
 store.getState().remove("#aabbcc");
@@ -226,3 +242,23 @@ releaseFirstWrite();
 await Promise.all([firstWrite, secondWrite]);
 assert.deepEqual(persistedSnapshots.at(-1), ["#111111", "#222222"]);
 console.log("  ✓ 同账号会话刷新不会中断排队中的收藏写入");
+
+const legacyResponseStorage = new MemoryStorage();
+legacyResponseStorage.setItem("garment-canvas-color-preferences:v1:legacy-server-owner", JSON.stringify({
+  favorites: [], pantoneFavorites: [pantoneA],
+}));
+let ordinaryBootstrapPantone: readonly PantoneColorReference[] = [];
+const legacyResponseStore = createCustomColorsStore(legacyResponseStorage, {
+  load: async () => ({ favorites: [], initialized: true }),
+  initialize: async (_ownerId, favoriteHexes) => [...favoriteHexes],
+  setFavorite: async (_ownerId, _color, _favorite, bootstrapFavorites, bootstrapPantoneFavorites) => {
+    ordinaryBootstrapPantone = bootstrapPantoneFavorites;
+    return { favorites: [...bootstrapFavorites], pantoneFavorites: [...bootstrapPantoneFavorites] };
+  },
+});
+legacyResponseStore.getState().bindOwner("legacy-server-owner");
+await legacyResponseStore.getState().refreshFavorites();
+assert.deepEqual(legacyResponseStore.getState().pantoneFavorites, [pantoneA]);
+await legacyResponseStore.getState().toggleFavorite("#334455");
+assert.deepEqual(ordinaryBootstrapPantone, [pantoneA]);
+console.log("  ✓ 旧服务端缺少 Pantone 字段时保留本机收藏，普通收藏写入携带完整 Pantone 引导快照");

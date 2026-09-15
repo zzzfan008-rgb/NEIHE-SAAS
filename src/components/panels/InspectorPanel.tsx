@@ -232,8 +232,12 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
       {d.kind === "color-palette" && (
         <section className="space-y-2 rounded-lg border border-[var(--gc-border)] p-2">
           <p className="text-[10px] text-[var(--gc-text-muted)]">色板颜色（{d.swatches.length}/32）</p>
-          <div className="flex flex-wrap gap-1">{d.swatches.map((swatch) => (
-            <span key={swatch.id} title={swatch.value} className="h-7 w-7 rounded-md border border-white/15" style={{ backgroundColor: swatch.value }} />
+          <div className="grid grid-cols-2 gap-1">{d.swatches.map((swatch) => (
+            <span key={swatch.id} title={`${swatch.pantone?.libraryKey ?? ""} ${swatch.pantone?.code ?? swatch.value}`.trim()}
+              className="flex min-w-0 items-center gap-1 rounded-md border border-[var(--gc-border)] p-1 text-[8px]">
+              <span className="h-5 w-5 shrink-0 rounded border border-white/15" style={{ backgroundColor: swatch.value }} />
+              <span className="truncate">{swatch.pantone?.code ?? swatch.value}</span>
+            </span>
           ))}</div>
           <p className="text-[10px] leading-relaxed text-[var(--gc-text-muted)]">色板是独立节点；需要另一组颜色时，请从左侧色彩工具新建色板。</p>
         </section>
