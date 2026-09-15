@@ -1,182 +1,219 @@
 import sharp from "sharp";
+import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
-test("crop shapes export real pixels, preserve identity and undo", async ({ page }) => {
-  await page.goto("/e2e/fixtures/node-geometry.html");
-  const node = page.locator('.react-flow__node[data-id="preview-input"]');
-  const original = await node.getByAltText("已上传图片").getAttribute("src");
-  await node.getByRole("button", { name: "裁切", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "裁切图片" });
-  await expect(dialog).toBeVisible();
-  const bounds = await dialog.boundingBox();
-  expect(bounds!.x).toBeGreaterThanOrEqual(0);
-  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-  await dialog.getByRole("button", { name: "圆形", exact: true }).click();
-  const selection = dialog.getByTestId("crop-selection");
-  const before = await selection.boundingBox();
-  expect(Math.abs(before!.width - before!.height)).toBeLessThan(1);
-  const corner = dialog.getByRole("button", { name: "调整裁切右下角" });
-  const handle = await corner.boundingBox();
-  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(handle!.x - 30, handle!.y - 30, { steps: 5 });
-  await page.mouse.up();
-  expect((await selection.boundingBox())!.width).toBeLessThan(before!.width);
-  let cropped = "";
-  await page.route("**/api/assets", async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
-    cropped = route.request().postDataJSON().image;
-    const meta = await sharp(Buffer.from(cropped.split(",")[1], "base64")).metadata();
-    await route.fulfill({ json: { normalized: true, url: cropped, id: "crop", width: meta.width, height: meta.height, mimeType: "image/png", byteLength: 1000 } });
+const fixture = "/e2e/fixtures/node-geometry.html";
+const source = "/assets/try-on-styles/soft-editorial.webp";
+const inputNode = (page: Page) => page.locator('.react-flow__node[data-id="preview-input"]');
+
+async function openFixture(page: Page) {
+  await page.goto(fixture);
+  await expect(inputNode(page)).toBeVisible();
+  await page.evaluate(async () => {
+    const path = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveNodes } = await import(path);
+    // The geometry demo's lower empty node overlaps the upload action bar.
+    const nodes = selectActiveNodes(useFlowStore.getState()).filter((node: { id: string }) => node.id === "preview-input");
+    useFlowStore.getState().loadFlow({ projectName: "裁切交互验收", nodes, edges: [] });
+    useFlowStore.getState().setSelectedNodeIds(["preview-input"]);
   });
-  await dialog.getByRole("button", { name: "确认裁切" }).click();
-  await expect(dialog).toBeHidden();
-  expect(cropped).toMatch(/^data:image\/png;base64,/);
-  const { data, info } = await sharp(Buffer.from(cropped.split(",")[1], "base64")).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  expect(info.width).toBe(info.height);
-  expect(data[3]).toBe(0);
-  expect(data[(Math.floor(info.height / 2) * info.width + Math.floor(info.width / 2)) * 4 + 3]).toBe(255);
-  await expect(node.getByAltText("已上传图片")).toHaveAttribute("src", cropped);
+}
+
+async function draw(page: Page, surface: Locator, from = { x: .15, y: .2 }, to = { x: .75, y: .7 }) {
+  await expect.poll(() => surface.locator("img").first().evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+  const box = (await surface.boundingBox())!;
+  await page.mouse.move(box.x + box.width * from.x, box.y + box.height * from.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * to.x, box.y + box.height * to.y, { steps: 6 });
+  await page.mouse.up();
+  await expect(surface.getByTestId("crop-selection")).toBeVisible();
+}
+async function openCrop(page: Page, node = inputNode(page)) {
+  await node.getByRole("button", { name: "裁切", exact: true }).click();
+  const surface = node.getByTestId("crop-surface");
+  await expect(surface).toBeVisible();
+  return surface;
+}
+
+test("inline crop shows grayscale outside and original color inside across canvas zooms", async ({ page }, testInfo) => {
+  const png = await sharp({ create: { width: 400, height: 600, channels: 3, background: "#D07830" } }).png().toBuffer();
+  await page.route("**" + source, route => route.fulfill({ contentType: "image/png", body: png }));
+  await openFixture(page);
+  const node = inputNode(page);
+  const upload = (await node.getByLabel("重新上传", { exact: true }).boundingBox())!;
+  const trigger = (await node.getByRole("button", { name: "裁切", exact: true }).boundingBox())!;
+  const library = (await node.getByRole("button", { name: "素材库", exact: true }).boundingBox())!;
+  expect(upload.x).toBeLessThan(trigger.x);
+  expect(trigger.x).toBeLessThan(library.x);
+  for (const delta of [250, -350]) {
+    const previous = (await node.boundingBox())!.width;
+    await page.mouse.move(500, 110);
+    await page.mouse.wheel(0, delta);
+    await expect.poll(async () => Math.abs((await node.boundingBox())!.width - previous)).toBeGreaterThan(5);
+    await page.waitForTimeout(350); // Wheel zoom must settle before measuring pointer coordinates.
+    const before = (await node.boundingBox())!;
+    const surface = await openCrop(page);
+    await expect(page.getByRole("dialog", { name: "裁切图片" })).toHaveCount(0);
+    await expect(node.locator(".gc-image-resize-corner")).toHaveCount(0);
+    await expect(surface.getByRole("button", { name: "确认裁切" })).toBeDisabled();
+    await draw(page, surface);
+    const box = (await surface.boundingBox())!;
+    const rect = (await surface.getByTestId("crop-selection").boundingBox())!;
+    expect(rect.x).toBeCloseTo(box.x + box.width * .15, 0);
+    expect(rect.y).toBeCloseTo(box.y + box.height * .2, 0);
+    expect(rect.width).toBeCloseTo(box.width * .6, 0);
+    expect(rect.height).toBeCloseTo(box.height * .5, 0);
+    expect((await node.boundingBox())!.x).toBeCloseTo(before.x, 0);
+    expect((await node.boundingBox())!.y).toBeCloseTo(before.y, 0);
+    const { data, info } = await sharp(await surface.screenshot()).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const pixel = (x: number, y: number) => {
+      const index = (Math.floor(y * info.height) * info.width + Math.floor(x * info.width)) * 3;
+      return Array.from(data.subarray(index, index + 3));
+    };
+    const outside = pixel(.85, .5);
+    expect(Math.max(...outside) - Math.min(...outside)).toBeLessThanOrEqual(2);
+    expect(pixel(.45, .4)).toEqual([208, 120, 48]);
+    await page.screenshot({ path: testInfo.outputPath("inline-crop-" + delta + ".png") });
+    if (delta > 0) {
+      await surface.focus();
+      await page.keyboard.press("Escape");
+    } else {
+      await surface.getByRole("button", { name: "取消裁切" }).focus();
+      await page.keyboard.press("Space");
+    }
+    await expect(surface).toHaveCount(0);
+    await expect(node.getByRole("button", { name: "裁切", exact: true })).toBeFocused();
+    await expect(node.getByAltText("已上传图片")).toHaveAttribute("src", source);
+  }
+});
+
+test("rectangle crop saves original pixels through real assets and preserves title and undo", async ({ page }) => {
+  const original = await sharp({ create: { width: 400, height: 600, channels: 3, background: "#D07830" } })
+    .composite([{ input: await sharp({ create: { width: 200, height: 600, channels: 3, background: "#3258A0" } }).png().toBuffer(), left: 200, top: 0 }]).png().toBuffer();
+  await page.route("**" + source, route => route.fulfill({ contentType: "image/png", body: original }));
+  await openFixture(page);
+  const node = inputNode(page), surface = await openCrop(page);
+  await draw(page, surface);
+  const request = page.waitForRequest(req => req.url().endsWith("/api/assets") && req.method() === "POST");
+  await surface.getByRole("button", { name: "确认裁切" }).click();
+  const exported = Buffer.from((await request).postDataJSON().image.split(",")[1], "base64");
+  const { data, info } = await sharp(exported).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  expect(Math.abs(info.width - 240)).toBeLessThanOrEqual(2);
+  expect(Math.abs(info.height - 300)).toBeLessThanOrEqual(2);
+  const leftPixel = (Math.floor(info.height / 2) * info.width + 10) * 3;
+  const rightPixel = (Math.floor(info.height / 2) * info.width + info.width - 10) * 3;
+  expect(Array.from(data.subarray(leftPixel, leftPixel + 3))).toEqual([208, 120, 48]);
+  expect(Array.from(data.subarray(rightPixel, rightPixel + 3))).toEqual([50, 88, 160]);
+  await expect(surface).toHaveCount(0);
+  const url = await node.getByAltText("已上传图片").getAttribute("src");
+  expect(url).toMatch(/^\/api\/files\//);
+  const saved = await sharp(await (await page.request.get(url!)).body()).metadata();
+  expect(saved.width).toBe(info.width); expect(saved.height).toBe(info.height);
   await expect(node).toContainText("主穿搭图（必需）");
   await page.evaluate(async () => {
     const path = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(path);
     useFlowStore.temporal.getState().undo();
   });
-  await expect(node.getByAltText("已上传图片")).toHaveAttribute("src", original!);
+  await expect(node.getByAltText("已上传图片")).toHaveAttribute("src", source);
 });
 
-test("crop supports free rectangle, ellipse, keyboard, reset and cancel", async ({ page }) => {
-  await page.goto("/e2e/fixtures/node-geometry.html");
-  const node = page.locator('.react-flow__node[data-id="preview-input"]');
-  const trigger = node.getByRole("button", { name: "裁切", exact: true });
-  await trigger.click();
-  const dialog = page.getByRole("dialog", { name: "裁切图片" });
-  await dialog.evaluate(async (element) => { await Promise.all(element.getAnimations().map((animation) => animation.finished)); });
-  const selection = dialog.getByTestId("crop-selection");
-  const initial = await selection.boundingBox();
-  await dialog.getByRole("button", { name: "1:1", exact: true }).click();
-  const square = await selection.boundingBox();
-  expect(Math.abs(square!.width - square!.height)).toBeLessThan(1);
-  await dialog.getByRole("button", { name: "椭圆", exact: true }).click();
-  await dialog.getByRole("spinbutton", { name: "裁切宽度" }).fill("180");
-  await dialog.getByRole("spinbutton", { name: "裁切高度" }).fill("100");
-  await selection.focus();
-  const before = await selection.boundingBox();
-  await page.keyboard.press("ArrowRight");
-  expect((await selection.boundingBox())!.x).toBeGreaterThan(before!.x);
-  await dialog.getByRole("button", { name: "重置", exact: true }).click();
-  const reset = await selection.boundingBox();
-  expect(reset!.width).toBeCloseTo(initial!.width, 0);
-  await page.screenshot({ path: `/tmp/neihe-image-crop-${page.viewportSize()!.width}.png` });
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeHidden();
-  await expect(trigger).toBeFocused();
-});
-
-test("real asset save retains ellipse transparency and rectangle pixels", async ({ page }) => {
-  await page.goto("/e2e/fixtures/node-geometry.html");
-  const node = page.locator('.react-flow__node[data-id="preview-input"]');
-  for (const shape of ["矩形", "椭圆"]) {
-    const source = await node.getByAltText("已上传图片").getAttribute("src");
-    const original = await (await page.request.get(source!)).body();
-    await node.getByRole("button", { name: "裁切", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "裁切图片" });
-    await dialog.getByRole("button", { name: shape, exact: true }).click();
-    await dialog.getByRole("spinbutton", { name: "裁切左边距" }).fill("10");
-    await dialog.getByRole("spinbutton", { name: "裁切上边距" }).fill("10");
-    await dialog.getByRole("spinbutton", { name: "裁切宽度" }).fill(shape === "矩形" ? "200" : "100");
-    await dialog.getByRole("spinbutton", { name: "裁切高度" }).fill(shape === "矩形" ? "150" : "70");
-    const request = page.waitForRequest((req) => req.url().endsWith("/api/assets") && req.method() === "POST");
-    await dialog.getByRole("button", { name: "确认裁切" }).click();
-    const exported = Buffer.from((await request).postDataJSON().image.split(",")[1], "base64");
-    const { data, info } = await sharp(exported).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    if (shape === "矩形") {
-      expect(info.width).toBe(200); expect(info.height).toBe(150);
-      const expected = await sharp(original).extract({ left: 10, top: 10, width: 200, height: 150 }).ensureAlpha().raw().toBuffer();
-      // Browser/WebP decoding may differ by one channel value from sharp.
-      expect(data.every((value, index) => Math.abs(value - expected[index]) <= 2)).toBe(true);
-    } else {
-      expect(info.width).toBe(100); expect(info.height).toBe(70); expect(data[3]).toBe(0);
-    }
-    await expect(dialog).toBeHidden();
-    const url = await node.getByAltText("已上传图片").getAttribute("src");
-    expect(url).toMatch(/^\/api\/files\//);
-    const saved = await sharp(await (await page.request.get(url!)).body()).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    expect(saved.info.width).toBe(info.width);
-    expect(saved.info.height).toBe(info.height);
-    if (shape === "椭圆") expect(saved.data[3]).toBe(0);
+test("reverse drawing, dragging and eight keyboard resize handles stay in bounds", async ({ page }, testInfo) => {
+  await openFixture(page);
+  const surface = await openCrop(page);
+  await draw(page, surface, { x: .8, y: .8 }, { x: .2, y: .2 });
+  await page.screenshot({ path: testInfo.outputPath("image-node-inline-crop.png") });
+  const box = (await surface.boundingBox())!, selection = surface.getByTestId("crop-selection");
+  expect((await selection.boundingBox())!.x).toBeCloseTo(box.x + box.width * .2, 0);
+  const right = (await surface.getByRole("button", { name: "调整裁切右边", exact: true }).boundingBox())!;
+  await page.mouse.move(right.x + right.width / 2, right.y + right.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 80, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  let rect = (await selection.boundingBox())!;
+  expect(rect.x + rect.width).toBeCloseTo(box.x + box.width, 0);
+  for (const label of ["左上角", "上边", "右上角", "右边", "右下角", "下边", "左下角", "左边"]) {
+    await surface.getByRole("button", { name: "调整裁切" + label, exact: true }).focus();
+    await page.keyboard.press("Shift+ArrowRight");
+    await page.keyboard.press("Shift+ArrowDown");
+    rect = (await selection.boundingBox())!;
+    expect(rect.x).toBeGreaterThanOrEqual(box.x - 1);
+    expect(rect.y).toBeGreaterThanOrEqual(box.y - 1);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(box.x + box.width + 1);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(box.y + box.height + 1);
   }
+  await selection.focus();
+  const before = (await selection.boundingBox())!;
+  await page.keyboard.press("ArrowLeft");
+  expect((await selection.boundingBox())!.x).toBeLessThan(before.x);
+  const center = (await selection.boundingBox())!;
+  await page.mouse.move(center.x + center.width / 2, center.y + center.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 100, box.y - 100, { steps: 6 });
+  await page.mouse.up();
+  rect = (await selection.boundingBox())!;
+  expect(rect.x).toBeCloseTo(box.x, 0); expect(rect.y).toBeCloseTo(box.y, 0);
+  const beforeRightClick = await selection.boundingBox();
+  await page.mouse.click(box.x + box.width * .9, box.y + box.height * .9, { button: "right" });
+  expect(await selection.boundingBox()).toEqual(beforeRightClick);
 });
 
 test("failed save retries; cancelled response cannot close a new crop session", async ({ page }) => {
-  await page.goto("/e2e/fixtures/node-geometry.html");
-  const node = page.locator('.react-flow__node[data-id="preview-input"]');
-  const original = await node.getByAltText("已上传图片").getAttribute("src");
-  let fail = true;
-  let release: (() => void) | undefined;
-  await page.route("**/api/assets", async (route) => {
+  await openFixture(page);
+  let fail = true, release: (() => void) | undefined;
+  await page.route("**/api/assets", async route => {
     if (route.request().method() !== "POST") return route.continue();
     if (fail) return route.fulfill({ status: 500, json: { error: "测试保存失败" } });
-    await new Promise<void>((resolve) => { release = resolve; });
+    await new Promise<void>(resolve => { release = resolve; });
     await route.fulfill({ json: { normalized: true, id: "late", url: "/api/files/late.png", mimeType: "image/png", width: 100, height: 100, byteLength: 100 } });
   });
-  const trigger = node.getByRole("button", { name: "裁切", exact: true });
-  await trigger.click();
-  const dialog = page.getByRole("dialog", { name: "裁切图片" });
-  await dialog.getByRole("button", { name: "确认裁切" }).click();
-  await expect(dialog.getByRole("alert")).toHaveText("测试保存失败");
-  await expect(node.getByAltText("已上传图片")).toHaveAttribute("src", original!);
+  let surface = await openCrop(page);
+  await draw(page, surface);
+  await surface.getByRole("button", { name: "确认裁切" }).click();
+  await expect(inputNode(page).getByRole("alert")).toHaveText("测试保存失败");
   fail = false;
-  await dialog.getByRole("button", { name: "确认裁切" }).click();
+  await surface.getByRole("button", { name: "确认裁切" }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
-  await dialog.getByRole("button", { name: "取消", exact: true }).click();
-  await trigger.click();
-  const response = page.waitForResponse((response) => response.url().endsWith("/api/assets") && response.status() === 200);
-  release!();
-  await response;
-  await expect(dialog).toBeVisible();
-  await expect(node.getByAltText("已上传图片")).toHaveAttribute("src", original!);
+  await surface.getByRole("button", { name: "取消裁切" }).click();
+  surface = await openCrop(page);
+  const response = page.waitForResponse(res => res.url().endsWith("/api/assets") && res.status() === 200);
+  release!(); await response;
+  await expect(surface).toBeVisible();
+  await expect(inputNode(page).getByAltText("已上传图片")).toHaveAttribute("src", source);
 });
 
 test("late crop export never applies to a newly opened editor", async ({ page }) => {
-  await page.goto("/e2e/fixtures/node-geometry.html");
-  const node = page.locator('.react-flow__node[data-id="preview-input"]');
-  const original = await node.getByAltText("已上传图片").getAttribute("src");
+  await openFixture(page);
   await page.evaluate(() => {
     const real = HTMLCanvasElement.prototype.toBlob;
     HTMLCanvasElement.prototype.toBlob = function(callback, ...args) {
-      real.call(this, (blob) => { (window as unknown as { releaseCrop: () => void }).releaseCrop = () => callback(blob); }, ...args);
+      real.call(this, blob => { (window as unknown as { releaseCrop: () => void }).releaseCrop = () => callback(blob); }, ...args);
     };
   });
   let writes = 0;
-  await page.route("**/api/assets", async (route) => { writes++; await route.fulfill({ status: 500, json: { error: "unexpected" } }); });
-  const trigger = node.getByRole("button", { name: "裁切", exact: true });
-  await trigger.click();
-  const dialog = page.getByRole("dialog", { name: "裁切图片" });
-  await dialog.getByRole("button", { name: "确认裁切" }).click();
+  await page.route("**/api/assets", async route => { writes++; await route.fulfill({ status: 500, json: { error: "unexpected" } }); });
+  let surface = await openCrop(page);
+  await draw(page, surface);
+  await surface.getByRole("button", { name: "确认裁切" }).click();
   await page.waitForFunction(() => "releaseCrop" in window);
-  await dialog.getByRole("button", { name: "取消", exact: true }).click();
-  await trigger.click();
+  await surface.getByRole("button", { name: "取消裁切" }).click();
+  surface = await openCrop(page);
   await page.evaluate(() => (window as unknown as { releaseCrop: () => void }).releaseCrop());
   await page.waitForTimeout(250);
-  expect(writes).toBe(0);
-  await expect(dialog).toBeVisible();
-  await expect(node.getByAltText("已上传图片")).toHaveAttribute("src", original!);
+  expect(writes).toBe(0); await expect(surface).toBeVisible();
+  await expect(inputNode(page).getByAltText("已上传图片")).toHaveAttribute("src", source);
 });
 
 test("replaced document rejects pending crop without changing the replacement", async ({ page }) => {
-  await page.goto("/e2e/fixtures/node-geometry.html");
-  const node = page.locator('.react-flow__node[data-id="preview-input"]');
+  await openFixture(page);
   let release: (() => void) | undefined;
-  await page.route("**/api/assets", async (route) => {
-    await new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/assets", async route => {
+    await new Promise<void>(resolve => { release = resolve; });
     await route.fulfill({ json: { normalized: true, id: "late", url: "/api/files/late.png", mimeType: "image/png", width: 100, height: 100, byteLength: 100 } });
   });
-  await node.getByRole("button", { name: "裁切", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "裁切图片" });
-  await dialog.getByRole("button", { name: "确认裁切" }).click();
+  const surface = await openCrop(page);
+  await draw(page, surface);
+  await surface.getByRole("button", { name: "确认裁切" }).click();
   await expect.poll(() => Boolean(release)).toBe(true);
   await page.evaluate(async () => {
     const path = "/src/store/flowStore.ts";
@@ -184,48 +221,18 @@ test("replaced document rejects pending crop without changing the replacement", 
     const nodes = selectActiveNodes(useFlowStore.getState()).map((node: { data: object }) => ({ ...node, data: { ...node.data, label: "新文档图片" } }));
     useFlowStore.getState().loadFlow({ projectName: "替换后的项目", nodes, edges: [] });
   });
-  await expect(dialog).toBeHidden();
-  const response = page.waitForResponse((response) => response.url().endsWith("/api/assets"));
-  release!();
-  await response;
-  await expect(node.getByAltText("已上传图片")).toHaveAttribute("src", "/assets/try-on-styles/soft-editorial.webp");
-  await expect(node).toContainText("新文档图片");
+  await expect(surface).toHaveCount(0);
+  const response = page.waitForResponse(res => res.url().endsWith("/api/assets"));
+  release!(); await response;
+  await expect(inputNode(page).getByAltText("已上传图片")).toHaveAttribute("src", source);
+  await expect(inputNode(page)).toContainText("新文档图片");
 });
 
-test("drawing and all corner handles stay within original image; original ratio is preserved", async ({ page }) => {
-  await page.goto("/e2e/fixtures/node-geometry.html");
-  await page.locator('.react-flow__node[data-id="preview-input"]').getByRole("button", { name: "裁切", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "裁切图片" });
-  const image = dialog.getByAltText("裁切原图");
-  const bounds = (await image.boundingBox())!;
-  await dialog.getByRole("button", { name: "原图比例", exact: true }).click();
-  await page.mouse.move(bounds.x + 5, bounds.y + 5);
-  await page.mouse.down();
-  await page.mouse.move(bounds.x + bounds.width * .7, bounds.y + bounds.height * .7, { steps: 5 });
-  await page.mouse.up();
-  const selection = dialog.getByTestId("crop-selection");
-  let rect = (await selection.boundingBox())!;
-  expect(rect.x).toBeCloseTo(bounds.x + 5, 0);
-  expect(rect.width / rect.height).toBeCloseTo(bounds.width / bounds.height, 2);
-  for (const corner of ["左上", "右上", "右下", "左下"]) {
-    const handle = dialog.getByRole("button", { name: `调整裁切${corner}角` });
-    await handle.focus();
-    await page.keyboard.press("Shift+ArrowRight");
-    rect = (await selection.boundingBox())!;
-    expect(rect.width / rect.height).toBeCloseTo(bounds.width / bounds.height, 2);
-    expect(rect.x).toBeGreaterThanOrEqual(bounds.x - 1);
-    expect(rect.y).toBeGreaterThanOrEqual(bounds.y - 1);
-    expect(rect.x + rect.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
-    expect(rect.y + rect.height).toBeLessThanOrEqual(bounds.y + bounds.height + 1);
-  }
-});
-
-test("workbench crop blocks canvas shortcuts and updates node geometry without losing connections", async ({ page }) => {
+test("workbench crop blocks canvas shortcuts, saves with Enter and preserves connections", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "打开项目中心" })).toBeVisible();
   await page.evaluate(async () => {
-    const path = "/src/store/flowStore.ts";
-    const landing = "/src/lib/canvasLanding.ts";
+    const path = "/src/store/flowStore.ts", landing = "/src/lib/canvasLanding.ts";
     const { useFlowStore } = await import(path);
     const { requestCanvasLanding } = await import(landing);
     useFlowStore.getState().loadFlow({ projectName: "裁切工作台验收", nodes: [
@@ -236,18 +243,17 @@ test("workbench crop blocks canvas shortcuts and updates node geometry without l
     requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, fitView: true });
   });
   const node = page.locator('.react-flow__node[data-id="crop-input"]');
-  await node.getByRole("button", { name: "裁切", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "裁切图片" });
-  await dialog.getByRole("button", { name: "圆形", exact: true }).click();
-  await dialog.getByTestId("crop-selection").focus();
+  const surface = await openCrop(page, node);
+  await draw(page, surface);
+  await surface.getByTestId("crop-selection").focus();
   await page.keyboard.press("Backspace");
-  await expect(node).toHaveCount(1);
-  await dialog.getByRole("button", { name: "确认裁切" }).click();
-  await expect(dialog).toBeHidden();
-  await expect.poll(async () => {
-    const box = await node.locator(".gc-node-card").boundingBox();
-    return Math.abs(box!.width - box!.height);
-  }).toBeLessThan(1);
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ControlOrMeta+d");
+  await expect(page.locator(".react-flow__node")).toHaveCount(2);
+  await expect(surface).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(surface).toHaveCount(0);
+  await expect(node.getByAltText("已上传图片")).not.toHaveAttribute("src", source);
   await expect(node).toContainText("裁切参考图");
   const edges = await page.evaluate(async () => {
     const path = "/src/store/flowStore.ts";

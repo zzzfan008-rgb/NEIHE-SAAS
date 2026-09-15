@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { boundImageCrop, RectangleCropSurface } from "@/components/RectangleCropSurface";
 import {
   Select,
   SelectContent,
@@ -65,11 +66,10 @@ function normalizeCrop(
   crop: MaterialCropRect,
   field: keyof MaterialCropRect,
   value: number,
+  minWidth: number,
+  minHeight: number,
 ) {
-  const next = { ...crop, [field]: value };
-  next.width = Math.min(next.width, 1 - next.x);
-  next.height = Math.min(next.height, 1 - next.y);
-  return next;
+  return boundImageCrop({ ...crop, [field]: value }, minWidth, minHeight);
 }
 
 export function MaterialAnalysisDialog({
@@ -84,6 +84,7 @@ export function MaterialAnalysisDialog({
   const [preview, setPreview] = useState<string | null>(null);
   const [imageData, setImageData] = useState<string | null>(null);
   const [crop, setCrop] = useState(INITIAL_CROP);
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const [record, setRecord] = useState<MaterialAnalysisRecord | null>(null);
   const [recordCrop, setRecordCrop] = useState<string | null>(null);
   const [models, setModels] = useState<MaterialAnalysisModel[]>([]);
@@ -156,6 +157,7 @@ export function MaterialAnalysisDialog({
     setPreview(null);
     setImageData(null);
     setCrop(INITIAL_CROP);
+    setImageSize({ width: 0, height: 0 });
     setRecord(null);
     setRecordCrop(null);
     setCalibration({ name: "", materialDescription: "", colors: [] });
@@ -451,6 +453,7 @@ export function MaterialAnalysisDialog({
                   aria-label="选择面料图片"
                   type="file"
                   accept="image/png,image/jpeg,image/webp,image/gif"
+                  disabled={busy}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     event.currentTarget.value = "";
@@ -459,28 +462,29 @@ export function MaterialAnalysisDialog({
                 />
               </div>
               {preview ? (
-                <div className="relative mx-auto w-fit max-w-full overflow-hidden rounded-md border border-(--gc-border)">
-                  <img
-                    src={preview}
-                    alt="待分析面料"
-                    className="max-h-[46vh] max-w-full object-contain"
-                  />
-                  <div
-                    aria-label="当前裁切范围"
-                    className="pointer-events-none absolute border-2 border-(--gc-accent) bg-(--gc-accent)/10"
-                    style={{
-                      left: `${crop.x * 100}%`,
-                      top: `${crop.y * 100}%`,
-                      width: `${crop.width * 100}%`,
-                      height: `${crop.height * 100}%`,
-                    }}
-                  />
-                </div>
+                <RectangleCropSurface
+                  key={preview}
+                  source={preview}
+                  alt="待分析面料"
+                  crop={crop}
+                  onCropChange={setCrop}
+                  minimumPixels={16}
+                  disabled={busy || record?.status === "saved" || record?.status === "analyzing" || record?.status === "outcome_unknown"}
+                  className="mx-auto w-fit max-w-full"
+                  imageClassName="max-h-[46vh] max-w-full object-contain"
+                  onImageLoad={(image) => {
+                    setImageSize({ width: image.naturalWidth, height: image.naturalHeight });
+                    if (image.naturalWidth < 16 || image.naturalHeight < 16) setError("面料图片至少需要 16×16 像素");
+                    else setCrop((current) => boundImageCrop(current, 16 / image.naturalWidth, 16 / image.naturalHeight));
+                  }}
+                  onImageError={() => setError("图片加载失败，请重新选择")}
+                />
               ) : (
                 <p className="rounded-md border border-dashed border-(--gc-border) p-10 text-center text-sm text-(--gc-text-muted)">
                   选择图片后设置裁切区域
                 </p>
               )}
+              {preview && <p className="mt-3 text-xs text-(--gc-text-muted)">鼠标左键拖动框选；拖动选区移动，拖动边角调整。框内为原色。</p>}
               <div className="mt-3 grid grid-cols-2 gap-3">
                 {(["x", "y", "width", "height"] as const).map((field) => (
                   <label key={field} className="text-xs">
@@ -495,30 +499,33 @@ export function MaterialAnalysisDialog({
                     {Math.round(crop[field] * 100)}%
                     <Input
                       aria-label={`裁切${field}`}
-                      type="range"
-                      min="0"
+                      type="number"
+                      min={field === "x" || field === "y" ? 0 : 16 / Math.max(16, field === "width" ? imageSize.width : imageSize.height)}
                       max="1"
                       step="0.01"
                       value={crop[field]}
-                      disabled={!preview || busy || record?.status === "saved"}
-                      onChange={(event) =>
+                      disabled={!preview || !imageSize.width || busy || record?.status === "saved" || record?.status === "analyzing" || record?.status === "outcome_unknown"}
+                      onChange={(event) => {
+                        const value = event.target.valueAsNumber;
+                        if (!Number.isFinite(value)) return;
                         setCrop((current) =>
                           normalizeCrop(
                             current,
                             field,
-                            Number(event.target.value),
+                            value,
+                            16 / imageSize.width,
+                            16 / imageSize.height,
                           ),
-                        )
-                      }
+                        );
+                      }}
                     />
                   </label>
                 ))}
               </div>
-              {cropChanged && (
-                <p role="status" className="mt-2 text-xs text-amber-600">
-                  裁切已改变，请重新分析后再入库。
-                </p>
-              )}
+              {/* Reserve the notice height so a new crop cannot recenter the dialog mid-drag. */}
+              <p role="status" className="mt-2 min-h-4 text-xs text-amber-600">
+                {cropChanged ? "裁切已改变，请重新分析后再入库。" : ""}
+              </p>
             </section>
             <section
               className="min-h-0 overflow-auto p-4"
@@ -548,6 +555,7 @@ export function MaterialAnalysisDialog({
                   type="button"
                   disabled={
                     !imageData ||
+                    imageSize.width < 16 || imageSize.height < 16 ||
                     !modelId ||
                     busy ||
                     record?.status === "saved" ||

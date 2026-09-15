@@ -172,14 +172,14 @@ async function openAssetLibrary(page: Page) {
 
 test("fabric upload is cropped, reanalyzed, calibrated and saved as a shared asset", async ({
   page,
-}) => {
+}, testInfo) => {
   const api = await installMaterialApi(page);
   const library = await openAssetLibrary(page);
   await library.getByRole("button", { name: "上传并分析" }).click();
   const dialog = page.getByRole("dialog", { name: "上传并分析面料" });
   await expect(dialog).toBeVisible();
   const png = await sharp({
-    create: { width: 100, height: 80, channels: 3, background: "#AABBCC" },
+    create: { width: 400, height: 320, channels: 3, background: "#AABBCC" },
   })
     .png()
     .toBuffer();
@@ -190,13 +190,35 @@ test("fabric upload is cropped, reanalyzed, calibrated and saved as a shared ass
       mimeType: "image/png",
       buffer: png,
     });
+  const surface = dialog.getByTestId("crop-surface");
+  await expect(surface).toBeVisible();
+  await expect.poll(() => surface.locator("img").first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  const dragCrop = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await surface.click({ trial: true, position: { x: 1, y: 1 } });
+    const imageBounds = (await surface.boundingBox())!;
+    await page.mouse.move(imageBounds.x + imageBounds.width * from.x, imageBounds.y + imageBounds.height * from.y);
+    await page.mouse.down();
+    await page.mouse.move(imageBounds.x + imageBounds.width * to.x, imageBounds.y + imageBounds.height * to.y, { steps: 6 });
+    await page.mouse.up();
+    const after = (await surface.boundingBox())!;
+    expect(after.x).toBeCloseTo(imageBounds.x, 0);
+    expect(after.y).toBeCloseTo(imageBounds.y, 0);
+    expect(after.width).toBeCloseTo(imageBounds.width, 0);
+    expect(after.height).toBeCloseTo(imageBounds.height, 0);
+  };
+  await dragCrop({ x: .05, y: .05 }, { x: .7, y: .75 });
+  const imageBounds = (await surface.boundingBox())!;
+  const firstCrop = (await surface.getByTestId("crop-selection").boundingBox())!;
+  expect(firstCrop.width).toBeCloseTo(imageBounds.width * .65, 0);
+  expect(firstCrop.height).toBeCloseTo(imageBounds.height * .7, 0);
   await dialog.getByRole("button", { name: "开始分析" }).click();
   await expect(dialog.getByText("模型识别：细密斜纹，哑光表面")).toBeVisible();
   await expect(dialog.getByLabel("素材名称")).toHaveValue("team-twill");
   await expect(dialog.getByLabel("颜色 1", { exact: true })).toHaveValue(
     "#AABBCC",
   );
-  await dialog.getByLabel("裁切x").fill("0.15");
+  expect((api.lastCrop as { x: number }).x).toBeCloseTo(.05, 2);
+  await dragCrop({ x: .9, y: .9 }, { x: .15, y: .2 });
   await expect(
     dialog.getByText("裁切已改变，请重新分析后再入库。"),
   ).toBeVisible();
@@ -205,13 +227,16 @@ test("fabric upload is cropped, reanalyzed, calibrated and saved as a shared ass
   ).toBeDisabled();
   await dialog.getByRole("button", { name: "重新分析" }).click();
   await expect.poll(() => api.analyzeCount).toBe(2);
-  expect(api.lastCrop).toMatchObject({ x: 0.15 });
+  expect((api.lastCrop as { x: number }).x).toBeCloseTo(.15, 2);
+  expect((api.lastCrop as { y: number }).y).toBeCloseTo(.2, 2);
+  await page.screenshot({ path: testInfo.outputPath("material-drag-crop.png") });
   await dialog.getByLabel("材质描述").fill("无法确定成分；可见细密斜纹");
   await dialog.getByLabel("素材名称").fill("团队斜纹面料");
   await dialog.getByRole("button", { name: "保存为共享面料" }).click();
   await expect(
     dialog.getByRole("button", { name: "已保存到面料库" }),
   ).toBeVisible();
+  await expect(surface.getByRole("button", { name: "调整裁切右下角" })).toBeDisabled();
   expect(api.savedCalibration).toMatchObject({
     name: "团队斜纹面料",
     colors: [{ hex: "#AABBCC", name: "灰蓝" }],

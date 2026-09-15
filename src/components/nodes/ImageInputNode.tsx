@@ -16,7 +16,7 @@ import { OPEN_ASSET_PICKER_EVENT, type AssetPickerRequest } from "@/lib/overlayE
 import { NodeFrame } from "./NodeFrame";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
 
-const ImageCropDialog = lazy(() => import("./ImageCropDialog"));
+const ImageCropEditor = lazy(() => import("./ImageCropEditor"));
 interface CropSession { source: string; target: DocumentTarget }
 
 interface NormalizedUploadResponse {
@@ -164,12 +164,12 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
   const closeCrop = useCallback(() => {
     cropSessionRef.current = null;
     setCropSession(null);
-    cropTriggerRef.current?.focus();
+    requestAnimationFrame(() => cropTriggerRef.current?.focus({ preventScroll: true }));
   }, []);
   useEffect(() => {
     // A replaced document, a new source or a read-only transition invalidates the editor.
     if (cropSessionRef.current) closeCrop();
-  }, [activeDocumentKey, data.imageUrl, readOnly, closeCrop]);
+  }, [activeDocumentKey, data.imageUrl, readOnly, selected, closeCrop]);
   useEffect(() => () => { cropSessionRef.current = null; }, []);
   const saveCrop = async (file: File) => {
     // Capture this render's session: an older canvas export must not adopt a newer editor.
@@ -311,8 +311,8 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
   };
 
   return (
-    <div className="gc-image-node relative" style={imageNodeStyle} data-resize-direction={resizeDirection}>
-      {selected && !readOnly && (!hasDisplayImage || hasLoadedImage) && IMAGE_RESIZE_CORNERS.map((corner) => (
+    <div className={`gc-image-node relative${cropSession ? " nodrag nopan" : ""}`} style={imageNodeStyle} data-resize-direction={resizeDirection}>
+      {selected && !readOnly && !cropSession && (!hasDisplayImage || hasLoadedImage) && IMAGE_RESIZE_CORNERS.map((corner) => (
         <NodeResizeControl
           key={corner}
           position={corner}
@@ -355,18 +355,18 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
           </Button>
         </NodeResizeControl>
       ))}
-      <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={<MediaNodeActionToolbar nodeId={id} hasImage={Boolean(data.imageUrl)} sourceHandle="image" />}>
+      <NodeFrame nodeId={cropSession ? undefined : id} title={data.label} status={data.status} error={data.error} selected={selected} toolbar={cropSession ? undefined : <MediaNodeActionToolbar nodeId={id} hasImage={Boolean(data.imageUrl)} sourceHandle="image" />}>
         {data.imageUrl?.startsWith("asset://") ? (
           <div className="rounded-md border border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-3 py-5 text-center text-[10px] text-[var(--gc-node-text)]">
             API易图片素材
           </div>
         ) : data.imageUrl ? (
           <div
-            {...dropHandlers}
+            {...(cropSession ? {} : dropHandlers)}
             className={`gc-image-input-media relative overflow-hidden bg-white ${dragOver ? "gc-image-input-media--dragging" : ""}`}
             style={{ height: "100%" }}
           >
-            <img
+            {cropSession ? <Suspense fallback={<span role="status">正在加载裁切工具…</span>}><ImageCropEditor source={cropSession.source} onSave={saveCrop} onClose={closeCrop} /></Suspense> : <img
               src={data.imageUrl}
               loading="lazy"
               decoding="async"
@@ -381,7 +381,7 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
                   height: image.naturalHeight,
                 });
               }}
-            />
+            />}
             {uploading && (
               <div role="status" className="absolute inset-0 grid place-items-center bg-white/80 text-[10px] text-[var(--gc-node-muted)]">
                 素材处理中…
@@ -416,22 +416,21 @@ export function ImageInputNode({ id, data, selected, width, height }: NodeProps<
           </div>
         )}
       </NodeFrame>
-      {selected && !readOnly && data.imageUrl && (
+      {selected && !readOnly && data.imageUrl && !cropSession && (
         <div className="gc-image-node-actions nodrag nopan absolute left-1/2 top-[calc(100%+8px)] z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] p-1 shadow-xl">
           <FilePickerButton label="重新上传" compact onFile={(file) => void handleFile(file)} />
-          <Button type="button" variant="ghost" size="xs" onClick={openAssetPicker} className="text-[var(--gc-text-muted)] hover:text-[var(--gc-text)]">
-            <ImagesIcon aria-hidden="true" />
-            素材库
-          </Button>
           {hasDisplayImage && <Button ref={cropTriggerRef} type="button" variant="ghost" size="xs" disabled={!hasLoadedImage || uploading} onClick={() => {
             const session = { source: data.imageUrl!, target: selectActiveDocumentTarget(useFlowStore.getState()) };
             cropSessionRef.current = session;
             setCropSession(session);
           }}><CropIcon aria-hidden="true" />裁切</Button>}
+          <Button type="button" variant="ghost" size="xs" onClick={openAssetPicker} className="text-[var(--gc-text-muted)] hover:text-[var(--gc-text)]">
+            <ImagesIcon aria-hidden="true" />
+            素材库
+          </Button>
         </div>
       )}
-      <Handle id="image" type="source" position={Position.Right} title="图片输出" />
-      {cropSession && <Suspense fallback={<span role="status" className="sr-only">正在加载裁切工具…</span>}><ImageCropDialog source={cropSession.source} onSave={saveCrop} onClose={closeCrop} /></Suspense>}
+      <Handle id="image" type="source" position={Position.Right} title="图片输出" isConnectable={!cropSession} onContextMenu={cropSession ? (event) => event.preventDefault() : undefined} />
     </div>
   );
 }
