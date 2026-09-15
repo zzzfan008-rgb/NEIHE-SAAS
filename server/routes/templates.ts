@@ -793,7 +793,9 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
     }
     if (templateId === "builtin-tool-fabric-replace") {
       const nodeById = new Map(raw.flow?.nodes?.map((node) => [node.id, node]) ?? []);
-      return raw.name !== "面料配色替换" || nodeById.get("generate")?.data?.label !== "面料配色替换";
+      return raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION
+        || raw.name !== "面料配色替换"
+        || nodeById.get("generate")?.data?.label !== "面料配色替换";
     }
     if ([
       "builtin-tool-text-to-video",

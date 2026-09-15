@@ -19,7 +19,7 @@ import {
 } from "../server/lib/imageValidation";
 import { validateAndMigrateFlow, WorkflowValidationError } from "../server/lib/workflowSchema";
 import { ensureBuiltinTemplates } from "../server/routes/templates";
-import { getImageModelContract, MASK_REDRAW_MODEL_ID } from "../src/types/imageModels";
+import { DEFAULT_GENERATION_MODEL_ID, getImageModelContract, MASK_REDRAW_MODEL_ID } from "../src/types/imageModels";
 import { WORKFLOW_SCHEMA_VERSION } from "../src/types/workflow";
 
 const PNG = Buffer.from(
@@ -1027,6 +1027,66 @@ async function main() {
         "builtin-tool-video-edit.json",
         "builtin-tool-video-extend.json",
       ]) assert.ok(refreshedFiles.includes(required), required);
+    } finally {
+      if (originalDataDir === undefined) delete process.env.DATA_DIR;
+      else process.env.DATA_DIR = originalDataDir;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await test("工作树遗留模板恢复完整流程，补齐 AI 搭配并保留现有换装参数与用户模板", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "garment-template-recovery-"));
+    const originalDataDir = process.env.DATA_DIR;
+    try {
+      process.env.DATA_DIR = dir;
+      ensureBuiltinTemplates();
+      const builtinDir = path.join(dir, "templates", "builtin");
+      const fixtureDir = new URL("./fixtures/legacy-builtin-templates/", import.meta.url);
+      for (const file of fs.readdirSync(fixtureDir)) {
+        fs.copyFileSync(new URL(file, fixtureDir), path.join(builtinDir, file));
+      }
+      fs.rmSync(path.join(builtinDir, "builtin-tool-ai-styling.json"));
+      const tryOnPath = path.join(builtinDir, "builtin-tool-one-click-try-on.json");
+      const tryOn = JSON.parse(fs.readFileSync(tryOnPath, "utf8"));
+      for (const node of tryOn.flow.nodes) {
+        if (["refine", "garment-detail"].includes(node.id)) {
+          node.data.modelId = "gpt-image-2.5-sunburst";
+          node.data.modelOptions = { quality: "high" };
+        }
+      }
+      const tryOnJson = JSON.stringify(tryOn);
+      fs.writeFileSync(tryOnPath, tryOnJson);
+      const userDir = path.join(dir, "templates", "user");
+      fs.mkdirSync(userDir, { recursive: true });
+      const userPath = path.join(userDir, "saved-sketch.json");
+      const legacy = fs.readFileSync(new URL("builtin-sketch-recolor.json", fixtureDir), "utf8");
+      fs.writeFileSync(userPath, legacy);
+
+      ensureBuiltinTemplates();
+
+      for (const id of ["builtin-sketch-recolor", "builtin-sketch-upscale", "builtin-tool-sketch-render"]) {
+        const template = JSON.parse(fs.readFileSync(path.join(builtinDir, `${id}.json`), "utf8"));
+        const flow = validateAndMigrateFlow(template.flow);
+        const input = flow.nodes.find((node) => node.type === "image-input")!;
+        const optimize = flow.nodes.find((node) => node.type === "sketch-optimize")!;
+        const render = flow.nodes.find((node) => node.type === "sketch-to-render")!;
+        assert.ok(optimize, `${id} must restore sketch optimization`);
+        assert.ok(flow.edges.some((edge) => edge.source === input.id && edge.target === optimize.id));
+        assert.ok(flow.edges.some((edge) => edge.source === optimize.id && edge.target === render.id));
+        assert.ok(!flow.edges.some((edge) => edge.source === input.id && edge.target === render.id));
+      }
+      const styling = JSON.parse(fs.readFileSync(path.join(builtinDir, "builtin-tool-ai-styling.json"), "utf8"));
+      const stylingFlow = validateAndMigrateFlow(styling.flow);
+      assert.deepEqual(stylingFlow.nodes.map((node) => node.type), ["outfit-reference", "ai-styling", "result"]);
+      assert.deepEqual(stylingFlow.edges.map((edge) => [edge.source, edge.target]), [["reference", "styling"], ["styling", "result"]]);
+      const fabric = JSON.parse(fs.readFileSync(path.join(builtinDir, "builtin-tool-fabric-replace.json"), "utf8"));
+      assert.equal(fabric.schemaVersion, WORKFLOW_SCHEMA_VERSION);
+      assert.equal(fabric.flow.nodes.find((node: { id: string }) => node.id === "generate").data.modelId, DEFAULT_GENERATION_MODEL_ID);
+      assert.equal(fs.readFileSync(tryOnPath, "utf8"), tryOnJson);
+      assert.equal(fs.readFileSync(userPath, "utf8"), legacy);
+      const before = fs.readdirSync(builtinDir).sort().map((file) => fs.readFileSync(path.join(builtinDir, file), "utf8"));
+      ensureBuiltinTemplates();
+      assert.deepEqual(fs.readdirSync(builtinDir).sort().map((file) => fs.readFileSync(path.join(builtinDir, file), "utf8")), before);
     } finally {
       if (originalDataDir === undefined) delete process.env.DATA_DIR;
       else process.env.DATA_DIR = originalDataDir;

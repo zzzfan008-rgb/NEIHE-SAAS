@@ -18,7 +18,9 @@ releases/
 *.pem
 *.key
 
-# Runtime data (built-in templates remain versioned)
+# Runtime data (built-in definitions live in server/routes/templates.ts)
+data/templates/builtin/
+backups/
 data/uploads/
 data/thumbnails/
 data/projects/

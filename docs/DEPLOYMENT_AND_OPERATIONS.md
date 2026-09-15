@@ -49,6 +49,10 @@ Compose 的唯一生产入口是 `192.168.0.92:80`，由 Nginx 转发给内部 `
 
 要求 Docker Desktop 或 Docker Engine + Compose。
 
+运行时文件使用 `garment-canvas_app_data` 命名卷，与开发目录隔离。原先使用
+`./data:/app/data` 的部署，必须先完成 [数据卷迁移](../deploy/DOCKER-DATA.md)，
+再执行下面的升级命令；不要直接启动一个空卷。
+
 ```bash
 cp .env.example .env
 chmod 600 .env
@@ -129,7 +133,7 @@ backup_dir="backups/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$backup_dir"
 docker compose stop app
 docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > "$backup_dir/postgres.dump"
-tar -C data -czf "$backup_dir/data.tar.gz" .
+docker compose run --rm --no-deps -T --entrypoint tar app -C /app/data -czf - . > "$backup_dir/data.tar.gz"
 shasum -a 256 "$backup_dir/postgres.dump" "$backup_dir/data.tar.gz" > "$backup_dir/SHA256SUMS"
 docker compose start app
 curl --fail http://192.168.0.92/api/ready
@@ -150,11 +154,10 @@ curl --fail http://192.168.0.92/api/ready
 docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner' < backups/<timestamp>/postgres.dump
 ```
 
-5. 将现有 `data/` 移到隔离位置后，重建空目录并解压同一时间戳的文件备份：
+5. 保留现有 app_data 卷作为故障现场，在已明确选定、使用空 app_data 卷的恢复环境中解压同一时间戳的文件备份：
 
 ```bash
-mkdir -p data
-tar -C data -xzf backups/<timestamp>/data.tar.gz
+docker compose run --rm --no-deps -T --entrypoint tar app -C /app/data -xzf - < backups/<timestamp>/data.tar.gz
 ```
 
 6. 启动应用，检查 `/api/ready`，然后人工验证登录、项目、素材、Results、活动任务和文件下载。

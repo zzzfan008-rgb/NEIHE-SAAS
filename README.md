@@ -8,6 +8,9 @@ Garment Canvas 是面向服装设计师的桌面工作流画布，覆盖图片�
 
 ## Docker 启动（推荐）
 
+已有 `./data:/app/data` 部署必须先按 [Docker 数据迁移说明](deploy/DOCKER-DATA.md)
+复制运行时文件到独立卷，再执行升级命令。
+
 要求 Docker Desktop / Docker Engine + Compose。先复制 `.env.example` 为私有
 `.env`，至少替换 PostgreSQL 密码、AI 网关和首次管理员配置，然后执行：
 
@@ -20,12 +23,13 @@ docker compose up -d --build --wait
 私有 `.env` 的 `PORT` 不再控制 Docker 发布端口。本机必须持有该局域网 IP，
 建议在路由器设置 DHCP 地址保留；不要配置公网端口转发。
 PostgreSQL 18 数据保存在 Docker 命名卷
-`garment-canvas_postgres_data`，上传和生成文件仍保存在 `data/`。
+`garment-canvas_postgres_data`，上传、生成文件及运行时模板保存在独立的
+`garment-canvas_app_data` 卷，不随开发工作树暂存或切换分支而改变。
 
 PostgreSQL 18 官方镜像的卷挂载点是 `/var/lib/postgresql`。从 17 升级时不能直接
 复用 17 的数据目录，必须先用 `pg_dump` 导出，再在新建的 18 卷中恢复。
 
-如果 `data/garment-canvas.db` 存在且 PostgreSQL 还没有用户，首次启动会自动导入
+如果 app_data 卷中的 `garment-canvas.db` 存在且 PostgreSQL 还没有用户，首次启动会自动导入
 旧 SQLite 中的用户、会话、项目、素材、生成记录和消耗流水。导入成功后原
 SQLite 文件会保留，便于回退核对。
 

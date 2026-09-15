@@ -40,7 +40,8 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./data:/app/data
+      # Runtime files must not change when the source checkout switches branches.
+      - app_data:/app/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/api/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s
@@ -66,4 +67,5 @@ services:
       start_period: 10s
 
 volumes:
+  app_data:
   postgres_data:
