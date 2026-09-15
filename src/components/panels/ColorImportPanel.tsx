@@ -8,7 +8,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ColorRequestError, type ColorDirectoryPage } from "@/lib/colorManagementClient";
+import {
+  ColorRequestError,
+  type ColorDirectoryPage,
+} from "@/lib/colorManagementClient";
 import type {
   ColorGroup,
   ColorImportListItem,
@@ -58,12 +61,14 @@ function readBase64(file: File) {
 }
 
 async function fileSha256(file: File) {
-  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    await file.arrayBuffer(),
+  );
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
 }
-
 
 export function ColorImportPanel({
   group,
@@ -98,15 +103,18 @@ export function ColorImportPanel({
     reviewState.dirty || reviewState.busy || reviewState.outcomeUnknown;
   const [error, setError] = useState<string | null>(null);
   const uploadLock = useRef(false);
-  const libraries = useColorManagementQuery<CatalogLibrariesPage>(
-    "/catalog/libraries",
-  );
-  const imports = useColorManagementQuery<ColorDirectoryPage<ColorImportListItem>>(
+  const libraries =
+    useColorManagementQuery<CatalogLibrariesPage>("/catalog/libraries");
+  const imports = useColorManagementQuery<
+    ColorDirectoryPage<ColorImportListItem>
+  >(
     `/imports?groupId=${encodeURIComponent(group.id)}&limit=25&offset=${importOffset}`,
     listRevision,
   );
   useEffect(() => {
-    const first = libraries.data?.libraries.find((library) => library.ready > 0);
+    const first = libraries.data?.libraries.find(
+      (library) => library.ready > 0,
+    );
     if (!libraryKey && first) setLibraryKey(first.libraryKey);
   }, [libraries.data, libraryKey]);
   useEffect(() => {
@@ -133,7 +141,11 @@ export function ColorImportPanel({
   );
   useEffect(
     () => () =>
-      onEditorStateChange?.({ dirty: false, busy: false, outcomeUnknown: false }),
+      onEditorStateChange?.({
+        dirty: false,
+        busy: false,
+        outcomeUnknown: false,
+      }),
     [onEditorStateChange],
   );
 
@@ -150,7 +162,7 @@ export function ColorImportPanel({
       outcomeUnknown ||
       reviewBlocksReplacement ||
       !file
-)
+    )
       return;
     const format = fileFormat(file);
     const fileError = validateFile(file);
@@ -177,19 +189,24 @@ export function ColorImportPanel({
         libraryKey,
       };
       const base64 = await readBase64(file);
-      const created = await colorRequest<ManagedColorImport>("/imports", "POST", {
-        groupId: group.id,
-        libraryKey,
-        format,
-        base64,
-      });
+      const created = await colorRequest<ManagedColorImport>(
+        "/imports",
+        "POST",
+        {
+          groupId: group.id,
+          libraryKey,
+          format,
+          base64,
+        },
+      );
       setRecord(created);
       setUnknownUpload(null);
       setFile(null);
       setImportOffset(0);
       setListRevision((value) => value + 1);
     } catch (reason) {
-      const unknown = reason instanceof ColorRequestError && reason.outcomeUnknown;
+      const unknown =
+        reason instanceof ColorRequestError && reason.outcomeUnknown;
       setOutcomeUnknown(unknown);
       setUnknownUpload(unknown ? requestFingerprint : null);
       const message = reason instanceof Error ? reason.message : "上传失败";
@@ -204,7 +221,8 @@ export function ColorImportPanel({
     }
   };
   const openImport = async (id: string) => {
-    if (interactionBusy || reviewState.dirty || reviewState.outcomeUnknown) return;
+    if (interactionBusy || reviewState.dirty || reviewState.outcomeUnknown)
+      return;
     setBusy(true);
     setError(null);
     try {
@@ -255,60 +273,68 @@ export function ColorImportPanel({
       aria-label="颜色导入管理"
     >
       {!record && (
-      <div className="grid grid-cols-[minmax(0,1fr)_180px_auto] items-end gap-2 rounded border border-(--gc-border) p-3">
-        <label className="min-w-0 space-y-1">
-          <span className="block">选择 XLSX 或 ASE 文件</span>
-          <Input
-            type="file"
-            accept=".xlsx,.ase"
-            disabled={interactionBusy || outcomeUnknown || reviewBlocksReplacement}
-            onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
-          />
-        </label>
-        <label className="space-y-1">
-          <span className="block">目标 Pantone 色库</span>
-          <Select
-            value={libraryKey || null}
+        <div className="grid grid-cols-[minmax(0,1fr)_180px_auto] items-end gap-2 rounded border border-(--gc-border) p-3">
+          <label className="min-w-0 space-y-1">
+            <span className="block">选择 XLSX 或 ASE 文件</span>
+            <Input
+              type="file"
+              accept=".xlsx,.ase"
+              disabled={
+                interactionBusy || outcomeUnknown || reviewBlocksReplacement
+              }
+              onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="block">目标 Pantone 色库</span>
+            <Select
+              value={libraryKey || null}
+              disabled={
+                interactionBusy ||
+                outcomeUnknown ||
+                reviewBlocksReplacement ||
+                !libraries.data
+              }
+              onValueChange={(value) => setLibraryKey(value ?? "")}
+            >
+              <SelectTrigger
+                aria-label="目标 Pantone 色库"
+                className="w-full text-xs"
+              >
+                <SelectValue>{libraryKey || "选择色库"}</SelectValue>
+              </SelectTrigger>
+              <SelectContent
+                positionerClassName="z-[90]"
+                className="z-[90] border-(--gc-border) bg-(--gc-panel) text-(--gc-text)"
+              >
+                {libraries.data?.libraries
+                  .filter((library) => library.ready > 0)
+                  .map((library) => (
+                    <SelectItem
+                      key={library.libraryKey}
+                      value={library.libraryKey}
+                    >
+                      {library.libraryKey} · {library.ready}/{library.total}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <Button
+            type="button"
+            size="sm"
             disabled={
               interactionBusy ||
               outcomeUnknown ||
               reviewBlocksReplacement ||
-              !libraries.data
+              !file ||
+              Boolean(file && validateFile(file))
             }
-            onValueChange={(value) => setLibraryKey(value ?? "")}
+            onClick={upload}
           >
-            <SelectTrigger aria-label="目标 Pantone 色库" className="w-full text-xs">
-              <SelectValue>{libraryKey || "选择色库"}</SelectValue>
-            </SelectTrigger>
-            <SelectContent
-              positionerClassName="z-[90]"
-              className="z-[90] border-(--gc-border) bg-(--gc-panel) text-(--gc-text)"
-            >
-              {libraries.data?.libraries
-                .filter((library) => library.ready > 0)
-                .map((library) => (
-                  <SelectItem key={library.libraryKey} value={library.libraryKey}>
-                    {library.libraryKey} · {library.ready}/{library.total}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <Button
-          type="button"
-          size="sm"
-          disabled={
-            interactionBusy ||
-            outcomeUnknown ||
-            reviewBlocksReplacement ||
-            !file ||
-            Boolean(file && validateFile(file))
-          }
-          onClick={upload}
-        >
-          {busy ? "处理中…" : "上传并生成预览"}
-        </Button>
-      </div>
+            {busy ? "处理中…" : "上传并生成预览"}
+          </Button>
+        </div>
       )}
 
       {(error || libraries.error || imports.error) && (
@@ -317,7 +343,12 @@ export function ColorImportPanel({
             {error ?? libraries.error ?? imports.error}
           </p>
           {outcomeUnknown && (
-            <Button type="button" size="xs" variant="outline" onClick={reconcile}>
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={reconcile}
+            >
               刷新导入记录并核对
             </Button>
           )}
@@ -349,15 +380,15 @@ export function ColorImportPanel({
                 返回上传与导入列表
               </Button>
             )}
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => setListRevision((value) => value + 1)}
-          >
-            刷新导入记录
-          </Button>
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setListRevision((value) => value + 1)}
+            >
+              刷新导入记录
+            </Button>
           </div>
         </div>
         {!imports.data && !imports.error && <p role="status">读取导入记录…</p>}
@@ -384,7 +415,11 @@ export function ColorImportPanel({
               size="xs"
               variant={record?.id === item.id ? "secondary" : "outline"}
               className="shrink-0"
-              disabled={interactionBusy || reviewState.dirty || reviewState.outcomeUnknown}
+              disabled={
+                interactionBusy ||
+                reviewState.dirty ||
+                reviewState.outcomeUnknown
+              }
               aria-label={`打开导入 ${item.id}`}
               onClick={() => void openImport(item.id)}
             >

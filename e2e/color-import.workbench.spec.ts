@@ -10,7 +10,12 @@ import type { ColorImportPreviewRow } from "../src/types/colorImport";
 const RELEASE_ID = "6".repeat(64);
 const GROUP_ID = "00000000-0000-4000-8000-000000000061";
 const CATALOG_ID = "7".repeat(64);
-const CATALOG_IDS = [CATALOG_ID, "9".repeat(64), "a".repeat(64), "b".repeat(64)];
+const CATALOG_IDS = [
+  CATALOG_ID,
+  "9".repeat(64),
+  "a".repeat(64),
+  "b".repeat(64),
+];
 
 const STATUS: ColorImportPreviewRow["status"][] = [
   "matched",
@@ -80,9 +85,11 @@ function managedImport(id: string, count = 30): ManagedColorImport {
 function calibrationImport(id: string): ManagedColorImport {
   const rows = previewRows(4).map((row, index) => ({
     ...row,
-    status: (
-      index === 1 ? "missing-code" : index === 2 ? "unmatched" : "matched"
-    ) as ColorImportPreviewRow["status"],
+    status: (index === 1
+      ? "missing-code"
+      : index === 2
+        ? "unmatched"
+        : "matched") as ColorImportPreviewRow["status"],
     matchedCatalogId: index === 1 || index === 2 ? null : CATALOG_IDS[index]!,
     matchedColor:
       index === 1 || index === 2
@@ -95,15 +102,17 @@ function calibrationImport(id: string): ManagedColorImport {
           },
     candidates:
       index === 1
-        ? [{
-            catalogId: CATALOG_IDS[index]!,
-            libraryKey: "tcx",
-            code: `11-${1000 + index} TCX`,
-            hex: "#AABBCC" as const,
-            deltaE: 1.25,
-            approximate: true as const,
-            conversionVersion: "test-v1",
-          }]
+        ? [
+            {
+              catalogId: CATALOG_IDS[index]!,
+              libraryKey: "tcx",
+              code: `11-${1000 + index} TCX`,
+              hex: "#AABBCC" as const,
+              deltaE: 1.25,
+              approximate: true as const,
+              conversionVersion: "test-v1",
+            },
+          ]
         : [],
   }));
   return {
@@ -133,13 +142,16 @@ async function installImportApi(
   let confirmAttempts = 0;
   let groupRevision = 1;
   const publishedCatalogIds = new Set<string>();
-  const receipts = new Map<number, {
-    importId: string;
-    groupId: string;
-    groupRevision: number;
-    importRevision: number;
-    added: number;
-  }>();
+  const receipts = new Map<
+    number,
+    {
+      importId: string;
+      groupId: string;
+      groupRevision: number;
+      importRevision: number;
+      added: number;
+    }
+  >();
   let releaseConfirm: (() => void) | null = null;
   const confirmGate = new Promise<void>((resolve) => {
     releaseConfirm = resolve;
@@ -317,7 +329,10 @@ async function installImportApi(
       confirmAttempts++;
       const id = decodeURIComponent(confirmMatch[1]!);
       const record = imports.get(id);
-      const body = request.postDataJSON() as { revision: number; groupRevision: number };
+      const body = request.postDataJSON() as {
+        revision: number;
+        groupRevision: number;
+      };
       writes.push({ method, path, body });
       if (options.delayConfirm) await confirmGate;
       if (!options.calibration || !record) {
@@ -325,7 +340,10 @@ async function installImportApi(
         return;
       }
       if (options.staleConfirm) {
-        await route.fulfill({ status: 409, json: { error: "色库已更新，请重新导入后核对" } });
+        await route.fulfill({
+          status: 409,
+          json: { error: "色库已更新，请重新导入后核对" },
+        });
         return;
       }
       const replay = receipts.get(body.revision);
@@ -333,7 +351,10 @@ async function installImportApi(
         await route.fulfill({ json: replay });
         return;
       }
-      if (body.revision !== record.revision || body.groupRevision !== groupRevision) {
+      if (
+        body.revision !== record.revision ||
+        body.groupRevision !== groupRevision
+      ) {
         await route.fulfill({ status: 409, json: { error: "记录已更新" } });
         return;
       }
@@ -346,7 +367,10 @@ async function installImportApi(
         added++;
       });
       if (!added) {
-        await route.fulfill({ status: 400, json: { error: "没有待发布的人工确认行" } });
+        await route.fulfill({
+          status: 400,
+          json: { error: "没有待发布的人工确认行" },
+        });
         return;
       }
       record.publishedRows = [...published].sort((a, b) => a - b);
@@ -367,7 +391,10 @@ async function installImportApi(
       await route.fulfill({ json: result });
       return;
     }
-    await route.fulfill({ status: 404, json: { error: `Unhandled ${method} ${path}` } });
+    await route.fulfill({
+      status: 404,
+      json: { error: `Unhandled ${method} ${path}` },
+    });
   });
   return {
     imports,
@@ -403,21 +430,34 @@ async function openImportPanel(page: Page) {
   await page.getByRole("button", { name: /^账户菜单：/ }).click();
   await page.getByRole("menuitem", { name: "色彩管理", exact: true }).click();
   await page.getByRole("button", { name: "NEIHE Color", exact: true }).click();
-  await page.getByRole("button", { name: "Import Target", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Import Target", exact: true })
+    .click();
   await page.getByRole("tab", { name: "导入校准", exact: true }).click();
 }
 
-test("XLSX upload previews every status without publishing", async ({ page }) => {
+test("XLSX upload previews every status without publishing", async ({
+  page,
+}) => {
   const api = await installImportApi(page);
   await openImportPanel(page);
   const input = page.getByLabel("选择 XLSX 或 ASE 文件");
-  await input.setInputFiles({ name: "palette.png", mimeType: "image/png", buffer: Buffer.from("x") });
+  await input.setInputFiles({
+    name: "palette.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("x"),
+  });
   await expect(page.getByRole("alert")).toContainText("仅支持 XLSX 与 ASE");
-  await input.setInputFiles({ name: "palette.acb", mimeType: "application/octet-stream", buffer: Buffer.from("8BCB") });
+  await input.setInputFiles({
+    name: "palette.acb",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("8BCB"),
+  });
   await expect(page.getByRole("alert")).toContainText("仅支持 XLSX 与 ASE");
   await input.setInputFiles({
     name: "palette.xlsx",
-    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     buffer: Buffer.from("synthetic-xlsx"),
   });
   await page
@@ -430,26 +470,43 @@ test("XLSX upload previews every status without publishing", async ({ page }) =>
   await expect(page.getByRole("article", { name: /导入行/ })).toHaveCount(25);
   const rowList = page.getByRole("region", { name: "导入颜色行列表" });
   await expect(rowList).toBeVisible();
-  expect(await rowList.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+  expect(
+    await rowList.evaluate((node) => node.scrollHeight > node.clientHeight),
+  ).toBe(true);
   const dialogBox = await page.getByRole("dialog").boundingBox();
   const nextPreviewBox = await page
     .getByRole("button", { name: "下一页预览", exact: true })
     .boundingBox();
   expect(dialogBox).not.toBeNull();
   expect(
-    await page.getByRole("dialog").evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+    await page
+      .getByRole("dialog")
+      .evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
   ).toBe(true);
-  expect(await rowList.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  expect(
+    await rowList.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+  ).toBe(true);
   expect(nextPreviewBox).not.toBeNull();
   expect(nextPreviewBox!.y + nextPreviewBox!.height).toBeLessThanOrEqual(
     dialogBox!.y + dialogBox!.height,
   );
-  for (const label of ["已匹配", "缺少色号", "未匹配", "存在冲突", "重复", "无效"])
+  for (const label of [
+    "已匹配",
+    "缺少色号",
+    "未匹配",
+    "存在冲突",
+    "重复",
+    "无效",
+  ])
     await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("原始 HEX：#ECDBA5", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("原始 HEX：#ECDBA5", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "下一页预览", exact: true }).click();
   await expect(page.getByRole("article", { name: /导入行/ })).toHaveCount(5);
-  await page.getByRole("button", { name: "返回上传与导入列表", exact: true }).click();
+  await page
+    .getByRole("button", { name: "返回上传与导入列表", exact: true })
+    .click();
   await expect(page.getByLabel("选择 XLSX 或 ASE 文件")).toBeVisible();
   expect(api.createAttempts).toBe(1);
   const body = api.writes[0]!.body as Record<string, unknown>;
@@ -459,10 +516,16 @@ test("XLSX upload previews every status without publishing", async ({ page }) =>
     format: "xlsx",
     base64: Buffer.from("synthetic-xlsx").toString("base64"),
   });
-  expect(api.writes.filter((write) => write.method !== "POST" || write.path !== "/imports")).toEqual([]);
+  expect(
+    api.writes.filter(
+      (write) => write.method !== "POST" || write.path !== "/imports",
+    ),
+  ).toEqual([]);
 });
 
-test("upload limits locally and reconciles an unknown create from the private list", async ({ page }) => {
+test("upload limits locally and reconciles an unknown create from the private list", async ({
+  page,
+}) => {
   const api = await installImportApi(page, { unknownCreate: true });
   await openImportPanel(page);
   const input = page.getByLabel("选择 XLSX 或 ASE 文件");
@@ -473,12 +536,24 @@ test("upload limits locally and reconciles an unknown create from the private li
   });
   await expect(page.getByRole("alert")).toContainText("不得超过 10 MiB");
   expect(api.createAttempts).toBe(0);
-  await input.setInputFiles({ name: "palette.ase", mimeType: "application/octet-stream", buffer: Buffer.from("ASEF") });
-  await page.getByRole("button", { name: "上传并生成预览", exact: true }).click();
+  await input.setInputFiles({
+    name: "palette.ase",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("ASEF"),
+  });
+  await page
+    .getByRole("button", { name: "上传并生成预览", exact: true })
+    .click();
   await expect(page.getByRole("alert")).toContainText("上传结果可能未知");
-  await expect(page.getByRole("button", { name: "上传并生成预览", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "刷新导入记录并核对", exact: true }).click();
-  await expect(page.getByRole("button", { name: "上传并生成预览", exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "上传并生成预览", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "刷新导入记录并核对", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "上传并生成预览", exact: true }),
+  ).toBeDisabled();
   expect(api.createAttempts).toBe(1);
   await page.getByRole("button", { name: /打开导入 import-1/ }).click();
   await expect(page.getByRole("region", { name: "导入预览" })).toBeVisible();
@@ -487,7 +562,9 @@ test("upload limits locally and reconciles an unknown create from the private li
   expect(api.listReads).toBeGreaterThan(1);
 });
 
-test("unknown upload only unlocks after matching its file fingerprint", async ({ page }) => {
+test("unknown upload only unlocks after matching its file fingerprint", async ({
+  page,
+}) => {
   const api = await installImportApi(page, { unknownCreate: true });
   api.imports.set("older-import", managedImport("older-import", 1));
   await openImportPanel(page);
@@ -497,68 +574,122 @@ test("unknown upload only unlocks after matching its file fingerprint", async ({
     mimeType: "application/octet-stream",
     buffer: Buffer.from("ASEF"),
   });
-  await page.getByRole("button", { name: "上传并生成预览", exact: true }).click();
-  await page.getByRole("button", { name: "刷新导入记录并核对", exact: true }).click();
-  await page.getByRole("button", { name: "打开导入 older-import", exact: true }).click();
+  await page
+    .getByRole("button", { name: "上传并生成预览", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "刷新导入记录并核对", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "打开导入 older-import", exact: true })
+    .click();
   await expect(page.getByRole("alert")).toContainText("与未知上传不匹配");
-  await expect(page.getByRole("button", { name: "上传并生成预览", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "打开导入 import-1", exact: true }).click();
-  await expect(page.getByRole("region", { name: "导入预览" })).toContainText("import-1");
+  await expect(
+    page.getByRole("button", { name: "上传并生成预览", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "打开导入 import-1", exact: true })
+    .click();
+  await expect(page.getByRole("region", { name: "导入预览" })).toContainText(
+    "import-1",
+  );
   await expect(page.getByText(/上传结果可能未知/)).toHaveCount(0);
   expect(api.createAttempts).toBe(1);
 });
 
-test("private import recovery pages beyond the newest 25 records", async ({ page }) => {
+test("private import recovery pages beyond the newest 25 records", async ({
+  page,
+}) => {
   const api = await installImportApi(page);
   for (let index = 1; index <= 30; index++)
     api.imports.set(`history-${index}`, managedImport(`history-${index}`, 1));
   await openImportPanel(page);
-  await expect(page.getByRole("button", { name: /打开导入 history-/ })).toHaveCount(25);
-  await page.getByRole("button", { name: "下一页导入记录", exact: true }).click();
-  await expect(page.getByRole("button", { name: /打开导入 history-/ })).toHaveCount(5);
-  await page.getByRole("button", { name: "打开导入 history-26", exact: true }).click();
-  await expect(page.getByRole("region", { name: "导入预览" })).toContainText("history-26");
-  await page.getByRole("button", { name: "上一页导入记录", exact: true }).click();
-  await expect(page.getByRole("button", { name: /打开导入 history-/ })).toHaveCount(25);
+  await expect(
+    page.getByRole("button", { name: /打开导入 history-/ }),
+  ).toHaveCount(25);
+  await page
+    .getByRole("button", { name: "下一页导入记录", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: /打开导入 history-/ }),
+  ).toHaveCount(5);
+  await page
+    .getByRole("button", { name: "打开导入 history-26", exact: true })
+    .click();
+  await expect(page.getByRole("region", { name: "导入预览" })).toContainText(
+    "history-26",
+  );
+  await page
+    .getByRole("button", { name: "上一页导入记录", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: /打开导入 history-/ }),
+  ).toHaveCount(25);
 });
 
-test("five-thousand-row calibration keeps the rendered page bounded", async ({ page }) => {
+test("five-thousand-row calibration keeps the rendered page bounded", async ({
+  page,
+}) => {
   const api = await installImportApi(page, { calibration: true });
   api.imports.set("large-import", managedImport("large-import", 5000));
   await openImportPanel(page);
-  await page.getByRole("button", { name: "打开导入 large-import", exact: true }).click();
-  await expect(page.getByRole("region", { name: "导入颜色行列表" }).getByRole("article")).toHaveCount(25);
+  await page
+    .getByRole("button", { name: "打开导入 large-import", exact: true })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "导入颜色行列表" }).getByRole("article"),
+  ).toHaveCount(25);
   await expect(page.getByText("1–25 / 5000", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "下一页预览", exact: true }).click();
   await expect(page.getByText("26–50 / 5000", { exact: true })).toBeVisible();
 });
 
-test("reopening the same import synchronizes a newer server revision", async ({ page }) => {
+test("reopening the same import synchronizes a newer server revision", async ({
+  page,
+}) => {
   const api = await installImportApi(page, { calibration: true });
   const record = calibrationImport("same-import");
   record.rows = record.rows.slice(0, 1);
   record.decisions = [{ action: "pending" }];
   api.imports.set(record.id, record);
   await openImportPanel(page);
-  await page.getByRole("button", { name: "打开导入 same-import", exact: true }).click();
+  await page
+    .getByRole("button", { name: "打开导入 same-import", exact: true })
+    .click();
   record.revision = 2;
   record.decisions = [{ action: "skip" }];
   await page.getByRole("button", { name: "刷新导入记录", exact: true }).click();
-  await expect(page.getByRole("button", { name: "打开导入 same-import", exact: true })).toContainText("r2");
-  await page.getByRole("button", { name: "打开导入 same-import", exact: true }).click();
-  await expect(page.getByRole("button", { name: "跳过导入行 2", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "发布已确认颜色", exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "打开导入 same-import", exact: true }),
+  ).toContainText("r2");
+  await page
+    .getByRole("button", { name: "打开导入 same-import", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "跳过导入行 2", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("button", { name: "发布已确认颜色", exact: true }),
+  ).toBeDisabled();
 });
 
-test("calibration saves aligned decisions and publishes in two partial commits", async ({ page }) => {
+test("calibration saves aligned decisions and publishes in two partial commits", async ({
+  page,
+}) => {
   const api = await installImportApi(page, { calibration: true });
   api.imports.set("calibration-1", calibrationImport("calibration-1"));
   await openImportPanel(page);
-  await page.getByRole("button", { name: "打开导入 calibration-1", exact: true }).click();
+  await page
+    .getByRole("button", { name: "打开导入 calibration-1", exact: true })
+    .click();
   await expect(
     page.getByText("精确匹配 · 11-1000 TCX · tcx · #AA00CC", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: /使用近似候选 11-1001 TCX.*tcx.*#AABBCC.*ΔE 1.25/ })).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: /使用近似候选 11-1001 TCX.*tcx.*#AABBCC.*ΔE 1.25/,
+    }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "确认导入行 2", exact: true }).click();
   await expect(
     page.getByText("已选 11-1000 TCX · tcx · #AA00CC", { exact: true }),
@@ -567,7 +698,9 @@ test("calibration saves aligned decisions and publishes in two partial commits",
   await page.getByLabel("导入行 2 比例").fill("2");
   await page.getByRole("button", { name: "保存校准决定", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("0–1");
-  expect(api.writes.filter((write) => write.method === "PATCH")).toHaveLength(0);
+  expect(api.writes.filter((write) => write.method === "PATCH")).toHaveLength(
+    0,
+  );
   await page.getByLabel("导入行 2 比例").fill("0.38");
   await expect(page.getByText(/近似 · ΔE 1.25/)).toBeVisible();
   await page
@@ -579,39 +712,65 @@ test("calibration saves aligned decisions and publishes in two partial commits",
   await expect(page.getByRole("alertdialog")).toContainText("导入校准");
   await page.getByRole("button", { name: "继续编辑", exact: true }).click();
   await page.getByRole("button", { name: "保存校准决定", exact: true }).click();
-  await page.getByRole("button", { name: "发布已确认颜色", exact: true }).click();
-  await expect(page.getByText("本次添加 2 色。", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "确认导入行 2", exact: true })).toBeDisabled();
+  await page
+    .getByRole("button", { name: "发布已确认颜色", exact: true })
+    .click();
+  await expect(
+    page.getByText("本次添加 2 色。", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "确认导入行 2", exact: true }),
+  ).toBeDisabled();
   await expect(
     page.getByRole("button", {
       name: /^使用近似候选 11-1001 TCX 于导入行 3/,
     }),
   ).toBeDisabled();
-  await page.getByRole("button", { name: "保持待处理导入行 4", exact: true }).click();
+  await page
+    .getByRole("button", { name: "保持待处理导入行 4", exact: true })
+    .click();
   await page.getByRole("button", { name: "确认导入行 5", exact: true }).click();
   await page.getByRole("button", { name: "保存校准决定", exact: true }).click();
-  await page.getByRole("button", { name: "发布已确认颜色", exact: true }).click();
-  await expect(page.getByText("本次添加 1 色。", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "发布已确认颜色", exact: true })
+    .click();
+  await expect(
+    page.getByText("本次添加 1 色。", { exact: true }),
+  ).toBeVisible();
   expect(api.confirmAttempts).toBe(2);
   expect(api.groupRevision).toBe(3);
-  expect(api.publishedCatalogIds).toEqual([CATALOG_IDS[0], CATALOG_IDS[1], CATALOG_IDS[3]]);
+  expect(api.publishedCatalogIds).toEqual([
+    CATALOG_IDS[0],
+    CATALOG_IDS[1],
+    CATALOG_IDS[3],
+  ]);
   const patches = api.writes.filter((write) => write.method === "PATCH");
   expect(patches).toHaveLength(2);
-  expect((patches[1]!.body as { decisions: unknown[] }).decisions).toHaveLength(4);
-  await expect(page.getByRole("button", { name: "保持待处理导入行 4", exact: true })).toHaveAttribute("aria-pressed", "true");
+  expect((patches[1]!.body as { decisions: unknown[] }).decisions).toHaveLength(
+    4,
+  );
+  await expect(
+    page.getByRole("button", { name: "保持待处理导入行 4", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
 });
 
-test("manual master selection stays pinned to the import release and library", async ({ page }) => {
+test("manual master selection stays pinned to the import release and library", async ({
+  page,
+}) => {
   const api = await installImportApi(page, { calibration: true });
   api.imports.set("manual-1", calibrationImport("manual-1"));
   await openImportPanel(page);
-  await page.getByRole("button", { name: "打开导入 manual-1", exact: true }).click();
-  await page.getByRole("button", { name: "从主库选择导入行 4", exact: true }).click();
+  await page
+    .getByRole("button", { name: "打开导入 manual-1", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "从主库选择导入行 4", exact: true })
+    .click();
   await expect(page.getByRole("region", { name: "色库选色" })).toBeVisible();
   expect(
-    await page.getByRole("region", { name: "色库选色" }).evaluate(
-      (node) => node.scrollWidth <= node.clientWidth + 1,
-    ),
+    await page
+      .getByRole("region", { name: "色库选色" })
+      .evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
   ).toBe(true);
   await page.getByRole("button", { name: /11-1002 TCX.*#AA22CC/ }).click();
   await expect(
@@ -619,112 +778,191 @@ test("manual master selection stays pinned to the import release and library", a
   ).toBeVisible();
   await page.getByRole("button", { name: "保存校准决定", exact: true }).click();
   expect(
-    api.catalogQueries.some((query) =>
-      query.includes(`releaseId=${RELEASE_ID}`) && query.includes("libraryKey=tcx"),
+    api.catalogQueries.some(
+      (query) =>
+        query.includes(`releaseId=${RELEASE_ID}`) &&
+        query.includes("libraryKey=tcx"),
     ),
   ).toBe(true);
   const patch = api.writes.find((write) => write.method === "PATCH")!;
-  expect((patch.body as { decisions: Array<{ catalogId?: string }> }).decisions[2]?.catalogId).toBe(CATALOG_IDS[2]);
+  expect(
+    (patch.body as { decisions: Array<{ catalogId?: string }> }).decisions[2]
+      ?.catalogId,
+  ).toBe(CATALOG_IDS[2]);
 });
 
-test("unknown confirmation replays the exact request without duplicate members", async ({ page }) => {
-  const api = await installImportApi(page, { calibration: true, unknownConfirm: true });
+test("unknown confirmation replays the exact request without duplicate members", async ({
+  page,
+}) => {
+  const api = await installImportApi(page, {
+    calibration: true,
+    unknownConfirm: true,
+  });
   const record = calibrationImport("unknown-confirm");
   record.rows = record.rows.slice(0, 1);
   record.decisions = [{ action: "pending" }];
   api.imports.set(record.id, record);
   await openImportPanel(page);
-  await page.getByRole("button", { name: "打开导入 unknown-confirm", exact: true }).click();
+  await page
+    .getByRole("button", { name: "打开导入 unknown-confirm", exact: true })
+    .click();
   await page.getByRole("button", { name: "确认导入行 2", exact: true }).click();
   await page.getByRole("button", { name: "保存校准决定", exact: true }).click();
-  await page.getByRole("button", { name: "发布已确认颜色", exact: true }).click();
+  await page
+    .getByRole("button", { name: "发布已确认颜色", exact: true })
+    .click();
   await expect(page.getByRole("alert")).toContainText("确认结果可能未知");
   await page.getByRole("tab", { name: "色组编排", exact: true }).click();
   await expect(page.getByRole("alertdialog")).toContainText("结果可能未知");
   await page.getByRole("button", { name: "继续编辑", exact: true }).click();
-  await page.getByRole("button", { name: "重放相同确认请求", exact: true }).click();
-  await expect(page.getByText("本次添加 1 色。", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "重放相同确认请求", exact: true })
+    .click();
+  await expect(
+    page.getByText("本次添加 1 色。", { exact: true }),
+  ).toBeVisible();
   expect(api.confirmAttempts).toBe(2);
   expect(api.publishedCatalogIds).toEqual([CATALOG_IDS[0]]);
-  const confirms = api.writes.filter((write) => write.path.endsWith("/confirm"));
+  const confirms = api.writes.filter((write) =>
+    write.path.endsWith("/confirm"),
+  );
   expect(confirms).toHaveLength(2);
   expect(confirms[1]!.body).toEqual(confirms[0]!.body);
 });
 
-test("account navigation cannot unload an in-flight confirmation", async ({ page }) => {
-  const api = await installImportApi(page, { calibration: true, delayConfirm: true });
+test("account navigation cannot unload an in-flight confirmation", async ({
+  page,
+}) => {
+  const api = await installImportApi(page, {
+    calibration: true,
+    delayConfirm: true,
+  });
   const record = calibrationImport("busy-confirm");
   record.rows = record.rows.slice(0, 1);
   record.decisions = [{ action: "pending" }];
   api.imports.set(record.id, record);
   await openImportPanel(page);
-  await page.getByRole("button", { name: "打开导入 busy-confirm", exact: true }).click();
+  await page
+    .getByRole("button", { name: "打开导入 busy-confirm", exact: true })
+    .click();
   await page.getByRole("button", { name: "确认导入行 2", exact: true }).click();
   await page.getByRole("button", { name: "保存校准决定", exact: true }).click();
-  await page.getByRole("button", { name: "发布已确认颜色", exact: true }).click();
+  await page
+    .getByRole("button", { name: "发布已确认颜色", exact: true })
+    .click();
   try {
-    await expect(page.getByRole("button", { name: "发布已确认颜色", exact: true })).toBeDisabled();
-    await page.getByRole("button", { name: "关闭账户面板", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "发布已确认颜色", exact: true }),
+    ).toBeDisabled();
+    await page
+      .getByRole("button", { name: "关闭账户面板", exact: true })
+      .click();
     await expect(page.getByRole("alertdialog")).toContainText("正在提交");
-    await expect(page.getByRole("button", { name: "放弃修改", exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "放弃修改", exact: true }),
+    ).toHaveCount(0);
   } finally {
     api.releaseConfirm();
   }
-  await expect(page.getByRole("button", { name: "继续离开", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "继续离开", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "继续离开", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("unknown calibration save reconciles from the private record before publishing", async ({ page }) => {
-  const api = await installImportApi(page, { calibration: true, unknownUpdate: true });
+test("unknown calibration save reconciles from the private record before publishing", async ({
+  page,
+}) => {
+  const api = await installImportApi(page, {
+    calibration: true,
+    unknownUpdate: true,
+  });
   const record = calibrationImport("unknown-update");
   record.rows = record.rows.slice(0, 1);
   record.decisions = [{ action: "pending" }];
   api.imports.set(record.id, record);
   await openImportPanel(page);
-  await page.getByRole("button", { name: "打开导入 unknown-update", exact: true }).click();
+  await page
+    .getByRole("button", { name: "打开导入 unknown-update", exact: true })
+    .click();
   await page.getByRole("button", { name: "确认导入行 2", exact: true }).click();
   await page.getByRole("button", { name: "保存校准决定", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("保存结果可能未知");
-  await expect(page.getByRole("button", { name: "保存校准决定", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "重新读取导入与色组", exact: true }).click();
-  await expect(page.getByText("已重新读取服务器记录。", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "保存校准决定", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "重新读取导入与色组", exact: true })
+    .click();
+  await expect(
+    page.getByText("已重新读取服务器记录。", { exact: true }),
+  ).toBeVisible();
   expect(api.updateAttempts).toBe(1);
-  await page.getByRole("button", { name: "发布已确认颜色", exact: true }).click();
-  await expect(page.getByText("本次添加 1 色。", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "发布已确认颜色", exact: true })
+    .click();
+  await expect(
+    page.getByText("本次添加 1 色。", { exact: true }),
+  ).toBeVisible();
 });
 
-test("calibration revision conflicts lock editing until explicit reload", async ({ page }) => {
+test("calibration revision conflicts lock editing until explicit reload", async ({
+  page,
+}) => {
   const api = await installImportApi(page, { calibration: true });
   const record = calibrationImport("revision-conflict");
   record.rows = record.rows.slice(0, 1);
   record.decisions = [{ action: "pending" }];
   api.imports.set(record.id, record);
   await openImportPanel(page);
-  await page.getByRole("button", { name: "打开导入 revision-conflict", exact: true }).click();
+  await page
+    .getByRole("button", { name: "打开导入 revision-conflict", exact: true })
+    .click();
   api.imports.get(record.id)!.revision = 2;
   await page.getByRole("button", { name: "确认导入行 2", exact: true }).click();
   await page.getByRole("button", { name: "保存校准决定", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("记录已更新");
-  await expect(page.getByRole("button", { name: "确认导入行 2", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "重新读取导入与色组", exact: true }).click();
-  await expect(page.getByRole("button", { name: "保持待处理导入行 2", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "确认导入行 2", exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "确认导入行 2", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "重新读取导入与色组", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "保持待处理导入行 2", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("button", { name: "确认导入行 2", exact: true }),
+  ).toBeEnabled();
 });
 
-test("an old catalog preview remains visible but cannot publish", async ({ page }) => {
-  const api = await installImportApi(page, { calibration: true, staleConfirm: true });
+test("an old catalog preview remains visible but cannot publish", async ({
+  page,
+}) => {
+  const api = await installImportApi(page, {
+    calibration: true,
+    staleConfirm: true,
+  });
   const record = calibrationImport("stale-release");
   record.rows = record.rows.slice(0, 1);
   record.decisions = [{ action: "pending" }];
   api.imports.set(record.id, record);
   await openImportPanel(page);
-  await page.getByRole("button", { name: "打开导入 stale-release", exact: true }).click();
+  await page
+    .getByRole("button", { name: "打开导入 stale-release", exact: true })
+    .click();
   await page.getByRole("button", { name: "确认导入行 2", exact: true }).click();
   await page.getByRole("button", { name: "保存校准决定", exact: true }).click();
-  await page.getByRole("button", { name: "发布已确认颜色", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("色库已更新，请重新导入后核对");
-  await expect(page.getByRole("button", { name: "发布已确认颜色", exact: true })).toBeDisabled();
+  await page
+    .getByRole("button", { name: "发布已确认颜色", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText(
+    "色库已更新，请重新导入后核对",
+  );
+  await expect(
+    page.getByRole("button", { name: "发布已确认颜色", exact: true }),
+  ).toBeDisabled();
   await expect(page.getByRole("region", { name: "导入预览" })).toBeVisible();
   expect(api.publishedCatalogIds).toEqual([]);
 });

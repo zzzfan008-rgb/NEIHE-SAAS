@@ -38,7 +38,13 @@ export interface MaterialAnalysisModel {
 export interface MaterialAnalysisRecord {
   id: string;
   revision: number;
-  status: "draft" | "analyzing" | "analyzed" | "failed" | "outcome_unknown" | "saved";
+  status:
+    | "draft"
+    | "analyzing"
+    | "analyzed"
+    | "failed"
+    | "outcome_unknown"
+    | "saved";
   sourceImage: string;
   cropImage: string;
   crop: MaterialCropRect;

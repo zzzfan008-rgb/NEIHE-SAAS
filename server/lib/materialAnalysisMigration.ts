@@ -1,6 +1,9 @@
 import type { PoolClient } from "pg";
 
-export async function migrateMaterialAnalysis(client: PoolClient, defaultModelId: string): Promise<void> {
+export async function migrateMaterialAnalysis(
+  client: PoolClient,
+  defaultModelId: string,
+): Promise<void> {
   await client.query(`
     CREATE TABLE material_analysis_models (
       id TEXT PRIMARY KEY CHECK (id ~ '^[A-Za-z0-9._-]{1,120}$'),
@@ -42,10 +45,13 @@ export async function migrateMaterialAnalysis(client: PoolClient, defaultModelId
       CHECK (material_metadata IS NULL OR jsonb_typeof(material_metadata) = 'object');
   `);
   const now = new Date().toISOString();
-  await client.query(`
+  await client.query(
+    `
     INSERT INTO material_analysis_models(id,label,protocol,enabled,is_default,created_at,updated_at)
     VALUES ($1,'Gemini 材质分析','gemini-generate-content',TRUE,TRUE,$2,$2)
-  `, [defaultModelId, now]);
+  `,
+    [defaultModelId, now],
+  );
   await client.query(
     "INSERT INTO schema_migrations(version,name,applied_at) VALUES (21,$1,$2)",
     ["material_analysis_and_assets", now],

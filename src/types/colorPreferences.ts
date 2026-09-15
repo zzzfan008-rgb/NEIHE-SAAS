@@ -6,6 +6,8 @@ export interface PantoneColorReference {
   hex: `#${string}`;
 }
 
-export function pantoneColorKey(reference: Pick<PantoneColorReference, "catalogId">): string {
+export function pantoneColorKey(
+  reference: Pick<PantoneColorReference, "catalogId">,
+): string {
   return `pantone:${reference.catalogId}`;
 }

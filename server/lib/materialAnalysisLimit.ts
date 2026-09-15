@@ -8,9 +8,13 @@ export class MaterialAnalysisCapacityError extends Error {
   }
 }
 
-export async function withMaterialAnalysisSlot<T>(ownerId: string, operation: () => Promise<T>): Promise<T> {
+export async function withMaterialAnalysisSlot<T>(
+  ownerId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
   const active = activeByOwner.get(ownerId) ?? 0;
-  if (active >= MAX_ACTIVE_ANALYSES_PER_OWNER) throw new MaterialAnalysisCapacityError();
+  if (active >= MAX_ACTIVE_ANALYSES_PER_OWNER)
+    throw new MaterialAnalysisCapacityError();
   activeByOwner.set(ownerId, active + 1);
   try {
     return await operation();

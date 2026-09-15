@@ -9,7 +9,10 @@ import type {
   ManagedColorImport,
 } from "@/types/brandColors";
 import type { ColorImportPreviewRow } from "@/types/colorImport";
-import { ColorCatalogPicker, type CatalogSelection } from "./ColorCatalogPicker";
+import {
+  ColorCatalogPicker,
+  type CatalogSelection,
+} from "./ColorCatalogPicker";
 import { useColorManagementRequest } from "./ColorManagementSession";
 import type { ColorImportEditorState } from "./ColorImportPanel";
 
@@ -89,7 +92,10 @@ export function ColorImportReview({
   const submitLock = useRef(false);
   const synchronizedRecordKey = useRef(`${record.id}:${record.revision}`);
   const dirty = serialized(decisions) !== baseline;
-  const published = useMemo(() => new Set(record.publishedRows), [record.publishedRows]);
+  const published = useMemo(
+    () => new Set(record.publishedRows),
+    [record.publishedRows],
+  );
   const selectedCatalogIds = useMemo(
     () =>
       new Set(
@@ -126,7 +132,11 @@ export function ColorImportReview({
   );
   useEffect(
     () => () =>
-      onEditorStateChange?.({ dirty: false, busy: false, outcomeUnknown: false }),
+      onEditorStateChange?.({
+        dirty: false,
+        busy: false,
+        outcomeUnknown: false,
+      }),
     [onEditorStateChange],
   );
 
@@ -143,7 +153,8 @@ export function ColorImportReview({
     onRecordChange(next);
   };
   const setDecision = (index: number, decision: DecisionDraft) => {
-    if (published.has(index) || busy || outcomeUnknown || errorStatus === 409) return;
+    if (published.has(index) || busy || outcomeUnknown || errorStatus === 409)
+      return;
     setStatus(null);
     setError(null);
     setErrorStatus(null);
@@ -171,7 +182,7 @@ export function ColorImportReview({
       outcomeUnknown ||
       errorStatus === 409 ||
       !dirty
-)
+    )
       return;
     const payload = decisionPayload();
     if (!payload) {
@@ -190,9 +201,12 @@ export function ColorImportReview({
       );
       applyRecord(updated, "校准决定已保存。");
     } catch (reason) {
-      const unknown = reason instanceof ColorRequestError && reason.outcomeUnknown;
+      const unknown =
+        reason instanceof ColorRequestError && reason.outcomeUnknown;
       setOutcomeUnknown(unknown);
-      setErrorStatus(reason instanceof ColorRequestError ? reason.status : null);
+      setErrorStatus(
+        reason instanceof ColorRequestError ? reason.status : null,
+      );
       const message = reason instanceof Error ? reason.message : "保存校准失败";
       setError(
         unknown
@@ -233,7 +247,7 @@ export function ColorImportReview({
       !hasPublishable ||
       errorStatus === 409 ||
       (outcomeUnknown && !requestBody)
-)
+    )
       return;
     const body = requestBody ?? { revision: record.revision, groupRevision };
     submitLock.current = true;
@@ -248,10 +262,13 @@ export function ColorImportReview({
       );
       finishConfirm(commit);
     } catch (reason) {
-      const unknown = reason instanceof ColorRequestError && reason.outcomeUnknown;
+      const unknown =
+        reason instanceof ColorRequestError && reason.outcomeUnknown;
       setOutcomeUnknown(unknown);
       setConfirmReplay(unknown ? body : null);
-      setErrorStatus(reason instanceof ColorRequestError ? reason.status : null);
+      setErrorStatus(
+        reason instanceof ColorRequestError ? reason.status : null,
+      );
       const message = reason instanceof Error ? reason.message : "发布确认失败";
       setError(
         unknown
@@ -272,7 +289,9 @@ export function ColorImportReview({
         colorRequest<ManagedColorImport>(
           `/imports/${encodeURIComponent(record.id)}`,
         ),
-        colorRequest<ColorGroup>(`/groups/${encodeURIComponent(record.groupId)}`),
+        colorRequest<ColorGroup>(
+          `/groups/${encodeURIComponent(record.groupId)}`,
+        ),
       ]);
       applyRecord(nextRecord, "已重新读取服务器记录。");
       onGroupRevisionChange(nextGroup.revision);
@@ -294,11 +313,13 @@ export function ColorImportReview({
         <div className="min-w-0">
           <h4 className="truncate font-medium">导入 {record.id}</h4>
           <p className="text-(--gc-text-muted)">
-            {record.libraryKey} · {record.rows.length} 行 · 已发布 {record.publishedRows.length} 行
+            {record.libraryKey} · {record.rows.length} 行 · 已发布{" "}
+            {record.publishedRows.length} 行
           </p>
         </div>
         <p className="shrink-0 text-(--gc-text-muted)">
-          {offset + 1}–{Math.min(offset + PAGE_SIZE, record.rows.length)} / {record.rows.length}
+          {offset + 1}–{Math.min(offset + PAGE_SIZE, record.rows.length)} /{" "}
+          {record.rows.length}
         </p>
       </div>
 
@@ -355,8 +376,7 @@ export function ColorImportReview({
           const selectedByAnotherRow = (catalogId: string) =>
             selectedCatalogIds.has(catalogId) &&
             !(
-              decision.action === "confirm" &&
-              decision.catalogId === catalogId
+              decision.action === "confirm" && decision.catalogId === catalogId
             );
           return (
             <article
@@ -370,7 +390,10 @@ export function ColorImportReview({
                     {row.rawCode || row.code || "无色号"}
                   </p>
                   <p className="break-all text-(--gc-text-muted)">
-                    {row.sheetName} · 行 {row.rowNumber} · 原始比例 {row.rawRatio === null || row.rawRatio === "" ? "空" : String(row.rawRatio)}
+                    {row.sheetName} · 行 {row.rowNumber} · 原始比例{" "}
+                    {row.rawRatio === null || row.rawRatio === ""
+                      ? "空"
+                      : String(row.rawRatio)}
                   </p>
                   {row.sourceHex && <p>原始 HEX：{row.sourceHex}</p>}
                   {row.errors.map((message) => (
@@ -380,7 +403,8 @@ export function ColorImportReview({
                   ))}
                 </div>
                 <p className="shrink-0">
-                  {STATUS_LABEL[row.status]}{isPublished ? " · 已发布" : ""}
+                  {STATUS_LABEL[row.status]}
+                  {isPublished ? " · 已发布" : ""}
                 </p>
               </div>
               {row.matchedColor && (
@@ -396,7 +420,8 @@ export function ColorImportReview({
                     }}
                   />
                   <span>
-                    精确匹配 · {row.matchedColor.code} · {row.matchedColor.libraryKey} ·{" "}
+                    精确匹配 · {row.matchedColor.code} ·{" "}
+                    {row.matchedColor.libraryKey} ·{" "}
                     {row.matchedColor.hex ?? "不可转换"}
                   </span>
                 </div>
@@ -406,7 +431,9 @@ export function ColorImportReview({
                 <Button
                   type="button"
                   size="xs"
-                  variant={decision.action === "pending" ? "secondary" : "outline"}
+                  variant={
+                    decision.action === "pending" ? "secondary" : "outline"
+                  }
                   aria-pressed={decision.action === "pending"}
                   disabled={isPublished || editsLocked}
                   onClick={() => setDecision(index, { action: "pending" })}
@@ -458,7 +485,9 @@ export function ColorImportReview({
                   size="xs"
                   variant="outline"
                   disabled={isPublished || editsLocked}
-                  onClick={() => setPickerRow(pickerRow === index ? null : index)}
+                  onClick={() =>
+                    setPickerRow(pickerRow === index ? null : index)
+                  }
                 >
                   从主库选择导入行 {row.rowNumber}
                 </Button>
@@ -505,7 +534,9 @@ export function ColorImportReview({
                   />
                   使用近似候选 {candidate.code} 于导入行 {row.rowNumber} ·{" "}
                   {candidate.libraryKey} · {candidate.hex}
-                  <span className="ml-1">近似 · ΔE {candidate.deltaE.toFixed(2)}</span>
+                  <span className="ml-1">
+                    近似 · ΔE {candidate.deltaE.toFixed(2)}
+                  </span>
                 </Button>
               ))}
 
