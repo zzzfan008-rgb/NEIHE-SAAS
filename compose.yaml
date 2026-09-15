@@ -34,6 +34,8 @@ services:
       PGDATABASE: ${POSTGRES_DB:-garment_canvas}
       PGUSER: ${POSTGRES_USER:-garment_canvas}
       PGPASSWORD: ${POSTGRES_PASSWORD:?请在私有 .env 中设置 POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:3002:3002"
     depends_on:
       postgres:
         condition: service_healthy
