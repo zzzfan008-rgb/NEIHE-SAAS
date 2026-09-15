@@ -2501,6 +2501,13 @@ test("creation tools open an editable board and create a new typed palette witho
   await expect(canvasNodes).toHaveCount(before + 1);
   const board = canvasNodes.filter({ hasText: "绘画工具" }).last();
   await expect(board.getByAltText("画板已保存预览")).toBeVisible();
+  await page.evaluate(async (nodeId) => {
+    const landingPath = "/src/lib/canvasLanding.ts";
+    const storePath = "/src/store/flowStore.ts";
+    const { requestCanvasLanding } = await import(landingPath);
+    const { useFlowStore } = await import(storePath);
+    requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, nodeId, fitView: true });
+  }, await board.getAttribute("data-id"));
   await board.getByRole("button", { name: "导出为图片节点" }).click();
   await expect(canvasNodes).toHaveCount(before + 2);
 

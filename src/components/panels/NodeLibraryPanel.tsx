@@ -14,6 +14,7 @@ import { requestCanvasLanding } from "@/lib/canvasLanding";
 
 const KIND_ORDER: NodeKind[] = [
   "image-input",
+  "sketch-optimize",
   "sketch-to-render",
   "ai-modify",
   "fabric-recolor",

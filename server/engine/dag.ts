@@ -135,6 +135,9 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     const usableImages = (step.upstream ?? []).flatMap((upstream) =>
       executingNodeIds.has(upstream.nodeId) ? ["__runtime_output__"] : upstream.images,
     );
+    if (step.kind === "sketch-optimize" && usableImages.length !== 1) {
+      throw new DagError("草图线稿优化需要连接一张参考图片");
+    }
     const maxReferences = Math.min(
       step.kind === "virtual-try-on" ? MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES : MAX_REFERENCE_IMAGES,
       modelMaxReferenceImages(modelId),
@@ -443,6 +446,7 @@ function extractOutputImages(data: WorkflowNodeData, sourceHandle?: string | nul
     case "text-input":
     case "color-palette":
       return [];
+    case "sketch-optimize":
     case "sketch-to-render":
     case "ai-modify":
     case "fabric-recolor":
@@ -517,6 +521,7 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
         generateAudio: data.generateAudio,
         outputFormat: data.outputFormat,
       };
+    case "sketch-optimize":
     case "sketch-to-render":
       return {
         prompt: data.prompt, aspectRatio: data.aspectRatio, batchSize: data.batchSize,

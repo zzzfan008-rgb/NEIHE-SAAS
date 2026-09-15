@@ -39,6 +39,7 @@ function isMissingParameter(data: WorkflowNodeData): boolean {
   if (data.kind === "ai-styling") return !data.analysisId;
   if (data.kind === "image-input") return !data.imageUrl;
   if (
+    data.kind === "sketch-optimize" ||
     data.kind === "sketch-to-render" ||
     data.kind === "ai-modify" ||
     data.kind === "print-extract" ||

@@ -368,8 +368,43 @@ function toolWorkflowTemplates(): WorkflowTemplate[] {
   ];
 }
 
+const SKETCH_OPTIMIZATION_TEMPLATE_IDS = new Set(["builtin-sketch-recolor", "builtin-sketch-upscale", "builtin-tool-sketch-render"]);
+
+function withSketchOptimization(template: WorkflowTemplate): WorkflowTemplate {
+  if (!SKETCH_OPTIMIZATION_TEMPLATE_IDS.has(template.id)) return template;
+  const render = template.flow.nodes.find((node) => node.data.kind === "sketch-to-render");
+  const input = template.flow.nodes.find((node) => node.data.kind === "image-input");
+  if (!render || !input) return template;
+  const id = "sketch-optimization";
+  return {
+    ...template,
+    description: template.id === "builtin-sketch-recolor"
+      ? "上传草图，优化黑白灰线稿后渲染效果图，再改款并生成多配色"
+      : template.id === "builtin-sketch-upscale"
+        ? "上传草图，优化黑白灰线稿后渲染效果图，再高清放大"
+        : "上传草图，按设计理念优化黑白灰线稿，再渲染服装效果图",
+    flow: {
+      ...template.flow,
+      nodes: [
+        ...template.flow.nodes.map((node) => node.position.x >= render.position.x
+          ? { ...node, position: { ...node.position, x: node.position.x + 760 } } : node),
+        { id, type: "sketch-optimize", position: { ...render.position }, data: {
+          kind: "sketch-optimize", label: "草图线稿优化", status: "idle", prompt: "", aspectRatio: "3:4",
+          batchSize: 1, outputImages: [], modelId: DEFAULT_GENERATION_MODEL_ID,
+          modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID, "3:4"),
+        } },
+      ],
+      edges: [
+        ...template.flow.edges.filter((edge) => !(edge.source === input.id && edge.target === render.id)),
+        { id: "sketch-to-optimization", source: input.id, sourceHandle: "image", target: id, targetHandle: "references" },
+        { id: "optimization-to-render", source: id, sourceHandle: "image", target: render.id, targetHandle: "references" },
+      ],
+    },
+  };
+}
+
 function builtinTemplates(): WorkflowTemplate[] {
-  return [
+  const templates: WorkflowTemplate[] = [
     dualModelStagedTryOnTemplate(),
     ...toolWorkflowTemplates(),
     {
@@ -722,6 +757,7 @@ function builtinTemplates(): WorkflowTemplate[] {
       },
     },
   ];
+  return templates.map(withSketchOptimization);
 }
 
 function builtinTemplateIsReadable(filePath: string): boolean {
@@ -743,6 +779,9 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
         edges?: Array<{ id?: unknown; targetHandle?: unknown }>;
       };
     };
+    if (SKETCH_OPTIMIZATION_TEMPLATE_IDS.has(templateId)) {
+      return !raw.flow?.nodes?.some((node) => node.type === "sketch-optimize");
+    }
     if (templateId === "builtin-tool-one-click-try-on") {
       const named = raw as typeof raw & { name?: unknown };
       const nodeById = new Map(raw.flow?.nodes?.map((node) => [node.id, node]) ?? []);

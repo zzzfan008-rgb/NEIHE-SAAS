@@ -871,7 +871,8 @@ async function main() {
     };
     assert.equal(validateAndMigrateFlow(legacyProject.flow).schemaVersion, WORKFLOW_SCHEMA_VERSION);
 
-    const builtinRoot = "data/templates/builtin";
+    // Inspect the templates initialized for this test run, not another checkout's runtime data.
+    const builtinRoot = path.join(process.env.DATA_DIR ?? "data", "templates", "builtin");
     const builtinFiles = fs.readdirSync(builtinRoot).filter((name) => name.endsWith(".json"));
     assert.ok(builtinFiles.length >= 7, "仓库应包含基础内置模板");
     for (const file of builtinFiles) {

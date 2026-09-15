@@ -61,6 +61,9 @@ export function validateDirectGenerateRequest(
   if (kind === "ai-styling") {
     return { ok: false, error: "ai-styling requires saved references and outfit analysis; use /api/run-plan" };
   }
+  if (kind === "sketch-optimize") {
+    return { ok: false, error: "sketch-optimize requires the protected node prompt; use /api/run-plan" };
+  }
   if (!isDirectGenerateKind(kind)) {
     return { ok: false, error: "kind must identify a supported AI node" };
   }

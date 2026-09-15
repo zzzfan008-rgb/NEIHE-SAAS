@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Arrow, Ellipse, Layer, Line, Rect, Stage, Text, Transformer } from "react-konva";
+import { Arrow, Ellipse, Image as CanvasImage, Layer, Line, Rect, Stage, Text, Transformer } from "react-konva";
 import type Konva from "konva";
 import { nanoid } from "nanoid";
 import {
@@ -19,6 +19,11 @@ import {
   type DrawingStroke,
 } from "./drawingModel";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Slider } from "@/components/ui/slider";
+import { selectActiveDocumentTarget, useFlowStore } from "@/store/flowStore";
+import { documentTargetMatches } from "@/lib/canvasCreation";
 import { inputClass } from "@/components/nodes/NodeFrame";
 
 type Tool = "select" | "brush" | "eraser" | "rectangle" | "ellipse" | "line" | "arrow" | "text";
@@ -104,10 +109,70 @@ export function DrawingEditor({ initialDocument, saving, error, onDocumentChange
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [gesture, setGesture] = useState<ActiveGesture | null>(null);
   const [textValue, setTextValue] = useState("");
+  const [baseBitmap, setBaseBitmap] = useState<{ url: string; image: HTMLImageElement }>();
+  const [localError, setLocalError] = useState<string>();
+  const [uploading, setUploading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const uploadController = useRef<AbortController | null>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [availableWidth, setAvailableWidth] = useState(520);
   const stageRef = useRef<Konva.Stage>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
-  const scale = Math.min(1, 760 / history.present.canvas.width, 520 / history.present.canvas.height);
+  const scale = Math.min(1, availableWidth / history.present.canvas.width, 520 / history.present.canvas.height);
   const activeLayer = history.present.layers.find((layer) => layer.id === activeLayerId) ?? history.present.layers[0];
+  const baseImage = history.present.baseImage;
+  const baseReady = !baseImage || baseBitmap?.url === baseImage.url;
+  const baseScale = baseImage ? Math.min(history.present.canvas.width / baseImage.width, history.present.canvas.height / baseImage.height) : 1;
+  useEffect(() => () => uploadController.current?.abort(), []);
+  useEffect(() => {
+    const element = viewportRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setAvailableWidth(Math.max(1, element.clientWidth - 18)));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!baseImage) { setBaseBitmap(undefined); return; }
+    let cancelled = false;
+    const image = new window.Image();
+    image.onload = () => { if (!cancelled) { setBaseBitmap({ url: baseImage.url, image }); setLocalError(undefined); } };
+    image.onerror = () => { if (!cancelled) setLocalError("底图加载失败，请重新上传；未加载完成不能保存"); };
+    image.src = baseImage.url;
+    return () => { cancelled = true; };
+  }, [baseImage?.url]);
+
+  const uploadBase = async (file: File) => {
+    const target = selectActiveDocumentTarget(useFlowStore.getState());
+    const controller = new AbortController();
+    uploadController.current?.abort();
+    uploadController.current = controller;
+    setUploading(true);
+    setLocalError(undefined);
+    try {
+      if (!file.type.startsWith("image/") || file.size > 30 * 1024 * 1024) throw new Error("请选择不超过 30 MiB 的图片");
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("图片读取失败"));
+        reader.readAsDataURL(file);
+      });
+      if (controller.signal.aborted) return;
+      const response = await fetch("/api/files", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dataUrl }), signal: controller.signal });
+      const value = await response.json();
+      if (!response.ok) throw new Error(value.error || "底图上传失败");
+      if (value.normalized !== true) throw new Error("图片标准化未完成，请重试");
+      if (controller.signal.aborted || !documentTargetMatches(target, selectActiveDocumentTarget(useFlowStore.getState()))) return;
+      const image = { url: value.url, width: value.width, height: value.height };
+      validateDrawingDocument({ ...history.present, baseImage: image });
+      setHistory((current) => applyDrawingCommand(current, { type: "replace-document", document: { ...current.present, baseImage: image } }));
+    } catch (failure) {
+      if (!controller.signal.aborted) setLocalError(failure instanceof Error ? failure.message : "底图上传失败");
+    } finally {
+      if (!controller.signal.aborted) setUploading(false);
+    }
+  };
 
   useEffect(() => onDocumentChange(history.present), [history.present, onDocumentChange]);
   useEffect(() => {
@@ -128,7 +193,7 @@ export function DrawingEditor({ initialDocument, saving, error, onDocumentChange
     return point ? { x: point.x / scale, y: point.y / scale } : null;
   };
   const pointerDown = () => {
-    if (!activeLayer || activeLayer.locked || tool === "select" || tool === "text") return;
+    if (saving || exporting || uploading || !activeLayer || activeLayer.locked || tool === "select" || tool === "text") return;
     const point = pointer();
     if (!point) return;
     const id = `object-${nanoid(10)}`;
@@ -213,9 +278,10 @@ export function DrawingEditor({ initialDocument, saving, error, onDocumentChange
 
   const visibleObjects = useMemo(() => gesture ? [gesture.object] : [], [gesture]);
   return (
-    <div
+    <fieldset disabled={saving || exporting || uploading}
       className="grid min-h-0 grid-cols-[minmax(0,1fr)_15rem] gap-3"
       onKeyDown={(event) => {
+        if (saving || exporting || uploading) return;
         const command = drawingKeyboardCommand(event, (event.target as HTMLElement).tagName);
         if (!command) return;
         event.preventDefault();
@@ -227,16 +293,25 @@ export function DrawingEditor({ initialDocument, saving, error, onDocumentChange
     >
       <div className="min-w-0 space-y-2">
         <div role="toolbar" aria-label="绘画工具" className="flex flex-wrap gap-1">
+          <Input ref={fileRef} type="file" accept="image/*" aria-label="上传底图文件" className="hidden" onChange={(event) => {
+            const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadBase(file);
+          }} />
+          <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>{uploading ? "上传中…" : baseImage ? "替换图片" : "上传图片"}</Button>
           {TOOLS.map((item) => <Button key={item.id} size="sm" variant={tool === item.id ? "default" : "outline"}
             aria-pressed={tool === item.id} onClick={() => setTool(item.id)}>{item.label}</Button>)}
         </div>
-        <div className="overflow-auto rounded-xl border border-[var(--gc-border)] bg-[var(--gc-control)] p-2">
+        {baseImage && <p role="status" className="text-xs text-(--gc-node-muted)">{baseReady ? "底图已就绪" : "底图加载中…"}<span> · 等比居中，橡皮只擦当前标注图层</span></p>}
+        <div ref={viewportRef} className="overflow-auto rounded-xl border border-[var(--gc-border)] bg-[var(--gc-control)] p-2">
           <Stage ref={stageRef} width={history.present.canvas.width * scale} height={history.present.canvas.height * scale}
             scaleX={scale} scaleY={scale} onMouseDown={pointerDown} onTouchStart={pointerDown}
             onMouseMove={pointerMove} onTouchMove={pointerMove} onMouseUp={pointerUp} onTouchEnd={pointerUp}
             aria-label="可编辑绘画画布">
             <Layer><Rect width={history.present.canvas.width} height={history.present.canvas.height} fill={history.present.canvas.background} listening={false} /></Layer>
-            {history.present.layers.map((layer) => <Layer key={layer.id} visible={layer.visible} opacity={layer.opacity}>
+            {baseImage && baseReady && baseBitmap && <Layer listening={false}><CanvasImage image={baseBitmap.image}
+              width={baseImage.width * baseScale} height={baseImage.height * baseScale}
+              x={(history.present.canvas.width - baseImage.width * baseScale) / 2}
+              y={(history.present.canvas.height - baseImage.height * baseScale) / 2} /></Layer>}
+            {history.present.layers.map((layer) => <Layer key={layer.id} visible={layer.visible} opacity={layer.opacity} listening={tool === "select" && !layer.locked}>
               {layer.objects.map((object) => objectElement(object, selectedObjectId === object.id, setSelectedObjectId, moveObject))}
               {gesture?.layerId === layer.id && visibleObjects.map((object) => objectElement(object, false, () => undefined, () => undefined))}
             </Layer>)}
@@ -251,24 +326,35 @@ export function DrawingEditor({ initialDocument, saving, error, onDocumentChange
           </div>
           <div className="flex gap-1">
             <Button size="sm" variant="outline" onClick={onCancel}>取消</Button>
-            <Button size="sm" disabled={saving} onClick={async () => {
-              validateDrawingDocument(history.present, { exportPixelRatio: 1 });
+            <Button size="sm" disabled={saving || exporting || uploading || !baseReady || !!gesture} onClick={async () => {
               const stage = stageRef.current;
               if (!stage) return;
-              await onSave(history.present, await stageBlob(stage, 1));
+              setExporting(true);
+              setLocalError(undefined);
+              let output: Konva.Stage | undefined;
+              try {
+                validateDrawingDocument(history.present, { exportPixelRatio: 1 });
+                output = stage.clone({ width: history.present.canvas.width, height: history.present.canvas.height, scaleX: 1, scaleY: 1 });
+                output!.find("Transformer").forEach((node) => node.destroy());
+                output!.find("Shape").forEach((node) => node.setAttr("shadowEnabled", false));
+                output!.draw();
+                await onSave(history.present, await stageBlob(output!, 1));
+              } catch (failure) { setLocalError(failure instanceof Error ? failure.message : "画板合成失败"); }
+              finally { output?.destroy(); setExporting(false); }
             }}>{saving ? "保存中…" : "保存画板"}</Button>
           </div>
         </div>
         {error && <p role="alert" className="text-xs text-red-500">{error}</p>}
+        {localError && <p role="alert" className="text-xs text-red-500">{localError}</p>}
       </div>
       <aside aria-label="画板属性" className="space-y-3 overflow-auto rounded-xl border border-[var(--gc-border)] p-3">
         <div className="grid grid-cols-2 gap-2">
-          <label className="text-xs">颜色<input type="color" value={color} onChange={(event) => setColor(event.target.value.toUpperCase())} className="mt-1 h-9 w-full" /></label>
-          <label className="text-xs">线宽<input type="number" min="1" max="256" value={strokeWidth} onChange={(event) => setStrokeWidth(Math.max(1, Math.min(256, Number(event.target.value) || 1)))} className={`${inputClass} mt-1`} /></label>
+          <label className="text-xs">颜色<Input type="color" value={color} onChange={(event) => setColor(event.target.value.toUpperCase())} className="mt-1 h-9 w-full" /></label>
+          <label className="text-xs">线宽<Input type="number" min="1" max="256" value={strokeWidth} onChange={(event) => setStrokeWidth(Math.max(1, Math.min(256, Number(event.target.value) || 1)))} className={`${inputClass} mt-1`} /></label>
         </div>
         {tool === "text" && <div className="space-y-1">
           <label className="text-xs" htmlFor="drawing-text">文字内容</label>
-          <textarea id="drawing-text" value={textValue} onChange={(event) => setTextValue(event.target.value)} maxLength={4000} rows={4} className={`${inputClass} resize-none`} />
+          <Textarea id="drawing-text" value={textValue} onChange={(event) => setTextValue(event.target.value)} maxLength={4000} rows={4} className={`${inputClass} resize-none`} />
           <Button size="sm" className="w-full" disabled={!textValue.trim()} onClick={addText}>添加文字</Button>
         </div>}
         <section aria-label="图层" className="space-y-2">
@@ -276,7 +362,7 @@ export function DrawingEditor({ initialDocument, saving, error, onDocumentChange
           {[...history.present.layers].reverse().map((layer, reverseIndex) => {
             const index = history.present.layers.length - 1 - reverseIndex;
             return <div key={layer.id} className="space-y-1 rounded-lg border border-[var(--gc-border)] p-2">
-              <button className="w-full text-left text-xs font-medium" aria-pressed={activeLayerId === layer.id} onClick={() => setActiveLayerId(layer.id)}>{layer.name}</button>
+              <Button variant="ghost" size="sm" className="w-full justify-start text-xs" aria-pressed={activeLayerId === layer.id} onClick={() => setActiveLayerId(layer.id)}>{layer.name}</Button>
               <div className="flex flex-wrap gap-1">
                 <Button size="sm" variant="outline" onClick={() => apply({ type: "update-layer", layerId: layer.id, patch: { visible: !layer.visible } })}>{layer.visible ? "隐藏" : "显示"}</Button>
                 <Button size="sm" variant="outline" onClick={() => apply({ type: "update-layer", layerId: layer.id, patch: { locked: !layer.locked } })}>{layer.locked ? "解锁" : "锁定"}</Button>
@@ -284,12 +370,12 @@ export function DrawingEditor({ initialDocument, saving, error, onDocumentChange
                 <Button size="sm" variant="outline" disabled={index === 0} onClick={() => apply({ type: "move-layer", layerId: layer.id, index: index - 1 })}>下移</Button>
               </div>
               <label className="block text-[10px]">不透明度
-                <input type="range" min="0" max="1" step="0.05" value={layer.opacity} onChange={(event) => apply({ type: "update-layer", layerId: layer.id, patch: { opacity: Number(event.target.value) } })} className="w-full" />
+                <Slider min={0} max={1} step={0.05} value={layer.opacity} disabled={saving || exporting || uploading} aria-label={`${layer.name}不透明度`} onValueChange={(value) => apply({ type: "update-layer", layerId: layer.id, patch: { opacity: value } })} />
               </label>
             </div>;
           })}
         </section>
       </aside>
-    </div>
+    </fieldset>
   );
 }

@@ -13,6 +13,7 @@ const KIND_COLOR: Record<NodeKind, string> = {
   "audio-input": "#4E9C72",
   "video-generate": "#7C6DD0",
   "sketch-to-render": "#C9A66B",
+  "sketch-optimize": "#C9A66B",
   "ai-modify": "#9B72CF",
   "fabric-recolor": "#D9707E",
   upscale: "#4FA37C",

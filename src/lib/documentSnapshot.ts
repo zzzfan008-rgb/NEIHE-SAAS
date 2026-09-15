@@ -101,7 +101,7 @@ export type DocumentNodeData =
       outputImages: string[];
     }
   | ({
-      kind: "sketch-to-render";
+      kind: "sketch-to-render" | "sketch-optimize";
       label: string;
       prompt: string;
       aspectRatio: string;
@@ -372,6 +372,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         outputFormat: data.outputFormat,
         outputImages: [...data.outputImages],
       };
+    case "sketch-optimize":
     case "sketch-to-render":
       return {
         kind: data.kind,

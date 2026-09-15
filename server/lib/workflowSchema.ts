@@ -53,6 +53,7 @@ const NODE_KINDS: readonly NodeKind[] = [
   "video-input",
   "audio-input",
   "video-generate",
+  "sketch-optimize",
   "sketch-to-render",
   "ai-modify",
   "fabric-recolor",
@@ -326,6 +327,7 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
         outputImages: Array.isArray(raw.outputImages) ? raw.outputImages : [],
       };
     }
+    case "sketch-optimize":
     case "sketch-to-render":
       return {
         prompt: "", aspectRatio: "3:4", batchSize: 1, outputImages: [],
@@ -534,8 +536,10 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       }
       mediaReferenceArray(raw.outputImages, `${path}.outputImages`);
       break;
+    case "sketch-optimize":
     case "sketch-to-render":
     case "ai-modify":
+      if (kind === "sketch-optimize" && raw.batchSize !== 1) fail(`${path}.batchSize`, "sketch optimization generates one image");
       stringValue(raw.prompt, `${path}.prompt`);
       oneOf(raw.aspectRatio, ASPECT_RATIOS, `${path}.aspectRatio`);
       oneOf(raw.batchSize, BATCH_SIZES, `${path}.batchSize`);
@@ -959,7 +963,7 @@ function migrateV4StageApprovals(
   return { nodes: [...nodes, ...insertedNodes], edges };
 }
 
-/** Validate untrusted JSON and migrate supported unversioned/v0-v11 formats to v12. */
+/** Validate untrusted JSON and migrate supported older formats to the current schema. */
 export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
   const raw = record(value, "flow");
   const version = raw.schemaVersion;

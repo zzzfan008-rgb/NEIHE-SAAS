@@ -1,6 +1,7 @@
 import type { NodeTypes } from "@xyflow/react";
 import { ImageInputNode } from "./ImageInputNode";
 import { SketchToRenderNode } from "./SketchToRenderNode";
+import { SketchOptimizeNode } from "./SketchOptimizeNode";
 import { AiModifyNode } from "./AiModifyNode";
 import { FabricRecolorNode } from "./FabricRecolorNode";
 import { UpscaleNode } from "./UpscaleNode";
@@ -31,6 +32,7 @@ export const nodeTypes: NodeTypes = {
   "drawing-board": DrawingBoardNode,
   "color-palette": ColorPaletteNode,
   "sketch-to-render": SketchToRenderNode,
+  "sketch-optimize": SketchOptimizeNode,
   "ai-modify": AiModifyNode,
   "fabric-recolor": FabricRecolorNode,
   upscale: UpscaleNode,

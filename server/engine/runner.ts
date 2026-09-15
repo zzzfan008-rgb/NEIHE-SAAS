@@ -126,6 +126,8 @@ export interface StepResult {
   executionMeta?: Record<string, unknown>;
 }
 
+import { sketchOptimizationPrompt } from "../lib/sketchOptimization";
+
 const DEFAULT_PROMPTS: Partial<Record<NodeExecution["kind"], string>> = {
   "sketch-to-render": "将线稿渲染为写实服装效果图，保持结构与轮廓，高端时装摄影质感",
   "ai-modify": "在保持整体版型不变的前提下，优化服装细节设计",
@@ -913,6 +915,7 @@ export async function executeStep(
         },
       };
     }
+    case "sketch-optimize":
     case "sketch-to-render":
     case "ai-modify":
     case "fabric-recolor":
@@ -921,6 +924,9 @@ export async function executeStep(
     case "print-mutate":
     case "virtual-try-on":
     case "mask-redraw": {
+      if (step.kind === "sketch-optimize" && (inputImages.length !== 1 || Number(step.params.batchSize ?? 1) !== 1)) {
+        throw new Error("草图线稿优化需要一张参考图片，每次生成一张线稿");
+      }
       // Persisted queue plans can predate the document schema migration.
       const requestedModelId = step.params.modelId === "gemini-3.1-flash-image-preview"
         ? "gemini-3.1-flash-image" : step.params.modelId;
@@ -1134,7 +1140,8 @@ export async function executeStep(
       }
       const promptParams = style ? { ...step.params, resolvedStylePrompt: style.prompt } : step.params;
       const prompt =
-        step.kind === "upscale"
+        step.kind === "sketch-optimize" ? sketchOptimizationPrompt(extra)
+        : step.kind === "upscale"
           ? "将这张服装效果图放大为超高清版本，增强面料纹理、走线与边缘细节，保持原有构图、色彩和光影完全不变"
           : step.kind === "fabric-recolor"
             ? fabricRecolorPrompt("fabric", undefined, extra)

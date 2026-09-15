@@ -1064,6 +1064,7 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
         outputFormat: "mp4",
         outputImages: [],
       };
+    case "sketch-optimize":
     case "sketch-to-render":
       return {
         ...base, kind, prompt: "", aspectRatio: "3:4", batchSize: 1, outputImages: [],
@@ -2244,12 +2245,13 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       data.outputImages = stringList(input.outputImages);
       break;
     }
+    case "sketch-optimize":
     case "sketch-to-render":
     case "ai-modify":
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
       data.aspectRatio = typeof input.aspectRatio === "string" && ["1:1", "3:4", "4:3", "9:16", "16:9"].includes(input.aspectRatio)
         ? input.aspectRatio
-        : kind === "sketch-to-render" ? "3:4" : "1:1";
+        : kind === "sketch-to-render" || kind === "sketch-optimize" ? "3:4" : "1:1";
       data.batchSize = [1, 2, 4, 8].includes(Number(input.batchSize)) ? Number(input.batchSize) : 1;
       data.outputImages = stringList(input.outputImages);
       break;
@@ -3137,6 +3139,7 @@ export function requestedResultCount(data: WorkflowNodeData): number {
   switch (data.kind) {
     case "ai-styling":
       return data.batchSize === 2 || data.batchSize === 4 ? data.batchSize : 1;
+    case "sketch-optimize":
     case "sketch-to-render":
     case "ai-modify":
       return Math.max(1, Math.min(8, Number(data.batchSize) || 1));

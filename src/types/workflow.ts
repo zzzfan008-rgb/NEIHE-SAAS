@@ -18,6 +18,7 @@ export type NodeKind =
   | "video-input"       // 本地视频上传
   | "audio-input"       // Seedance 音频参考
   | "video-generate"    // Seedance 2.5 / 2.0 视频生成与编辑
+  | "sketch-optimize"    // 草图线稿优化（黑白灰结构表达）
   | "sketch-to-render"   // 草图→效果图（节点内选择 API易模型）
   | "ai-modify"          // AI 改款/变体（gpt-image-2）
   | "fabric-recolor"     // 面料配色替换（支持面料、配色或组合模式；gpt-image-2）
@@ -226,6 +227,14 @@ export interface SketchToRenderNodeData extends BaseNodeData, ModelSelectableNod
   outputImages: string[];    // 生成结果
 }
 
+export interface SketchOptimizeNodeData extends BaseNodeData, ModelSelectableNodeData {
+  kind: "sketch-optimize";
+  prompt: string;
+  aspectRatio: string;
+  batchSize: BatchSize;
+  outputImages: string[];
+}
+
 export interface AiModifyNodeData extends BaseNodeData, ModelSelectableNodeData {
   kind: "ai-modify";
   prompt: string;
@@ -378,6 +387,7 @@ export type WorkflowNodeData =
   | AudioInputNodeData
   | VideoGenerateNodeData
   | SketchToRenderNodeData
+  | SketchOptimizeNodeData
   | AiModifyNodeData
   | FabricRecolorNodeData
   | UpscaleNodeData
@@ -389,11 +399,11 @@ export type WorkflowNodeData =
 
 // ---------- 持久化工作流（项目 / 模板共用）----------
 /**
- * 版本 13 添加多角度服饰参考图和 AI 搭配节点；
- * 读取 v0-v12 时服务端确定性迁移，旧 Preview 图片模型映射到正式模型；
+ * 版本 14 添加草图线稿优化节点；版本 13 添加多角度参考图和 AI 搭配。
+ * 读取 v0-v13 时服务端确定性迁移，不自动向已有项目插入新节点；
  * 新版本不得静默降级读取。
  */
-export const WORKFLOW_SCHEMA_VERSION = 13 as const;
+export const WORKFLOW_SCHEMA_VERSION = 14 as const;
 export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
 
 export interface PersistedWorkflowNode {
@@ -648,6 +658,16 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
       { id: "references", label: "参考素材", direction: "input", valueKind: "image", required: false, maxSources: 8, accepts: ["image", "video", "text"] },
     ],
     outputPorts: [{ id: "video", label: "视频", direction: "output", valueKind: "video", required: false, maxSources: 1 }],
+  },
+  "sketch-optimize": {
+    kind: "sketch-optimize",
+    title: "草图线稿优化",
+    description: "根据设计理念修改线稿，以黑白灰清晰表达服装结构与面料分区",
+    providerId: "apiyi",
+    inputs: 1,
+    outputs: "images",
+    inputPorts: imageAndPromptPorts(1),
+    outputPorts: [imageOutputPort()],
   },
   "sketch-to-render": {
     kind: "sketch-to-render",

@@ -78,7 +78,7 @@ drawingBoardsRouter.post("/create", asyncHandler(async (req, res) => {
       }
       await assertWorkflowPantoneReferences(flow, client);
       if (flow.nodes.some((candidate) => candidate.id === nodeId)) return { status: "node-conflict" as const };
-      await assertImageReferencesAccessible(previewImageRef, user.id, client, { fileLock: "update" });
+      await assertImageReferencesAccessible({ previewImageRef, document }, user.id, client, { fileLock: "update" });
       const contentRef = `draw_${nanoid(20)}`;
       const createdAt = new Date().toISOString();
       const nextFlow = validateAndMigrateFlow({
@@ -177,6 +177,7 @@ drawingBoardsRouter.post("/versions", asyncHandler(async (req, res) => {
       const flow = validateAndMigrateFlow(JSON.parse(project.flow_json));
       const node = drawingNodeFromFlow(flow, nodeId);
       if (node.data.kind !== "drawing-board") return { status: "not-found" as const };
+      await assertImageReferencesAccessible(document, user.id, client);
       const replay = (await client.query<{
         request_sha256: string; content_ref: string; sha256: string; created_at: string;
       }>(`
@@ -244,7 +245,7 @@ drawingBoardsRouter.post("/versions", asyncHandler(async (req, res) => {
     res.status(409).json({ error: "画板尺寸与节点不匹配" });
   } catch (error) {
     const status = error instanceof DrawingBoardValidationError || error instanceof WorkflowValidationError
-      ? 400 : error instanceof DrawingBoardAccessError && error.code === "not-found" ? 404 : 500;
+      ? 400 : error instanceof ImageReferenceAccessError || error instanceof DrawingBoardAccessError && error.code === "not-found" ? 404 : 500;
     res.status(status).json({ error: error instanceof Error ? error.message : "画板保存失败" });
   }
 }));

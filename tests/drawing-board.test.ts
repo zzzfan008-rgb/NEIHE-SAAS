@@ -28,6 +28,18 @@ function test(name: string, run: () => void) {
 
 console.log("画板文档与本地历史合同测试");
 
+test("底图只允许受控本地图片，替换可撤销且保留标注", () => {
+  const document = createEmptyDrawingDocument();
+  assert.throws(() => validateDrawingDocument({ ...document, baseImage: { url: "https://example.com/image.png", width: 400, height: 800 } }), /底图/);
+  assert.throws(() => validateDrawingDocument({ ...document, baseImage: { url: "/api/files/../secret.png", width: 400, height: 800 } }), /底图/);
+  assert.throws(() => validateDrawingDocument({ ...document, baseImage: { url: "/api/files/image.png", width: 0, height: 800 } }), /底图/);
+  const withImage = { ...document, baseImage: { url: "/api/files/image.png", width: 400, height: 800 } };
+  const history = applyDrawingCommand(createDrawingHistory(document), { type: "replace-document", document: withImage });
+  assert.deepEqual(history.present, withImage);
+  assert.deepEqual(undoDrawingCommand(history).present, document);
+  assert.deepEqual(redoDrawingCommand(undoDrawingCommand(history)).present, withImage);
+});
+
 test("空白 v1 文档可验证且保留明确画布设置", () => {
   const document = createEmptyDrawingDocument(1200, 900, "#F5F5F5");
   assert.deepEqual(validateDrawingDocument(document), document);

@@ -2361,6 +2361,11 @@ await test("画板版本按 owner/project/node/base 授权并以请求号幂等"
   const body = {
     clientRequestId: "drawing-request-0001", projectId, nodeId, baseContentRef: null, document,
   };
+  const foreignUpload = await request("/files", "other", { method: "POST", body: JSON.stringify({ dataUrl: PNG_DATA_URL }) });
+  const foreignImage = await foreignUpload.json() as { url: string };
+  assert.equal((await request("/drawing-boards/versions", "owner", {
+    method: "POST", body: JSON.stringify({ ...body, clientRequestId: "drawing-foreign-image", document: { ...document, baseImage: { url: foreignImage.url, width: 1, height: 1 } } }),
+  })).status, 404);
   const created = await request("/drawing-boards/versions", "owner", {
     method: "POST", body: JSON.stringify(body),
   });
@@ -2444,6 +2449,9 @@ await test("新建画板将不可变版本与完整项目节点原子提交并�
     previewImageRef: preview.url,
     document,
   };
+  assert.equal((await request("/drawing-boards/create", "owner", {
+    method: "POST", body: JSON.stringify({ ...body, clientRequestId: "drawing-missing-base-image", document: { ...document, baseImage: { url: "/api/files/missing-base.png", width: 100, height: 100 } } }),
+  })).status, 403);
   const created = await request("/drawing-boards/create", "owner", {
     method: "POST",
     body: JSON.stringify(body),

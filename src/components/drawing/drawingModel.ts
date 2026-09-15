@@ -85,6 +85,7 @@ export interface DrawingLayer {
 export interface DrawingDocument {
   version: 1;
   canvas: { width: number; height: number; background: string };
+  baseImage?: { url: string; width: number; height: number };
   layers: DrawingLayer[];
 }
 
@@ -189,6 +190,12 @@ export function validateDrawingDocument(
     height < DRAWING_LIMITS.minCanvasSize || height > DRAWING_LIMITS.maxCanvasSize
   ) fail("画布宽高必须在 256–4096 px 之间");
   nonEmptyText(canvas.background, "canvas.background");
+  if (document.baseImage !== undefined) {
+    const image = document.baseImage as DrawingDocument["baseImage"];
+    if (!image || typeof image.url !== "string" || !/^\/api\/files\/[A-Za-z0-9_-]+\.(png|jpe?g|webp|gif)$/.test(image.url) ||
+        !Number.isSafeInteger(image.width) || !Number.isSafeInteger(image.height) ||
+        image.width < 1 || image.height < 1 || image.width * image.height > 100_000_000) fail("底图引用或尺寸无效");
+  }
 
   if (!Array.isArray(document.layers) || document.layers.length < 1) fail("画板至少需要 1 个图层");
   const layers = document.layers as unknown[];
