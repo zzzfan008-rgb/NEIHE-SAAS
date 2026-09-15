@@ -13,6 +13,7 @@ import {
   type CatalogSelection,
 } from "@/components/panels/ColorCatalogPicker";
 import { useColorQuery } from "@/lib/colorManagementClient";
+import { PANTONE_TCX_LIBRARY_KEY } from "@/lib/pantoneLibraries";
 import type {
   BrandColorMember,
   ColorBrand,
@@ -337,6 +338,7 @@ export function ColorSystemBrowser(props: ColorSystemBrowserProps) {
       <TabsContent value="catalog" className="flex min-h-0 flex-1 pt-2">
         <ColorCatalogPicker
           queryHook={usePublicColorQuery}
+          defaultLibraryKey={PANTONE_TCX_LIBRARY_KEY}
           selectedCatalogIds={props.selectedCatalogIds}
           maxReached={props.remaining <= 0}
           onSelect={(selection) => props.onSelect(selection, "pantone")}

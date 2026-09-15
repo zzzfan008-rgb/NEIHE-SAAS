@@ -305,3 +305,68 @@ test("brand themes reject oversized whole-group addition and keep footer visible
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
 });
+
+test("TCX defaults, library guidance and live counts follow the selected catalog", async ({ page }) => {
+  const tcx = "pantone-f-h-cotton-tcx";
+  const libraries = [
+    { libraryKey: tcx, ready: 2310, total: 2310 },
+    { libraryKey: "pantone-f-h-paper-tpx", ready: 2100, total: 2100 },
+    { libraryKey: "pantone-solid-coated", ready: 2138, total: 2140 },
+    { libraryKey: "pantone-solid-uncoated", ready: 2135, total: 2140 },
+    { libraryKey: "pantone-color-bridge-coated", ready: 297, total: 2135 },
+    { libraryKey: "pantone-color-bridge-uncoated", ready: 295, total: 2135 },
+  ];
+  const queries: URL[] = [];
+  await page.route("**/api/colors/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/catalog/state")) {
+      await route.fulfill({ json: { releaseId, revision: 1 } });
+    } else if (url.pathname.endsWith("/catalog/libraries")) {
+      await route.fulfill({ json: { releaseId, activeReleaseId: releaseId, revision: 1, libraries } });
+    } else if (url.pathname.endsWith("/catalog")) {
+      queries.push(url);
+      await route.fulfill({ json: { releaseId, activeReleaseId: releaseId, revision: 1, total: 1,
+        colors: [{ ...catalogColor(catalogA, "11-1000 TCX"), libraryKey: url.searchParams.get("libraryKey") ?? tcx }],
+        nextOffset: null } });
+    } else {
+      await route.fulfill({ json: { items: [], nextOffset: null } });
+    }
+  });
+  await page.goto("/e2e/fixtures/color-tool.html?picker=native");
+  await page.getByRole("button", { name: "开始取色测试" }).click();
+  const dialog = page.getByRole("dialog", { name: "色彩工具" });
+  await dialog.getByRole("tab", { name: "Pantone", exact: true }).click();
+  const picker = dialog.getByLabel("色库系列", { exact: true });
+  const guidance = dialog.getByLabel("色库用途说明");
+  await expect(picker).toContainText("TCX（棉布色卡）");
+  await expect(guidance).toContainText("最适合服装面料选色、设计沟通和染厂对色");
+  await expect(guidance).toContainText("2,310 色，均无冲突");
+  await expect.poll(() => queries.length).toBeGreaterThan(0);
+  expect(queries[0].searchParams.get("libraryKey")).toBe(tcx);
+  for (const label of ["TPX（纸质色卡）", "Solid Coated", "Solid Uncoated", "Color Bridge Coated", "Color Bridge Uncoated"]) {
+    await picker.click();
+    await expect(page.getByRole("option")).toHaveCount(7);
+    await page.getByRole("option", { name: new RegExp(label.replace(/[（）]/g, ".") + " ·") }).click();
+    await expect(guidance).toContainText(label.startsWith("TPX")
+      ? "与面料实物存在差异，不宜替代布卡验色"
+      : "主要面向印刷，更适合吊牌、包装、宣传物料");
+    const box = await guidance.boundingBox();
+    const footer = await dialog.getByRole("button", { name: "创建新色板节点" }).boundingBox();
+    expect(box).not.toBeNull();
+    expect(footer).not.toBeNull();
+    expect(box!.y + box!.height).toBeLessThan(footer!.y);
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(footer!.y + footer!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  }
+  await picker.click();
+  await page.getByRole("option", { name: "全部色库", exact: true }).click();
+  await expect(guidance).toBeHidden();
+  await expect.poll(() => queries.at(-1)?.searchParams.has("libraryKey")).toBe(false);
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  libraries[0] = { libraryKey: tcx, ready: 17, total: 18 };
+  await page.getByRole("button", { name: "开始取色测试" }).click();
+  await dialog.getByRole("tab", { name: "Pantone", exact: true }).click();
+  await expect(picker).toContainText("TCX（棉布色卡）");
+  await expect(guidance).toContainText("18 色，其中 17 色可选");
+  await expect(guidance).not.toContainText("均无冲突");
+});

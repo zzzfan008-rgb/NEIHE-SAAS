@@ -15,6 +15,11 @@ import type {
   CatalogReleaseState,
 } from "@/types/colorManagement";
 import { useColorManagementQuery as useColorQuery } from "./ColorManagementSession";
+import {
+  PANTONE_TCX_LIBRARY_KEY,
+  pantoneLibraryGuidance,
+  pantoneLibraryLabel,
+} from "@/lib/pantoneLibraries";
 
 const PAGE_SIZE = 25;
 const ALL_LIBRARIES = "__all__";
@@ -34,6 +39,7 @@ export interface CatalogSelection {
 
 export interface ColorCatalogPickerProps {
   libraryKey?: string;
+  defaultLibraryKey?: string;
   releaseId?: string;
   disabled?: boolean;
   selectedCatalogIds?: ReadonlySet<string>;
@@ -67,6 +73,7 @@ function selectable(color: CatalogColorSummary, releaseId: string | null) {
 
 export function ColorCatalogPicker({
   libraryKey,
+  defaultLibraryKey = ALL_LIBRARIES,
   releaseId,
   disabled = false,
   selectedCatalogIds,
@@ -77,7 +84,7 @@ export function ColorCatalogPicker({
   const usePickerQuery = queryHook ?? useColorQuery;
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [selectedLibrary, setSelectedLibrary] = useState(ALL_LIBRARIES);
+  const [selectedLibrary, setSelectedLibrary] = useState(defaultLibraryKey);
   const [hue, setHue] = useState("__all_hues__");
   const [offset, setOffset] = useState(0);
   const [snapshotRevision, setSnapshotRevision] = useState(0);
@@ -148,6 +155,10 @@ export function ColorCatalogPicker({
     (!snapshotResolved ||
       (snapshotReleaseId !== null &&
         (!catalog.data || (!libraryKey && !libraries.data))));
+  const guidance = pantoneLibraryGuidance(activeLibrary);
+  const librarySummary = !error && !loading
+    ? libraries.data?.libraries.find((library) => library.libraryKey === activeLibrary)
+    : undefined;
 
   return (
     <section
@@ -177,7 +188,7 @@ export function ColorCatalogPicker({
           }}
         >
           <SelectTrigger aria-label="色库系列" className="min-w-0 text-xs">
-            <SelectValue>{activeLibrary ?? "全部色库"}</SelectValue>
+            <SelectValue>{activeLibrary ? pantoneLibraryLabel(activeLibrary) : "全部色库"}</SelectValue>
           </SelectTrigger>
           <SelectContent
             positionerClassName="z-[90]"
@@ -194,7 +205,7 @@ export function ColorCatalogPicker({
                   : []))
             ).map((library) => (
               <SelectItem key={library.libraryKey} value={library.libraryKey}>
-                {library.libraryKey}
+                {pantoneLibraryLabel(library.libraryKey)}
                 {libraryKey ? "" : ` · ${library.ready}/${library.total}`}
               </SelectItem>
             ))}
@@ -225,6 +236,19 @@ export function ColorCatalogPicker({
           搜索
         </Button>
       </div>
+      {guidance && (
+        <p aria-label="色库用途说明" aria-live="polite" className="shrink-0 text-xs leading-relaxed text-(--gc-text-muted)">
+          {guidance.label}：{guidance.usage}
+          {activeLibrary === PANTONE_TCX_LIBRARY_KEY && librarySummary && (
+            <span>
+              {librarySummary.total > 0 && librarySummary.ready === librarySummary.total
+                ? `这批已导入 ${librarySummary.total.toLocaleString("en-US")} 色，均无冲突。`
+                : `这批已导入 ${librarySummary.total.toLocaleString("en-US")} 色，其中 ${librarySummary.ready.toLocaleString("en-US")} 色可选。`}
+            </span>
+          )}
+          {activeLibrary === PANTONE_TCX_LIBRARY_KEY && "建议作为默认库。"}
+        </p>
+      )}
 
       {error && (
         <div className="space-y-1">
