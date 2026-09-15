@@ -258,7 +258,7 @@ export function ColorToolPanel() {
                 {section(category.label, category.swatches.map((swatch) => swatch.hex), "quick", true)}
               </TabsContent>
             ))}
-            <TabsContent value={PANTONE_CATEGORY_ID} className="flex min-h-[24rem] pt-2">
+            <TabsContent value={PANTONE_CATEGORY_ID} className="flex h-[clamp(24rem,calc(92vh-15rem),34rem)] min-h-[24rem] pt-2">
               <ColorSystemBrowser
                 selectedCatalogIds={selectedCatalogIds}
                 remaining={MAX_COLORS - selected.length}

@@ -339,6 +339,7 @@ export function ColorSystemBrowser(props: ColorSystemBrowserProps) {
         <ColorCatalogPicker
           queryHook={usePublicColorQuery}
           defaultLibraryKey={PANTONE_TCX_LIBRARY_KEY}
+          presentation="swatch-card"
           selectedCatalogIds={props.selectedCatalogIds}
           maxReached={props.remaining <= 0}
           onSelect={(selection) => props.onSelect(selection, "pantone")}

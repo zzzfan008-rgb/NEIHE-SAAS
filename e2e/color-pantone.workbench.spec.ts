@@ -4,17 +4,23 @@ import { expect, test } from "./fixtures";
 const releaseId = "d".repeat(64);
 const catalogA = "a".repeat(64);
 const catalogB = "b".repeat(64);
-const catalogColor = (id: string, code: string) => ({
+const catalogColor = (id: string, code: string, hex: `#${string}` = "#AABBCC") => ({
   id,
   libraryKey: "pantone-tcx",
   code,
   status: "ready",
-  hex: "#AABBCC",
+  hex,
   hue: "neutral",
   outOfGamut: false,
 });
 
-async function installPantoneApi(page: Page) {
+async function installPantoneApi(
+  page: Page,
+  catalogColors = [
+    catalogColor(catalogA, "11-1000 TCX"),
+    catalogColor(catalogB, "11-1001 TCX"),
+  ],
+) {
   const catalogQueries: string[] = [];
   let pantoneFavorites: Array<Record<string, string>> = [];
   await page.route("**/api/auth/color-preferences", async (route: Route) => {
@@ -55,7 +61,11 @@ async function installPantoneApi(page: Page) {
       await route.fulfill({
         json: {
           releaseId,
-          libraries: [{ libraryKey: "pantone-tcx", ready: 2, total: 2 }],
+          libraries: [{
+            libraryKey: "pantone-tcx",
+            ready: catalogColors.length,
+            total: catalogColors.length,
+          }],
         },
       });
       return;
@@ -66,10 +76,7 @@ async function installPantoneApi(page: Page) {
         json: {
           releaseId,
           activeReleaseId: releaseId,
-          colors: [
-            catalogColor(catalogA, "11-1000 TCX"),
-            catalogColor(catalogB, "11-1001 TCX"),
-          ],
+          colors: catalogColors,
           nextOffset: null,
         },
       });
@@ -233,6 +240,77 @@ test("Pantone identities survive same-HEX selection, favorites and palette creat
   await expect(
     reopened.getByText("11-1001 TCX", { exact: true }),
   ).toBeVisible();
+});
+
+test("Pantone swatches and preview stay in two columns across desktop widths", async ({
+  page,
+}) => {
+  const palette = [
+    "#AABBCC", "#AABBCC", "#84CCDD", "#6BBFC2", "#EBDC9F",
+    "#DDC385", "#D8C599", "#C9B27C", "#C1A87E", "#B89F74",
+    "#A87D58", "#95654A", "#7C4E3C", "#6D3D2F", "#E7C7C7",
+    "#DCA5A5", "#CB8282", "#B76262", "#A84B4B", "#8E3A3A",
+    "#9AB89A", "#729B7C", "#527F68", "#386553", "#244B3F",
+  ] as const;
+  const colors = palette.map((hex, index) => catalogColor(
+    index === 0 ? catalogA : index === 1 ? catalogB : (index + 1).toString(16).padStart(64, "0"),
+    `11-${String(1000 + index)} TCX`,
+    hex,
+  ));
+  await installPantoneApi(page, colors);
+  await page.goto("/e2e/fixtures/color-tool.html?picker=native");
+  await page.getByRole("button", { name: "开始取色测试" }).click();
+  const dialog = page.getByRole("dialog", { name: "色彩工具" });
+  await dialog.getByRole("tab", { name: "Pantone", exact: true }).click();
+
+  const columns = dialog.getByLabel("潘通双栏选色");
+  const grid = dialog.getByLabel("潘通颜色网格");
+  const preview = dialog.getByLabel("潘通色卡预览");
+  const first = dialog.getByRole("button", {
+    name: /11-1000 TCX.*pantone-tcx.*#AABBCC/,
+  });
+  const second = dialog.getByRole("button", {
+    name: /11-1001 TCX.*pantone-tcx.*#AABBCC/,
+  });
+  const firstCode = grid.getByText("11-1000 TCX", { exact: true });
+
+  await expect(columns).toBeVisible();
+  await expect(dialog.getByLabel("色号搜索结果").getByRole("button")).toHaveCount(25);
+  await expect(firstCode).toBeVisible();
+  await expect(preview).toContainText("11-1000 TCX");
+  const [columnsBox, gridBox, previewBox, swatchBox, codeBox] = await Promise.all([
+    columns.boundingBox(),
+    grid.boundingBox(),
+    preview.boundingBox(),
+    first.boundingBox(),
+    firstCode.boundingBox(),
+  ]);
+  expect(columnsBox).not.toBeNull();
+  expect(gridBox).not.toBeNull();
+  expect(previewBox).not.toBeNull();
+  expect(swatchBox).not.toBeNull();
+  expect(codeBox).not.toBeNull();
+  expect(gridBox!.x + gridBox!.width).toBeLessThan(previewBox!.x);
+  expect(Math.abs(swatchBox!.width - swatchBox!.height)).toBeLessThanOrEqual(1);
+  expect(codeBox!.y).toBeGreaterThanOrEqual(swatchBox!.y + swatchBox!.height);
+  expect(codeBox!.x).toBeLessThan(swatchBox!.x + swatchBox!.width);
+  expect(codeBox!.x + codeBox!.width).toBeGreaterThan(swatchBox!.x);
+  expect(columnsBox!.x).toBeGreaterThanOrEqual(0);
+  expect(previewBox!.x + previewBox!.width).toBeLessThanOrEqual(
+    page.viewportSize()!.width,
+  );
+
+  await second.hover();
+  await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toHaveText("#AABBCC");
+  await expect(preview).toContainText("11-1001 TCX");
+  await first.focus();
+  await expect(preview).toContainText("11-1000 TCX");
+  await first.click();
+  await expect(dialog.getByText("已选 1/8")).toBeVisible();
+  await expect(preview.getByText("已选择", { exact: true })).toBeVisible();
+  await second.hover();
+  await first.hover();
+  await expect(page.locator('[data-slot="tooltip-content"][data-open]')).toHaveText("#AABBCC");
 });
 
 test("legacy preference responses cannot erase locally migrated Pantone favorites", async ({

@@ -1,4 +1,58 @@
-# 色彩工具：第 1 张「内嵌轻星」验收（2026-09-11）
+# Pantone 双栏布局 Design QA
+
+- Source visual truth: `/var/folders/7m/7st5h2m55yvg30rzwdtzt_700000gn/T/codex-clipboard-387bbb3a-3c2c-4c65-8bc4-803a889163f7.png`
+- Implementation screenshots: `/tmp/pantone-codes-1024.png`, `/tmp/pantone-implementation-1280.png`, `/tmp/pantone-implementation-1440.png`
+- Viewports / screenshots: 1024 × 768, 1280 × 720, 1440 × 900 CSS px and physical px; device scale factor 1.
+- Source pixels: 2026 × 1572. It documents the original row layout; the user's written brief defines the intended double-column transformation.
+- State: dark theme, Pantone > 全系列, 25 available swatches with persistent Pantone codes, no selected colors.
+- Comparison: source and 1024px implementation were rendered together in a temporary local comparison page for the full-view composition check; the temporary page was removed after inspection. The implementation screenshots were also inspected at original size for typography, tooltip, grid, and card detail.
+
+## Findings
+
+No actionable P0/P1/P2 findings remain.
+
+- Fonts and typography: existing product font stack, weights, sizes, and muted hierarchy are preserved. Pantone code is the dominant card label; library and HEX remain legible at 1024px.
+- Spacing and layout rhythm: the result area uses a stable two-column composition with a 16px gap. Swatches remain square, tile consistently, and do not collide with the right card at 1024, 1280, or 1440px.
+- Colors and tokens: panel, borders, focus, selection, and text continue to use the existing `--gc-*` theme tokens. Catalog HEX values are applied directly to swatches and the preview field.
+- Image and asset fidelity: this surface contains no raster imagery or custom decorative assets. The selected-state mark uses the existing Lucide icon dependency.
+- Copy and content: every grid swatch displays its Pantone code directly below the color. Pantone code, library label, and HEX are also preserved in the card and accessible name. Hover and keyboard focus expose the HEX tooltip and update the matching card.
+- Residual test gap: two unrelated workbench tests for resize-handle hit testing and quick-transform node selection fail identically on clean commit `ed8d55b`; they do not execute the Pantone surface and are not caused by this change.
+
+## Comparison History
+
+1. First pass: P2 — the original fixed-aspect color field made the right card's HEX detail fall below the visible 1024px area.
+2. Fix: changed the card to a fixed information section plus a flexible color field and compacted internal spacing.
+3. Post-fix evidence: `/tmp/pantone-implementation-1024.png` shows code, library, and HEX simultaneously; the 1280px and 1440px captures preserve the same hierarchy.
+4. Follow-up: added persistent Pantone codes below every square swatch and widened the tile minimum to keep the labels legible. `/tmp/pantone-codes-1024.png` confirms that all 25 codes remain aligned without narrowing the right-hand card.
+
+## Focused Region Check
+
+The right preview card and first two grid rows were inspected at original screenshot resolution because the full-view comparison was too small to judge the tooltip and lower card labels. Both the hover HEX and all card metadata are visible after the fix.
+
+## Primary Interaction Evidence
+
+- Hover changes the right-hand card and displays HEX.
+- Keyboard focus changes the right-hand card.
+- Clicking selects a catalog identity; selected swatches keep hover support and can be clicked again to remove.
+- Existing same-HEX/different-Pantone identity, favorites, selection count, and palette creation flows remain covered.
+
+## Follow-up Polish
+
+- P3, pre-existing and outside this change: the hue select currently renders the raw `__all_hues__` value instead of the visible label `全部色相`.
+
+## Implementation Checklist
+
+- [x] Scoped double-column presentation to the public Pantone browser.
+- [x] Displayed each Pantone code immediately below its matching square swatch.
+- [x] Preserved list presentation for color group and import review consumers.
+- [x] Verified geometry and interactions at all supported acceptance widths.
+- [x] Kept footer controls visible and prevented horizontal overflow.
+
+final result: passed
+
+---
+
+# 历史：色彩工具第 1 张「内嵌轻星」验收（2026-09-11）
 
 - 范围：所有色系、我的收藏、自定义颜色、最近使用的收藏星形；保留现有面板布局与业务状态。
 - source visual truth: `/Users/neihe/.codex/generated_images/01a0899e-475a-7822-8a65-fc80c52635e1/exec-7bdd8e56-0449-40a4-adaa-f8d9f94cfe76.png`（1254×1254 设计板）。
