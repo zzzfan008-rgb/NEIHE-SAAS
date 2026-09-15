@@ -44,6 +44,28 @@ async function imageInfo(dataUrl: string) {
 
 console.log("精确批量生成回归测试");
 
+await test("线稿优化在 Seedream 忽略画幅时仍输出所选比例且只请求一张", async () => {
+  const portrait = await fixtureDataUrl(100, 200);
+  let calls = 0;
+  const provider: AIProvider = {
+    id: "stub",
+    async generate() { throw new Error("unexpected generate"); },
+    async edit(request) {
+      calls += 1;
+      assert.equal(request.aspectRatio, "4:3");
+      return { images: [portrait], model: "seedream-5-0-260128" };
+    },
+  };
+  const result = await executeStep({
+    nodeId: "optimize-ratio", kind: "sketch-optimize", providerId: "apiyi",
+    inputImages: [portrait], params: { modelId: "seedream-5-0-260128", aspectRatio: "4:3", batchSize: 1, prompt: "保留结构线", modelOptions: { size: "2K" } },
+  }, [portrait], () => provider);
+  assert.equal(calls, 1);
+  assert.equal(result.images.length, 1);
+  const { metadata } = await imageInfo(result.images[0]);
+  assert.equal(metadata.width! * 3, metadata.height! * 4);
+});
+
 await test("上游忽略 n 每次只回一张时，AI 改款仍补足用户选择数量", async () => {
   let calls = 0;
   const provider: AIProvider = {

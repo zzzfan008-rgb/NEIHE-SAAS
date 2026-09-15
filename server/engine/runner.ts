@@ -702,7 +702,7 @@ export async function postProcessGeneratedOutputImages(
   params: Record<string, unknown>,
   images: string[],
 ): Promise<string[]> {
-  if (kind !== "sketch-to-render" && kind !== "ai-modify" && kind !== "upscale") return images;
+  if (kind !== "sketch-optimize" && kind !== "sketch-to-render" && kind !== "ai-modify" && kind !== "upscale") return images;
   if (kind !== "upscale" && params.modelId === "gemini-3.1-flash-image") return images;
   const aspectRatio = normalizeExactAspectRatio(params.aspectRatio);
   const imageSize = normalizeUpscaleSize(params.imageSize);
@@ -1188,7 +1188,7 @@ export async function executeStep(
       const request = {
         prompt,
         referenceImages: providerReferenceImages.length ? providerReferenceImages : undefined,
-        aspectRatio: step.kind === "sketch-to-render" || step.kind === "ai-modify"
+        aspectRatio: step.kind === "sketch-optimize" || step.kind === "sketch-to-render" || step.kind === "ai-modify"
           ? normalizeExactAspectRatio(step.params.aspectRatio)
           : step.params.aspectRatio as string | undefined,
         batchSize: step.params.batchSize as number | undefined,
