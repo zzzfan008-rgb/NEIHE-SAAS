@@ -404,6 +404,6 @@ CodeGraph impact 已核对 `ColorSwatch`、`normalizeColorSwatches`、`CustomCol
 - 分析记录使用 revision 锁和显式 `outcome_unknown` 恢复 15 分钟陈旧租约；UI 对分析/保存未知结果先刷新记录，不盲目重试。关闭或替换未入库分析必须确认并删除服务端草稿。模型配置仅接受已实现的 Gemini 协议，不向浏览器返回网关密钥。
 - 人工校准要求名称、材质描述与 1～12 个 canonical HEX，可保留主库校验后的 Pantone 身份。保存时只共享原图裁切样本，私人原图不对其他账号公开；创建者可编辑自己的共享面料，管理员可管理全部非 private 素材，收窄可见性和删除均受跨账号项目引用保护。
 - 素材库面料分类提供“上传并分析”；已校准面料可查看/编辑材质与颜色，历史面料缺少分析数据时显示空态而不报错。未增加全局工具入口、移动端布局或画布节点。
-- 最终验证：目标 LSP 无错误；`npm exec --yes --package=pnpm@11.19.0 -- npm run check` 与同包装的 `npm run build` 均 exit 0；四个专项 E2E 在 1024、1280、1440 共 121 项通过、3 项可选 ego review 窗口跳过。ego-browser 在新建隔离实例验证 Pantone 工具、面料上传/裁切/校准前状态、模型设置、未知主库空态、对话框几何及放弃草稿流程，截图保存于 `/tmp/final-ego-pantone-wide.png`、`/tmp/final-ego-material-analysis.png`、`/tmp/final-ego-material-model-settings.png`。
+- 最终验证：目标 LSP 无错误；`npm exec --yes --package=pnpm@11.19.0 -- npm run check` 与同包装的 `npm run build` 均 exit 0；四个专项 E2E 在 1024、1280、1440 共 121 项通过、3 项可选 ego review 窗口跳过。ego-browser 在新建隔离实例验证 Pantone 工具、面料上传/裁切/校准前状态、模型设置、未知主库空态、对话框几何及放弃草稿流程，截图保存于 `/tmp/final-ego-pantone-wide.png`、`/tmp/ego-material-analysis.png`、`/tmp/ego-material-model-settings.png`。
 - 最终独立只读审查发现的问题已闭环：每条 Pantone 引用逐项 canonical 校验；旧收藏响应不清空本地 Pantone；目录/删除/模型配置的脏状态、进行中和未知写结果均阻止离开并要求显式刷新；材质人工校准刷新不再覆盖草稿；未知付费分析必须二次确认；陈旧分析租约在全局清理和账号转移前恢复；账号转移同步 `material_analyses.owner_id` 并阻止仍在进行中的分析。对应 PostgreSQL、单元和三宽 E2E 回归已纳入上述 `check`/E2E 结果。
 - CodeGraph 已同步并按全部新增/修改源文件选择受影响测试；`gate:codex` 仍调用被项目规则禁用的 GitNexus，未运行且不报告完整 gate 通过。真实 AI 调用、专有 Pantone 数据导入、部署和发布不在本次验证中。
