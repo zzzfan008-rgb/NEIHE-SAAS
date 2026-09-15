@@ -370,7 +370,7 @@ filesRouter.get("/:id/thumbnail", asyncHandler(async (req, res) => {
   }
   const access = await canAccessFile(id, req);
   if (access === "denied") {
-    res.status(403).json({ error: "无权访问此文件" });
+    res.status(404).json({ error: "file not found" });
     return;
   }
   try {
@@ -397,7 +397,7 @@ filesRouter.get("/:id", asyncHandler(async (req, res) => {
   }
   const access = await canAccessFile(id, req);
   if (access === "denied") {
-    res.status(403).json({ error: "无权访问此文件" });
+    res.status(404).json({ error: "file not found" });
     return;
   }
   res.setHeader("Content-Type", mimeOfFile(id));

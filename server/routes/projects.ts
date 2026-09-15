@@ -6,6 +6,7 @@ import { asyncHandler } from "../lib/asyncHandler";
 import { query, queryOne, transaction } from "../lib/database";
 import { deleteStoredImage } from "../lib/fileStore";
 import { validateAndMigrateFlow, WorkflowValidationError } from "../lib/workflowSchema";
+import { assertWorkflowPantoneReferences } from "../lib/workflowPantoneValidation";
 import {
   assertImageReferencesAccessible,
   ImageReferenceAccessError,
@@ -309,6 +310,7 @@ projectsRouter.post("/", asyncHandler(async (req, res) => {
           currentRevision: existing.draft_revision,
         };
       }
+      await assertWorkflowPantoneReferences(normalized, client);
       await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update" });
       await assertDrawingBoardReferences(client, user.id, projectId, normalized);
       await syncMaskFiles(client, projectId, user.id, normalized, new Date(now));
@@ -431,6 +433,7 @@ projectsRouter.post("/initial-draft/bootstrap", asyncHandler(async (req, res) =>
       const now = new Date();
       const nowIso = now.toISOString();
       const projectName = typeof name === "string" ? name.trim() : initialDraftProjectName(now);
+      await assertWorkflowPantoneReferences(normalized, client);
       await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update" });
       await assertDrawingBoardReferences(client, user.id, projectId, normalized);
       await syncMaskFiles(client, projectId, user.id, normalized, now);
@@ -515,6 +518,7 @@ projectsRouter.put("/initial-draft/:id", asyncHandler(async (req, res) => {
 
       const now = new Date();
       const nowIso = now.toISOString();
+      await assertWorkflowPantoneReferences(normalized, client);
       await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update" });
       await assertDrawingBoardReferences(client, user.id, req.params.id, normalized);
       await syncMaskFiles(client, req.params.id, user.id, normalized, now);

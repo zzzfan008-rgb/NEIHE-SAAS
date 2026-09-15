@@ -39,6 +39,9 @@ assert.deepEqual(versions, [
   { version: 16, name: "preserve_small_upload_images" },
   { version: 17, name: "asset_library_categories" },
   { version: 18, name: "user_color_preferences" },
+  { version: 19, name: "versioned_color_catalog" },
+  { version: 20, name: "brand_color_management" },
+  { version: 21, name: "material_analysis_and_assets" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
 

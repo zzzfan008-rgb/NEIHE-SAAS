@@ -3,6 +3,9 @@ import { nanoid } from "nanoid";
 import { config } from "../config";
 import { hashPassword, validatePassword } from "./password";
 import { importSqliteIfNeeded } from "./sqliteImport";
+import { migrateColorCatalog } from "./colorCatalogMigration";
+import { migrateBrandColors } from "./brandColorMigration";
+import { migrateMaterialAnalysis } from "./materialAnalysisMigration";
 
 const { Pool, types } = pg;
 types.setTypeParser(20, Number);
@@ -696,6 +699,10 @@ async function migrate(): Promise<void> {
         ["user_color_preferences", new Date().toISOString()],
       );
     }
+
+    if (!applied.has(19)) await migrateColorCatalog(client);
+    if (!applied.has(20)) await migrateBrandColors(client);
+    if (!applied.has(21)) await migrateMaterialAnalysis(client, config.sceneAnalysisModel());
 
     // SQLite can be restored after an empty database has already applied migration 17.
     if (!applied.has(17) || imported !== undefined) {

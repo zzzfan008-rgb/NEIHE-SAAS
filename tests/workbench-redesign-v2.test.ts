@@ -90,7 +90,7 @@ assert.match(colorTool, /COLOR_CATEGORIES\.map\(\(category\) =>/);
 assert.match(colorTool, /已选 \{selected\.length\}\/\{MAX_COLORS\}/);
 assert.doesNotMatch(colorTool, /1–32|\/32|>= 32/, "色彩工具必须遵守面料替换的最多八色约束");
 assert.match(colorTool, /MY_FAVORITES_CATEGORY_ID/);
-assert.match(colorTool, /grid-cols-4/);
+assert.match(colorTool, /grid-cols-8/, "加宽色彩工具的普通色块保持紧凑八列布局");
 assert.match(colorTool, />我的收藏</);
 assert.match(colorTool, /StarIcon/);
 assert.match(colorTool, /aria-label=\{`\$\{favorites\.includes\(value\) \? "取消收藏" : "收藏"\} \$\{value\}`\}/);

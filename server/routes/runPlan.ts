@@ -22,6 +22,7 @@ import {
   readDurableRunEvents,
 } from "../engine/runQueue";
 import { validateAndMigrateFlow, WorkflowValidationError } from "../lib/workflowSchema";
+import { assertWorkflowPantoneReferences } from "../lib/workflowPantoneValidation";
 import { requestUser } from "../lib/auth";
 import { asyncHandler } from "../lib/asyncHandler";
 import { queryOne, transaction } from "../lib/database";
@@ -92,6 +93,8 @@ runPlanRouter.post("/", asyncHandler(async (req, res) => {
         edges,
       });
       const flow = validateAndMigrateFlow(JSON.parse(project.flow_json));
+      await assertWorkflowPantoneReferences(submittedFlow, client);
+      await assertWorkflowPantoneReferences(flow, client);
       const planOptions = {
         onlyNodeId,
         includeDownstream: includeDownstream ?? false,

@@ -7,6 +7,7 @@ import { query, queryOne, transaction } from "../lib/database";
 import { deleteStoredImage, saveNormalizedUploadDataUrl, thumbnailUrlForImage } from "../lib/fileStore";
 import { ImageValidationError, isLocalImageReference } from "../lib/imageValidation";
 import { lockActiveOwner } from "../lib/ownerMutation";
+import { MaterialCalibrationError, validateMaterialCalibration } from "../lib/materialAnalysisStore";
 import type { Asset } from "../../src/types/workflow";
 
 export const assetsRouter = Router();
@@ -16,7 +17,8 @@ const TRASH_DAYS = 15;
 interface AssetRow {
   id: string; owner_id: string | null; owner_name: string | null;
   scope: "global" | "private" | "shared"; name: string; category: Asset["category"];
-  image: string; source_note: string | null; created_at: string; deleted_at: string | null; purge_after: string | null;
+  image: string; source_note: string | null; material_metadata: Asset["material"] | null;
+  created_at: string; deleted_at: string | null; purge_after: string | null;
 }
 
 function mapAsset(row: AssetRow, currentUserId: string) {
@@ -30,6 +32,7 @@ function mapAsset(row: AssetRow, currentUserId: string) {
     image: row.image,
     thumbnail: thumbnailUrlForImage(row.image),
     ...(row.source_note ? { sourceNote: row.source_note } : {}),
+    ...(row.material_metadata ? { material: row.material_metadata } : {}),
     createdAt: row.created_at,
     deletedAt: row.deleted_at,
     purgeAfter: row.purge_after,
@@ -72,7 +75,7 @@ assetsRouter.get("/", asyncHandler(async (req, res) => {
   `, [category ?? null, user.role, user.id, limit, offset, searchPattern]);
   res.json(rows.map((row) => ({
     ...mapAsset(row, user.id),
-    canManage: row.scope === "global" ? user.role === "admin" : row.owner_id === user.id,
+    canManage: row.owner_id === user.id || (user.role === "admin" && row.scope !== "private"),
   })));
 }));
 
@@ -178,8 +181,8 @@ assetsRouter.post("/", asyncHandler(async (req, res) => {
 
 assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
   const user = requestUser(req);
-  const { name, scope, category } = req.body as {
-    name?: string; scope?: "global" | "private" | "shared"; category?: Asset["category"];
+  const { name, scope, category, material } = req.body as {
+    name?: string; scope?: "global" | "private" | "shared"; category?: Asset["category"]; material?: unknown;
   };
   if (category !== undefined && !CATEGORIES.includes(category)) {
     res.status(400).json({ error: "素材分类无效" });
@@ -197,16 +200,37 @@ assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
     if (!await lockActiveOwner(client, user.id)) return "owner_unavailable" as const;
     const row = await queryOne<{
       owner_id: string | null; scope: "global" | "private" | "shared"; image: string;
+      category: Asset["category"]; material_metadata: Asset["material"] | null;
     }>(
-      "SELECT owner_id, scope, image FROM assets WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+      "SELECT owner_id, scope, image, category, material_metadata FROM assets WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
       [req.params.id],
       client,
     );
     if (!row) return "missing" as const;
-    const canManage = row.scope === "global" ? user.role === "admin" : row.owner_id === user.id;
+    const canManage = row.owner_id === user.id || (user.role === "admin" && row.scope !== "private");
     if (!canManage) return "forbidden" as const;
+    let confirmedMaterial: Awaited<ReturnType<typeof validateMaterialCalibration>> | null = null;
+    if (material !== undefined) {
+      if ((category ?? row.category) !== "fabric") return "material_category" as const;
+      try { confirmedMaterial = await validateMaterialCalibration(client, material); }
+      catch (error) {
+        if (error instanceof MaterialCalibrationError) return { validation: error.message } as const;
+        throw error;
+      }
+    }
     const nextScope = scope ?? row.scope;
     const nextOwnerId = nextScope === "global" ? null : (row.owner_id ?? user.id);
+    if (scope !== undefined && nextScope === "private" && row.scope !== "private") {
+      const foreignProjectReference = await queryOne<{ project_id: string }>(`
+        SELECT refs.project_id
+        FROM project_asset_refs refs
+        JOIN projects project ON project.id = refs.project_id
+        WHERE refs.asset_id = $1 AND project.owner_id <> $2
+        LIMIT 1
+        FOR SHARE OF project
+      `, [req.params.id, nextOwnerId], client);
+      if (foreignProjectReference) return "project_reference" as const;
+    }
     if (scope !== undefined && scope !== row.scope && isLocalImageReference(row.image)) {
       const sharedReference = await queryOne<{ id: string }>(`
         SELECT id FROM assets
@@ -219,14 +243,30 @@ assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
         UPDATE files SET owner_id = $1, deleted_at = NULL, purge_after = NULL WHERE id = $2
       `, [nextOwnerId, path.basename(row.image)]);
     }
+    const updatedMaterial = confirmedMaterial ? {
+      ...(row.material_metadata ?? {}),
+      materialDescription: confirmedMaterial.materialDescription,
+      colors: confirmedMaterial.colors,
+      confirmedAt: new Date().toISOString(),
+    } : null;
     await client.query(
-      "UPDATE assets SET name = COALESCE($1, name), scope = $2, owner_id = $3, category = COALESCE($5, category) WHERE id = $4",
-      [name?.trim() ?? null, nextScope, nextOwnerId, req.params.id, category ?? null],
+      `UPDATE assets SET name = COALESCE($1, name), scope = $2, owner_id = $3,
+       category = COALESCE($5, category), material_metadata = COALESCE($6::jsonb, material_metadata) WHERE id = $4`,
+      [name?.trim() ?? confirmedMaterial?.name ?? null, nextScope, nextOwnerId, req.params.id, category ?? null,
+        updatedMaterial ? JSON.stringify(updatedMaterial) : null],
     );
     return "updated" as const;
   });
   if (result === "owner_unavailable") {
     res.status(409).json({ error: "账号已停用或删除，不能继续修改素材" });
+    return;
+  }
+  if (result === "material_category") {
+    res.status(400).json({ error: "只有面料素材可以编辑材质校准信息" });
+    return;
+  }
+  if (typeof result === "object" && "validation" in result) {
+    res.status(400).json({ error: result.validation });
     return;
   }
   if (result === "missing") {
@@ -235,6 +275,10 @@ assetsRouter.patch("/:id", asyncHandler(async (req, res) => {
   }
   if (result === "forbidden") {
     res.status(403).json({ error: "无权修改此素材" });
+    return;
+  }
+  if (result === "project_reference") {
+    res.status(409).json({ error: "该素材仍被其他账号的项目引用，不能收窄为私有" });
     return;
   }
   if (result === "shared_reference") {
@@ -293,7 +337,7 @@ assetsRouter.delete("/:id", asyncHandler(async (req, res) => {
       client,
     );
     if (!row) return { status: "missing" as const };
-    const canManage = row.scope === "global" ? user.role === "admin" : row.owner_id === user.id;
+    const canManage = row.owner_id === user.id || (user.role === "admin" && row.scope !== "private");
     if (!canManage) return { status: "forbidden" as const };
     const ref = await queryOne<{ project_id: string }>(
       "SELECT project_id FROM project_asset_refs WHERE asset_id = $1 LIMIT 1",
@@ -337,7 +381,7 @@ assetsRouter.post("/:id/restore", asyncHandler(async (req, res) => {
       client,
     );
     if (!row) return "missing" as const;
-    const canManage = row.scope === "global" ? user.role === "admin" : row.owner_id === user.id;
+    const canManage = row.owner_id === user.id || (user.role === "admin" && row.scope !== "private");
     if (!canManage) return "forbidden" as const;
     await client.query("UPDATE assets SET deleted_at = NULL, purge_after = NULL WHERE id = $1", [req.params.id]);
     return "restored" as const;

@@ -525,7 +525,23 @@ const recoveredV5NodeFields = normalizeTabSessionValue({
     nodes: [
       { id: "text-v5", type: "text-input", position: { x: 0, y: 0 }, data: { kind: "text-input", label: "说明", status: "idle", text: "面料说明", selectionRange: [0, 2] } },
       { id: "board-v5", type: "drawing-board", position: { x: 100, y: 0 }, data: { kind: "drawing-board", label: "画板", status: "idle", boardVersion: 1, width: 1200, height: 900, background: "#FFFFFF", contentRef: "/api/drawings/content-1", previewImageRef: "/api/files/preview.png", exportImageRef: "/api/files/export.png", drawingRecoveryDraft: { private: true } } },
-      { id: "palette-v5", type: "color-palette", position: { x: 200, y: 0 }, data: { kind: "color-palette", label: "色板", status: "idle", paletteVersion: 1, swatches: [{ id: "red", value: "#FF0000", source: "custom" }], recentColors: ["#000000"] } },
+      {
+        id: "palette-v5", type: "color-palette", position: { x: 200, y: 0 },
+        data: {
+          kind: "color-palette", label: "色板", status: "idle", paletteVersion: 2,
+          swatches: [
+            {
+              id: "pantone", value: "#FF0000", source: "pantone",
+              pantone: {
+                catalogId: "a".repeat(64), releaseId: "release-a",
+                libraryKey: "pantone-tcx", code: "11-1000 TCX",
+              },
+            },
+            { id: "red", value: "#FF0000", source: "custom" },
+          ],
+          recentColors: ["#000000"],
+        },
+      },
       { id: "approval-v5", type: "stage-approval", position: { x: 300, y: 0 }, data: { kind: "stage-approval", label: "确认基准", status: "idle", approvalKind: "scene-baseline", approvedSourceNodeId: "stabilize-v5", approvedBaselineRef: "/api/files/baseline.png", approvedBasisRevision: 2, approvedAt: "2026-09-03T00:00:00.000Z", confirmPopoverOpen: true } },
       { id: "stabilize-v5", type: "virtual-try-on", position: { x: 400, y: 0 }, data: { kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize", prompt: "", modelId: "gemini-3.1-flash-image", modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, imageSize: "2K", basisRevision: 2, outputImages: ["/api/files/baseline.png"], displayState: "ready" } },
       { id: "fabric-v5", type: "fabric-recolor", position: { x: 500, y: 0 }, data: { kind: "fabric-recolor", label: "配色替换", status: "idle", operationMode: "color", colors: ["#FF0000"], prompt: "", outputImages: [], modelId: "gpt-image-2-vip", modelOptions: { size: "2048x2048" } } },
@@ -542,6 +558,13 @@ const recoveredV5NodeFields = normalizeTabSessionValue({
 });
 assert.ok(recoveredV5NodeFields);
 assert.deepEqual(recoveredV5NodeFields.tabs[0].nodes.map((node) => node.data.kind), ["text-input", "drawing-board", "color-palette", "stage-approval", "virtual-try-on", "fabric-recolor"]);
+const recoveredV5Palette = recoveredV5NodeFields.tabs[0].nodes[2].data;
+assert.equal(recoveredV5Palette.kind, "color-palette");
+if (recoveredV5Palette.kind === "color-palette") {
+  assert.equal(recoveredV5Palette.paletteVersion, 2);
+  assert.equal(recoveredV5Palette.swatches.length, 2);
+  assert.equal(recoveredV5Palette.swatches[0].pantone?.catalogId, "a".repeat(64));
+}
 const recoveredV5Tab = recoveredV5NodeFields.tabs[0] as unknown as Record<string, unknown>;
 assert.equal(recoveredV5Tab.connectionDraft, undefined);
 assert.equal(recoveredV5Tab.rightDockOpen, undefined);

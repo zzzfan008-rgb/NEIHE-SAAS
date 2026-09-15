@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { nanoid } from "nanoid";
 import { parseColorValue } from "../../src/lib/colorPalette";
+import type { PantoneColorReference } from "../../src/types/colorPreferences";
 import {
   clearSessionCookie,
   createSession,
@@ -17,6 +18,7 @@ import { asyncHandler } from "../lib/asyncHandler";
 import { db, query, queryOne, transaction } from "../lib/database";
 import { hashPassword, validatePassword, verifyPassword } from "../lib/password";
 import { ACTIVE_RUN_LIMIT } from "../lib/generationLimits";
+import { recoverExpiredMaterialAnalysisLeasesForOwner } from "../lib/materialAnalysisStore";
 import {
   prepareUserTemplateAccountMutation,
   reconcileUserTemplateAccountMutations,
@@ -49,7 +51,17 @@ function publicUser(row: UserRow) {
 const MAX_FAVORITE_COLORS = 128;
 const MAX_COLOR_VALUE_LENGTH = 64;
 
-function normalizeFavoriteColors(value: unknown): string[] {
+interface StoredPantoneFavorite extends PantoneColorReference {
+  type: "pantone";
+}
+
+interface FavoritePreferences {
+  favorites: string[];
+  pantoneFavorites: PantoneColorReference[];
+  stored: Array<string | StoredPantoneFavorite>;
+}
+
+function normalizeFavoriteHexes(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > MAX_FAVORITE_COLORS) {
     throw new Error(`收藏颜色必须是最多 ${MAX_FAVORITE_COLORS} 项的数组`);
   }
@@ -66,6 +78,79 @@ function normalizeFavoriteColors(value: unknown): string[] {
     }
   }
   return favorites;
+}
+
+function pantoneShape(value: unknown): PantoneColorReference {
+  if (!value || typeof value !== "object") throw new Error("Pantone 收藏格式无效");
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.catalogId !== "string" || !/^[0-9a-f]{64}$/.test(candidate.catalogId)
+    || typeof candidate.releaseId !== "string" || !candidate.releaseId.trim() || candidate.releaseId.length > 128
+    || typeof candidate.libraryKey !== "string" || !candidate.libraryKey.trim() || candidate.libraryKey.length > 120
+    || typeof candidate.code !== "string" || !candidate.code.trim() || candidate.code.length > 120
+    || typeof candidate.hex !== "string") {
+    throw new Error("Pantone 收藏格式无效");
+  }
+  return {
+    catalogId: candidate.catalogId,
+    releaseId: candidate.releaseId.trim(),
+    libraryKey: candidate.libraryKey.trim(),
+    code: candidate.code.trim(),
+    hex: parseColorValue(candidate.hex),
+  };
+}
+
+function normalizeStoredFavorites(value: unknown): FavoritePreferences {
+  if (!Array.isArray(value) || value.length > MAX_FAVORITE_COLORS) {
+    throw new Error(`收藏颜色必须是最多 ${MAX_FAVORITE_COLORS} 项的数组`);
+  }
+  const favorites: string[] = [];
+  const pantoneFavorites: PantoneColorReference[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item === "string") {
+      const color = normalizeFavoriteHexes([item])[0];
+      const key = `hex:${color}`;
+      if (!seen.has(key)) { seen.add(key); favorites.push(color); }
+      continue;
+    }
+    const reference = pantoneShape(item);
+    const key = `pantone:${reference.catalogId}`;
+    if (!seen.has(key)) { seen.add(key); pantoneFavorites.push(reference); }
+  }
+  return {
+    favorites,
+    pantoneFavorites,
+    stored: [
+      ...favorites,
+      ...pantoneFavorites.map((favorite) => ({ type: "pantone" as const, ...favorite })),
+    ],
+  };
+}
+
+function favoriteResponse(preferences: FavoritePreferences) {
+  return { favorites: preferences.favorites, pantoneFavorites: preferences.pantoneFavorites };
+}
+
+async function canonicalPantoneFavorite(
+  client: { query: (text: string, values?: unknown[]) => Promise<{ rows: unknown[] }> },
+  raw: unknown,
+): Promise<PantoneColorReference> {
+  const requested = pantoneShape(raw);
+  const result = await client.query(`
+    SELECT i.id AS "catalogId", v.release_id AS "releaseId",
+           i.library_key AS "libraryKey", i.code, v.hex
+    FROM color_catalog_identities i
+    JOIN color_catalog_versions v ON v.color_id = i.id
+    WHERE i.id = $1 AND v.release_id = $2 AND v.status = 'ready' AND v.hex IS NOT NULL
+  `, [requested.catalogId, requested.releaseId]);
+  const canonical = result.rows[0] as PantoneColorReference | undefined;
+  if (!canonical
+    || canonical.libraryKey !== requested.libraryKey
+    || canonical.code !== requested.code
+    || canonical.hex !== requested.hex) {
+    throw new Error("Pantone 收藏与主库版本不一致，请刷新后重试");
+  }
+  return canonical;
 }
 
 function validateExpectedPreferenceOwner(req: Request, res: Response, userId: string): boolean {
@@ -145,81 +230,161 @@ authRouter.get("/color-preferences", asyncHandler(async (req, res) => {
   const row = await queryOne<{ favorite_colors: unknown }>(`
     SELECT favorite_colors FROM user_color_preferences WHERE user_id = $1
   `, [user.id]);
+  const preferences = row
+    ? normalizeStoredFavorites(row.favorite_colors)
+    : normalizeStoredFavorites([]);
   res.setHeader("Cache-Control", "no-store");
-  res.json({
-    ownerId: user.id,
-    favorites: row ? normalizeFavoriteColors(row.favorite_colors) : [],
-    initialized: Boolean(row),
-  });
+  res.json({ ownerId: user.id, ...favoriteResponse(preferences), initialized: Boolean(row) });
 }));
 
 authRouter.put("/color-preferences", asyncHandler(async (req, res) => {
   const user = requestUser(req);
   if (!validateExpectedPreferenceOwner(req, res, user.id)) return;
+  const body = req.body as { favorites?: unknown; pantoneFavorites?: unknown };
   let favorites: string[];
+  let rawPantoneFavorites: unknown[];
   try {
-    favorites = normalizeFavoriteColors((req.body as { favorites?: unknown })?.favorites);
+    favorites = normalizeFavoriteHexes(body.favorites);
+    const raw = body.pantoneFavorites ?? [];
+    if (!Array.isArray(raw)) throw new Error("Pantone 收藏必须是数组");
+    rawPantoneFavorites = raw;
+    if (favorites.length + rawPantoneFavorites.length > MAX_FAVORITE_COLORS) {
+      throw new Error(`收藏颜色最多保存 ${MAX_FAVORITE_COLORS} 项`);
+    }
+    rawPantoneFavorites.forEach(pantoneShape);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "收藏颜色格式无效" });
     return;
   }
-  const initializedFavorites = await transaction(async (client) => {
-    const updatedAt = new Date().toISOString();
-    await client.query(`
-      INSERT INTO user_color_preferences (user_id, favorite_colors, updated_at)
-      VALUES ($1, $2::jsonb, $3)
-      ON CONFLICT (user_id) DO NOTHING
-    `, [user.id, JSON.stringify(favorites), updatedAt]);
-    const result = await client.query<{ favorite_colors: unknown }>(`
-      SELECT favorite_colors FROM user_color_preferences WHERE user_id = $1
-    `, [user.id]);
-    return normalizeFavoriteColors(result.rows[0]?.favorite_colors);
-  });
-  res.json({ ownerId: user.id, favorites: initializedFavorites });
+  let initialized: FavoritePreferences;
+  try {
+    initialized = await transaction(async (client) => {
+      const pantoneFavorites: PantoneColorReference[] = [];
+      for (const raw of rawPantoneFavorites) {
+        pantoneFavorites.push(await canonicalPantoneFavorite(client, raw));
+      }
+      const preferences = normalizeStoredFavorites([
+        ...favorites,
+        ...pantoneFavorites.map((favorite) => ({ type: "pantone", ...favorite })),
+      ]);
+      const updatedAt = new Date().toISOString();
+      await client.query(`
+        INSERT INTO user_color_preferences (user_id, favorite_colors, updated_at)
+        VALUES ($1, $2::jsonb, $3)
+        ON CONFLICT (user_id) DO NOTHING
+      `, [user.id, JSON.stringify(preferences.stored), updatedAt]);
+      const result = await client.query<{ favorite_colors: unknown }>(`
+        SELECT favorite_colors FROM user_color_preferences WHERE user_id = $1
+      `, [user.id]);
+      return normalizeStoredFavorites(result.rows[0]?.favorite_colors);
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "Pantone 收藏与主库版本不一致，请刷新后重试") {
+      res.status(409).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
+  res.json({ ownerId: user.id, ...favoriteResponse(initialized) });
 }));
 
 authRouter.patch("/color-preferences", asyncHandler(async (req, res) => {
   const user = requestUser(req);
   if (!validateExpectedPreferenceOwner(req, res, user.id)) return;
-  const body = req.body as { color?: unknown; favorite?: unknown; bootstrapFavorites?: unknown };
-  let color: string;
+  const body = req.body as {
+    color?: unknown;
+    pantone?: unknown;
+    favorite?: unknown;
+    bootstrapFavorites?: unknown;
+    bootstrapPantoneFavorites?: unknown;
+  };
+  let favorite: boolean;
+  let color: string | null;
+  let pantone: PantoneColorReference | null;
   let bootstrapFavorites: string[];
+  let rawBootstrapPantone: unknown[];
   try {
     if (body.favorite !== true && body.favorite !== false) throw new Error("收藏状态格式无效");
-    color = normalizeFavoriteColors([body.color])[0];
-    bootstrapFavorites = normalizeFavoriteColors(body.bootstrapFavorites ?? []);
+    favorite = body.favorite;
+    const isPantone = body.pantone !== undefined;
+    if (isPantone === (body.color !== undefined)) throw new Error("必须且只能指定一种收藏颜色");
+    color = isPantone ? null : normalizeFavoriteHexes([body.color])[0];
+    pantone = isPantone ? pantoneShape(body.pantone) : null;
+    bootstrapFavorites = normalizeFavoriteHexes(body.bootstrapFavorites ?? []);
+    const raw = body.bootstrapPantoneFavorites ?? [];
+    if (!Array.isArray(raw)) throw new Error("Pantone 收藏必须是数组");
+    rawBootstrapPantone = raw;
+    if (bootstrapFavorites.length + rawBootstrapPantone.length > MAX_FAVORITE_COLORS) {
+      throw new Error(`收藏颜色最多保存 ${MAX_FAVORITE_COLORS} 项`);
+    }
+    rawBootstrapPantone.forEach(pantoneShape);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "收藏颜色格式无效" });
     return;
   }
-  const result = await transaction(async (client) => {
-    const updatedAt = new Date().toISOString();
-    await client.query(`
-      INSERT INTO user_color_preferences (user_id, favorite_colors, updated_at)
-      VALUES ($1, $2::jsonb, $3)
-      ON CONFLICT (user_id) DO NOTHING
-    `, [user.id, JSON.stringify(bootstrapFavorites), updatedAt]);
-    const locked = await client.query<{ favorite_colors: unknown }>(`
-      SELECT favorite_colors FROM user_color_preferences WHERE user_id = $1 FOR UPDATE
-    `, [user.id]);
-    const current = normalizeFavoriteColors(locked.rows[0]?.favorite_colors);
-    const favorites = body.favorite
-      ? current.includes(color) ? current : [...current, color]
-      : current.filter((candidate) => candidate !== color);
-    if (favorites.length > MAX_FAVORITE_COLORS) {
-      return { favorites: current, limitReached: true };
+
+  let result: { preferences: FavoritePreferences; limitReached: boolean };
+  try {
+    result = await transaction(async (client) => {
+      const bootstrapPantone: PantoneColorReference[] = [];
+      for (const raw of rawBootstrapPantone) {
+        bootstrapPantone.push(await canonicalPantoneFavorite(client, raw));
+      }
+      const bootstrap = normalizeStoredFavorites([
+        ...bootstrapFavorites,
+        ...bootstrapPantone.map((entry) => ({ type: "pantone", ...entry })),
+      ]);
+      const updatedAt = new Date().toISOString();
+      await client.query(`
+        INSERT INTO user_color_preferences (user_id, favorite_colors, updated_at)
+        VALUES ($1, $2::jsonb, $3)
+        ON CONFLICT (user_id) DO NOTHING
+      `, [user.id, JSON.stringify(bootstrap.stored), updatedAt]);
+      const locked = await client.query<{ favorite_colors: unknown }>(`
+        SELECT favorite_colors FROM user_color_preferences WHERE user_id = $1 FOR UPDATE
+      `, [user.id]);
+      const current = normalizeStoredFavorites(locked.rows[0]?.favorite_colors);
+      const favorites = color === null
+        ? current.favorites
+        : favorite
+          ? current.favorites.includes(color) ? current.favorites : [...current.favorites, color]
+          : current.favorites.filter((candidate) => candidate !== color);
+      let pantoneFavorites = current.pantoneFavorites;
+      if (pantone) {
+        const canonical = favorite
+          ? await canonicalPantoneFavorite(client, pantone)
+          : pantone;
+        pantoneFavorites = favorite
+          ? current.pantoneFavorites.some((candidate) => candidate.catalogId === canonical.catalogId)
+            ? current.pantoneFavorites
+            : [...current.pantoneFavorites, canonical]
+          : current.pantoneFavorites.filter((candidate) => candidate.catalogId !== canonical.catalogId);
+      }
+      if (favorites.length + pantoneFavorites.length > MAX_FAVORITE_COLORS) {
+        return { preferences: current, limitReached: true };
+      }
+      const preferences = normalizeStoredFavorites([
+        ...favorites,
+        ...pantoneFavorites.map((entry) => ({ type: "pantone", ...entry })),
+      ]);
+      await client.query(`
+        UPDATE user_color_preferences SET favorite_colors = $1::jsonb, updated_at = $2
+        WHERE user_id = $3
+      `, [JSON.stringify(preferences.stored), updatedAt, user.id]);
+      return { preferences, limitReached: false };
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "Pantone 收藏与主库版本不一致，请刷新后重试") {
+      res.status(409).json({ error: error.message });
+      return;
     }
-    await client.query(`
-      UPDATE user_color_preferences SET favorite_colors = $1::jsonb, updated_at = $2
-      WHERE user_id = $3
-    `, [JSON.stringify(favorites), updatedAt, user.id]);
-    return { favorites, limitReached: false };
-  });
+    throw error;
+  }
   if (result.limitReached) {
     res.status(400).json({ error: `收藏颜色最多保存 ${MAX_FAVORITE_COLORS} 项` });
     return;
   }
-  res.json({ ownerId: user.id, favorites: result.favorites });
+  res.json({ ownerId: user.id, ...favoriteResponse(result.preferences) });
 }));
 authRouter.get("/users", requireAdmin, asyncHandler(async (_req, res) => {
   const rows = await query<UserRow>(`
@@ -353,6 +518,12 @@ authRouter.delete("/users/:id", requireAdmin, asyncHandler(async (req, res) => {
     if (!lockedSource || lockedSource.deleted_at !== null) {
       return { status: "source_changed" as const };
     }
+    await recoverExpiredMaterialAnalysisLeasesForOwner(req.params.id, client);
+    const activeMaterialAnalyses = (await client.query<{ count: number }>(`
+      SELECT COUNT(*)::int AS count FROM material_analyses
+      WHERE owner_id = $1 AND status = 'analyzing'
+    `, [req.params.id])).rows[0]?.count ?? 0;
+    if (activeMaterialAnalyses > 0) return { status: "active_material_analysis" as const };
     if (transferToUserId) {
       const lockedTarget = lockedUsers.find((row) => row.id === transferToUserId);
       if (!lockedTarget || lockedTarget.active !== 1 || lockedTarget.deleted_at !== null) {
@@ -394,6 +565,10 @@ authRouter.delete("/users/:id", requireAdmin, asyncHandler(async (req, res) => {
       for (const table of ["projects", "assets"] as const) {
         await client.query(`UPDATE ${table} SET owner_id = $1 WHERE owner_id = $2`, [transferToUserId, req.params.id]);
       }
+      await client.query(
+        "UPDATE material_analyses SET owner_id = $1 WHERE owner_id = $2",
+        [transferToUserId, req.params.id],
+      );
       await client.query(`
         UPDATE try_on_style_presets source
         SET name = source.name || '（转移 ' || left(source.id, 4) || '）'
@@ -480,6 +655,10 @@ authRouter.delete("/users/:id", requireAdmin, asyncHandler(async (req, res) => {
   }
   if (outcome.status === "target_changed") {
     res.status(409).json({ error: "数据接收用户状态已变化，请刷新后重试" });
+    return;
+  }
+  if (outcome.status === "active_material_analysis") {
+    res.status(409).json({ error: "账号仍有进行中的材质分析，请等待完成或恢复结果后再操作" });
     return;
   }
   if (outcome.status === "active_limit") {

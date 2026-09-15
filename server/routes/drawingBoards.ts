@@ -13,6 +13,7 @@ import {
 import { assertImageReferencesAccessible, ImageReferenceAccessError } from "../lib/imageReferenceAccess";
 import { lockActiveOwner } from "../lib/ownerMutation";
 import { validateAndMigrateFlow, WorkflowValidationError } from "../lib/workflowSchema";
+import { assertWorkflowPantoneReferences } from "../lib/workflowPantoneValidation";
 import { DrawingBoardValidationError } from "../../src/components/drawing/drawingModel";
 
 export const drawingBoardsRouter = Router();
@@ -75,6 +76,7 @@ drawingBoardsRouter.post("/create", asyncHandler(async (req, res) => {
           ? { status: "replay" as const, contentRef: replay.content_ref, sha256: replay.sha256, createdAt: replay.created_at }
           : { status: "not-found" as const };
       }
+      await assertWorkflowPantoneReferences(flow, client);
       if (flow.nodes.some((candidate) => candidate.id === nodeId)) return { status: "node-conflict" as const };
       await assertImageReferencesAccessible(previewImageRef, user.id, client, { fileLock: "update" });
       const contentRef = `draw_${nanoid(20)}`;

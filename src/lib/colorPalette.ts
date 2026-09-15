@@ -1,4 +1,6 @@
-import type { ColorSwatch, ColorSwatchSource } from "../types/workflow";
+import type {
+  ColorSwatch, ColorSwatchSource, PantoneSwatchIdentity,
+} from "../types/workflow";
 
 export class ColorValueError extends Error {
   constructor(message = "颜色格式无效，请使用 #RGB、#RRGGBB、rgb() 或 hsl()") {
@@ -51,6 +53,29 @@ export interface ColorSwatchInput {
   value: string;
   name?: string;
   source: ColorSwatchSource;
+  pantone?: PantoneSwatchIdentity;
+}
+
+function normalizePantoneIdentity(
+  source: ColorSwatchSource,
+  identity: PantoneSwatchIdentity | undefined,
+): PantoneSwatchIdentity | undefined {
+  const expectsIdentity = source === "pantone" || source === "brand";
+  if (!expectsIdentity && identity) throw new ColorValueError("普通颜色不能携带 Pantone 身份");
+  if (!expectsIdentity) return undefined;
+  if (!identity
+    || !/^[0-9a-f]{64}$/.test(identity.catalogId)
+    || !identity.releaseId.trim()
+    || !identity.libraryKey.trim()
+    || !identity.code.trim()) {
+    throw new ColorValueError("Pantone 颜色身份无效");
+  }
+  return {
+    catalogId: identity.catalogId,
+    releaseId: identity.releaseId.trim(),
+    libraryKey: identity.libraryKey.trim(),
+    code: identity.code.trim(),
+  };
 }
 
 export function normalizeColorSwatches(input: readonly ColorSwatchInput[]): ColorSwatch[] {
@@ -58,13 +83,17 @@ export function normalizeColorSwatches(input: readonly ColorSwatchInput[]): Colo
   const output: ColorSwatch[] = [];
   input.forEach((candidate, index) => {
     const value = parseColorValue(candidate.value);
-    if (seen.has(value)) return;
-    seen.add(value);
+    const pantone = normalizePantoneIdentity(candidate.source, candidate.pantone);
+    const identityKey = pantone ? `pantone:${pantone.catalogId}` : `hex:${value}`;
+    if (seen.has(identityKey)) return;
+    seen.add(identityKey);
+    const name = candidate.name?.trim() || pantone?.code;
     output.push({
-      id: candidate.id?.trim() || `color-${value.slice(1).toLowerCase()}-${index + 1}`,
+      id: candidate.id?.trim() || `color-${pantone?.catalogId.slice(0, 12) ?? value.slice(1).toLowerCase()}-${index + 1}`,
       value,
       source: candidate.source,
-      ...(candidate.name?.trim() ? { name: candidate.name.trim() } : {}),
+      ...(name ? { name } : {}),
+      ...(pantone ? { pantone } : {}),
     });
   });
   if (output.length === 0) throw new ColorValueError("色板至少 1 个颜色");

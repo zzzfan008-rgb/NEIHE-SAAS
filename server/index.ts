@@ -12,6 +12,8 @@ import { projectsRouter } from "./routes/projects";
 import { templatesRouter } from "./routes/templates";
 import { drawingBoardsRouter } from "./routes/drawingBoards";
 import { assetsRouter } from "./routes/assets";
+import { colorsRouter } from "./routes/colors";
+import { materialAnalysesRouter } from "./routes/materialAnalyses";
 import { createRateLimitMiddleware } from "./lib/rateLimit";
 import { authRouter } from "./routes/auth";
 import { historyRouter } from "./routes/history";
@@ -31,6 +33,7 @@ import {
   migrateLegacyUserTemplateOwners,
   reconcileUserTemplateAccountMutations,
 } from "./lib/userTemplateLifecycle";
+import { purgeExpiredMaterialDrafts } from "./lib/materialAnalysisStore";
 
 const app = express();
 
@@ -38,6 +41,7 @@ app.use(express.json({ limit: "50mb" }));
 
 const aiRateLimit = createRateLimitMiddleware();
 const loginRateLimit = createRateLimitMiddleware({ windowMs: 60_000, maxRequests: 10 });
+const materialDraftRateLimit = createRateLimitMiddleware({ windowMs: 60_000, maxRequests: 10 });
 const aiDiagnosticsRouter = createAiDiagnosticsRouter(aiRateLimit);
 app.get("/api/health", (_req, res) => res.json({ ok: true, status: "alive" }));
 
@@ -105,6 +109,10 @@ app.use("/api/drawing-boards", drawingBoardsRouter);
 app.use("/api/templates", templatesRouter);
 app.use("/api/try-on-style-presets", tryOnStylePresetsRouter);
 app.use("/api/assets", assetsRouter);
+app.use("/api/colors", colorsRouter);
+app.post("/api/material-analyses", materialDraftRateLimit);
+app.post("/api/material-analyses/:id/analyze", aiRateLimit);
+app.use("/api/material-analyses", materialAnalysesRouter);
 app.use("/api/history", historyRouter);
 app.use("/api/usage", usageRouter);
 app.use("/api/tutorials", tutorialsRouter);
@@ -135,6 +143,7 @@ async function start(): Promise<void> {
   await migrateLegacyData();
   await migrateLegacyUserTemplateOwners();
   await reconcileUserTemplateAccountMutations();
+  await purgeExpiredMaterialDrafts();
   const initialReadiness = await readiness();
   if (!initialReadiness.ok) throw new Error(`Server is not ready: ${JSON.stringify(initialReadiness.checks)}`);
   const sessionPruneTimer = setInterval(() => {
@@ -143,6 +152,12 @@ async function start(): Promise<void> {
     });
   }, 6 * 60 * 60 * 1000);
   sessionPruneTimer.unref();
+  const materialDraftPruneTimer = setInterval(() => {
+    void purgeExpiredMaterialDrafts().catch((error) => {
+      console.error("[garment-canvas] material draft cleanup failed", error);
+    });
+  }, 6 * 60 * 60 * 1000);
+  materialDraftPruneTimer.unref();
   startGenerationWorker();
   app.listen(port, () => {
     console.log(`[garment-canvas] server listening on http://localhost:${port} (${initialReadiness.mode})`);

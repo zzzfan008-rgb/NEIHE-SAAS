@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { buildExecutionPlan } from "../server/engine/dag";
+import { validateAndMigrateFlow } from "../server/lib/workflowSchema";
 import { fabricRecolorPrompt } from "../server/engine/runner";
 import {
   ColorValueError,
@@ -45,6 +46,56 @@ test("色板去重、限制 1–32 色并保留首次来源", () => {
     }))),
     /最多 32 个颜色/,
   );
+});
+
+test("Pantone 色板按主库身份去重并允许相同 HEX 的不同色号", () => {
+  const first = {
+    catalogId: "a".repeat(64), releaseId: "release-a", libraryKey: "pantone-tcx",
+    code: "11-1000 TCX", hex: "#AABBCC" as const,
+  };
+  const second = {
+    catalogId: "b".repeat(64), releaseId: "release-a", libraryKey: "pantone-tcx",
+    code: "11-1001 TCX", hex: "#AABBCC" as const,
+  };
+  const swatches = normalizeColorSwatches([
+    { value: "#aabbcc", source: "quick" },
+    { value: first.hex, source: "pantone", pantone: first },
+    { value: first.hex, source: "pantone", pantone: first },
+    { value: second.hex, source: "brand", pantone: second },
+    { value: "rgb(170,187,204)", source: "custom" },
+  ]);
+  assert.equal(swatches.length, 3);
+  assert.deepEqual(swatches.map((swatch) => swatch.pantone?.catalogId ?? swatch.value), [
+    "#AABBCC", first.catalogId, second.catalogId,
+  ]);
+  assert.equal(swatches[1].name, "11-1000 TCX");
+});
+
+test("工作流 schema 保留 v2 Pantone 身份并拒绝伪造或重复身份", () => {
+  const identity = {
+    catalogId: "c".repeat(64), releaseId: "release-1", libraryKey: "pantone-tcx", code: "12-0001 TCX",
+  };
+  const flow = (swatches: unknown[]) => ({
+    schemaVersion: 12,
+    nodes: [{
+      id: "palette", type: "color-palette", position: { x: 0, y: 0 },
+      data: { kind: "color-palette", label: "Pantone", status: "idle", paletteVersion: 2, swatches },
+    }],
+    edges: [],
+  });
+  const valid = validateAndMigrateFlow(flow([
+    { id: "one", value: "#ABCDEF", source: "pantone", pantone: identity },
+    { id: "two", value: "#ABCDEF", source: "custom" },
+  ]));
+  const palette = valid.nodes[0].data as Extract<WorkflowNodeData, { kind: "color-palette" }>;
+  assert.deepEqual(palette.swatches[0].pantone, identity);
+  assert.throws(() => validateAndMigrateFlow(flow([
+    { id: "bad", value: "#ABCDEF", source: "pantone" },
+  ])), /pantone/i);
+  assert.throws(() => validateAndMigrateFlow(flow([
+    { id: "one", value: "#ABCDEF", source: "pantone", pantone: identity },
+    { id: "two", value: "#123456", source: "brand", pantone: identity },
+  ])), /unique/i);
 });
 
 test("连接色板作为执行参数且不会计入参考图片，优先于节点内颜色", () => {

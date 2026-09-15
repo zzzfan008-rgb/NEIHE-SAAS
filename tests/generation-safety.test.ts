@@ -63,7 +63,11 @@ assert.match(imageViewerSource, /aria-label="关闭图片查看器"/, "图片查
 assert.match(imageViewerSource, /const MAX_SCALE = 5/, "图片查看器必须支持最高 500% 缩放");
 assert.match(imageViewerSource, /setPointerCapture/, "图片查看器必须通过指针捕获支持连续拖动");
 assert.match(imageViewerSource, /pointerX - ratio \* \(pointerX - current\.x\)/, "滚轮缩放必须锚定鼠标位置");
-assert.match(accountMenuSource, /role="dialog"/, "账户面板必须使用对话框语义");
+assert.match(
+  accountMenuSource,
+  /<Dialog[\s\S]*<DialogContent[\s\S]*<Tabs/,
+  "账户面板必须使用本地 Dialog 与 Tabs 语义组件",
+);
 assert.match(accountMenuSource, /aria-label="关闭账户面板"/, "账户面板关闭按钮必须有可访问名称");
 assert.match(storeSource, /getGenerationSafetyBlockReason\(\)/, "runNode 必须二次校验安全门，不能只依赖按钮禁用");
 assert.match(projectTabsSource, /runReconciliationBlockReason/, "活动任务对账完成前页签关闭入口必须 fail-closed");

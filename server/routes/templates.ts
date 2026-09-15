@@ -13,6 +13,7 @@ import { nanoid } from "nanoid";
 import { config } from "../config";
 import { writeJsonAtomicSync } from "../lib/atomicJson";
 import { validateAndMigrateFlow, WorkflowValidationError } from "../lib/workflowSchema";
+import { assertWorkflowPantoneReferences } from "../lib/workflowPantoneValidation";
 import { isLocalImageReference } from "../lib/imageValidation";
 import { thumbnailUrlForImage } from "../lib/fileStore";
 import { requestUser } from "../lib/auth";
@@ -895,6 +896,7 @@ templatesRouter.post("/", asyncHandler(async (req, res) => {
     createdFilePath = templatePath("user", id);
     const created = await transaction(async (client) => {
       if (!await lockActiveOwner(client, currentUser.id)) return false;
+      await assertWorkflowPantoneReferences(template.flow, client);
       writeJsonAtomicSync(createdFilePath as string, template);
       return true;
     });
