@@ -217,7 +217,7 @@ await test("领取旧版超量配色任务时同步规范化历史请求数量",
   }
 });
 
-await test("持久队列保留分步角色，场景只做文字分析且未提交配饰不进入提示词", async () => {
+await test("持久队列保留分步角色并传递场景原图，未提交配饰不进入提示词", async () => {
   const testId = ++sequence;
   const personImage = await solidImage(4, 4, { r: 210, g: 60, b: 35 });
   const sceneImage = await solidImage(2, 3, { r: 40, g: 140, b: 55 });
@@ -304,8 +304,8 @@ await test("持久队列保留分步角色，场景只做文字分析且未提�
   }
   assert.equal(fake.calls(), 1);
   assert.equal(sceneInputs.length, 1);
-  assert.equal(fake.requests()[0].referenceImages?.length, 4);
-  assert.ok(!fake.requests()[0].referenceImages?.includes(sceneInputs[0]));
+  assert.equal(fake.requests()[0].referenceImages?.length, 5);
+  assert.equal(fake.requests()[0].referenceImages?.at(-1), sceneInputs[0]);
   assert.match(fake.requests()[0].prompt, /参考图1.*脸部锚点/);
   assert.match(fake.requests()[0].prompt, /参考图2.*完整人物身份图/);
   assert.match(fake.requests()[0].prompt, /参考图3.*服装与搭配风格的唯一来源/);
@@ -316,109 +316,113 @@ await test("持久队列保留分步角色，场景只做文字分析且未提�
   });
 });
 
-await test("最佳档位独立生成三张候选，只发布赢家并持久化全部候选与评审元数据", async () => {
-  const testId = ++sequence;
-  const personImage = await solidImage(4, 4, { r: 200, g: 70, b: 50 });
-  const sceneImage = await solidImage(3, 4, { r: 60, g: 130, b: 90 });
-  const outfitImage = await solidImage(2, 3, { r: 40, g: 70, b: 180 });
-  const candidates = [
-    await solidImage(3, 4, { r: 220, g: 30, b: 30 }),
-    await solidImage(3, 4, { r: 30, g: 220, b: 30 }),
-    await solidImage(3, 4, { r: 30, g: 30, b: 220 }),
-  ];
-  let candidateIndex = 0;
-  const fake = resolver(() => ({
-    images: [candidates[candidateIndex++]],
-    model: "gemini-stub",
-  }));
-  const source = (nodeId: string, imageUrl: string): NodeExecution => ({
-    nodeId,
-    kind: "image-input",
-    inputImages: [],
-    params: { imageUrl },
-  });
-  const personId = `candidate-person-${testId}`;
-  const sceneId = `candidate-scene-${testId}`;
-  const outfitId = `candidate-outfit-${testId}`;
-  const stageId = `candidate-stage-${testId}`;
-  const stage: NodeExecution = {
-    nodeId: stageId,
-    kind: "virtual-try-on",
-    inputImages: [],
-    upstream: [
-      { nodeId: sceneId, images: [], targetHandle: "scene" },
-      { nodeId: personId, images: [], targetHandle: "person" },
-      { nodeId: outfitId, images: [], targetHandle: "outfit" },
-    ],
-    params: {
-      workflowStage: "scene-stabilize",
-      prompt: "保留目标穿搭",
-      imageSize: "2K",
-      modelId: "gemini-3.1-flash-image",
-      modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
-      promptEnhancement: false,
-      qualityMode: "best",
-      safetyFallback: false,
-      stylePresetId: "faithful",
-    },
-  };
-  const run = await queue.enqueueGenerationRun(
-    { steps: [source(personId, personImage), source(sceneId, sceneImage), source(outfitId, outfitImage), stage] },
-    owner.id,
-    {
-      ...context(stageId),
+for (const judgeAvailable of [true, false]) {
+  await test(`最佳档位持久化三张候选，评审${judgeAvailable ? "成功时发布赢家" : "失败时保留全部结果和警告"}`, async () => {
+    const testId = ++sequence;
+    const personImage = await solidImage(4, 4, { r: 200, g: 70, b: 50 });
+    const sceneImage = await solidImage(3, 4, { r: 60, g: 130, b: 90 });
+    const outfitImage = await solidImage(2, 3, { r: 40, g: 70, b: 180 });
+    const candidates = [
+      await solidImage(3, 4, { r: 220, g: 30, b: 30 }),
+      await solidImage(3, 4, { r: 30, g: 220, b: 30 }),
+      await solidImage(3, 4, { r: 30, g: 30, b: 220 }),
+    ];
+    let candidateIndex = 0;
+    const fake = resolver(() => ({
+      images: [candidates[candidateIndex++]],
+      model: "gemini-stub",
+    }));
+    const source = (nodeId: string, imageUrl: string): NodeExecution => ({
+      nodeId,
+      kind: "image-input",
+      inputImages: [],
+      params: { imageUrl },
+    });
+    const personId = `candidate-person-${testId}`;
+    const sceneId = `candidate-scene-${testId}`;
+    const outfitId = `candidate-outfit-${testId}`;
+    const stageId = `candidate-stage-${testId}`;
+    const stage: NodeExecution = {
       nodeId: stageId,
-      nodeLabel: "候选择优",
       kind: "virtual-try-on",
-      referenceImages: [personImage, sceneImage, outfitImage],
-    },
-  );
-  for (let index = 0; index < 4; index += 1) {
-    assert.equal(await queue.processNextGenerationJob(`worker-candidates-${testId}`, {
-      resolveProvider: fake.resolveProvider,
-      sceneAnalyzer: async (_image, options) => {
-        await options?.beforeProviderCall?.(1);
-        return { prompt: "环境：摄影棚；光线：左侧柔光；镜头：平视；构图：自然站立", providerRequests: 1, model: "scene-stub", cacheHit: false };
+      inputImages: [],
+      upstream: [
+        { nodeId: sceneId, images: [], targetHandle: "scene" },
+        { nodeId: personId, images: [], targetHandle: "person" },
+        { nodeId: outfitId, images: [], targetHandle: "outfit" },
+      ],
+      params: {
+        workflowStage: "scene-stabilize",
+        prompt: "保留目标穿搭",
+        imageSize: "2K",
+        modelId: "gemini-3.1-flash-image",
+        modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
+        promptEnhancement: false,
+        qualityMode: "best",
+        safetyFallback: false,
+        stylePresetId: "faithful",
       },
-      identityAnchorer: async (_image, options) => {
-        await options?.beforeProviderCall?.(1);
-        return { image: PNG_DATA_URL, providerRequests: 1, model: "identity-stub", cacheHit: false, fallback: false };
+    };
+    const run = await queue.enqueueGenerationRun(
+      { steps: [source(personId, personImage), source(sceneId, sceneImage), source(outfitId, outfitImage), stage] },
+      owner.id,
+      {
+        ...context(stageId),
+        nodeId: stageId,
+        nodeLabel: "候选择优",
+        kind: "virtual-try-on",
+        referenceImages: [personImage, sceneImage, outfitImage],
       },
-      candidateSelector: async (input) => {
-        await input.beforeProviderCall?.(1);
-        return {
-          selectedIndex: 1,
-          scores: [
-            { index: 0, identity: 15, anatomy: 12, garment: 17, material: 15, accessories: 10, scene: 8, total: 77, hardFail: false, reasons: [] },
-            { index: 1, identity: 19, anatomy: 14, garment: 19, material: 18, accessories: 14, scene: 9, total: 93, hardFail: false, reasons: [] },
-            { index: 2, identity: 16, anatomy: 10, garment: 15, material: 15, accessories: 10, scene: 8, total: 74, hardFail: false, reasons: [] },
-          ],
-          model: "judge-stub",
-          providerRequests: 1,
-          allHardFail: false,
-        };
-      },
-      now: () => tick(),
-      random: () => 0,
-    }), true);
-  }
-  assert.equal(fake.calls(), 3);
-  assert.deepEqual(await runRow(run.id), {
-    status: "succeeded", error: null, provider_requests: 6, successful_count: 1,
+    );
+    for (let index = 0; index < 4; index += 1) {
+      assert.equal(await queue.processNextGenerationJob(`worker-candidates-${testId}`, {
+        resolveProvider: fake.resolveProvider,
+        sceneAnalyzer: async (_image, options) => {
+          await options?.beforeProviderCall?.(1);
+          return { prompt: "环境：摄影棚；光线：左侧柔光；镜头：平视；构图：自然站立", providerRequests: 1, model: "scene-stub", cacheHit: false };
+        },
+        identityAnchorer: async (_image, options) => {
+          await options?.beforeProviderCall?.(1);
+          return { image: PNG_DATA_URL, providerRequests: 1, model: "identity-stub", cacheHit: false, fallback: false };
+        },
+        candidateSelector: async (input) => {
+          await input.beforeProviderCall?.(1);
+          assert.ok(input.referenceRoles.includes("scene"));
+          if (!judgeAvailable) throw new Error("judge unavailable");
+          return {
+            selectedIndex: 1,
+            scores: [
+              { index: 0, identity: 15, anatomy: 12, garment: 17, material: 15, accessories: 10, scene: 8, total: 77, hardFail: false, reasons: [] },
+              { index: 1, identity: 19, anatomy: 14, garment: 19, material: 18, accessories: 14, scene: 9, total: 93, hardFail: false, reasons: [] },
+              { index: 2, identity: 16, anatomy: 10, garment: 15, material: 15, accessories: 10, scene: 8, total: 74, hardFail: false, reasons: [] },
+            ],
+            model: "judge-stub",
+            providerRequests: 1,
+            allHardFail: false,
+          };
+        },
+        now: () => tick(),
+        random: () => 0,
+      }), true);
+    }
+    assert.equal(fake.calls(), 3);
+    assert.deepEqual(await runRow(run.id), {
+      status: "succeeded", error: judgeAvailable ? null : "候选自动评审未完成，全部候选已保留，请人工核对姿势后选择基准", provider_requests: 6, successful_count: judgeAvailable ? 1 : 3,
+    });
+    const stepRow = await database.queryOne<{ output_images_json: string; execution_meta_json: string }>(`
+      SELECT output_images_json, execution_meta_json FROM generation_run_steps
+      WHERE run_id = $1 AND node_id = $2
+    `, [run.id, stageId]);
+    assert.equal(JSON.parse(stepRow?.output_images_json ?? "[]").length, judgeAvailable ? 1 : 3);
+    assert.equal(JSON.parse(stepRow?.execution_meta_json ?? "{}").tryOn.candidateSelection?.selectedIndex, judgeAvailable ? 1 : undefined);
+    assert.equal((await database.queryOne<{ count: number }>(`
+      SELECT COUNT(*)::int AS count FROM files WHERE run_id = $1 AND node_id = $2
+    `, [run.id, stageId]))?.count, 3);
+    assert.equal((await database.queryOne<{ count: number }>(`
+      SELECT COUNT(*)::int AS count FROM generation_outputs WHERE run_id = $1 AND status = 'success'
+    `, [run.id]))?.count, judgeAvailable ? 1 : 3);
   });
-  const stepRow = await database.queryOne<{ output_images_json: string; execution_meta_json: string }>(`
-    SELECT output_images_json, execution_meta_json FROM generation_run_steps
-    WHERE run_id = $1 AND node_id = $2
-  `, [run.id, stageId]);
-  assert.equal(JSON.parse(stepRow?.output_images_json ?? "[]").length, 1);
-  assert.equal(JSON.parse(stepRow?.execution_meta_json ?? "{}").tryOn.candidateSelection.selectedIndex, 1);
-  assert.equal((await database.queryOne<{ count: number }>(`
-    SELECT COUNT(*)::int AS count FROM files WHERE run_id = $1 AND node_id = $2
-  `, [run.id, stageId]))?.count, 3);
-  assert.equal((await database.queryOne<{ count: number }>(`
-    SELECT COUNT(*)::int AS count FROM generation_outputs WHERE run_id = $1 AND status = 'success'
-  `, [run.id]))?.count, 1);
-});
+}
 
 await test("同一付费请求号并发重试只创建一个 run，语义漂移返回冲突", async () => {
   const nodeId = `request-idempotency-${++sequence}`;

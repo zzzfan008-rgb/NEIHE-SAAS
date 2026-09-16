@@ -18,6 +18,7 @@ import { isLocalImageReference, validateImageDataUrl } from "./imageValidation";
 import { isLocalMediaReference } from "./fileStore";
 import {
   MASK_REDRAW_MODEL_ID,
+  SKETCH_OPTIMIZATION_MODEL_ID,
   defaultImageModelOptions,
   getImageModelContract,
   imageModelOptionsError,
@@ -79,7 +80,7 @@ const COLOR_SWATCH_SOURCES = [
   "quick", "custom", "recent", "favorite", "eyedropper", "pantone", "brand",
 ] as const;
 const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
-  "person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet",
+  "person", "scene", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet",
   "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
   "first-frame", "last-frame", "source-video", "repair-source", "eyewear", "neckwear", "belt", "watch",
   "reference-image", "reference-video", "reference-audio",
@@ -246,7 +247,7 @@ function migratedModelFields(
 ): Record<string, unknown> {
   const fallback = kind === "mask-redraw" || kind === "virtual-try-on"
     ? "gpt-image-2"
-    : "gpt-image-2-vip";
+    : kind === "sketch-optimize" ? SKETCH_OPTIMIZATION_MODEL_ID : "gpt-image-2-vip";
   if (raw.modelId !== undefined) {
     const modelId = raw.modelId === "gemini-3.1-flash-image-preview"
       ? "gemini-3.1-flash-image" : raw.modelId;

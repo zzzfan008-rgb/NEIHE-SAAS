@@ -61,6 +61,34 @@ function imageNode(id: string, label: string): FlowNode {
   };
 }
 
+function textNode(id: string, text: string): FlowNode {
+  return {
+    id,
+    type: "text-input",
+    position: { x: 0, y: 0 },
+    data: { kind: "text-input", label: "设计说明", status: "idle", text },
+  };
+}
+
+function savedDrawingBoardNode(id: string): FlowNode {
+  return {
+    id,
+    type: "drawing-board",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "drawing-board",
+      label: "画板",
+      status: "idle",
+      boardVersion: 1,
+      width: 1200,
+      height: 1200,
+      background: "#FFFFFF",
+      contentRef: "drawing://board/content.json",
+      previewImageRef: "/api/files/board-preview.png",
+    },
+  };
+}
+
 function aiNode(id: string, label: string): FlowNode {
   return {
     id,
@@ -104,7 +132,7 @@ function assertNodeModelSelection(
 
 console.log("项目多页签状态测试");
 
-await test("第一轮只接受六类配饰角色且每类最多一条连线", () => {
+await test("第一轮只接受七类配饰角色且每类最多一条连线", () => {
   const stage: FlowNode = {
     id: "stage-role-validation",
     type: "virtual-try-on",
@@ -131,6 +159,9 @@ await test("第一轮只接受六类配饰角色且每类最多一条连线", ()
     id: "shoes-new", source: second.id, target: stage.id, targetHandle: "shoes",
   }), true);
   assert.equal(isDocumentConnectionValid(document, {
+    id: "socks-new", source: second.id, target: stage.id, targetHandle: "socks",
+  }), true);
+  assert.equal(isDocumentConnectionValid(document, {
     id: "bag-duplicate", source: second.id, target: stage.id, targetHandle: "bag",
   }), false);
   assert.equal(isDocumentConnectionValid(document, {
@@ -139,6 +170,98 @@ await test("第一轮只接受六类配饰角色且每类最多一条连线", ()
   assert.equal(isDocumentConnectionValid(document, {
     id: "stage-detail", source: second.id, target: stage.id, targetHandle: "detail",
   }), true);
+});
+
+await test("自由画布允许图片、已保存画板与文本按类型连接同一生成节点", () => {
+  const image = imageNode("global-image", "图片上传");
+  const board = savedDrawingBoardNode("global-board");
+  const text = textNode("global-text", "保留省道结构并强化面料层次");
+  const otherText = textNode("global-text-2", "第二份说明");
+  const emptyBoard: FlowNode = {
+    ...savedDrawingBoardNode("global-empty-board"),
+    data: {
+      kind: "drawing-board",
+      label: "未保存画板",
+      status: "idle",
+      boardVersion: 1,
+      width: 1200,
+      height: 1200,
+      background: "#FFFFFF",
+    },
+  };
+  const imageTarget: FlowNode = {
+    id: "global-image-target",
+    type: "sketch-optimize",
+    position: { x: 320, y: 0 },
+    data: {
+      kind: "sketch-optimize",
+      label: "图片与文本目标",
+      status: "idle",
+      prompt: "",
+      aspectRatio: "3:4",
+      batchSize: 1,
+      outputImages: [],
+    },
+  };
+  const boardTarget: FlowNode = {
+    ...imageTarget,
+    id: "global-board-target",
+    data: { ...imageTarget.data, label: "画板与文本目标" },
+  };
+  const imageEdge: Edge = {
+    id: "global-image-reference",
+    source: image.id,
+    sourceHandle: "image",
+    target: imageTarget.id,
+    targetHandle: "references",
+  };
+  const boardEdge: Edge = {
+    id: "global-board-reference",
+    source: board.id,
+    sourceHandle: "image",
+    target: boardTarget.id,
+    targetHandle: "references",
+  };
+
+  assert.equal(isDocumentConnectionValid({ nodes: [image, text, imageTarget], edges: [] }, imageEdge), true);
+  assert.equal(isDocumentConnectionValid({ nodes: [board, text, boardTarget], edges: [] }, boardEdge), true);
+  assert.equal(isDocumentConnectionValid({ nodes: [image, text, imageTarget], edges: [imageEdge] }, {
+    source: text.id,
+    sourceHandle: "text",
+    target: imageTarget.id,
+    targetHandle: "prompt",
+  }), true);
+  assert.equal(isDocumentConnectionValid({ nodes: [board, text, boardTarget], edges: [boardEdge] }, {
+    source: text.id,
+    sourceHandle: "text",
+    target: boardTarget.id,
+    targetHandle: "prompt",
+  }), true);
+  assert.equal(isDocumentConnectionValid({ nodes: [image, text, imageTarget], edges: [imageEdge] }, {
+    source: text.id,
+    sourceHandle: "text",
+    target: imageTarget.id,
+    targetHandle: "references",
+  }), false);
+  const promptEdge: Edge = {
+    id: "global-text-prompt",
+    source: text.id,
+    sourceHandle: "text",
+    target: imageTarget.id,
+    targetHandle: "prompt",
+  };
+  assert.equal(isDocumentConnectionValid({ nodes: [image, text, otherText, imageTarget], edges: [imageEdge, promptEdge] }, {
+    source: otherText.id,
+    sourceHandle: "text",
+    target: imageTarget.id,
+    targetHandle: "prompt",
+  }), false);
+  assert.equal(isDocumentConnectionValid({ nodes: [emptyBoard, boardTarget], edges: [] }, {
+    source: emptyBoard.id,
+    sourceHandle: "image",
+    target: boardTarget.id,
+    targetHandle: "references",
+  }), false);
 });
 
 await test("图片赋值与模板自动连接原子提交，重复和过期写入均为 no-op", () => {

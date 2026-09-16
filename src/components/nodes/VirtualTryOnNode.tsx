@@ -71,7 +71,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         summary={staged ? (
           <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">
             {data.workflowStage === "scene-stabilize"
-              ? "人物锁身份 · 场景只分析表演与光线 · 穿搭锁服装"
+              ? "人物锁身份 · 场景原图锁姿势与光线 · 穿搭锁服装"
               : "锁定已确认基准，只精修服装结构、面料与工艺"}
           </p>
         ) : undefined}

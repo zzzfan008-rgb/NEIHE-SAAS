@@ -79,7 +79,8 @@ if (contractMap.size !== IMAGE_MODEL_IDS.length) {
 }
 
 export const DEFAULT_GENERATION_MODEL_ID: GenerationImageModelId = "gpt-image-2.5-flare";
-export const MASK_REDRAW_MODEL_ID = "gpt-image-2.5-sunburst" as const;
+export const SKETCH_OPTIMIZATION_MODEL_ID = "gpt-image-2.5-sunburst" as const;
+export const MASK_REDRAW_MODEL_ID = SKETCH_OPTIMIZATION_MODEL_ID;
 export const VIRTUAL_TRY_ON_MODEL_IDS = [
   "gpt-image-2.5-sunburst",
   "gpt-image-2",

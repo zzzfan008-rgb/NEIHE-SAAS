@@ -29,6 +29,7 @@ import {
 } from "../../src/types/workflow";
 import {
   DEFAULT_GENERATION_MODEL_ID,
+  SKETCH_OPTIMIZATION_MODEL_ID,
   defaultImageModelOptions,
 } from "../../src/types/imageModels";
 
@@ -152,51 +153,57 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           data: { kind: "image-input", label: "鞋履参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "shoes" }] },
         },
         {
-          id: "hat",
+          id: "socks",
           type: "image-input",
           position: { x: 300, y: -40 },
+          data: { kind: "image-input", label: "袜子参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "socks" }] },
+        },
+        {
+          id: "hat",
+          type: "image-input",
+          position: { x: 300, y: 220 },
           data: { kind: "image-input", label: "帽子参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "hat" }] },
         },
         {
           id: "ring",
           type: "image-input",
-          position: { x: 300, y: 220 },
+          position: { x: 300, y: 480 },
           data: { kind: "image-input", label: "戒指参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "ring" }] },
         },
         {
           id: "earrings",
           type: "image-input",
-          position: { x: 0, y: 480 },
+          position: { x: 0, y: 740 },
           data: { kind: "image-input", label: "耳环参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "earrings" }] },
         },
         {
           id: "bracelet",
           type: "image-input",
-          position: { x: 300, y: 480 },
+          position: { x: 300, y: 740 },
           data: { kind: "image-input", label: "手镯参考图（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "bracelet" }] },
         },
         {
           id: "eyewear",
           type: "image-input",
-          position: { x: 600, y: 480 },
+          position: { x: 600, y: 740 },
           data: { kind: "image-input", label: "眼镜参考图（可选）", status: "idle", imageRole: "reference" },
         },
         {
           id: "neckwear",
           type: "image-input",
-          position: { x: 0, y: 740 },
+          position: { x: 0, y: 1000 },
           data: { kind: "image-input", label: "项链 / 围巾参考图（可选）", status: "idle", imageRole: "reference" },
         },
         {
           id: "belt",
           type: "image-input",
-          position: { x: 300, y: 740 },
+          position: { x: 300, y: 1000 },
           data: { kind: "image-input", label: "腰带参考图（可选）", status: "idle", imageRole: "reference" },
         },
         {
           id: "watch",
           type: "image-input",
-          position: { x: 600, y: 740 },
+          position: { x: 600, y: 1000 },
           data: { kind: "image-input", label: "手表 / 其他穿戴参考图（可选）", status: "idle", imageRole: "reference" },
         },
         {
@@ -390,8 +397,8 @@ function withSketchOptimization(template: WorkflowTemplate): WorkflowTemplate {
           ? { ...node, position: { ...node.position, x: node.position.x + 760 } } : node),
         { id, type: "sketch-optimize", position: { ...render.position }, data: {
           kind: "sketch-optimize", label: "草图线稿优化", status: "idle", prompt: "", aspectRatio: "3:4",
-          batchSize: 1, outputImages: [], modelId: DEFAULT_GENERATION_MODEL_ID,
-          modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID, "3:4"),
+          batchSize: 1, outputImages: [], modelId: SKETCH_OPTIMIZATION_MODEL_ID,
+          modelOptions: defaultImageModelOptions(SKETCH_OPTIMIZATION_MODEL_ID, "3:4"),
         } },
       ],
       edges: [
@@ -775,12 +782,16 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
       schemaVersion?: unknown;
       name?: unknown;
       flow?: {
-        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown; label?: unknown } }>;
+        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown; label?: unknown; modelId?: unknown } }>;
         edges?: Array<{ id?: unknown; targetHandle?: unknown }>;
       };
     };
     if (SKETCH_OPTIMIZATION_TEMPLATE_IDS.has(templateId)) {
-      return !raw.flow?.nodes?.some((node) => node.type === "sketch-optimize");
+      const optimize = raw.flow?.nodes?.find((node) => node.type === "sketch-optimize");
+      // 可迁移的旧模板继续保留原始文件；读取时由 schema migration 补齐默认模型。
+      return raw.schemaVersion === WORKFLOW_SCHEMA_VERSION
+        ? optimize?.data?.modelId !== SKETCH_OPTIMIZATION_MODEL_ID
+        : !optimize;
     }
     if (templateId === "builtin-tool-one-click-try-on") {
       const named = raw as typeof raw & { name?: unknown };
@@ -789,6 +800,8 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
         || named.name !== "一键换装"
         || nodeById.get("garment-detail")?.type !== "mask-redraw"
         || nodeById.get("garment-detail")?.data?.executionMode !== "repair"
+        || nodeById.get("socks")?.type !== "image-input"
+        || nodeById.get("socks")?.data?.label !== "袜子参考图（可选）"
         || ["upper-repair", "pants-repair", "accessory-repair", "logo-correct"].some((id) => nodeById.has(id));
     }
     if (templateId === "builtin-tool-fabric-replace") {

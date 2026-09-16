@@ -920,7 +920,8 @@ async function main() {
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3.1-flash-image");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.modelId, "gpt-image-2");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
-    assert.equal(stagedTryOn.flow.nodes.length, 21);
+    assert.equal(stagedTryOn.flow.nodes.length, 22);
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "socks")?.data.label, "袜子参考图（可选）");
     assert.equal(stagedTryOn.flow.edges.length, 3, "图片连接必须在赋值后创建，第二轮结果固定连接局部重绘");
     assert.equal(stagedTryOn.flow.edges.some((edge) => edge.target === "stabilize" && edge.source !== "approval"), false);
     assert.ok(stagedTryOn.flow.edges.some((edge) => (
@@ -943,7 +944,7 @@ async function main() {
       { targetNodeId: "refine", targetHandle: "outfit" },
       { targetNodeId: "garment-detail", targetHandle: "references" },
     ]);
-    for (const role of ["bag", "shoes", "hat", "ring", "earrings", "bracelet"]) {
+    for (const role of ["bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet"]) {
       assert.deepEqual(targetsFor(role), [{ targetNodeId: "stabilize", targetHandle: role }]);
     }
     for (const role of ["eyewear", "neckwear", "belt", "watch"]) {
@@ -986,6 +987,13 @@ async function main() {
       ensureBuiltinTemplates();
       const builtinDir = path.join(dir, "templates", "builtin");
       const existingPath = path.join(builtinDir, "builtin-sketch-recolor.json");
+      const stagedPath = path.join(builtinDir, "builtin-tool-one-click-try-on.json");
+      const staged = JSON.parse(fs.readFileSync(stagedPath, "utf-8")) as { flow: { nodes: Array<{ id: string }> } };
+      staged.flow.nodes = staged.flow.nodes.filter((node) => node.id !== "socks");
+      fs.writeFileSync(stagedPath, JSON.stringify(staged, null, 2), "utf-8");
+      ensureBuiltinTemplates();
+      const refreshedStaged = JSON.parse(fs.readFileSync(stagedPath, "utf-8")) as { flow: { nodes: Array<{ id: string }> } };
+      assert.ok(refreshedStaged.flow.nodes.some((node) => node.id === "socks"), "已有一键换装模板应补齐袜子参考图节点");
       const existing = JSON.parse(fs.readFileSync(existingPath, "utf-8")) as {
         schemaVersion: number;
         description: string;

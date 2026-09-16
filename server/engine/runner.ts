@@ -35,6 +35,7 @@ import { parseOutfitAnalysis } from '../lib/outfitAnalysis';
 import {
   DEFAULT_GENERATION_MODEL_ID,
   MASK_REDRAW_MODEL_ID,
+  SKETCH_OPTIMIZATION_MODEL_ID,
   isImageModelId,
   isModelAllowedForNode,
   modelMaxReferenceImages,
@@ -116,6 +117,7 @@ export type RunEvent =
   | { seq?: number; type: "run-error"; nodeId?: string; error: string; finishedAt?: number };
 
 export interface StepResult {
+  warning?: string;
   images: string[];
   model?: string;
   prompts?: string[];
@@ -233,6 +235,7 @@ function stagedVirtualTryOnPrompt(
     const accessoryDescriptions = [
       ...indexes("bag").map((index) => `参考图${index}只控制目标包袋：还原包型、尺寸比例、颜色、材质、纹理、包带、拿取方式，以及包身上真实存在且清晰可见的金属装饰图案与五金；不得虚构、改写、替换或重复任何装饰图案。结合场景文字中的手部动作建立真实接触。该图只在包袋类别内有效，图内除目标包袋以外的所有人物、服装、包装文字、陈列台与物体特征均删除、忽略，不得污染其它类别。`),
       ...indexes("shoes").map((index) => `参考图${index}只控制目标鞋履：完整生成左右成对鞋履，还原鞋型、鞋头、鞋跟、鞋口、露跟或包跟方式、鞋面结构、筒高、闭合方式、颜色和材质。该图只在鞋履类别内有效，图内除目标鞋履以外的所有人物、服装与物体特征均删除、忽略，不得污染其它类别。`),
+      ...indexes("socks").map((index) => `参考图${index}只控制目标袜子：还原袜子长度与袜筒高度、贴合方式、颜色、材质、纹理和图案；该图只在袜子类别内有效，图内除目标袜子以外的所有人物、鞋履、服装与物体特征均删除、忽略，不得污染其它类别。`),
       ...indexes("hat").map((index) => `参考图${index}只控制目标帽子：还原帽型、帽檐、帽冠、颜色、材质和佩戴角度，并建立自然的头发遮挡。该图只在帽子类别内有效，图内除目标帽子以外的所有人物、服装与物体特征均删除、忽略，不得污染其它类别。`),
       ...indexes("ring").map((index) => `参考图${index}只控制目标戒指：还原数量、佩戴手与手指、金属、宝石、造型和比例，保持清晰可辨。只提取戒指本体，参考图中的手、皮肤、指甲、人物身份、服装、背景、文字和水印全部删除、忽略，不得污染其它类别。`),
       ...indexes("earrings").map((index) => `参考图${index}只控制目标耳环：还原数量、左右耳关系、尺寸、材质和佩戴方式，并建立自然的耳部与头发遮挡。只提取耳环本体，参考图中的耳朵、皮肤、人物身份、发型、服装、背景、文字和水印全部删除、忽略，不得污染其它类别。`),
@@ -248,7 +251,7 @@ function stagedVirtualTryOnPrompt(
     const optionalIdentity = identityReferences.length > 1
       ? `${identityReferences.slice(1).map((index) => `参考图${index}`).join("、")}仅补充同一人物在不同角度下的五官、发型和肤色，不得引入第二个人物身份。`
       : "";
-    return `建立第一轮人物场景基准。${one("face-anchor")}是由视觉定位后从主要人物脸部裁切的身份锚点，是脸部恢复最高优先级来源，锁定五官结构、脸型和可识别身份。${one("person")}是主要完整人物身份图，只控制同一人物的肤色、发型、体型和身体特征；其中原服装及非身份物体全部忽略，不得进入结果。${optionalIdentity}${one("outfit")}是服装与搭配风格的唯一来源，只控制服装整体版型、上下装比例、层叠、穿着方式、颜色与风格；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度属于必须还原的结构，不得替换为近似设计；图内人物身份、背景及非服装物体全部删除、忽略。原始场景图没有发送给生图模型；以下内容是外部视觉模型过滤后的纯场景描述，只控制背景、光线、镜头、构图、人物位置、身体姿态、手部姿态、神态与视线，不具有身份、服装或物体外观控制权：${sceneDescription ?? "场景分析不可用"}。${accessory}${detail}${styleReference}${stylePrompt ? `风格要求：${stylePrompt}。` : ""}冲突优先级为“脸部锚点 > 主要人物身份 > 同一人物补充身份图 > 场景文字 > 主穿搭 > 对应类别配饰与局部结构 > 风格参考”。本轮保证人物身份、动作神态、肢体、场景构图、服装大轮廓及已提供目标物稳定，不强求针目、蕾丝组织或缝线等微观细节。不得融合参考图中的无关人物、背景、陈列台、包装文字、水印、标记框或错误肢体；目标商品本体上已有的金属装饰图案与五金保持来源外观，禁止虚构或改写。输出一张完整写实的第一轮基准图${extra ? `。补充要求：${extra}` : ""}`;
+    return `建立第一轮人物场景基准。${one("face-anchor")}是由视觉定位后从主要人物脸部裁切的身份锚点，是脸部恢复最高优先级来源，锁定五官结构、脸型和可识别身份。${one("person")}是主要完整人物身份图，只控制同一人物的肤色、发型、体型和身体特征；其中原服装及非身份物体全部忽略，不得进入结果。${optionalIdentity}${one("outfit")}是服装与搭配风格的唯一来源，只控制服装整体版型、上下装比例、层叠、穿着方式、颜色与风格；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度属于必须还原的结构，不得替换为近似设计；图内人物身份、背景及非服装物体全部删除、忽略。${one("scene")}是原始场景与姿势参考图，必须按图还原头部俯仰与侧倾、肩线、髋线、重心腿、膝踝位置、手臂和手部姿态、视线、人物占画比例、背景和光线；不得继承其中的人物身份、发型、服装及配饰。人物身份参考不控制姿势，不得将目标姿势改为正面直立或对称站姿。以下分析仅作辅助，与原图冲突时以原始场景图的姿势和构图为准：${sceneDescription ?? "场景分析不可用"}。${accessory}${detail}${styleReference}${stylePrompt ? `风格要求：${stylePrompt}。` : ""}按维度分别锁定：身份由脸部锚点与人物图决定，姿势与场景由原始场景图决定，服装由主穿搭决定，配饰由对应类别参考决定；身份优先不得覆盖场景姿势。本轮保证人物身份、动作神态、肢体、场景构图、服装大轮廓及已提供目标物稳定，不强求针目、蕾丝组织或缝线等微观细节。不得融合参考图中的无关人物、背景、陈列台、包装文字、水印、标记框或错误肢体；目标商品本体上已有的金属装饰图案与五金保持来源外观，禁止虚构或改写。输出一张完整写实的第一轮基准图${extra ? `。补充要求：${extra}` : ""}`;
   }
 
   const category = params.garmentCategory === "knit" ? "针织"
@@ -265,7 +268,7 @@ function stagedVirtualTryOnPrompt(
 }
 
 const SCENE_STABILIZE_REFERENCE_ORDER = [
-  "person", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet", "detail",
+  "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail",
 ] as const;
 
 interface SceneStabilizePreparation {
@@ -297,6 +300,8 @@ async function prepareSceneStabilizeReferences(
       roles.push(role);
     }
   }
+  images.push(sceneReference);
+  roles.push("scene");
   return {
     referenceImages: images,
     referenceRoles: roles,
@@ -424,7 +429,7 @@ function stagedVirtualTryOnRuntimeError(
       ?? requireOne("outfit", "主穿搭图");
     if (requiredError) return requiredError;
     for (const [role, label] of [
-      ["bag", "包袋"], ["shoes", "鞋履"], ["hat", "帽子"],
+      ["bag", "包袋"], ["shoes", "鞋履"], ["socks", "袜子"], ["hat", "帽子"],
       ["ring", "戒指"], ["earrings", "耳环"], ["bracelet", "手镯"],
     ] as const) {
       if (imagesFor(role).length > 1) return `${label}参考图最多 1 张`;
@@ -657,7 +662,7 @@ async function executeRun(run: Run): Promise<void> {
         nodeId: step.nodeId,
         status: "success",
         images: visibleImages,
-        error: partialWarning,
+        error: result.warning ?? partialWarning,
         model: result.model,
         prompts: visiblePrompts,
         providerOutputSizes: visibleOutputSizes,
@@ -934,6 +939,8 @@ export async function executeStep(
         ? requestedModelId
         : step.kind === "mask-redraw" || step.kind === "virtual-try-on"
           ? MASK_REDRAW_MODEL_ID
+          : step.kind === "sketch-optimize"
+            ? SKETCH_OPTIMIZATION_MODEL_ID
           : DEFAULT_GENERATION_MODEL_ID;
       if (!isModelAllowedForNode(modelId, step.kind)) {
         throw new Error(`Model ${modelId} is not allowed for node ${step.nodeId}`);
@@ -972,6 +979,12 @@ export async function executeStep(
       const maxUserReferences = step.kind === "mask-redraw"
         ? Math.min(MAX_MASK_USER_REFERENCE_IMAGES, Math.max(0, maxReferences - 1))
         : maxReferences;
+      if (step.kind === "virtual-try-on" && step.params.workflowStage === "scene-stabilize") {
+        const reservedReferences = 1 + (step.params.stylePresetId && step.params.stylePresetId !== "faithful" ? 1 : 0);
+        if (referenceImages.length + reservedReferences > maxReferences) {
+          throw new Error("第一轮参考图超出模型上限，请为内部人脸锚点和风格参考预留名额");
+        }
+      }
       if (referenceImages.length > maxUserReferences) {
         throw new Error(`Node ${step.nodeId} accepts at most ${maxUserReferences} user reference images for ${modelId}`);
       }
@@ -1258,6 +1271,7 @@ export async function executeStep(
         : result.providerOutputSizes;
       let candidateSelection: TryOnCandidateSelection | undefined;
       let candidateSelectionWarning: string | undefined;
+      let candidateSelectionError: string | undefined;
       if (isStagedTryOn) {
         try {
           candidateSelection = await (options.candidateSelector ?? selectBestTryOnCandidate)({
@@ -1270,17 +1284,11 @@ export async function executeStep(
           });
           preliminaryProviderRequests += candidateSelection.providerRequests;
         } catch (error) {
-          candidateSelectionWarning = "候选自动评审不可用，已回退到第一张成功图片";
-          candidateSelection = {
-            selectedIndex: 0,
-            scores: [],
-            model: "judge-unavailable",
-            providerRequests: 0,
-            allHardFail: false,
-          };
+          candidateSelectionWarning = "候选自动评审未完成，全部候选已保留，请人工核对姿势后选择基准";
+          candidateSelectionError = publicProviderErrorMessage(error);
         }
-        if (candidateSelection.selectedIndex === null) {
-          throw new ProviderError("本轮候选图均未通过身份、肢体或穿搭完整性检查", 422, candidateSelection.model, "invalid_response");
+        if (candidateSelection?.selectedIndex === null) {
+          candidateSelectionWarning = "所有候选均未通过自动评审，请核对姿势与穿搭；已保留全部结果";
         }
       }
       return {
@@ -1292,7 +1300,8 @@ export async function executeStep(
           : preliminaryProviderRequests + result.providerRequests,
         providerOutputSizes,
         failures: result.failures.length ? result.failures.map((error) => ({ prompt, error })) : undefined,
-        candidateSelection,
+        warning: candidateSelectionWarning,
+        candidateSelection: candidateSelection?.selectedIndex === null ? undefined : candidateSelection,
         executionMeta: isStagedTryOn ? {
           tryOn: {
             stage: step.params.workflowStage,
@@ -1302,6 +1311,7 @@ export async function executeStep(
             safetyFallbackUsed,
             candidateSelection,
             candidateSelectionWarning,
+            candidateSelectionError,
           },
         } : undefined,
       };

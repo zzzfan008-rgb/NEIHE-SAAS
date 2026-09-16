@@ -61,6 +61,7 @@ export type WorkflowInputRole =
   | "outfit"
   | "bag"
   | "shoes"
+  | "socks"
   | "hat"
   | "ring"
   | "earrings"

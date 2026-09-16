@@ -1,4 +1,5 @@
 import { config } from "../config";
+import sharp from "sharp";
 import { fetchWithRetry, parseDataUrl, ProviderError } from "../providers/base";
 
 export interface TryOnCandidateScore {
@@ -11,6 +12,7 @@ export interface TryOnCandidateScore {
   scene: number;
   total: number;
   hardFail: boolean;
+  poseMatches?: boolean;
   reasons: string[];
 }
 
@@ -42,7 +44,7 @@ function integerScore(value: unknown, max: number, field: string): number {
   return Number(value);
 }
 
-export function parseTryOnCandidateSelection(payload: unknown, count: number, model: string): TryOnCandidateSelection {
+export function parseTryOnCandidateSelection(payload: unknown, count: number, model: string, requirePose = false): TryOnCandidateSelection {
   const content = (payload as { choices?: Array<{ message?: { content?: unknown } }> })
     .choices?.[0]?.message?.content;
   const text = typeof content === "string"
@@ -60,7 +62,7 @@ export function parseTryOnCandidateSelection(payload: unknown, count: number, mo
   } catch {
     throw new ProviderError("候选评审返回的 JSON 无效", 502, model, "invalid_response");
   }
-  const rows = (raw as { scores?: unknown }).scores;
+  const rows = raw && typeof raw === "object" ? (raw as { scores?: unknown }).scores : undefined;
   if (!Array.isArray(rows) || rows.length !== count) {
     throw new ProviderError("候选评审数量不匹配", 502, model, "invalid_response");
   }
@@ -70,6 +72,9 @@ export function parseTryOnCandidateSelection(payload: unknown, count: number, mo
       throw new ProviderError("候选评分格式无效", 502, model, "invalid_response");
     }
     const row = value as Record<string, unknown>;
+    if (typeof row.hardFail !== "boolean" || (requirePose && typeof row.poseMatches !== "boolean")) {
+      throw new ProviderError("候选评审缺少有效的姿势或硬失败判定", 502, model, "invalid_response");
+    }
     const index = integerScore(row.index, count - 1, `scores[${rowIndex}].index`);
     if (seen.has(index)) throw new ProviderError("候选评分索引重复", 502, model, "invalid_response");
     seen.add(index);
@@ -85,7 +90,8 @@ export function parseTryOnCandidateSelection(payload: unknown, count: number, mo
     return {
       index, identity, anatomy, garment, material, accessories, scene,
       total: identity + anatomy + garment + material + accessories + scene,
-      hardFail: row.hardFail === true,
+      hardFail: row.hardFail || (requirePose && row.poseMatches === false),
+      poseMatches: typeof row.poseMatches === "boolean" ? row.poseMatches : undefined,
       reasons,
     };
   }).sort((left, right) => left.index - right.index);
@@ -113,10 +119,14 @@ export const selectBestTryOnCandidate: TryOnCandidateSelector = async (input) =>
   const model = config.tryOnJudgeModel();
   if (!/^[A-Za-z0-9._-]+$/.test(model)) throw new Error("换装评审模型配置无效");
   const roleText = input.referenceRoles.map((role, index) => `参考${index + 1}=${role}`).join("，");
+  if (input.stage === "scene-stabilize" && !input.referenceRoles.includes("scene")) {
+    throw new ProviderError("候选评审缺少原始场景参考图", 400, model, "invalid_request");
+  }
   const content: Array<Record<string, unknown>> = [{
     type: "text",
-    text: `你是写实服装换装候选评审器。阶段=${input.stage}。${roleText}。下面先给参考图，再给候选图。严格按指令符合度、身份20、肢体结构15、服装版型20、材质纹理20、配饰与文字准确性15、构图与场景10评分。身份替换、明显多肢缺肢、严重手脚错误、场景服装污染、核心穿搭错误、虚构或改写 Logo/文字、核心包鞋缺失必须 hardFail=true。只返回 JSON：{\"scores\":[{\"index\":0,\"identity\":0,\"anatomy\":0,\"garment\":0,\"material\":0,\"accessories\":0,\"scene\":0,\"hardFail\":false,\"reasons\":[\"具体问题\"]}]}。index 从0开始且每张候选恰好一项。目标提示词：${input.prompt}`,
+    text: `你是写实服装换装候选评审器。阶段=${input.stage}。${roleText}。下面先给参考图，再给候选图。严格按指令符合度、身份20、肢体结构15、服装版型20、材质纹理20、配饰与文字准确性15、构图与场景10评分。身份替换、明显多肢缺肢、严重手脚错误、场景服装污染、核心穿搭错误、虚构或改写 Logo/文字、核心包鞋缺失必须 hardFail=true。只返回 JSON：{\"scores\":[{\"index\":0,\"identity\":0,\"anatomy\":0,\"garment\":0,\"material\":0,\"accessories\":0,\"scene\":0,\"hardFail\":false,\"poseMatches\":true,\"reasons\":[\"具体问题\"]}]}。index 从0开始且每张候选恰好一项。目标提示词：${input.prompt}`,
   }];
+  content.push({ type: "text", text: "每项评分必须返回布尔字段 poseMatches。第一轮必须直接对照 scene 原图检查头部俯仰、侧倾、视线、肩线、髋线、重心腿、膝踝、手臂与手部位置及人物占画比例，禁止用人物身份图的姿势代替场景姿势。明显姿势偏差必须 poseMatches=false 且 hardFail=true，并说明具体差异；不能仅凭相同背景或双手插兜判为一致。第二轮对照 baseline 保持姿势。身份、服装和姿势分别按各自角色核对。" });
   input.referenceImages.forEach((image, index) => {
     parseDataUrl(image);
     content.push({ type: "text", text: `参考图 ${index + 1}，角色：${input.referenceRoles[index] ?? "unknown"}` });
@@ -127,20 +137,37 @@ export const selectBestTryOnCandidate: TryOnCandidateSelector = async (input) =>
     content.push({ type: "text", text: `候选图 ${index}，评分结果的 index 必须为 ${index}` });
     content.push({ type: "image_url", image_url: { url: image } });
   });
-  await input.beforeProviderCall?.(1);
-  const response = await fetchWithRetry(
-    `${config.apiyiBaseUrl()}/v1/chat/completions`,
-    () => ({
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiyiApiKey()}` },
-      body: JSON.stringify({
-        model,
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [{ role: "user", content }],
-      }),
-    }),
-    { timeoutMs: config.aiTimeoutMs(180_000), providerId: model, maxRetries: 0 },
-  );
-  return parseTryOnCandidateSelection(await response.json(), input.candidates.length, model);
+  // Bound the judge payload without changing generation references or their aspect ratios.
+  for (const part of content) {
+    if (part.type !== "image_url") continue;
+    const image = part.image_url as { url: string };
+    const { buffer } = parseDataUrl(image.url);
+    const thumbnail = await sharp(buffer).rotate().resize({ width: 1280, height: 1280, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
+    image.url = `data:image/jpeg;base64,${thumbnail.toString("base64")}`;
+  }
+  for (let attempt = 0; ; attempt += 1) {
+    await input.beforeProviderCall?.(attempt + 1);
+    try {
+      const response = await fetchWithRetry(
+        `${config.apiyiBaseUrl()}/v1/chat/completions`,
+        () => ({
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiyiApiKey()}` },
+          body: JSON.stringify({
+            model,
+            temperature: 0,
+            response_format: { type: "json_object" },
+            messages: [{ role: "user", content }],
+          }),
+        }),
+        { timeoutMs: config.aiTimeoutMs(180_000), providerId: model, maxRetries: 0 },
+      );
+      const selection = parseTryOnCandidateSelection(await response.json(), input.candidates.length, model, true);
+      return { ...selection, providerRequests: attempt + 1 };
+    } catch (error) {
+      const retryable = error instanceof SyntaxError || (error instanceof ProviderError &&
+        ["invalid_response", "empty_response", "timeout", "gateway_unavailable"].includes(error.category));
+      if (attempt >= 1 || !retryable) throw error;
+    }
+  }
 };

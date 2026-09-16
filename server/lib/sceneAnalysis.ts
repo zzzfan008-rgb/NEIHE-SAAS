@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import { config } from "../config";
 import { fetchWithRetry, parseDataUrl, ProviderError } from "../providers/base";
 
-const SCENE_ANALYSIS_SCHEMA_VERSION = 1;
+const SCENE_ANALYSIS_SCHEMA_VERSION = 2;
 const SCENE_FIELDS = [
   "environment",
   "background",
@@ -50,6 +50,7 @@ const FORBIDDEN_SCENE_CONTENT = /人物身份|五官|脸型|肤色|发型|体型
 const ANALYSIS_INSTRUCTION = `你是服装电商摄影的场景解析器。只分析图片中的以下维度，并以 JSON 对象返回：
 environment, background, lighting, camera, framing, composition, bodyPose, handPose, facialExpression, gazeDirection, subjectPosition。
 只描述场景、背景、光线、摄影机、构图、人物在画面中的位置、身体动作、手部动作、神态与视线。
+bodyPose 必须分别描述头部俯仰和侧倾方向、肩线与髋线倾斜、躯干倾斜、重心腿、左右膝踝与脚的位置；左右方向使用画面左侧/右侧。handPose 描述两侧肘腕位置、弯曲与接触关系。gazeDirection 必须区分直视镜头、俯视和侧视，无法判断时注明不确定，禁止默认直视。composition 和 subjectPosition 描述人物占画比例、头顶与脚底留白。只记录可见几何，不猜测遮挡部位。
 严禁描述、推断或提取人物身份、五官外观、肤色、发型、体型、服装、鞋履、包袋、帽子、首饰、腰带、眼镜、品牌、文字或任何配饰；这些内容即使清晰可见也必须完全忽略。
 每个字段必须是简洁、可执行的中文摄影提示词字符串；不得输出数组、嵌套对象、Markdown 或 JSON 以外的文字。`;
 

@@ -36,6 +36,7 @@ import {
   compatibleUnusedInputRoles,
   connectionCompatibilityError,
   imagesForSourceHandle,
+  inputPortFor,
   inputPortSpecs,
   isStagedTryOnData,
   STAGED_ROLE_LABELS,
@@ -43,6 +44,7 @@ import {
 import {
   DEFAULT_GENERATION_MODEL_ID,
   MASK_REDRAW_MODEL_ID,
+  SKETCH_OPTIMIZATION_MODEL_ID,
   defaultImageModelOptions,
   isImageModelId,
   isModelAllowedForNode,
@@ -1065,12 +1067,14 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
         outputImages: [],
       };
     case "sketch-optimize":
-    case "sketch-to-render":
+    case "sketch-to-render": {
+      const modelId = kind === "sketch-optimize" ? SKETCH_OPTIMIZATION_MODEL_ID : DEFAULT_GENERATION_MODEL_ID;
       return {
         ...base, kind, prompt: "", aspectRatio: "3:4", batchSize: 1, outputImages: [],
-        modelId: DEFAULT_GENERATION_MODEL_ID,
-        modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID, "3:4"),
+        modelId,
+        modelOptions: defaultImageModelOptions(modelId, "3:4"),
       };
+    }
     case "ai-modify":
       return {
         ...base, kind, prompt: "", aspectRatio: "1:1", batchSize: 1, outputImages: [],
@@ -1471,9 +1475,14 @@ export function isDocumentConnectionValid(
     source.data.kind === "drawing-board"
     && (!source.data.contentRef || !source.data.previewImageRef)
   ) return false;
-  const spec = NODE_SPECS[target.data.kind];
-  const incoming = document.edges.filter((edge) => edge.target === connection.target);
-  if (incoming.length >= spec.inputs) return false;
+  const targetPort = inputPortFor(target.data, connection.targetHandle);
+  if (targetPort?.valueKind === "image") {
+    const incomingImageCount = document.edges.filter((edge) => (
+      edge.target === connection.target
+      && inputPortFor(target.data, edge.targetHandle)?.valueKind === "image"
+    )).length;
+    if (incomingImageCount >= NODE_SPECS[target.data.kind].inputs) return false;
+  }
   if (isStagedTryOnData(target.data) && !connection.targetHandle) {
     return compatibleUnusedInputRoles({
       source,
@@ -2108,6 +2117,8 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       ? migratedModelId
       : kind === "mask-redraw" || kind === "virtual-try-on"
         ? MASK_REDRAW_MODEL_ID
+        : kind === "sketch-optimize"
+          ? SKETCH_OPTIMIZATION_MODEL_ID
         : DEFAULT_GENERATION_MODEL_ID;
     const preferredAspectRatio = typeof input.aspectRatio === "string" ? input.aspectRatio : "1:1";
     data.modelId = modelId;

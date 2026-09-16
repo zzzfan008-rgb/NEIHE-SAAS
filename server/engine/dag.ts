@@ -19,6 +19,7 @@ import {
 import {
   DEFAULT_GENERATION_MODEL_ID,
   MASK_REDRAW_MODEL_ID,
+  SKETCH_OPTIMIZATION_MODEL_ID,
   defaultImageModelOptions,
   isImageModelId,
   isModelAllowedForNode,
@@ -128,7 +129,9 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     }
     const modelId = isImageModelId(step.params.modelId)
       ? step.params.modelId
-      : step.kind === "mask-redraw" ? MASK_REDRAW_MODEL_ID : DEFAULT_GENERATION_MODEL_ID;
+      : step.kind === "mask-redraw"
+        ? MASK_REDRAW_MODEL_ID
+        : step.kind === "sketch-optimize" ? SKETCH_OPTIMIZATION_MODEL_ID : DEFAULT_GENERATION_MODEL_ID;
     if (!isModelAllowedForNode(modelId, step.kind)) {
       throw new DagError(`Model ${modelId} is not allowed for node ${step.nodeId}`);
     }
@@ -175,7 +178,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     if (step.kind === "virtual-try-on") {
       const stage = step.params.workflowStage;
       const allowedRoles = stage === "scene-stabilize"
-        ? new Set(["person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet", "detail"])
+        ? new Set(["person", "scene", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail"])
         : stage === "garment-refine"
           ? new Set(["baseline", "outfit", "material", "detail"])
           : undefined;
@@ -203,7 +206,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
         requireOne("scene", "scene");
         requireOne("outfit", "outfit");
         for (const [role, label] of [
-          ["bag", "包袋"], ["shoes", "鞋履"], ["hat", "帽子"],
+          ["bag", "包袋"], ["shoes", "鞋履"], ["socks", "袜子"], ["hat", "帽子"],
           ["ring", "戒指"], ["earrings", "耳环"], ["bracelet", "手镯"],
         ] as const) {
           if (roleSources(role).length > 1 || roleImages(role).length > 1) {
@@ -359,7 +362,7 @@ export function buildExecutionPlan(
     }
     if (data.kind === "virtual-try-on" && data.workflowStage !== "standard") {
       const order = data.workflowStage === "scene-stabilize"
-        ? ["scene", "person", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet", "detail"]
+        ? ["scene", "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail"]
         : ["baseline", "outfit", "material", "detail"];
       const rank = (handle: string | null | undefined) => {
         const index = order.indexOf(handle ?? "");
@@ -470,6 +473,8 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
       ? data.modelId
       : data.kind === "mask-redraw" || data.kind === "virtual-try-on"
         ? MASK_REDRAW_MODEL_ID
+        : data.kind === "sketch-optimize"
+          ? SKETCH_OPTIMIZATION_MODEL_ID
         : DEFAULT_GENERATION_MODEL_ID;
     return {
       modelId,

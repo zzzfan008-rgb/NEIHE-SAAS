@@ -591,9 +591,9 @@ async function finalizeSuccessfulRun(
   const target = run.target_step_id
       ? (await client.query<{
         output_images_json: string; prompts_json: string; provider_output_sizes_json: string;
-        failures_json: string; model: string | null;
+        failures_json: string; model: string | null; error: string | null;
       }>(`
-        SELECT output_images_json, prompts_json, provider_output_sizes_json, failures_json, model
+        SELECT output_images_json, prompts_json, provider_output_sizes_json, failures_json, model, error
         FROM generation_run_steps WHERE id = $1
       `, [run.target_step_id])).rows[0]
     : undefined;
@@ -623,7 +623,7 @@ async function finalizeSuccessfulRun(
       VALUES ($1, $2, '', $3, 'error', $4, $5)
     `, [nanoid(12), run.id, failure.prompt ?? null, failure.error, finishedAt + images.length + index]);
   }
-  const warning = cancellationWarning ?? (failures.length ? `${failures.length} 个生成任务失败` : null);
+  const warning = cancellationWarning ?? target?.error ?? (failures.length ? `${failures.length} 个生成任务失败` : null);
   const model = target?.model ?? aggregate?.model ?? null;
   const providerRequests = aggregate?.provider_requests ?? 0;
   await client.query(`
@@ -727,7 +727,7 @@ async function completeJobSuccess(
     `, [
       result.model ?? null, JSON.stringify(visibleImages), JSON.stringify(visiblePrompts ?? []),
       JSON.stringify(visibleOutputSizes ?? []), JSON.stringify(result.failures ?? []),
-      JSON.stringify(result.executionMeta ?? {}), cancellationWarning ?? null, finishedAt, job.stepId,
+      JSON.stringify(result.executionMeta ?? {}), cancellationWarning ?? result.warning ?? null, finishedAt, job.stepId,
     ]);
     for (const image of persistedImages) {
       if (!image.url.startsWith("/api/files/")) continue;
@@ -747,7 +747,7 @@ async function completeJobSuccess(
       providerOutputSizes: visibleOutputSizes,
       failures: result.failures,
       executionMeta: result.executionMeta,
-      error: cancellationWarning ?? partialWarning,
+      error: cancellationWarning ?? result.warning ?? partialWarning,
       startedAt: job.startedAt,
       finishedAt,
     }, finishedAt);

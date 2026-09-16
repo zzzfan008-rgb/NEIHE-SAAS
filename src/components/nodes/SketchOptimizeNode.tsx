@@ -7,7 +7,7 @@ import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
 import { selectActiveNodeInputImages, selectActiveReadOnly, useFlowStore } from "@/store/flowStore";
 import { isNodeRunActive, type SketchOptimizeNodeData } from "@/types/workflow";
-import { DEFAULT_GENERATION_MODEL_ID, IMAGE_MODEL_IDS, imageModelLabel, isImageModelId, defaultImageModelOptions, imageModelAspectRatioPatch } from "@/types/imageModels";
+import { SKETCH_OPTIMIZATION_MODEL_ID, IMAGE_MODEL_IDS, imageModelLabel, isImageModelId, defaultImageModelOptions, imageModelAspectRatioPatch } from "@/types/imageModels";
 
 export function SketchOptimizeNode({ id, data, selected }: NodeProps<Node<SketchOptimizeNodeData>>) {
   const updateNodeData = useFlowStore((state) => state.updateNodeData);
@@ -30,10 +30,10 @@ export function SketchOptimizeNode({ id, data, selected }: NodeProps<Node<Sketch
       <p className="text-[10px] leading-4 text-(--gc-node-muted)">内置服装专业指令：整理结构线，以黑白灰区分面料与服装层次；保留未要求修改的设计，不生成写实效果图。</p>
       <label className="block space-y-1">
         <span className="text-[10px] text-(--gc-node-muted)">图片模型</span>
-        <Select value={data.modelId ?? DEFAULT_GENERATION_MODEL_ID} disabled={disabled} onValueChange={(value) => {
+        <Select value={data.modelId ?? SKETCH_OPTIMIZATION_MODEL_ID} disabled={disabled} onValueChange={(value) => {
           if (isImageModelId(value)) updateNodeData(id, { modelId: value, modelOptions: defaultImageModelOptions(value, data.aspectRatio) });
         }}>
-          <SelectTrigger className="nodrag w-full" aria-label="线稿优化模型"><SelectValue>{imageModelLabel(data.modelId ?? DEFAULT_GENERATION_MODEL_ID)}</SelectValue></SelectTrigger>
+          <SelectTrigger className="nodrag w-full" aria-label="线稿优化模型"><SelectValue>{imageModelLabel(data.modelId ?? SKETCH_OPTIMIZATION_MODEL_ID)}</SelectValue></SelectTrigger>
           <SelectContent>{IMAGE_MODEL_IDS.filter((value) => value !== "gpt-image-2").map((value) => <SelectItem key={value} value={value}>{imageModelLabel(value)}</SelectItem>)}</SelectContent>
         </Select>
       </label>

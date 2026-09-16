@@ -31,6 +31,7 @@ assert.doesNotMatch(approvalNode, /runNode\(/, "人工确认节点不得调用 P
 
 for (const roleLabel of [
   "人物身份图", "场景或表演参考图", "主穿搭图", "包袋参考图", "鞋履参考图",
+  "袜子参考图",
   "帽子参考图", "戒指参考图", "耳环参考图", "手镯参考图", "服装局部结构参考图",
 ]) {
   assert.match(stagedNode + workflowPorts, new RegExp(roleLabel), `第一轮紧凑角色行缺少“${roleLabel}”`);

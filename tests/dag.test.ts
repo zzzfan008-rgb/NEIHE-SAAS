@@ -409,6 +409,7 @@ async function main() {
     const outfit = imgNode("outfit", "/api/files/outfit.png");
     const shoes = imgNode("accessory", "/api/files/shoes.png");
     const bag = imgNode("structure", "/api/files/bag.png");
+    const socks = imgNode("socks", "/api/files/socks.png");
     const hat = imgNode("hat", "/api/files/hat.png");
     const ring = imgNode("ring", "/api/files/ring.png");
     const earrings = imgNode("earrings", "/api/files/earrings.png");
@@ -430,18 +431,19 @@ async function main() {
       { source: person.id, target: stabilize.id, targetHandle: "person" },
       { source: hat.id, target: stabilize.id, targetHandle: "hat" },
       { source: shoes.id, target: stabilize.id, targetHandle: "shoes" },
+      { source: socks.id, target: stabilize.id, targetHandle: "socks" },
       { source: ring.id, target: stabilize.id, targetHandle: "ring" },
       { source: scene.id, target: stabilize.id, targetHandle: "scene" },
       { source: earrings.id, target: stabilize.id, targetHandle: "earrings" },
       { source: detail.id, target: stabilize.id, targetHandle: "detail" },
     ];
-    const stageOneNodes = [person, scene, outfit, shoes, bag, hat, ring, earrings, bracelet, detail, stabilize];
+    const stageOneNodes = [person, scene, outfit, shoes, socks, bag, hat, ring, earrings, bracelet, detail, stabilize];
     const stageOne = buildExecutionPlan(stageOneNodes, stageOneEdges, {
       onlyNodeId: stabilize.id, includeDownstream: false,
     });
     assert.deepStrictEqual(stageOne.steps[0].inputImages, [
       "/api/files/scene.png", "/api/files/person.png", "/api/files/outfit.png",
-      "/api/files/bag.png", "/api/files/shoes.png", "/api/files/hat.png",
+      "/api/files/bag.png", "/api/files/shoes.png", "/api/files/socks.png", "/api/files/hat.png",
       "/api/files/ring.png", "/api/files/earrings.png", "/api/files/bracelet.png",
       "/api/files/detail.png",
     ]);
@@ -896,31 +898,32 @@ async function main() {
       },
       [
         SCENE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL,
-        SECOND_DATA_URL, SEED_DATA_URL, SECOND_DATA_URL,
+        SECOND_DATA_URL, SEED_DATA_URL, SECOND_DATA_URL, SECOND_DATA_URL,
         SEED_DATA_URL, SECOND_DATA_URL, SEED_DATA_URL,
       ],
       undefined,
-      ["scene", "person", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet"],
+      ["scene", "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet"],
       sceneAnalyzer,
     );
     assert.equal(stageOne.result.providerRequests, 3);
-    assert.equal(stageOne.calls[0].request.referenceImages?.length, 9);
+    assert.equal(stageOne.calls[0].request.referenceImages?.length, 11);
     assert.equal(stageOne.calls[0].request.referenceImages?.[0], SEED_DATA_URL);
     assert.equal(stageOne.calls[0].request.referenceImages?.[1], PERSON_GRID_DATA_URL);
     assert.equal(stageOne.calls[0].request.referenceImages?.[2], SECOND_DATA_URL);
-    assert.ok(!stageOne.calls[0].request.referenceImages?.includes(SCENE_DATA_URL));
+    assert.equal(stageOne.calls[0].request.referenceImages?.at(-1), SCENE_DATA_URL);
     assert.deepEqual(stageOne.calls[0].request.modelOptions, { aspectRatio: "2:3", imageSize: "2K" });
     assert.match(stageOne.calls[0].request.prompt, /视觉定位后从主要人物脸部裁切的身份锚点/);
     assert.match(stageOne.calls[0].request.prompt, /主要完整人物身份图/);
     assert.match(stageOne.calls[0].request.prompt, /参考图3是服装与搭配风格的唯一来源/);
-    assert.match(stageOne.calls[0].request.prompt, /原始场景图没有发送给生图模型/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图11是原始场景与姿势参考图/);
     assert.match(stageOne.calls[0].request.prompt, /暖灰色无缝背景/);
     assert.match(stageOne.calls[0].request.prompt, /参考图4只控制目标包袋/);
     assert.match(stageOne.calls[0].request.prompt, /参考图5只控制目标鞋履/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图6只控制目标帽子/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图7只控制目标戒指/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图8只控制目标耳环/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图9只控制目标手镯/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图6只控制目标袜子/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图7只控制目标帽子/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图8只控制目标戒指/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图9只控制目标耳环/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图10只控制目标手镯/);
     assert.match(stageOne.calls[0].request.prompt, /全局权重低于人物身份、场景描述和主穿搭/);
     assert.match(stageOne.calls[0].request.prompt, /真实存在且清晰可见的金属装饰图案与五金/);
     assert.match(stageOne.calls[0].request.prompt, /只提取戒指本体/);
@@ -953,6 +956,7 @@ async function main() {
       sceneAnalyzer,
       {
         candidateSelector: async (input) => {
+          assert.equal(input.referenceImages[input.referenceRoles.indexOf("scene")], SCENE_DATA_URL);
           await input.beforeProviderCall?.(1);
           return {
             selectedIndex: 2,
@@ -968,6 +972,36 @@ async function main() {
     assert.ok(bestMode.calls.every((call) => call.request.batchSize === 1));
     assert.equal(bestMode.result.candidateSelection?.selectedIndex, 2);
     assert.equal(bestMode.result.providerRequests, 6);
+
+    const unavailableJudge = await runRecordedAiStep(
+      "virtual-try-on",
+      { workflowStage: "scene-stabilize", imageSize: "2K", modelId: "gemini-3.1-flash-image", qualityMode: "best" },
+      [SCENE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL],
+      undefined, ["scene", "person", "outfit"], sceneAnalyzer,
+      { candidateSelector: async () => { throw new Error("private diagnostic"); } },
+    );
+    assert.equal(unavailableJudge.result.images.length, 3);
+    assert.equal(unavailableJudge.result.candidateSelection, undefined, "评审失败不得自动选择第一张");
+    assert.match(JSON.stringify(unavailableJudge.result.executionMeta), /全部候选已保留/);
+    assert.doesNotMatch(JSON.stringify(unavailableJudge.result.executionMeta), /private diagnostic/);
+
+    const failedJudge = await runRecordedAiStep(
+      "virtual-try-on",
+      { workflowStage: "scene-stabilize", imageSize: "2K", modelId: "gemini-3.1-flash-image", qualityMode: "best" },
+      [SCENE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL],
+      undefined, ["scene", "person", "outfit"], sceneAnalyzer,
+      { candidateSelector: async () => ({ selectedIndex: null, scores: [], model: "judge", providerRequests: 1, allHardFail: true }) },
+    );
+    assert.equal(failedJudge.result.images.length, 3, "全部未通过时仍保留付费结果");
+    assert.equal(failedJudge.result.candidateSelection, undefined);
+    assert.match(failedJudge.result.warning!, /均未通过/);
+    const fullRoles = ["scene", "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail", "detail", "detail", "detail"];
+    await assert.rejects(runRecordedAiStep(
+      "virtual-try-on",
+      { workflowStage: "scene-stabilize", modelId: "gemini-3.1-flash-image" },
+      fullRoles.map(() => SCENE_DATA_URL), undefined, fullRoles,
+      async () => { assert.fail("超限时不得发起场景分析调用"); },
+    ), /预留名额/);
 
     const enhancedMode = await runRecordedAiStep(
       "virtual-try-on",

@@ -1,5 +1,6 @@
 import {
   MASK_REDRAW_MODEL_ID,
+  SKETCH_OPTIMIZATION_MODEL_ID,
   isImageModelId,
   isModelAllowedForNode,
   normalizeImageModelOptions,
@@ -224,7 +225,7 @@ interface EdgeLike {
 }
 
 const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
-  "person", "scene", "outfit", "bag", "shoes", "hat", "ring", "earrings", "bracelet",
+  "person", "scene", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet",
   "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
   "first-frame", "last-frame", "source-video", "repair-source", "eyewear", "neckwear", "belt", "watch",
   "reference-image", "reference-video", "reference-audio",
@@ -252,7 +253,7 @@ function generationModelFields(
 ): GenerationModelDocumentFields {
   const modelId = isImageModelId(modelIdValue) && isModelAllowedForNode(modelIdValue, kind)
     ? modelIdValue as GenerationImageModelId
-    : "gpt-image-2-vip";
+    : kind === "sketch-optimize" ? SKETCH_OPTIMIZATION_MODEL_ID : "gpt-image-2-vip";
   return {
     modelId,
     modelOptions: normalizeImageModelOptions(modelId, modelOptionsValue, preferredAspectRatio),
