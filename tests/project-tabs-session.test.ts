@@ -518,6 +518,44 @@ assert.ok(!recoveredStagedSession.tabs[0].edges.some((edge) => edge.id === "stru
 assert.ok(!recoveredStagedSession.tabs[0].edges.some((edge) => edge.id === "garment-detail-stabilize"));
 console.log("  ✓ 旧浏览器会话按角色连线恢复双模型分步节点");
 
+const recoveredPoseRoleSession = normalizeTabSessionValue({
+  schemaVersion: TAB_SESSION_SCHEMA_VERSION,
+  activeTabId: "pose-role-session",
+  tabs: [{
+    ...storedSelectionTab("pose-role-session", []),
+    nodes: [
+      {
+        id: "pose", type: "image-input", position: { x: 0, y: 0 },
+        data: {
+          kind: "image-input", label: "人物姿势参考图（必需）", status: "success",
+          imageRole: "reference", imageUrl: "/api/files/pose.png",
+          autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "pose" }],
+        },
+      },
+      {
+        id: "stabilize", type: "virtual-try-on", position: { x: 300, y: 0 },
+        data: {
+          kind: "virtual-try-on", label: "第一轮", status: "idle",
+          workflowStage: "scene-stabilize", prompt: "", imageSize: "2K", aspectRatio: "3:4",
+          basisRevision: 0, modelId: "gemini-3.1-flash-image",
+          modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, outputImages: [],
+        },
+      },
+    ],
+    edges: [{
+      id: "pose-role-lost", source: "pose", sourceHandle: "image",
+      target: "stabilize", targetHandle: null,
+    }],
+  }],
+});
+assert.ok(recoveredPoseRoleSession);
+assert.equal(
+  recoveredPoseRoleSession.tabs[0].edges[0]?.targetHandle,
+  "pose",
+  "已声明唯一自动连接目标的姿势边应从旧草稿恢复角色",
+);
+console.log("  ✓ 姿势参考图草稿可从显式自动连接声明恢复丢失的输入角色");
+
 const recoveredV5NodeFields = normalizeTabSessionValue({
   activeTabId: "v5-node-fields",
   tabs: [{

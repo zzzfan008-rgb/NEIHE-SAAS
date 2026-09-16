@@ -55,36 +55,14 @@ export type NodeDisplayState =
 
 export type PortValueKind = "image" | "text" | "colors" | "video" | "audio" | "none";
 
-export type WorkflowInputRole =
-  | "person"
-  | "scene"
-  | "pose"
-  | "outfit"
-  | "bag"
-  | "shoes"
-  | "socks"
-  | "hat"
-  | "ring"
-  | "earrings"
-  | "bracelet"
-  | "detail"
-  | "material"
-  | "baseline-candidate"
-  | "baseline"
-  | "palette"
-  | "prompt"
-  | "references"
-  | "first-frame"
-  | "last-frame"
-  | "source-video"
-  | "reference-image"
-  | "reference-video"
-  | "reference-audio"
-  | "repair-source"
-  | "eyewear"
-  | "neckwear"
-  | "belt"
-  | "watch";
+export const WORKFLOW_INPUT_ROLES = [
+  "person", "scene", "pose", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet",
+  "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
+  "first-frame", "last-frame", "source-video", "reference-image", "reference-video", "reference-audio",
+  "repair-source", "eyewear", "neckwear", "belt", "watch",
+] as const;
+
+export type WorkflowInputRole = (typeof WORKFLOW_INPUT_ROLES)[number];
 
 export type MaskRepairFocus =
   | "custom"

@@ -2,6 +2,7 @@ import {
   MAX_MASK_USER_REFERENCE_IMAGES,
   MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES,
   NODE_SPECS,
+  WORKFLOW_INPUT_ROLES,
   type NodePortSpec,
   type PortValueKind,
   type WorkflowInputRole,
@@ -80,6 +81,25 @@ export const STAGED_ROLE_LABELS: Readonly<Partial<Record<WorkflowInputRole, stri
 
 export function isStagedTryOnData(data: WorkflowNodeData): boolean {
   return data.kind === "virtual-try-on" && data.workflowStage !== "standard";
+}
+
+/** Recover only the role explicitly and uniquely declared by an image template node. */
+export function declaredAutoConnectTargetHandle(
+  data: WorkflowNodeData,
+  targetNodeId: string,
+): WorkflowInputRole | undefined {
+  if (data.kind !== "image-input" || !Array.isArray(data.autoConnectTargets)) return undefined;
+  const roles = new Set<WorkflowInputRole>();
+  for (const value of data.autoConnectTargets as unknown[]) {
+    if (!value || typeof value !== "object") continue;
+    const target = value as { targetNodeId?: unknown; targetHandle?: unknown };
+    if (
+      target.targetNodeId === targetNodeId
+      && typeof target.targetHandle === "string"
+      && WORKFLOW_INPUT_ROLES.includes(target.targetHandle as WorkflowInputRole)
+    ) roles.add(target.targetHandle as WorkflowInputRole);
+  }
+  return roles.size === 1 ? roles.values().next().value : undefined;
 }
 
 export function compatibleUnusedInputRoles(options: {

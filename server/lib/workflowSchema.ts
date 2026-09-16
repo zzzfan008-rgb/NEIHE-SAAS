@@ -1,5 +1,6 @@
 import {
   WORKFLOW_SCHEMA_VERSION,
+  WORKFLOW_INPUT_ROLES,
   MAX_REFERENCE_IMAGES,
   NODE_SPECS,
   type NodeKind,
@@ -28,6 +29,7 @@ import {
 } from "../../src/types/imageModels";
 import {
   connectionCompatibilityError,
+  declaredAutoConnectTargetHandle,
   inputPortFor,
 } from "../../src/lib/workflowPorts";
 import { MASK_REPAIR_FOCUSES } from "../../src/lib/maskRepair";
@@ -79,12 +81,6 @@ const FABRIC_OPERATION_MODES = ["combined", "fabric", "color"] as const;
 const COLOR_SWATCH_SOURCES = [
   "quick", "custom", "recent", "favorite", "eyedropper", "pantone", "brand",
 ] as const;
-const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
-  "person", "scene", "pose", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet",
-  "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
-  "first-frame", "last-frame", "source-video", "repair-source", "eyewear", "neckwear", "belt", "watch",
-  "reference-image", "reference-video", "reference-audio",
-];
 const MASK_REPAIR_EXECUTION_MODES = ["repair", "bypass"] as const;
 const BOARD_MIN_SIDE = 256;
 const BOARD_MAX_SIDE = 4096;
@@ -1014,10 +1010,19 @@ export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
 
   const nodes = upgraded.nodes.map((node, index) => validateNode(node, index, migrateLegacy));
   const validatedEdges = upgraded.edges.map(validateEdge);
+  const recoveryNodesById = new Map(nodes.map((node) => [node.id, node]));
+  const recoveredEdges = validatedEdges.map((edge) => {
+    if (edge.targetHandle) return edge;
+    const source = recoveryNodesById.get(edge.source);
+    const targetHandle = source
+      ? declaredAutoConnectTargetHandle(source.data, edge.target)
+      : undefined;
+    return targetHandle ? { ...edge, targetHandle } : edge;
+  });
   const stagedNodeIds = new Set(nodes.flatMap((node) => (
     node.data.kind === "virtual-try-on" && node.data.workflowStage !== "standard" ? [node.id] : []
   )));
-  const typedStagedPairs = new Set(validatedEdges.flatMap((edge) => (
+  const typedStagedPairs = new Set(recoveredEdges.flatMap((edge) => (
     stagedNodeIds.has(edge.target) && edge.targetHandle
       ? [`${edge.source}\u0000${edge.target}`]
       : []
@@ -1025,7 +1030,7 @@ export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
   // A stale canvas could add a second source→stage edge without a role handle.
   // When the same pair already has a correctly typed edge, the untyped copy is
   // unambiguously redundant and safe to discard during load/save migration.
-  const edges = validatedEdges.filter((edge) => !(
+  const edges = recoveredEdges.filter((edge) => !(
     stagedNodeIds.has(edge.target)
     && !edge.targetHandle
     && typedStagedPairs.has(`${edge.source}\u0000${edge.target}`)

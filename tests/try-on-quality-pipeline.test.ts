@@ -63,6 +63,12 @@ try {
     const parts = body.messages[0].content;
     assert.ok(parts.some((part: { text?: string }) => part.text?.includes("角色：scene")));
     assert.ok(parts.some((part: { text?: string }) => part.text?.includes("角色：pose")));
+    const reviewInstructions = parts
+      .filter((part: { type?: string; text?: string }) => part.type === "text")
+      .map((part: { text?: string }) => part.text ?? "")
+      .join("\n");
+    assert.match(reviewInstructions, /pose 参考图是第一轮姿势判断的唯一标准/);
+    assert.match(reviewInstructions, /不得偏好站姿、坐姿或任何所谓“标准姿势”/);
     const images = parts.filter((part: { type: string }) => part.type === "image_url");
     assert.equal(images.length, 4);
     const metadata = await sharp(Buffer.from(images[0].image_url.url.split(",")[1], "base64")).metadata();

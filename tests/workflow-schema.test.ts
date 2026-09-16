@@ -809,6 +809,47 @@ async function main() {
     assert.throws(() => validateAndMigrateFlow(current), /targetHandle/);
   });
 
+  await test("当前文档从图片节点的唯一声明恢复丢失的姿势输入角色", () => {
+    const flow = {
+      schemaVersion: WORKFLOW_SCHEMA_VERSION,
+      nodes: [
+        {
+          id: "pose", type: "image-input", position: { x: 0, y: 0 },
+          data: {
+            kind: "image-input", label: "人物姿势参考图（必需）", status: "idle",
+            imageRole: "reference", imageUrl: PNG_DATA_URL,
+            autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "pose" }],
+          },
+        },
+        {
+          id: "stabilize", type: "virtual-try-on", position: { x: 300, y: 0 },
+          data: {
+            kind: "virtual-try-on", label: "第一轮", status: "idle",
+            workflowStage: "scene-stabilize", prompt: "", imageSize: "2K", aspectRatio: "3:4",
+            basisRevision: 0, modelId: "gemini-3.1-flash-image",
+            modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, outputImages: [],
+            promptEnhancement: true, qualityMode: "best", safetyFallback: true,
+            stylePresetId: "faithful",
+          },
+        },
+      ],
+      edges: [{
+        id: "pose-role-lost", source: "pose", sourceHandle: "image",
+        target: "stabilize", targetHandle: null,
+      }],
+    };
+    const recovered = validateAndMigrateFlow(flow);
+    assert.equal(recovered.edges[0]?.targetHandle, "pose");
+
+    const ambiguous = structuredClone(flow);
+    ambiguous.nodes[0].data.autoConnectTargets = [];
+    assert.throws(
+      () => validateAndMigrateFlow(ambiguous),
+      /请选择一个明确的输入角色/,
+      "没有显式唯一声明的无角色连线仍必须拒绝",
+    );
+  });
+
   await test("大于文本上限但小于图片字节上限的 dataURL 可用于通用图片与蒙版", async () => {
     const largePng = await halfEditablePng(128, 128, true);
     assert.ok(largePng.dataUrl.length > 20_000, "fixture 必须超过普通文本上限");

@@ -474,6 +474,56 @@ assert.deepEqual(
   ["reference-image", "reference-video", "reference-audio"],
 );
 
+const poseSnapshot = createDocumentSnapshot({
+  projectName: "姿势角色快照往返",
+  nodes: [
+    {
+      id: "pose",
+      type: "image-input",
+      position: { x: 0, y: 0 },
+      data: {
+        kind: "image-input",
+        label: "人物姿势参考图（必需）",
+        status: "success",
+        imageRole: "reference",
+        imageUrl: "/api/files/pose.png",
+        autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "pose" }],
+      },
+    },
+    {
+      id: "stabilize",
+      type: "virtual-try-on",
+      position: { x: 300, y: 0 },
+      data: {
+        kind: "virtual-try-on",
+        label: "第一轮",
+        status: "idle",
+        workflowStage: "scene-stabilize",
+        prompt: "",
+        imageSize: "2K",
+        aspectRatio: "3:4",
+        basisRevision: 0,
+        modelId: "gemini-3.1-flash-image",
+        modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
+        outputImages: [],
+      },
+    },
+  ],
+  edges: [{
+    id: "pose-stabilize",
+    source: "pose",
+    sourceHandle: "image",
+    target: "stabilize",
+    targetHandle: "pose",
+  }],
+});
+assert.equal(poseSnapshot.edges[0].targetHandle, "pose", "姿势角色不得在文档快照中降级为空");
+assert.equal(
+  documentSnapshotToPersistedWorkflow(poseSnapshot).edges[0].targetHandle,
+  "pose",
+  "姿势角色必须完整写入项目保存载荷",
+);
+
 for (const kind of ["mask-redraw", "virtual-try-on"] as const) {
   for (const schemaVersion of [undefined, 1, 4, 11, WORKFLOW_SCHEMA_VERSION]) {
     for (const [quality, expected] of [["low", "low"], ["medium", "high"], ["high", "max"], [undefined, "high"]]) {

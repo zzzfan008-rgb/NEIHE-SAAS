@@ -9,6 +9,7 @@ import {
   type VirtualTryOnModelId,
 } from "../types/imageModels";
 import {
+  WORKFLOW_INPUT_ROLES,
   WORKFLOW_SCHEMA_VERSION,
   type BatchSize,
   type ColorSwatch,
@@ -223,13 +224,6 @@ interface EdgeLike {
   sourceHandle?: string | null;
   targetHandle?: string | null;
 }
-
-const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
-  "person", "scene", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet",
-  "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
-  "first-frame", "last-frame", "source-video", "repair-source", "eyewear", "neckwear", "belt", "watch",
-  "reference-image", "reference-video", "reference-audio",
-];
 
 function documentTargetHandle(value: string | null | undefined): WorkflowInputRole | null | undefined {
   if (value === undefined) return undefined;

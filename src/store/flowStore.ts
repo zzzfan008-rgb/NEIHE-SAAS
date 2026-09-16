@@ -35,6 +35,7 @@ import type { ConnectionDraft } from "@/types/workbench";
 import {
   compatibleUnusedInputRoles,
   connectionCompatibilityError,
+  declaredAutoConnectTargetHandle,
   imagesForSourceHandle,
   inputPortFor,
   inputPortSpecs,
@@ -2381,6 +2382,18 @@ function normalizeSessionEdge(value: unknown, nodeIds: Set<string>): Edge | unde
   return { ...raw, id, source: raw.source, target: raw.target } as Edge;
 }
 
+function recoverDeclaredAutoConnectEdgeHandles(nodes: readonly FlowNode[], edges: readonly Edge[]): Edge[] {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  return edges.map((edge) => {
+    if (edge.targetHandle) return edge;
+    const source = nodesById.get(edge.source);
+    const targetHandle = source
+      ? declaredAutoConnectTargetHandle(source.data, edge.target)
+      : undefined;
+    return targetHandle ? { ...edge, targetHandle } : edge;
+  });
+}
+
 function recoverSessionStagedTryOnNodes(nodes: readonly FlowNode[], edges: readonly Edge[]): FlowNode[] {
   const incomingRoles = new Map<string, Set<string>>();
   for (const edge of edges) {
@@ -2596,8 +2609,9 @@ function normalizeSessionTab(
     nodes,
     options.migrateLegacyMaskEdges ? migrateSessionLegacyMaskEdges(nodes, videoEdges) : videoEdges,
   );
-  const recoveredNodes = recoverSessionStagedTryOnNodes(upgraded.nodes, upgraded.edges);
-  const edges = discardUntypedStagedDuplicateEdges(recoveredNodes, upgraded.edges);
+  const declaredEdges = recoverDeclaredAutoConnectEdgeHandles(upgraded.nodes, upgraded.edges);
+  const recoveredNodes = recoverSessionStagedTryOnNodes(upgraded.nodes, declaredEdges);
+  const edges = discardUntypedStagedDuplicateEdges(recoveredNodes, declaredEdges);
   const revision = finiteNonNegative(raw.revision, 0);
   const wasSaving = raw.saveState === "saving";
   const dirty = wasSaving || raw.dirty === true;
