@@ -104,7 +104,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
     schemaVersion: WORKFLOW_SCHEMA_VERSION,
     id: "builtin-tool-one-click-try-on",
     name: "一键换装",
-    description: "上传图片后自动连接完整双阶段工作流：Gemini 锁定人物与场景，人工确认后由 GPT Image 2 精修服装。",
+    description: "上传图片后自动连接完整双阶段工作流：Gemini 分离锁定人物、场景与姿势，人工确认后由 GPT Image 2 精修服装。",
     builtIn: true,
     createdAt: "2026-09-03T00:00:00.000Z",
     flow: {
@@ -113,26 +113,32 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
         {
           id: "person",
           type: "image-input",
-          position: { x: 0, y: -820 },
+          position: { x: 0, y: -1080 },
           data: { kind: "image-input", label: "主要人物身份图（必需）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "person" }] },
         },
         {
           id: "identity-secondary-1",
           type: "image-input",
-          position: { x: 0, y: -560 },
+          position: { x: 0, y: -820 },
           data: { kind: "image-input", label: "补充身份图 1（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "person" }] },
         },
         {
           id: "identity-secondary-2",
           type: "image-input",
-          position: { x: 0, y: -300 },
+          position: { x: 0, y: -560 },
           data: { kind: "image-input", label: "补充身份图 2（可选）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "person" }] },
         },
         {
           id: "scene",
           type: "image-input",
+          position: { x: 0, y: -300 },
+          data: { kind: "image-input", label: "场景参考图（必需）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "scene" }] },
+        },
+        {
+          id: "pose",
+          type: "image-input",
           position: { x: 0, y: -40 },
-          data: { kind: "image-input", label: "场景/表演参考图（必需）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "scene" }] },
+          data: { kind: "image-input", label: "人物姿势参考图（必需）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "pose" }] },
         },
         {
           id: "outfit",
@@ -234,7 +240,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           position: { x: 980, y: -120 },
           data: {
             kind: "stage-approval",
-            label: "确认第一轮人物与场景基准",
+            label: "确认第一轮人物、姿势与场景基准",
             status: "idle",
             approvalKind: "scene-baseline",
           },
@@ -293,7 +299,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
             kind: "text-input",
             label: "使用步骤",
             status: "idle",
-            text: "① 上传人物、场景和主穿搭，按需补充身份、面料和配饰参考。② 运行第一轮并确认人物与场景基准。③ 填写材料与结构工艺后运行第二轮服装精修。④ 若结果仍需调整，在局部重绘节点基于第二轮结果绘制蒙版；不运行即不产生调用或费用。⑤ 主穿搭和面料会自动作为局部参考，其它参考图可按需手动连接。",
+            text: "① 上传人物身份、无人场景、人物姿势和主穿搭，按需补充身份、面料和配饰参考。② 姿势图只提取动作结构，原图不会传入生图模型；场景图只控制环境、镜头与光线。③ 运行第一轮并确认人物与场景基准。④ 填写材料与结构工艺后运行第二轮服装精修。⑤ 若结果仍需调整，在局部重绘节点基于第二轮结果绘制蒙版；不运行即不产生调用或费用。",
           },
         },
       ],
@@ -802,6 +808,9 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
         || nodeById.get("garment-detail")?.data?.executionMode !== "repair"
         || nodeById.get("socks")?.type !== "image-input"
         || nodeById.get("socks")?.data?.label !== "袜子参考图（可选）"
+        || nodeById.get("scene")?.data?.label !== "场景参考图（必需）"
+        || nodeById.get("pose")?.type !== "image-input"
+        || nodeById.get("pose")?.data?.label !== "人物姿势参考图（必需）"
         || ["upper-repair", "pants-repair", "accessory-repair", "logo-correct"].some((id) => nodeById.has(id));
     }
     if (templateId === "builtin-tool-fabric-replace") {

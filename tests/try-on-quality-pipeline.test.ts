@@ -62,14 +62,15 @@ try {
     const body = JSON.parse(String(init?.body));
     const parts = body.messages[0].content;
     assert.ok(parts.some((part: { text?: string }) => part.text?.includes("角色：scene")));
+    assert.ok(parts.some((part: { text?: string }) => part.text?.includes("角色：pose")));
     const images = parts.filter((part: { type: string }) => part.type === "image_url");
-    assert.equal(images.length, 3);
+    assert.equal(images.length, 4);
     const metadata = await sharp(Buffer.from(images[0].image_url.url.split(",")[1], "base64")).metadata();
     assert.equal(metadata.height, 1280);
     assert.ok(Math.abs(metadata.width! / metadata.height! - 2 / 3) < 0.002);
     return new Response(JSON.stringify(calls === 1 ? { choices: [{ message: { content: "invalid JSON" } }] } : responsePayload), { status: 200 });
   };
-  const input = { stage: "scene-stabilize" as const, referenceImages: [image], referenceRoles: ["scene"], candidates: [image, image], prompt: "还原姿势", beforeProviderCall: async () => { marked += 1; } };
+  const input = { stage: "scene-stabilize" as const, referenceImages: [image, image], referenceRoles: ["scene", "pose"], candidates: [image, image], prompt: "还原姿势", beforeProviderCall: async () => { marked += 1; } };
   const result = await selectBestTryOnCandidate(input);
   assert.equal(result.selectedIndex, 1);
   assert.equal(result.providerRequests, 2);

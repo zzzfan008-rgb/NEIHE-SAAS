@@ -122,11 +122,14 @@ export const selectBestTryOnCandidate: TryOnCandidateSelector = async (input) =>
   if (input.stage === "scene-stabilize" && !input.referenceRoles.includes("scene")) {
     throw new ProviderError("候选评审缺少原始场景参考图", 400, model, "invalid_request");
   }
+  if (input.stage === "scene-stabilize" && !input.referenceRoles.includes("pose")) {
+    throw new ProviderError("候选评审缺少原始人物姿势参考图", 400, model, "invalid_request");
+  }
   const content: Array<Record<string, unknown>> = [{
     type: "text",
     text: `你是写实服装换装候选评审器。阶段=${input.stage}。${roleText}。下面先给参考图，再给候选图。严格按指令符合度、身份20、肢体结构15、服装版型20、材质纹理20、配饰与文字准确性15、构图与场景10评分。身份替换、明显多肢缺肢、严重手脚错误、场景服装污染、核心穿搭错误、虚构或改写 Logo/文字、核心包鞋缺失必须 hardFail=true。只返回 JSON：{\"scores\":[{\"index\":0,\"identity\":0,\"anatomy\":0,\"garment\":0,\"material\":0,\"accessories\":0,\"scene\":0,\"hardFail\":false,\"poseMatches\":true,\"reasons\":[\"具体问题\"]}]}。index 从0开始且每张候选恰好一项。目标提示词：${input.prompt}`,
   }];
-  content.push({ type: "text", text: "每项评分必须返回布尔字段 poseMatches。第一轮必须直接对照 scene 原图检查头部俯仰、侧倾、视线、肩线、髋线、重心腿、膝踝、手臂与手部位置及人物占画比例，禁止用人物身份图的姿势代替场景姿势。明显姿势偏差必须 poseMatches=false 且 hardFail=true，并说明具体差异；不能仅凭相同背景或双手插兜判为一致。第二轮对照 baseline 保持姿势。身份、服装和姿势分别按各自角色核对。" });
+  content.push({ type: "text", text: "每项评分必须返回布尔字段 poseMatches。第一轮必须直接对照 pose 原图检查头部俯仰、侧倾、视线、肩线、髋线、重心腿、膝踝、手臂与手部位置，禁止用 person 或 scene 的人物姿势代替 pose。scene 只用于核对背景空间、镜头、构图与光线，并检查候选没有继承 scene 中任何人物或服装。明显姿势偏差必须 poseMatches=false 且 hardFail=true，并说明具体差异；不能仅凭相同背景或局部手势判为一致。第二轮对照 baseline 保持姿势。身份、环境、服装和姿势分别按各自角色核对。" });
   input.referenceImages.forEach((image, index) => {
     parseDataUrl(image);
     content.push({ type: "text", text: `参考图 ${index + 1}，角色：${input.referenceRoles[index] ?? "unknown"}` });

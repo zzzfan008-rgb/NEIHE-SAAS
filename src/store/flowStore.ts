@@ -1215,7 +1215,8 @@ function virtualTryOnRunBlockReason(node: FlowNode, document: ProjectTab): strin
       const source = document.nodes.find((candidate) => candidate.id === edge.source);
       return !source || nodeOutputImages(source.data).length === 0;
     })) return "人物身份图尚未全部提供可用图片";
-    return requireSingle("scene", "场景/表演参考图")
+    return requireSingle("scene", "场景参考图")
+      ?? requireSingle("pose", "人物姿势参考图")
       ?? requireSingle("outfit", "主穿搭图");
   }
 

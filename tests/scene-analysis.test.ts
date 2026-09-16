@@ -16,12 +16,7 @@ const ANALYSIS = {
   lighting: "左前方大型柔光",
   camera: "平视中焦镜头",
   framing: "全身取景",
-  composition: "人物居中并保留均衡留白",
-  bodyPose: "自然站立，重心略向左",
-  handPose: "右手自然下垂",
-  facialExpression: "冷静克制",
-  gazeDirection: "看向镜头",
-  subjectPosition: "画面中央",
+  composition: "环境纵深线集中于画面中央",
 };
 
 let calls = 0;
@@ -51,14 +46,14 @@ try {
   assert.equal(second.providerRequests, 0);
   assert.equal(second.cacheHit, true);
   assert.match(first.prompt, /暖灰无缝背景/);
-  assert.match(first.prompt, /重心略向左/);
+  assert.doesNotMatch(first.prompt, /姿势|重心|视线/);
 
   const body = requestBody as {
     contents?: Array<{ parts?: Array<{ text?: string; inlineData?: { mimeType?: string; data?: string } }> }>;
     generationConfig?: { responseMimeType?: string; temperature?: number };
   };
   assert.equal(body.contents?.[0]?.parts?.[1]?.inlineData?.mimeType, "image/png");
-  assert.match(body.contents?.[0]?.parts?.[0]?.text ?? "", /严禁描述、推断或提取人物身份/);
+  assert.match(body.contents?.[0]?.parts?.[0]?.text ?? "", /不得从人物推断主体位置、动作、神态或视线/);
   assert.equal(body.generationConfig?.responseMimeType, "application/json");
   assert.equal(body.generationConfig?.temperature, 0);
 

@@ -58,6 +58,7 @@ export type PortValueKind = "image" | "text" | "colors" | "video" | "audio" | "n
 export type WorkflowInputRole =
   | "person"
   | "scene"
+  | "pose"
   | "outfit"
   | "bag"
   | "shoes"

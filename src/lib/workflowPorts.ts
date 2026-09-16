@@ -27,7 +27,8 @@ const input = (
 
 const SCENE_STABILIZE_PORTS: readonly NodePortSpec[] = [
   input("person", "人物身份参考", "image", true, 3),
-  input("scene", "场景或表演参考图", "image", true, 1),
+  input("scene", "场景参考图", "image", true, 1),
+  input("pose", "人物姿势参考图", "image", true, 1),
   input("outfit", "主穿搭图", "image", true, 1),
   input("bag", "包袋参考图", "image", false, 1),
   input("shoes", "鞋履参考图", "image", false, 1),
@@ -53,7 +54,8 @@ const MASK_REPAIR_PORTS: readonly NodePortSpec[] = [
 
 export const STAGED_ROLE_LABELS: Readonly<Partial<Record<WorkflowInputRole, string>>> = {
   person: "人物身份图",
-  scene: "场景或表演参考图",
+  scene: "场景参考图",
+  pose: "人物姿势参考图",
   outfit: "主穿搭图",
   bag: "包袋参考图",
   shoes: "鞋履参考图",

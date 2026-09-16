@@ -630,7 +630,7 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   await rail.getByRole("button", { name: "模特换装", exact: true }).click();
   const menu = page.getByRole("menu", { name: "模特换装" });
   await menu.getByRole("menuitem", { name: /一键换装/ }).click();
-  await expect(page.locator(".react-flow__node")).toHaveCount(21);
+  await expect(page.locator(".react-flow__node")).toHaveCount(23);
   const personNode = page.locator('.react-flow__node[data-id="person"]');
   const outfitNode = page.locator('.react-flow__node[data-id="outfit"]');
   const personMedia = personNode.locator(".gc-image-input-media");
@@ -743,7 +743,9 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   const topLeftBox = await personNode.locator(".react-flow__resize-control.handle.top.left").boundingBox();
   const nodeBoxBeforeResize = await personNode.boundingBox();
   if (!topLeftBox || !nodeBoxBeforeResize) throw new Error("Reference image resize controls are missing");
-  expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.className, {
+  expect(await page.evaluate(({ x, y }) => (
+    document.elementFromPoint(x, y)?.closest(".react-flow__resize-control")?.className
+  ), {
     x: topLeftBox.x + topLeftBox.width / 2, y: topLeftBox.y + topLeftBox.height / 2,
   })).toContain("react-flow__resize-control");
   await page.mouse.move(topLeftBox.x + topLeftBox.width / 2, topLeftBox.y + topLeftBox.height / 2);
@@ -769,7 +771,7 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   expect(resizeAfter.revision).toBe(resizeBefore.revision);
   expect(resizeAfter.pastStates).toBe(0);
   const widthBeforeKeyboardResize = (await personNode.boundingBox())!.width;
-  await personNode.getByRole("button", { name: "放大参考图节点" }).click();
+  await personNode.getByRole("button", { name: "调整参考图尺寸：top-left" }).press("ArrowUp");
   await expect.poll(async () => (await personNode.boundingBox())?.width ?? 0).toBeGreaterThan(widthBeforeKeyboardResize);
   await expect(page.getByRole("dialog", { name: "图片查看器" })).toHaveCount(0);
 
@@ -808,7 +810,14 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     return tab?.edges.find((edge: { source: string }) => edge.source === "person")?.id;
   });
   if (!removableEdgeId) throw new Error("Expected a person reference edge");
-  await page.locator(`.react-flow__edge[data-id="${removableEdgeId}"] .react-flow__edge-interaction`).click({ button: "right" });
+  const removableEdge = page.locator(`.react-flow__edge[data-id="${removableEdgeId}"] .react-flow__edge-interaction`);
+  const removableEdgeBox = await removableEdge.boundingBox();
+  if (!removableEdgeBox) throw new Error("Expected a visible person reference edge");
+  await removableEdge.dispatchEvent("contextmenu", {
+    button: 2,
+    clientX: removableEdgeBox.x + removableEdgeBox.width / 2,
+    clientY: removableEdgeBox.y + removableEdgeBox.height / 2,
+  });
   const edgeMenu = page.getByRole("menu").filter({ hasText: "断开连线" });
   await expect(edgeMenu).toBeVisible();
   await edgeMenu.getByRole("menuitem", { name: "断开连线" }).click();
@@ -1093,7 +1102,7 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
   expect((await rect(refineNode)).height).toBeLessThanOrEqual(637.4375);
 
   for (const [node, portIds] of [
-    [stabilizeNode, ["person", "scene", "outfit", "detail"]],
+    [stabilizeNode, ["person", "scene", "pose", "outfit", "detail"]],
     [refineNode, ["baseline", "outfit", "material", "detail"]],
   ] as const) {
     for (const portId of portIds) {

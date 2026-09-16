@@ -10,6 +10,7 @@ import { ProviderError } from "../server/providers/base";
 import type { AuthenticatedRequest } from "../server/lib/auth";
 import type { GenerationRecordContext } from "../server/lib/generationRecords";
 import type { ProviderResolver } from "../server/engine/runner";
+import type { PoseAnalyzer } from "../server/lib/poseAnalysis";
 import type { SceneAnalyzer } from "../server/lib/sceneAnalysis";
 import type { IdentityAnchorer } from "../server/lib/identityAnchor";
 import type { AIProvider, ExecutionPlan, ImageGenRequest, ImageGenResult, NodeExecution } from "../src/types/workflow";
@@ -217,10 +218,11 @@ await test("领取旧版超量配色任务时同步规范化历史请求数量",
   }
 });
 
-await test("持久队列保留分步角色并传递场景原图，未提交配饰不进入提示词", async () => {
+await test("持久队列分离场景与姿势原图，未提交配饰不进入提示词", async () => {
   const testId = ++sequence;
   const personImage = await solidImage(4, 4, { r: 210, g: 60, b: 35 });
   const sceneImage = await solidImage(2, 3, { r: 40, g: 140, b: 55 });
+  const poseImage = await solidImage(3, 5, { r: 180, g: 75, b: 145 });
   const outfitImage = await solidImage(1, 2, { r: 35, g: 70, b: 190 });
   const bagImage = await solidImage(2, 1, { r: 130, g: 45, b: 160 });
   const source = (nodeId: string, imageUrl: string): NodeExecution => ({
@@ -231,6 +233,7 @@ await test("持久队列保留分步角色并传递场景原图，未提交配�
   });
   const personId = `queue-person-${testId}`;
   const sceneId = `queue-scene-${testId}`;
+  const poseId = `queue-pose-${testId}`;
   const outfitId = `queue-outfit-${testId}`;
   const bagId = `queue-bag-${testId}`;
   const stageId = `queue-stage-${testId}`;
@@ -241,6 +244,7 @@ await test("持久队列保留分步角色并传递场景原图，未提交配�
     upstream: [
       { nodeId: bagId, images: [], targetHandle: "bag" },
       { nodeId: sceneId, images: [], targetHandle: "scene" },
+      { nodeId: poseId, images: [], targetHandle: "pose" },
       { nodeId: outfitId, images: [], targetHandle: "outfit" },
       { nodeId: personId, images: [], targetHandle: "person" },
     ],
@@ -258,9 +262,21 @@ await test("持久队列保留分步角色并传递场景原图，未提交配�
     sceneInputs.push(image);
     await options?.beforeProviderCall?.(1);
     return {
-      prompt: "环境：摄影棚；背景：暖灰；光线：柔光；镜头：平视；取景：全身；构图：居中；身体姿态：站立；手部姿态：自然下垂；神态：冷静；视线：看向镜头；人物位置：中央",
+      prompt: "环境：摄影棚；背景：暖灰；光线：柔光；镜头：平视；取景：全身；构图：纵深居中",
       providerRequests: 1,
       model: "scene-stub",
+      cacheHit: false,
+    };
+  };
+  const poseInputs: string[] = [];
+  const poseAnalyzer: PoseAnalyzer = async (image, options) => {
+    poseInputs.push(image);
+    await options?.beforeProviderCall?.(1);
+    return {
+      guideImage: PNG_DATA_URL,
+      prompt: "身体姿势：重心落在画面左腿；手部姿势：右腕向外；头部姿势：轻微右倾；视线方向：画面右侧",
+      providerRequests: 1,
+      model: "pose-stub",
       cacheHit: false,
     };
   };
@@ -279,6 +295,7 @@ await test("持久队列保留分步角色并传递场景原图，未提交配�
       steps: [
         source(personId, personImage),
         source(sceneId, sceneImage),
+        source(poseId, poseImage),
         source(outfitId, outfitImage),
         source(bagId, bagImage),
         stage,
@@ -290,13 +307,14 @@ await test("持久队列保留分步角色并传递场景原图，未提交配�
       nodeId: stageId,
       nodeLabel: "第一轮",
       kind: "virtual-try-on",
-      referenceImages: [personImage, sceneImage, outfitImage, bagImage],
+      referenceImages: [personImage, sceneImage, poseImage, outfitImage, bagImage],
     },
   );
-  for (let index = 0; index < 5; index += 1) {
+  for (let index = 0; index < 6; index += 1) {
     assert.equal(await queue.processNextGenerationJob(`worker-roles-${testId}`, {
       resolveProvider: fake.resolveProvider,
       sceneAnalyzer,
+      poseAnalyzer,
       identityAnchorer,
       now: () => tick(),
       random: () => 0,
@@ -304,15 +322,18 @@ await test("持久队列保留分步角色并传递场景原图，未提交配�
   }
   assert.equal(fake.calls(), 1);
   assert.equal(sceneInputs.length, 1);
-  assert.equal(fake.requests()[0].referenceImages?.length, 5);
+  assert.equal(poseInputs.length, 1);
+  assert.equal(fake.requests()[0].referenceImages?.length, 6);
+  assert.ok(!fake.requests()[0].referenceImages?.includes(poseInputs[0]), "原始姿势图不得进入生图请求");
   assert.equal(fake.requests()[0].referenceImages?.at(-1), sceneInputs[0]);
   assert.match(fake.requests()[0].prompt, /参考图1.*脸部锚点/);
   assert.match(fake.requests()[0].prompt, /参考图2.*完整人物身份图/);
   assert.match(fake.requests()[0].prompt, /参考图3.*服装与搭配风格的唯一来源/);
   assert.match(fake.requests()[0].prompt, /参考图4只控制目标包袋/);
+  assert.match(fake.requests()[0].prompt, /参考图5.*中性骨架引导图/);
   assert.doesNotMatch(fake.requests()[0].prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
   assert.deepEqual(await runRow(run.id), {
-    status: "succeeded", error: null, provider_requests: 3, successful_count: 1,
+    status: "succeeded", error: null, provider_requests: 4, successful_count: 1,
   });
 });
 
@@ -321,6 +342,7 @@ for (const judgeAvailable of [true, false]) {
     const testId = ++sequence;
     const personImage = await solidImage(4, 4, { r: 200, g: 70, b: 50 });
     const sceneImage = await solidImage(3, 4, { r: 60, g: 130, b: 90 });
+    const poseImage = await solidImage(3, 4, { r: 170, g: 65, b: 150 });
     const outfitImage = await solidImage(2, 3, { r: 40, g: 70, b: 180 });
     const candidates = [
       await solidImage(3, 4, { r: 220, g: 30, b: 30 }),
@@ -340,6 +362,7 @@ for (const judgeAvailable of [true, false]) {
     });
     const personId = `candidate-person-${testId}`;
     const sceneId = `candidate-scene-${testId}`;
+    const poseId = `candidate-pose-${testId}`;
     const outfitId = `candidate-outfit-${testId}`;
     const stageId = `candidate-stage-${testId}`;
     const stage: NodeExecution = {
@@ -348,6 +371,7 @@ for (const judgeAvailable of [true, false]) {
       inputImages: [],
       upstream: [
         { nodeId: sceneId, images: [], targetHandle: "scene" },
+        { nodeId: poseId, images: [], targetHandle: "pose" },
         { nodeId: personId, images: [], targetHandle: "person" },
         { nodeId: outfitId, images: [], targetHandle: "outfit" },
       ],
@@ -364,22 +388,28 @@ for (const judgeAvailable of [true, false]) {
       },
     };
     const run = await queue.enqueueGenerationRun(
-      { steps: [source(personId, personImage), source(sceneId, sceneImage), source(outfitId, outfitImage), stage] },
+      { steps: [source(personId, personImage), source(sceneId, sceneImage), source(poseId, poseImage), source(outfitId, outfitImage), stage] },
       owner.id,
       {
         ...context(stageId),
         nodeId: stageId,
         nodeLabel: "候选择优",
         kind: "virtual-try-on",
-        referenceImages: [personImage, sceneImage, outfitImage],
+        referenceImages: [personImage, sceneImage, poseImage, outfitImage],
       },
     );
-    for (let index = 0; index < 4; index += 1) {
+    let analyzedPose = "";
+    for (let index = 0; index < 5; index += 1) {
       assert.equal(await queue.processNextGenerationJob(`worker-candidates-${testId}`, {
         resolveProvider: fake.resolveProvider,
         sceneAnalyzer: async (_image, options) => {
           await options?.beforeProviderCall?.(1);
-          return { prompt: "环境：摄影棚；光线：左侧柔光；镜头：平视；构图：自然站立", providerRequests: 1, model: "scene-stub", cacheHit: false };
+          return { prompt: "环境：摄影棚；光线：左侧柔光；镜头：平视；构图：纵深居中", providerRequests: 1, model: "scene-stub", cacheHit: false };
+        },
+        poseAnalyzer: async (image, options) => {
+          analyzedPose = image;
+          await options?.beforeProviderCall?.(1);
+          return { guideImage: PNG_DATA_URL, prompt: "身体姿势：重心落在左腿；手部姿势：右腕向外；头部姿势：轻微右倾；视线方向：画面右侧", providerRequests: 1, model: "pose-stub", cacheHit: false };
         },
         identityAnchorer: async (_image, options) => {
           await options?.beforeProviderCall?.(1);
@@ -388,6 +418,7 @@ for (const judgeAvailable of [true, false]) {
         candidateSelector: async (input) => {
           await input.beforeProviderCall?.(1);
           assert.ok(input.referenceRoles.includes("scene"));
+          assert.equal(input.referenceImages[input.referenceRoles.indexOf("pose")], analyzedPose);
           if (!judgeAvailable) throw new Error("judge unavailable");
           return {
             selectedIndex: 1,
@@ -407,7 +438,7 @@ for (const judgeAvailable of [true, false]) {
     }
     assert.equal(fake.calls(), 3);
     assert.deepEqual(await runRow(run.id), {
-      status: "succeeded", error: judgeAvailable ? null : "候选自动评审未完成，全部候选已保留，请人工核对姿势后选择基准", provider_requests: 6, successful_count: judgeAvailable ? 1 : 3,
+      status: "succeeded", error: judgeAvailable ? null : "候选自动评审未完成，全部候选已保留，请人工核对姿势后选择基准", provider_requests: 7, successful_count: judgeAvailable ? 1 : 3,
     });
     const stepRow = await database.queryOne<{ output_images_json: string; execution_meta_json: string }>(`
       SELECT output_images_json, execution_meta_json FROM generation_run_steps

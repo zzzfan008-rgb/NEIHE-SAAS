@@ -178,7 +178,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     if (step.kind === "virtual-try-on") {
       const stage = step.params.workflowStage;
       const allowedRoles = stage === "scene-stabilize"
-        ? new Set(["person", "scene", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail"])
+        ? new Set(["person", "scene", "pose", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail"])
         : stage === "garment-refine"
           ? new Set(["baseline", "outfit", "material", "detail"])
           : undefined;
@@ -204,6 +204,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
           throw new DagError(`节点 ${step.nodeId} 必须连接 1 至 3 张同一人物身份图片`);
         }
         requireOne("scene", "scene");
+        requireOne("pose", "pose");
         requireOne("outfit", "outfit");
         for (const [role, label] of [
           ["bag", "包袋"], ["shoes", "鞋履"], ["socks", "袜子"], ["hat", "帽子"],
@@ -362,7 +363,7 @@ export function buildExecutionPlan(
     }
     if (data.kind === "virtual-try-on" && data.workflowStage !== "standard") {
       const order = data.workflowStage === "scene-stabilize"
-        ? ["scene", "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail"]
+        ? ["scene", "pose", "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail"]
         : ["baseline", "outfit", "material", "detail"];
       const rank = (handle: string | null | undefined) => {
         const index = order.indexOf(handle ?? "");

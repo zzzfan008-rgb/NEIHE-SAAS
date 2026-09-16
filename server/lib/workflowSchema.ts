@@ -80,7 +80,7 @@ const COLOR_SWATCH_SOURCES = [
   "quick", "custom", "recent", "favorite", "eyedropper", "pantone", "brand",
 ] as const;
 const WORKFLOW_INPUT_ROLES: readonly WorkflowInputRole[] = [
-  "person", "scene", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet",
+  "person", "scene", "pose", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet",
   "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
   "first-frame", "last-frame", "source-video", "repair-source", "eyewear", "neckwear", "belt", "watch",
   "reference-image", "reference-video", "reference-audio",

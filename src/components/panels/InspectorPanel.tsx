@@ -410,7 +410,7 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
           {d.workflowStage !== "standard" && (
             <p className="text-[10px] leading-relaxed text-[var(--gc-text-muted)]">
               {d.workflowStage === "scene-stabilize"
-                ? "第一轮使用固定场景定版引擎"
+                ? "第一轮固定引擎：场景只控环境，姿势原图仅用于动作分析与评审"
                 : "第二轮使用固定服装精修引擎 · 中等质量"}
             </p>
           )}

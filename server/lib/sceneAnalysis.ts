@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import { config } from "../config";
 import { fetchWithRetry, parseDataUrl, ProviderError } from "../providers/base";
 
-const SCENE_ANALYSIS_SCHEMA_VERSION = 2;
+const SCENE_ANALYSIS_SCHEMA_VERSION = 3;
 const SCENE_FIELDS = [
   "environment",
   "background",
@@ -13,11 +13,6 @@ const SCENE_FIELDS = [
   "camera",
   "framing",
   "composition",
-  "bodyPose",
-  "handPose",
-  "facialExpression",
-  "gazeDirection",
-  "subjectPosition",
 ] as const;
 
 export type SceneAnalysis = Record<(typeof SCENE_FIELDS)[number], string>;
@@ -45,13 +40,12 @@ interface SceneAnalysisCacheEntry {
 }
 
 const inFlight = new Map<string, Promise<SceneAnalysisResult>>();
-const FORBIDDEN_SCENE_CONTENT = /人物身份|五官|脸型|肤色|发型|体型|服装|衣服|上衣|衬衫|毛衣|外套|夹克|西装|裤|裙|鞋|靴|包袋|手提包|背包|帽|戒指|耳环|耳坠|手镯|手链|项链|腰带|眼镜|首饰|配饰|品牌|文字|\b(?:identity|facial features|skin tone|hairstyle|body type|clothing|garment|shirt|jacket|suit|pants|trousers|skirt|shoes?|boots?|handbag|backpack|hat|ring|earrings?|bracelet|necklace|belt|glasses|jewelry|accessor(?:y|ies)|brand|text)\b/iu;
+const FORBIDDEN_SCENE_CONTENT = /人物身份|五官|脸型|肤色|发型|体型|姿势|动作|手势|神态|视线|服装|衣服|上衣|衬衫|毛衣|外套|夹克|西装|裤|裙|鞋|靴|包袋|手提包|背包|帽|戒指|耳环|耳坠|手镯|手链|项链|腰带|眼镜|首饰|配饰|品牌|文字|\b(?:identity|facial features|skin tone|hairstyle|body type|pose|gesture|expression|gaze|clothing|garment|shirt|jacket|suit|pants|trousers|skirt|shoes?|boots?|handbag|backpack|hat|ring|earrings?|bracelet|necklace|belt|glasses|jewelry|accessor(?:y|ies)|brand|text)\b/iu;
 
 const ANALYSIS_INSTRUCTION = `你是服装电商摄影的场景解析器。只分析图片中的以下维度，并以 JSON 对象返回：
-environment, background, lighting, camera, framing, composition, bodyPose, handPose, facialExpression, gazeDirection, subjectPosition。
-只描述场景、背景、光线、摄影机、构图、人物在画面中的位置、身体动作、手部动作、神态与视线。
-bodyPose 必须分别描述头部俯仰和侧倾方向、肩线与髋线倾斜、躯干倾斜、重心腿、左右膝踝与脚的位置；左右方向使用画面左侧/右侧。handPose 描述两侧肘腕位置、弯曲与接触关系。gazeDirection 必须区分直视镜头、俯视和侧视，无法判断时注明不确定，禁止默认直视。composition 和 subjectPosition 描述人物占画比例、头顶与脚底留白。只记录可见几何，不猜测遮挡部位。
-严禁描述、推断或提取人物身份、五官外观、肤色、发型、体型、服装、鞋履、包袋、帽子、首饰、腰带、眼镜、品牌、文字或任何配饰；这些内容即使清晰可见也必须完全忽略。
+environment, background, lighting, camera, framing, composition。
+只描述场景环境、背景空间、光线、摄影机视点、取景范围和画面构图。场景中即使存在人物，也必须把人物视为待移除的临时遮挡，不得从人物推断主体位置、动作、神态或视线；不得让人物影响构图描述。
+严禁描述、推断或提取人物身份、五官外观、肤色、发型、体型、姿势、动作、手势、神态、视线、服装、鞋履、包袋、帽子、首饰、腰带、眼镜、品牌、文字或任何配饰；这些内容即使清晰可见也必须完全忽略。
 每个字段必须是简洁、可执行的中文摄影提示词字符串；不得输出数组、嵌套对象、Markdown 或 JSON 以外的文字。`;
 
 function validateModel(model: string): string {
@@ -105,11 +99,6 @@ function analysisPrompt(analysis: SceneAnalysis): string {
     `镜头：${analysis.camera}`,
     `取景：${analysis.framing}`,
     `构图：${analysis.composition}`,
-    `身体姿态：${analysis.bodyPose}`,
-    `手部姿态：${analysis.handPose}`,
-    `神态：${analysis.facialExpression}`,
-    `视线：${analysis.gazeDirection}`,
-    `人物位置：${analysis.subjectPosition}`,
   ].join("；");
 }
 

@@ -73,8 +73,9 @@ export const config = {
 
   /** AI 调用超时（中转站网关限制，可配） */
   aiTimeoutMs: (fallback = 300_000) => Number(process.env.AI_TIMEOUT_MS ?? fallback),
-  /** 第一轮场景图只做视觉理解，不把原图发送给生图模型。 */
+  /** 第一轮环境与姿势使用独立视觉解析；姿势原图不发送给生图模型。 */
   sceneAnalysisModel: () => process.env.SCENE_ANALYSIS_MODEL?.trim() || "gemini-3-flash-preview",
+  poseAnalysisModel: () => process.env.POSE_ANALYSIS_MODEL?.trim() || config.sceneAnalysisModel(),
   /** 换装候选择优和身份框定位使用的视觉模型。 */
   tryOnJudgeModel: () => process.env.TRY_ON_JUDGE_MODEL?.trim() || config.sceneAnalysisModel(),
   identityAnalysisModel: () => process.env.IDENTITY_ANALYSIS_MODEL?.trim() || config.sceneAnalysisModel(),

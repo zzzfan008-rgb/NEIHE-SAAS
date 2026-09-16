@@ -54,6 +54,7 @@ import {
   analyzeSceneReference,
   type SceneAnalyzer,
 } from "../lib/sceneAnalysis";
+import { analyzePoseReference, type PoseAnalyzer } from "../lib/poseAnalysis";
 import { createIdentityAnchor, type IdentityAnchorer } from "../lib/identityAnchor";
 import { enhanceTryOnPrompt } from "../lib/promptEnhancement";
 import {
@@ -217,6 +218,7 @@ function stagedVirtualTryOnPrompt(
   extra: string,
   params: Record<string, unknown>,
   sceneDescription?: string,
+  poseDescription?: string,
 ): string {
   if (overridesVirtualTryOnReferenceRoles(extra)) {
     throw new Error("换装补充要求不能重新定义参考图编号；请只描述最终效果");
@@ -251,7 +253,7 @@ function stagedVirtualTryOnPrompt(
     const optionalIdentity = identityReferences.length > 1
       ? `${identityReferences.slice(1).map((index) => `参考图${index}`).join("、")}仅补充同一人物在不同角度下的五官、发型和肤色，不得引入第二个人物身份。`
       : "";
-    return `建立第一轮人物场景基准。${one("face-anchor")}是由视觉定位后从主要人物脸部裁切的身份锚点，是脸部恢复最高优先级来源，锁定五官结构、脸型和可识别身份。${one("person")}是主要完整人物身份图，只控制同一人物的肤色、发型、体型和身体特征；其中原服装及非身份物体全部忽略，不得进入结果。${optionalIdentity}${one("outfit")}是服装与搭配风格的唯一来源，只控制服装整体版型、上下装比例、层叠、穿着方式、颜色与风格；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度属于必须还原的结构，不得替换为近似设计；图内人物身份、背景及非服装物体全部删除、忽略。${one("scene")}是原始场景与姿势参考图，必须按图还原头部俯仰与侧倾、肩线、髋线、重心腿、膝踝位置、手臂和手部姿态、视线、人物占画比例、背景和光线；不得继承其中的人物身份、发型、服装及配饰。人物身份参考不控制姿势，不得将目标姿势改为正面直立或对称站姿。以下分析仅作辅助，与原图冲突时以原始场景图的姿势和构图为准：${sceneDescription ?? "场景分析不可用"}。${accessory}${detail}${styleReference}${stylePrompt ? `风格要求：${stylePrompt}。` : ""}按维度分别锁定：身份由脸部锚点与人物图决定，姿势与场景由原始场景图决定，服装由主穿搭决定，配饰由对应类别参考决定；身份优先不得覆盖场景姿势。本轮保证人物身份、动作神态、肢体、场景构图、服装大轮廓及已提供目标物稳定，不强求针目、蕾丝组织或缝线等微观细节。不得融合参考图中的无关人物、背景、陈列台、包装文字、水印、标记框或错误肢体；目标商品本体上已有的金属装饰图案与五金保持来源外观，禁止虚构或改写。输出一张完整写实的第一轮基准图${extra ? `。补充要求：${extra}` : ""}`;
+    return `建立第一轮人物场景基准。${one("face-anchor")}是由视觉定位后从主要人物脸部裁切的身份锚点，是脸部恢复最高优先级来源，锁定五官结构、脸型和可识别身份。${one("person")}是主要完整人物身份图，只控制同一人物的肤色、发型、体型和身体特征；其中原服装及非身份物体全部忽略，不得进入结果。${optionalIdentity}${one("outfit")}是服装与搭配风格的唯一来源，只控制服装整体版型、上下装比例、层叠、穿着方式、颜色与风格；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度属于必须还原的结构，不得替换为近似设计；图内人物身份、背景及非服装物体全部删除、忽略。${one("scene")}是纯场景环境参考，只控制背景空间、镜头视点、取景、构图与光线；其中任何人物、身体、姿势、身份、服装及配饰都属于待移除内容，禁止继承或融合。场景分析仅作环境辅助：${sceneDescription ?? "场景分析不可用"}。${one("pose-guide")}是从独立人物姿势参考图提取的中性骨架引导图，只控制头部俯仰与侧倾、视线、肩线、髋线、躯干倾斜、重心腿、膝踝、手臂和手部几何；它不包含也不得决定人物身份、体型、服装、配饰、背景、颜色或材质。姿势分析仅作几何辅助：${poseDescription ?? "姿势分析不可用"}。人物身份图和场景图都不控制姿势，不得将目标动作改为正面直立、左右对称或其它常见站姿。${accessory}${detail}${styleReference}${stylePrompt ? `风格要求：${stylePrompt}。` : ""}按维度分别锁定：身份由脸部锚点与人物图决定，环境由场景图决定，动作由姿势引导图决定，服装由主穿搭决定，配饰由对应类别参考决定；任何角色都不得越权覆盖其它维度。本轮保证人物身份、动作神态、肢体、场景构图、服装大轮廓及已提供目标物稳定，不强求针目、蕾丝组织或缝线等微观细节。不得融合参考图中的无关人物、背景、陈列台、包装文字、水印、标记框或错误肢体；目标商品本体上已有的金属装饰图案与五金保持来源外观，禁止虚构或改写。输出一张完整写实的第一轮基准图${extra ? `。补充要求：${extra}` : ""}`;
   }
 
   const category = params.garmentCategory === "knit" ? "针织"
@@ -275,6 +277,9 @@ interface SceneStabilizePreparation {
   referenceImages: string[];
   referenceRoles: string[];
   sceneDescription: string;
+  poseDescription: string;
+  judgeReferenceImages: string[];
+  judgeReferenceRoles: string[];
   aspectReference: string;
   providerRequests: number;
 }
@@ -282,14 +287,17 @@ interface SceneStabilizePreparation {
 async function prepareSceneStabilizeReferences(
   referenceImages: string[],
   referenceRoles: string[],
-  analyzer: SceneAnalyzer,
+  sceneAnalyzer: SceneAnalyzer,
+  poseAnalyzer: PoseAnalyzer,
   identityAnchorer: IdentityAnchorer,
   beforeProviderCall?: ExecuteStepOptions["beforeProviderCall"],
 ): Promise<SceneStabilizePreparation> {
   const imageFor = (role: string) => referenceImages[referenceRoles.indexOf(role)];
   const sceneReference = imageFor("scene");
+  const poseReference = imageFor("pose");
   const personReference = imageFor("person");
-  const analysis = await analyzer(sceneReference, { beforeProviderCall });
+  const sceneAnalysis = await sceneAnalyzer(sceneReference, { beforeProviderCall });
+  const poseAnalysis = await poseAnalyzer(poseReference, { beforeProviderCall });
   const anchor = await identityAnchorer(personReference, { beforeProviderCall });
   const images = [anchor.image];
   const roles = ["face-anchor"];
@@ -300,14 +308,19 @@ async function prepareSceneStabilizeReferences(
       roles.push(role);
     }
   }
+  images.push(poseAnalysis.guideImage);
+  roles.push("pose-guide");
   images.push(sceneReference);
   roles.push("scene");
   return {
     referenceImages: images,
     referenceRoles: roles,
-    sceneDescription: analysis.prompt,
+    sceneDescription: sceneAnalysis.prompt,
+    poseDescription: poseAnalysis.prompt,
+    judgeReferenceImages: [...referenceImages],
+    judgeReferenceRoles: [...referenceRoles],
     aspectReference: sceneReference,
-    providerRequests: analysis.providerRequests + anchor.providerRequests,
+    providerRequests: sceneAnalysis.providerRequests + poseAnalysis.providerRequests + anchor.providerRequests,
   };
 }
 
@@ -420,12 +433,13 @@ function stagedVirtualTryOnRuntimeError(
     : `${label}必须且只能提供 1 张图片`;
   if (referenceRoles.length !== inputImages.length) return "分步换装参考图角色信息不完整";
   if (stage === "scene-stabilize") {
-    const allowedRoles = new Set(["person", "scene", "outfit", ...SCENE_STABILIZE_REFERENCE_ORDER.slice(2), "detail"]);
+    const allowedRoles = new Set(["person", "scene", "pose", "outfit", ...SCENE_STABILIZE_REFERENCE_ORDER.slice(2), "detail"]);
     const unsupportedRole = referenceRoles.find((role) => !allowedRoles.has(role));
     if (unsupportedRole !== undefined) return `第一轮不支持输入角色：${unsupportedRole || "未命名"}`;
     const personCount = imagesFor("person").length;
     if (personCount < 1 || personCount > 3) return "人物身份图必须提供 1 至 3 张";
-    const requiredError = requireOne("scene", "场景/表演参考图")
+    const requiredError = requireOne("scene", "场景参考图")
+      ?? requireOne("pose", "人物姿势参考图")
       ?? requireOne("outfit", "主穿搭图");
     if (requiredError) return requiredError;
     for (const [role, label] of [
@@ -731,6 +745,7 @@ export interface ExecuteStepOptions {
   beforeProviderCall?: (providerRequest: number) => void | Promise<void>;
   referenceRoles?: string[];
   sceneAnalyzer?: SceneAnalyzer;
+  poseAnalyzer?: PoseAnalyzer;
   identityAnchorer?: IdentityAnchorer;
   promptEnhancer?: typeof enhanceTryOnPrompt;
   candidateSelector?: TryOnCandidateSelector;
@@ -955,7 +970,10 @@ export async function executeStep(
       }
       let referenceImages = await resolveImageRefs(inputImages);
       let referenceRoles = options.referenceRoles ?? [];
+      let judgeReferenceImages = [...referenceImages];
+      let judgeReferenceRoles = [...referenceRoles];
       let sceneDescription: string | undefined;
+      let poseDescription: string | undefined;
       let virtualTryOnAspectReference = referenceImages[0];
       let preliminaryProviderRequests = 0;
       let providerCallOrdinal = 0;
@@ -994,12 +1012,16 @@ export async function executeStep(
           referenceImages,
           referenceRoles,
           options.sceneAnalyzer ?? analyzeSceneReference,
+          options.poseAnalyzer ?? analyzePoseReference,
           options.identityAnchorer ?? createIdentityAnchor,
           beforeTryOnProviderCall,
         );
         referenceImages = prepared.referenceImages;
         referenceRoles = prepared.referenceRoles;
+        judgeReferenceImages = prepared.judgeReferenceImages;
+        judgeReferenceRoles = prepared.judgeReferenceRoles;
         sceneDescription = prepared.sceneDescription;
+        poseDescription = prepared.poseDescription;
         virtualTryOnAspectReference = prepared.aspectReference;
         preliminaryProviderRequests = prepared.providerRequests;
       }
@@ -1117,6 +1139,8 @@ export async function executeStep(
       if (style?.referenceImage && step.params.workflowStage === "scene-stabilize") {
         referenceImages.push(style.referenceImage);
         referenceRoles.push("style");
+        judgeReferenceImages.push(style.referenceImage);
+        judgeReferenceRoles.push("style");
       }
       if (referenceImages.length > maxReferences) {
         throw new Error(`Node ${step.nodeId} accepts at most ${maxReferences} reference images for ${modelId}`);
@@ -1169,6 +1193,7 @@ export async function executeStep(
                     enhancedExtra,
                     promptParams,
                     sceneDescription,
+                    poseDescription,
                   )
                 : virtualTryOnPrompt(referenceImages.length, extra)
             : step.kind === "mask-redraw"
@@ -1251,6 +1276,7 @@ export async function executeStep(
           safeExtra,
           promptParams,
           sceneDescription,
+          poseDescription,
         );
         usedPrompt = safePrompt;
         result = await generateIndependentTryOnCandidates(
@@ -1277,8 +1303,8 @@ export async function executeStep(
           candidateSelection = await (options.candidateSelector ?? selectBestTryOnCandidate)({
             stage: step.params.workflowStage as "scene-stabilize" | "garment-refine",
             candidates: images,
-            referenceImages,
-            referenceRoles,
+            referenceImages: judgeReferenceImages,
+            referenceRoles: judgeReferenceRoles,
             prompt: usedPrompt,
             beforeProviderCall: beforeTryOnProviderCall,
           });
