@@ -60,6 +60,7 @@ export function sanitizeTemplateFlow(flow: PersistedWorkflow): PersistedWorkflow
         data.preserve = null;
       }
       if (node.data.kind === "image-input") delete data.imageUrl;
+      if (node.data.kind === "character-board") delete data.sourceImage;
       if (node.data.kind === "video-input") delete data.videoUrl;
       if (node.data.kind === "audio-input") delete data.audioUrl;
       if (node.data.kind === "drawing-board") {

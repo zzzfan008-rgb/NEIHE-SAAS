@@ -58,11 +58,15 @@ export function validateDirectGenerateRequest(
 ): DirectGenerateValidation {
   // Backward compatibility: legacy direct callers did not send a node kind.
   if (kind === undefined) return { ok: true };
+  if (kind === "character-board") return { ok: false, error: "character-board uses uploaded input and a protected prompt; use /api/run-plan" };
   if (kind === "ai-styling") {
     return { ok: false, error: "ai-styling requires saved references and outfit analysis; use /api/run-plan" };
   }
   if (kind === "sketch-optimize") {
     return { ok: false, error: "sketch-optimize requires the protected node prompt; use /api/run-plan" };
+  }
+  if (kind === "background-extract" && request.referenceImages?.length !== 1) {
+    return { ok: false, error: "background-extract requires exactly one reference image" };
   }
   if (!isDirectGenerateKind(kind)) {
     return { ok: false, error: "kind must identify a supported AI node" };
@@ -101,12 +105,14 @@ export function postProcessDirectGenerateImages(
   kind: DirectGenerateKind | undefined,
   request: ImageGenRequest,
   images: string[],
+  sourceImage = request.referenceImages?.[0],
 ): Promise<string[]> {
   if (!kind) return Promise.resolve(images);
   return postProcessGeneratedOutputImages(
     kind,
     request as unknown as Record<string, unknown>,
     images,
+    sourceImage,
   );
 }
 

@@ -66,6 +66,10 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
   for (const step of plan.steps) {
     const spec = NODE_SPECS[step.kind];
     if (!spec.providerId) continue;
+    if (step.kind === "character-board") {
+      if (step.inputImages.length !== 1 || step.upstream?.length) throw new DagError("人物板生成需要上传一张模特图");
+      continue;
+    }
     if (step.kind === "video-generate") {
       const prompt = typeof step.params.prompt === "string" ? step.params.prompt.trim() : "";
       if (!prompt) throw new DagError(`Node ${step.nodeId} requires a video prompt`);
@@ -140,6 +144,9 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     );
     if (step.kind === "sketch-optimize" && usableImages.length !== 1) {
       throw new DagError("草图线稿优化需要连接一张参考图片");
+    }
+    if (step.kind === "background-extract" && usableImages.length !== 1) {
+      throw new DagError("提取背景节点需要连接一张参考图片");
     }
     const maxReferences = Math.min(
       step.kind === "virtual-try-on" ? MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES : MAX_REFERENCE_IMAGES,
@@ -421,7 +428,9 @@ export function buildExecutionPlan(
     return {
       nodeId: id,
       kind: data.kind,
-      inputImages: upstream.flatMap((u) => u.images),
+      inputImages: data.kind === "character-board"
+        ? (data.sourceImage ? [data.sourceImage] : [])
+        : upstream.flatMap((u) => u.images),
       upstream,
       params,
     };
@@ -450,6 +459,8 @@ function extractOutputImages(data: WorkflowNodeData, sourceHandle?: string | nul
     case "text-input":
     case "color-palette":
       return [];
+    case "background-extract":
+    case "character-board":
     case "sketch-optimize":
     case "sketch-to-render":
     case "ai-modify":
@@ -494,6 +505,8 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
         ...modelFields(data.aspectRatio) };
     case "image-input":
       return { imageUrl: data.imageUrl, imageRole: data.imageRole };
+    case "character-board":
+      return { modelId: DEFAULT_GENERATION_MODEL_ID, modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID, "3:4"), batchSize: 1, aspectRatio: "3:4" };
     case "text-input":
       return { text: data.text };
     case "drawing-board":
@@ -527,6 +540,8 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
         generateAudio: data.generateAudio,
         outputFormat: data.outputFormat,
       };
+    case "background-extract":
+      return modelFields();
     case "sketch-optimize":
     case "sketch-to-render":
       return {

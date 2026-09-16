@@ -73,6 +73,7 @@ function cloneNodes(nodes: WorkflowTemplate["flow"]["nodes"]): FlowNode[] {
     if (node.data.kind === "outfit-reference") { data.images = []; data.mainImage = null; data.status = "idle"; }
     if (node.data.kind === "ai-styling") { delete data.analysisId; delete data.referenceFingerprint; data.preserve = null; data.status = "idle"; }
     if (node.data.kind === "image-input") delete data.imageUrl;
+    if (node.data.kind === "character-board") { delete data.sourceImage; data.status = "idle"; }
     if (node.data.kind === "drawing-board") {
       delete data.contentRef;
       delete data.previewImageRef;

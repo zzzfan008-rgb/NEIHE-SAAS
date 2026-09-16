@@ -1036,6 +1036,14 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
         modelId: DEFAULT_GENERATION_MODEL_ID, modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID, "3:4") };
     case "image-input":
       return { ...base, kind, imageRole: "default" };
+    case "character-board":
+      return { ...base, kind, outputImages: [] };
+    case "background-extract":
+      return {
+        ...base, kind, outputImages: [],
+        modelId: DEFAULT_GENERATION_MODEL_ID,
+        modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID),
+      };
     case "text-input":
       return { ...base, kind, text: "" };
     case "drawing-board":
@@ -2112,7 +2120,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     "confirmPopoverOpen", "approvalDialogOpen", "displayState",
   ]) delete data[transientKey];
   if (typeof input.error !== "string") delete data.error;
-  if (NODE_SPECS[kind].providerId && kind !== "video-generate") {
+  if (NODE_SPECS[kind].providerId && kind !== "video-generate" && kind !== "character-board") {
     const migratedModelId = input.modelId === "gemini-3.1-flash-image-preview"
       ? "gemini-3.1-flash-image" : input.modelId === "gpt-image-2" ? MASK_REDRAW_MODEL_ID : input.modelId;
     const modelId = isImageModelId(migratedModelId) && isModelAllowedForNode(migratedModelId, kind)
@@ -2153,6 +2161,13 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
         ? input.imageRole
         : "default";
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
+      break;
+    case "background-extract":
+      data.outputImages = stringArray(input.outputImages) ?? [];
+      break;
+    case "character-board":
+      if (typeof input.sourceImage !== "string" || !/^\/api\/files\/[A-Za-z0-9_-]+\.(png|jpe?g|webp|gif)$/i.test(input.sourceImage)) delete data.sourceImage;
+      data.outputImages = (stringArray(input.outputImages) ?? []).slice(0, 1);
       break;
     case "text-input":
       data.text = typeof input.text === "string" ? input.text : "";
@@ -3564,6 +3579,12 @@ function updateTabFromRunEvent(
   // before any durable branch can flush the replacement document's editor.
   const currentDocument = documentForTarget(currentState, target);
   if (!currentDocument) return;
+  if (commitsOutput && currentNode?.data.kind === "character-board") {
+    // 人物板自身就是独立结果节点；只持久化其输出，避免生成后擅自
+    // 插入结果节点，用户可以按需把它连到任意兼容的图像节点。
+    updateTabNodes(set, target, updateNodes, { markDirty: true });
+    return;
+  }
   if (commitsOutput) {
     let generatedResultId = "";
     // 先把自动结果节点放入当前文档但不写撤销历史。随后单独提交生成
@@ -4506,6 +4527,9 @@ export const useFlowStore = create<FlowState>()(
         const spec = NODE_SPECS[kind];
         if (!spec.providerId) return;
         let preparationError = virtualTryOnRunBlockReason(node, initialDocument);
+        if (node.data.kind === "character-board" && !node.data.sourceImage) {
+          preparationError = "请先上传一张模特图";
+        }
         if (node.data.kind === "ai-styling") {
           const { validStylingAnalysis, stylingInput } = await import("./stylingRuntime");
           const { stylingBlockReason } = await import("../lib/styling");

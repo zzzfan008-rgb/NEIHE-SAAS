@@ -49,6 +49,8 @@ const NODE_KINDS: readonly NodeKind[] = [
   "outfit-reference",
   "ai-styling",
   "image-input",
+  "character-board",
+  "background-extract",
   "text-input",
   "drawing-board",
   "color-palette",
@@ -271,6 +273,10 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
         outputImages: [], ...raw, ...migratedModelFields(kind, raw, "3:4") };
     case "image-input":
       return { imageRole: "default", ...raw };
+    case "character-board":
+      return { outputImages: [], ...raw };
+    case "background-extract":
+      return { outputImages: [], ...raw, ...migratedModelFields(kind, raw) };
     case "text-input":
       return { text: "", ...raw };
     case "drawing-board":
@@ -363,7 +369,7 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
 }
 
 function validateModelSelection(kind: NodeKind, raw: Record<string, unknown>, path: string): void {
-  if (!NODE_SPECS[kind].providerId || kind === "video-generate") return;
+  if (!NODE_SPECS[kind].providerId || kind === "video-generate" || kind === "character-board") return;
   if (!isImageModelId(raw.modelId)) fail(`${path}.modelId`, "must be a supported API易 image model");
   if (!isModelAllowedForNode(raw.modelId, kind)) {
     fail(`${path}.modelId`, `${raw.modelId} is not allowed for ${kind}`);
@@ -406,6 +412,12 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
       if (images.length && raw.mainImage === null) fail(`${path}.mainImage`, "must select a main image");
       break;
     }
+    case "character-board":
+      if (raw.sourceImage !== undefined && !isLocalImageReference(raw.sourceImage)) {
+        fail(`${path}.sourceImage`, "must be an uploaded local image reference");
+      }
+      imageReferenceArray(raw.outputImages, `${path}.outputImages`, 1);
+      break;
     case "ai-styling": {
       stringValue(raw.prompt, `${path}.prompt`);
       oneOf(raw.aspectRatio, ASPECT_RATIOS, `${path}.aspectRatio`);
@@ -436,6 +448,9 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
           seenTargets.add(key);
         });
       }
+      break;
+    case "background-extract":
+      imageReferenceArray(raw.outputImages, `${path}.outputImages`);
       break;
     case "text-input":
       stringValue(raw.text, `${path}.text`);

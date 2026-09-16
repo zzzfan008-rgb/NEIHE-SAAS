@@ -2,9 +2,11 @@ import type { NodeKind } from "@/types/workflow";
 
 /** 节点类型 → 微缩图配色（与画布气质一致的低饱和色） */
 const KIND_COLOR: Record<NodeKind, string> = {
+  "character-board": "#B58BDB",
   "outfit-reference": "#4A90D9",
   "ai-styling": "#B58BDB",
   "image-input": "#4A90D9",
+  "background-extract": "#7FA58A",
   "text-input": "#718096",
   "drawing-board": "#3B9C8C",
   "color-palette": "#C87A9A",

@@ -30,6 +30,7 @@ interface GenerationModelDocumentFields {
 }
 
 export type DocumentNodeData =
+  | { kind: "character-board"; label: string; sourceImage?: string; outputImages: string[] }
   | { kind: "outfit-reference"; label: string; images: string[]; mainImage: string | null }
   | ({ kind: "ai-styling"; label: string; prompt: string; aspectRatio: string; batchSize: 1 | 2 | 4;
       preserve: import("../types/styling").StylingPreserve | null;
@@ -46,6 +47,11 @@ export type DocumentNodeData =
         targetHandle: WorkflowInputRole;
       }>;
     }
+  | ({
+      kind: "background-extract";
+      label: string;
+      outputImages: string[];
+    } & GenerationModelDocumentFields)
   | {
       kind: "text-input";
       label: string;
@@ -286,6 +292,10 @@ function virtualTryOnModelFields(
 
 function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
   switch (data.kind) {
+    case "character-board":
+      return { kind: data.kind, label: data.label,
+        ...(data.sourceImage ? { sourceImage: data.sourceImage } : {}),
+        outputImages: [...data.outputImages] };
     case "outfit-reference":
       return { kind: data.kind, label: data.label, images: [...data.images], mainImage: data.mainImage };
     case "ai-styling":
@@ -304,6 +314,13 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         ...(data.autoConnectTargets
           ? { autoConnectTargets: data.autoConnectTargets.map((target) => ({ ...target })) }
           : {}),
+      };
+    case "background-extract":
+      return {
+        kind: data.kind,
+        label: data.label,
+        outputImages: [...data.outputImages],
+        ...generationModelFields(data.kind, data.modelId, data.modelOptions),
       };
     case "text-input":
       return { kind: data.kind, label: data.label, text: data.text };

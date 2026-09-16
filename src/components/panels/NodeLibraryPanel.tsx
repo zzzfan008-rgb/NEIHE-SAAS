@@ -13,7 +13,9 @@ import { cn } from "@/lib/utils";
 import { requestCanvasLanding } from "@/lib/canvasLanding";
 
 const KIND_ORDER: NodeKind[] = [
+  "character-board",
   "image-input",
+  "background-extract",
   "sketch-optimize",
   "sketch-to-render",
   "ai-modify",

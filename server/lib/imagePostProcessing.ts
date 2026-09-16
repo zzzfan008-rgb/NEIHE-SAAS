@@ -81,6 +81,28 @@ export async function fitGeneratedImageToAspect(
   });
 }
 
+/** Preserve the input image's pixel dimensions without stretching generated content. */
+export async function fitGeneratedImageToCanvas(
+  ref: string,
+  canvasRef: string,
+): Promise<string> {
+  return withImageProcessingSlot(async () => {
+    const [input, canvasInput] = await Promise.all([imageRefToBuffer(ref), imageRefToBuffer(canvasRef)]);
+    const { width, height } = await sharp(canvasInput, SHARP_INPUT_OPTIONS).rotate().metadata();
+    if (!width || !height) return ref;
+    const source = sharp(input, SHARP_INPUT_OPTIONS).rotate();
+    const { dominant } = await source.clone().stats();
+    const background = { r: dominant.r, g: dominant.g, b: dominant.b, alpha: 1 };
+    const output = await encodeWebpWithinLimit(
+      source
+        .resize({ width, height, fit: "contain", position: "centre", background })
+        .flatten({ background })
+        .toColourspace("srgb"),
+    );
+    return toWebpDataUrl(output);
+  });
+}
+
 /** Preserve the source ratio and make its long edge exactly 2048 px (2K) or 4096 px (4K). */
 export async function upscaleImageToLongEdge(ref: string, imageSize: unknown): Promise<string> {
   return withImageProcessingSlot(async () => {

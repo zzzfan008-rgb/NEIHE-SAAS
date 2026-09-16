@@ -22,6 +22,7 @@ export const TOOL_GROUPS: readonly ToolGroup[] = [
     id: "add", label: "添加节点", icon: "plus", items: [
       available("text-node", "文本节点", "type", "在画布中添加可编辑的文字说明。", { type: "node", kind: "text-input" }),
       available("local-image", "本地上传图片", "image-plus", "创建图片输入并从本机选择文件。", { type: "node", kind: "image-input" }),
+      available("character-board", "人物板生成", "user-round", "上传模特图，一键生成四视图人物身份板。", { type: "node", kind: "character-board" }),
       available("local-video", "本地上传视频", "video", "从本机添加视频素材。", { type: "node", kind: "video-input" }),
       available("asset-library", "从资产库中选择", "library", "创建图片输入并打开已有资产库。", { type: "asset-picker" }),
     ],

@@ -39,9 +39,11 @@ import { Switch } from "@/components/ui/switch";
 import { TryOnQualityControls } from "./TryOnQualityControls";
 
 const UPSTREAM_SUGGESTIONS: Record<NodeKind, NodeKind[]> = {
+  "character-board": [],
   "outfit-reference": [],
   "ai-styling": ["outfit-reference"],
   "image-input": [],
+  "background-extract": ["image-input", "drawing-board"],
   "text-input": [],
   "drawing-board": [],
   "color-palette": [],
@@ -62,11 +64,13 @@ const UPSTREAM_SUGGESTIONS: Record<NodeKind, NodeKind[]> = {
 };
 
 const DOWNSTREAM_SUGGESTIONS: Record<NodeKind, NodeKind[]> = {
+  "character-board": ["virtual-try-on", "ai-modify", "result"],
   "outfit-reference": ["ai-styling"],
   "ai-styling": ["result"],
-  "image-input": ["sketch-to-render", "ai-modify", "virtual-try-on", "print-extract"],
+  "image-input": ["sketch-to-render", "ai-modify", "virtual-try-on", "print-extract", "background-extract"],
+  "background-extract": ["sketch-to-render", "ai-modify", "fabric-recolor", "upscale", "print-extract", "print-mutate", "virtual-try-on", "mask-redraw", "result"],
   "text-input": [],
-  "drawing-board": ["sketch-to-render", "ai-modify", "virtual-try-on", "print-extract"],
+  "drawing-board": ["sketch-to-render", "ai-modify", "virtual-try-on", "print-extract", "background-extract"],
   "color-palette": ["fabric-recolor"],
   "stage-approval": ["virtual-try-on"],
   "video-input": ["video-generate"],
