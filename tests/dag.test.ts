@@ -469,7 +469,7 @@ async function main() {
     delete pose.data.poseReferenceSource;
     const invalidStageOneNode: FlowNode = {
       ...stabilize,
-      data: { ...stabilize.data, modelId: "gpt-image-2" },
+      data: { ...stabilize.data, modelId: "gpt-image-2.5-sunburst" },
     };
     const invalidStageOne = buildExecutionPlan(
       [...stageOneNodes.filter((node) => node.id !== stabilize.id), invalidStageOneNode],
@@ -478,7 +478,7 @@ async function main() {
     );
     assert.throws(
       () => assertPlanInputs(invalidStageOne, stageOneEdges),
-      /第一轮必须使用 Gemini 3\.1 Flash/,
+      /第一轮所选模型不受支持/,
     );
 
     const baselineRef = "/api/files/baseline.png";
@@ -952,6 +952,23 @@ async function main() {
     assert.match(stageOne.calls[0].request.prompt, /只提取戒指本体/);
     assert.match(stageOne.calls[0].request.prompt, /目标商品本体上已有的金属装饰图案与五金保持来源外观/);
 
+    for (const modelId of ['gemini-3-pro-image-preview', 'gpt-image-2', 'gpt-image-2.5-flare']) {
+      const first = await runRecordedAiStep('virtual-try-on', {
+        workflowStage: 'scene-stabilize', modelId, imageSize: '2K', sceneFraming: 'custom', aspectRatio: '1:1',
+        prompt: '自然画册质感', promptEnhancement: false,
+        modelOptions: modelId.startsWith('gemini') ? { aspectRatio: '1:1', imageSize: '2K' } : { quality: 'high' },
+      }, [SCENE_DATA_URL, POSE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL], undefined,
+      ['scene', 'pose', 'person', 'outfit'], sceneAnalyzer);
+      assert.deepEqual(first.providerIds, [modelId]);
+      assert.equal(first.calls[0].request.modelSelection, 'explicit');
+      assert.deepEqual(first.calls[0].request.modelOptions, modelId.startsWith('gemini')
+        ? { aspectRatio: '1:1', imageSize: '2K' } : { size: '2048x2048', quality: 'high' });
+      assert.match(first.calls[0].request.prompt, /【用户想法】.*自然画册质感/);
+      assert.match(first.calls[0].request.prompt, /长裤不得改成短裤/);
+      assert.match(first.calls[0].request.prompt, modelId.startsWith('gemini') ? /场景融合/ : modelId === 'gpt-image-2' ? /必须保持/ : /关键约束/);
+      assert.equal(first.calls[0].request.referenceImages?.at(-2), POSE_DATA_URL);
+    }
+
     const bagOnly = await runRecordedAiStep(
       "virtual-try-on",
       {
@@ -980,6 +997,19 @@ async function main() {
       undefined, ['scene', 'pose', 'person', 'outfit'], sceneAnalyzer);
       assert.match(typed.calls[0].request.prompt, expected);
       assert.doesNotMatch(typed.calls[0].request.prompt, /可能/);
+      const prompt = typed.calls[0].request.prompt;
+      assert.deepEqual(Array.from(prompt.matchAll(/^【([^】]+)】/gm), ([, section]) => section),
+        ['身份', '服装', '场景', '姿势', '配饰与结构', '风格', '输出']);
+      const poseSection = prompt.split('【姿势】')[1].split('【配饰与结构】')[0];
+      assert.match(poseSection, /最终动作仅由姿势参考图中可见的动作几何决定/);
+      assert.match(poseSection, /人物身份图、主穿搭图、场景图及配饰图均不提供动作依据/);
+      assert.match(poseSection, /忽略姿势参考中的服装、身份和背景，不忽略其动作/);
+      assert.match(poseSection, /不得擅自摆正躯干、拉直四肢、改变手部位置或调整为左右对称站姿/);
+      assert.doesNotMatch(poseSection, /其中原服装、姿势、以及非身份物体全忽略/);
+      const outfitSection = prompt.split('【服装】')[1].split('【场景】')[0];
+      assert.match(outfitSection, /服装类别、整体版型、上下装比例、衣长、袖长、裤长或裙长、腰线位置、裤腿宽度/);
+      assert.match(outfitSection, /长裤不得改成短裤，短裤不得延长为长裤/);
+      assert.match(outfitSection, /相对腰、髋、膝、踝的位置还原，不照搬参考人物的像素尺寸/);
       assert.equal(typed.calls[0].request.referenceImages?.at(-2), POSE_DATA_URL);
     }
 

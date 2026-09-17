@@ -457,10 +457,11 @@ async function main() {
     const invalidFirstStage = structuredClone(normalized);
     const firstStageNode = invalidFirstStage.nodes.find((node) => node.id === "stabilize");
     if (!firstStageNode || firstStageNode.data.kind !== "virtual-try-on") throw new Error("missing first stage");
-    firstStageNode.data.modelId = "gpt-image-2";
+    firstStageNode.data.modelId = "gpt-image-2.5-sunburst";
+    firstStageNode.data.modelOptions = { quality: "medium" };
     assert.throws(
       () => validateAndMigrateFlow(invalidFirstStage),
-      /scene-stabilize must use gemini-3\.1-flash-image/,
+      /scene-stabilize model is not supported/,
     );
 
     const invalidSecondStage = structuredClone(normalized);
@@ -958,7 +959,7 @@ async function main() {
     assert.equal(stagedTryOn.builtIn, true);
     assert.equal(stagedTryOn.ownerId, undefined);
     assert.equal(stagedTryOn.flow.schemaVersion, WORKFLOW_SCHEMA_VERSION);
-    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3.1-flash-image");
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3-pro-image-preview");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.modelId, "gpt-image-2");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
     assert.equal(stagedTryOn.flow.nodes.length, 23);
@@ -1039,6 +1040,15 @@ async function main() {
       ensureBuiltinTemplates();
       const refreshedStaged = JSON.parse(fs.readFileSync(stagedPath, "utf-8")) as { flow: { nodes: Array<{ id: string }> } };
       assert.ok(refreshedStaged.flow.nodes.some((node) => node.id === "socks"), "已有一键换装模板应补齐袜子参考图节点");
+      const oldModelTemplate = JSON.parse(fs.readFileSync(stagedPath, "utf-8"));
+      const oldFirstRound = oldModelTemplate.flow.nodes.find((node: { id: string }) => node.id === "stabilize");
+      oldFirstRound.data.modelId = "gemini-3.1-flash-image";
+      oldFirstRound.data.label = "第一轮 · Gemini 场景化定版";
+      fs.writeFileSync(stagedPath, JSON.stringify(oldModelTemplate), "utf-8");
+      ensureBuiltinTemplates();
+      const modelRefreshed = JSON.parse(fs.readFileSync(stagedPath, "utf-8")).flow.nodes.find((node: { id: string }) => node.id === "stabilize");
+      assert.equal(modelRefreshed.data.modelId, "gemini-3-pro-image-preview", "内置模板缓存应更新为 Pro 默认值");
+      assert.equal(modelRefreshed.data.label, "第一轮 · 场景化定版");
       const existing = JSON.parse(fs.readFileSync(existingPath, "utf-8")) as {
         schemaVersion: number;
         description: string;

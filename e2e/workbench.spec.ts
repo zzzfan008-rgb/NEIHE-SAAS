@@ -1,4 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
+import type { ProjectTab } from "../src/store/flowStore";
 import axe from "axe-core";
 import {
   WORKFLOW_SCHEMA_VERSION,
@@ -14,6 +15,153 @@ interface Rect {
   width: number;
   height: number;
 }
+
+test("first-round model and ideas persist with desktop controls", async ({ page }, testInfo) => {
+  await openFreshBlankProject(page);
+  await page.evaluate(async () => {
+    const storePath = '/src/store/flowStore.ts';
+    const landingPath = '/src/lib/canvasLanding.ts';
+    const { useFlowStore } = await import(storePath);
+    const { requestCanvasLanding } = await import(landingPath);
+    useFlowStore.getState().loadFlow({ projectName: '第一轮参数', markDirty: true, nodes: [{
+      id: 'scene-options', type: 'virtual-try-on', position: { x: 0, y: 0 }, data: {
+        kind: 'virtual-try-on', label: '第一轮 · 场景化定版', status: 'idle', workflowStage: 'scene-stabilize',
+        prompt: '', modelId: 'gemini-3-pro-image-preview', modelOptions: { aspectRatio: '3:4', imageSize: '2K' },
+        imageSize: '2K', aspectRatio: '3:4', sceneFraming: 'scene', basisRevision: 0, outputImages: [],
+        promptEnhancement: false, qualityMode: 'fast', safetyFallback: false, stylePresetId: 'faithful',
+      },
+    }], edges: [] });
+    requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, fitView: true });
+  });
+  const node = page.locator('.react-flow__node[data-id="scene-options"]');
+  const ideas = node.getByRole('textbox', { name: '创作想法' });
+  await expect(ideas).toBeVisible();
+  await ideas.fill('自然画册质感，减少过度磨皮');
+  await ideas.press('Tab');
+  const model = node.getByRole('combobox', { name: '图像模型', exact: true });
+  await model.click();
+  await page.getByRole('option', { name: 'GPT Image 2', exact: true }).click();
+  const quality = node.getByRole('combobox', { name: '图片质量', exact: true });
+  await quality.click();
+  await expect(page.getByRole('option', { name: 'max', exact: true })).toHaveCount(0);
+  await page.getByRole('option', { name: 'high', exact: true }).click();
+  await model.click();
+  await page.getByRole('option', { name: 'GPT-Image 2.5 Flare', exact: true }).click();
+  await quality.click();
+  await page.getByRole('option', { name: 'max', exact: true }).click();
+  const framing = node.getByRole('combobox', { name: '画幅比例' });
+  await framing.click();
+  await page.getByRole('option', { name: '4:5', exact: true }).click();
+  await node.getByRole('combobox', { name: '输出尺寸' }).click();
+  await page.getByRole('option', { name: '4K', exact: true }).click();
+  // Model-dependent controls change the node height; exercise the existing fit control.
+  await page.getByRole('button', { name: '适应画布', exact: true }).click();
+  await expect.poll(async () => {
+    const box = await node.boundingBox();
+    return box!.y + box!.height;
+  }).toBeLessThanOrEqual(page.viewportSize()!.height - 40);
+  for (const control of [ideas, model, quality, framing]) {
+    const box = await control.boundingBox();
+    const nodeBox = await node.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(nodeBox!.x);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(nodeBox!.x + nodeBox!.width + 1);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    expect(box!.y).toBeGreaterThanOrEqual(nodeBox!.y);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(nodeBox!.y + nodeBox!.height);
+  }
+  await framing.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
+  await expect(framing).toBeFocused();
+  const saved = await page.evaluate(async () => {
+    const storePath = '/src/store/flowStore.ts';
+    const snapshotPath = '/src/lib/documentSnapshot.ts';
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    const { createDocumentSnapshot, documentSnapshotToPersistedWorkflow } = await import(snapshotPath);
+    const flow = documentSnapshotToPersistedWorkflow(createDocumentSnapshot(selectActiveDocument(useFlowStore.getState())));
+    useFlowStore.getState().loadFlow({ ...flow, projectName: '第一轮参数', markDirty: true });
+    return flow.nodes[0].data;
+  });
+  expect(saved).toMatchObject({ modelId: 'gpt-image-2.5-flare', prompt: '自然画册质感，减少过度磨皮', imageSize: '4K', aspectRatio: '4:5', sceneFraming: 'custom', modelOptions: { quality: 'max' } });
+  await expect(ideas).toHaveValue('自然画册质感，减少过度磨皮');
+  await expect(model).toContainText('Flare');
+  await testInfo.attach('first-round-controls', { body: await page.screenshot(), contentType: 'image/png' });
+
+  // Unsupported quality must not survive a model switch, and the switch is undoable.
+  await model.click();
+  await page.getByRole('option', { name: 'GPT Image 2', exact: true }).click();
+  await expect(quality).toContainText('medium');
+  await page.evaluate(async () => {
+    const path = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(path);
+    useFlowStore.getState().undo();
+  });
+  await expect(model).toContainText('Flare');
+  await expect(quality).toContainText('max');
+  await page.evaluate(async () => {
+    const path = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(path);
+    useFlowStore.getState().redo();
+  });
+  await expect(model).toContainText('GPT Image 2');
+  await expect(quality).toContainText('medium');
+  await model.click();
+  await page.getByRole('option', { name: 'Gemini 3 Pro Image', exact: true }).click();
+  const size = node.getByRole('combobox', { name: '输出尺寸' });
+  await size.click();
+  await page.getByRole('option', { name: '1K', exact: true }).click();
+  await model.click();
+  await page.getByRole('option', { name: 'GPT Image 2', exact: true }).click();
+  await expect(size).toContainText('2K');
+
+  // Test the real browser/session loading path, not just the schema round trip.
+  const retained = await page.evaluate(async () => {
+    const path = '/src/store/flowStore.ts';
+    const { useFlowStore, selectActiveDocument } = await import(path);
+    const document = selectActiveDocument(useFlowStore.getState());
+    return ['gpt-image-2', 'gemini-3.1-flash-image'].map(modelId => {
+      const gemini = modelId.startsWith('gemini');
+      const data = { ...document.nodes[0].data, modelId, modelOptions: gemini
+        ? { aspectRatio: '4:5', imageSize: '2K' } : { quality: 'medium' } };
+      useFlowStore.getState().loadFlow({ projectName: document.projectName, nodes: [{ ...document.nodes[0], data }], edges: [], markDirty: true });
+      const restored = selectActiveDocument(useFlowStore.getState()).nodes[0].data;
+      return { modelId: restored.modelId, quality: restored.modelOptions.quality };
+    });
+  });
+  expect(retained).toEqual([{ modelId: 'gpt-image-2', quality: 'medium' }, { modelId: 'gemini-3.1-flash-image' }]);
+  await expect(model).toContainText('旧配置兼容');
+
+  await page.evaluate(async () => {
+    const path = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(path);
+    useFlowStore.getState().setSelectedNodeIds(['scene-options']);
+  });
+  const inspector = page.locator('#workbench-inspector-panel');
+  if (!await inspector.isVisible()) await page.getByRole('button', { name: '属性', exact: true }).click();
+  const inspectorIdeas = inspector.getByRole('textbox', { name: '创作想法' });
+  await expect(inspectorIdeas).toHaveValue('自然画册质感，减少过度磨皮');
+  await inspectorIdeas.fill('保留自然光线');
+  await inspectorIdeas.press('Tab');
+  await expect(ideas).toHaveValue('保留自然光线');
+  const inspectorModel = inspector.getByRole('combobox', { name: '图像模型', exact: true });
+  await inspectorModel.click();
+  await page.getByRole('option', { name: 'GPT Image 2', exact: true }).click();
+  await expect(model).toContainText('GPT Image 2');
+  await page.getByRole('button', { name: '适应画布', exact: true }).click();
+  await testInfo.attach('first-round-inspector', { body: await page.screenshot(), contentType: 'image/png' });
+
+  for (const mode of ['running', 'readOnly']) {
+    await page.evaluate(async mode => {
+      const path = '/src/store/flowStore.ts';
+      const { useFlowStore } = await import(path);
+      useFlowStore.setState((state: { tabs: ProjectTab[]; activeTabId: string }) => ({ tabs: state.tabs.map(tab => tab.id === state.activeTabId
+        ? { ...tab, readOnly: mode === 'readOnly', nodes: tab.nodes.map(node => ({ ...node, data: { ...node.data, status: mode === 'running' ? 'running' : 'idle' } })) }
+        : tab) }));
+    }, mode);
+    for (const control of [ideas, model, framing, size, quality, inspectorIdeas, inspectorModel]) await expect(control).toBeDisabled();
+  }
+});
 
 test("GPT Image 2.5 quality selection persists and fits desktop canvas", async ({ page }) => {
   await openFreshBlankProject(page);
@@ -1098,7 +1246,8 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
   const approvalNode = page.locator('.react-flow__node[data-id="e2e-approval"]');
   const refineNode = page.locator('.react-flow__node[data-id="e2e-refine"]');
   await expect(stabilizeNode).toBeVisible();
-  expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(420.875);
+  // The first round now includes a four-row ideas editor and model/parameter controls.
+  expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(page.viewportSize()!.height - 100);
   expect((await rect(refineNode)).height).toBeLessThanOrEqual(637.4375);
 
   for (const [node, portIds] of [
@@ -1143,7 +1292,7 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
   }
 
   await expectCurrentThemeContract(page);
-  expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(420.875);
+  expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(page.viewportSize()!.height - 100);
   expect((await rect(refineNode)).height).toBeLessThanOrEqual(637.4375);
 
   await page.evaluate(async () => {

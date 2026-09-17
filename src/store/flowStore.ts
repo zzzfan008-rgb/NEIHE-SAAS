@@ -23,6 +23,7 @@ import {
   type Asset,
   type NodeKind,
   type WorkflowNodeData,
+  type VirtualTryOnNodeData,
   type NodeRunStatus,
   type ImageInputNodeData,
   type VideoGenerateNodeData,
@@ -43,6 +44,7 @@ import {
 } from "@/lib/workflowPorts";
 import {
   DEFAULT_GENERATION_MODEL_ID,
+  isSceneStabilizeModelId,
   MASK_REDRAW_MODEL_ID,
   SKETCH_OPTIMIZATION_MODEL_ID,
   defaultImageModelOptions,
@@ -1489,8 +1491,8 @@ function virtualTryOnRunBlockReason(
   };
 
   if (node.data.workflowStage === "scene-stabilize") {
-    if (node.data.modelId !== "gemini-3.1-flash-image")
-      return "第一轮必须使用 Gemini 3.1 Flash";
+    if (!isSceneStabilizeModelId(node.data.modelId))
+      return "第一轮所选模型不受支持";
     const personEdges = edgesFor("person");
     if (personEdges.length < 1 || personEdges.length > 3)
       return "人物身份图必须连接 1 至 3 张";
@@ -2363,6 +2365,7 @@ export function updateCoalescedTextEdit(
 }
 
 function migrateLegacyGptNode(node: FlowNode): FlowNode {
+  if (node.data.kind === "virtual-try-on" && node.data.workflowStage === "scene-stabilize") return node;
   if (!("modelId" in node.data) || node.data.modelId !== "gpt-image-2")
     return node;
   const oldQuality = (node.data.modelOptions as ImageModelOptions | undefined)
@@ -2641,7 +2644,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     const migratedModelId =
       input.modelId === "gemini-3.1-flash-image-preview"
         ? "gemini-3.1-flash-image"
-        : input.modelId === "gpt-image-2"
+        : input.modelId === "gpt-image-2" && !(kind === "virtual-try-on" && input.workflowStage === "scene-stabilize")
           ? MASK_REDRAW_MODEL_ID
           : input.modelId;
     const modelId =
@@ -2661,7 +2664,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       input.modelOptions,
       preferredAspectRatio,
     );
-    if (input.modelId === "gpt-image-2") {
+    if (input.modelId === "gpt-image-2" && !(kind === "virtual-try-on" && input.workflowStage === "scene-stabilize")) {
       const oldQuality = (input.modelOptions as ImageModelOptions | undefined)
         ?.quality;
       data.modelOptions = {
@@ -2951,7 +2954,9 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
           ? input.workflowStage
           : "standard";
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
-      data.imageSize = input.imageSize === "4K" ? "4K" : "2K";
+      data.imageSize = input.imageSize === "4K" ? "4K" : input.imageSize === "1K" && data.workflowStage === "scene-stabilize" && String(data.modelId).startsWith("gemini-") ? "1K" : "2K";
+      if (input.sceneFraming === "scene" || input.sceneFraming === "custom") data.sceneFraming = input.sceneFraming;
+      else delete data.sceneFraming;
       data.aspectRatio =
         typeof input.aspectRatio === "string" &&
         ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"].includes(input.aspectRatio)
@@ -3004,7 +3009,9 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
         data.styleReferenceImage = input.styleReferenceImage;
       else delete data.styleReferenceImage;
       if (data.workflowStage === "scene-stabilize") {
-        data.modelId = "gemini-3.1-flash-image";
+        data.modelId = isSceneStabilizeModelId(data.modelId) ? data.modelId : "gemini-3.1-flash-image";
+        data.modelOptions = normalizeImageModelOptions(data.modelId as VirtualTryOnNodeData["modelId"], data.modelOptions, data.aspectRatio as string);
+        break;
       }
       if (data.workflowStage === "garment-refine")
         data.modelId = MASK_REDRAW_MODEL_ID;
@@ -5665,6 +5672,8 @@ export const useFlowStore = create<FlowState>()(
           if (!tab.nodes.some((n) => n.id === id)) return;
           const edited = tab.nodes.find((node) => node.id === id)!;
           const basisKeys = new Set([
+            "sceneFraming",
+            "aspectRatio",
             "prompt",
             "imageSize",
             "modelId",

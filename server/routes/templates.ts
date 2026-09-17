@@ -219,11 +219,12 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           position: { x: 650, y: -120 },
           data: {
             kind: "virtual-try-on",
-            label: "第一轮 · Gemini 场景化定版",
+            label: "第一轮 · 场景化定版",
             status: "idle",
             workflowStage: "scene-stabilize",
             prompt: "",
-            modelId: "gemini-3.1-flash-image",
+            sceneFraming: "scene",
+            modelId: "gemini-3-pro-image-preview",
             modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
             imageSize: "2K",
             aspectRatio: "3:4",
@@ -805,6 +806,8 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
       const nodeById = new Map(raw.flow?.nodes?.map((node) => [node.id, node]) ?? []);
       return raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION
         || named.name !== "一键换装"
+        || nodeById.get("stabilize")?.data?.modelId !== "gemini-3-pro-image-preview"
+        || nodeById.get("stabilize")?.data?.label !== "第一轮 · 场景化定版"
         || nodeById.get("garment-detail")?.type !== "mask-redraw"
         || nodeById.get("garment-detail")?.data?.executionMode !== "repair"
         || nodeById.get("socks")?.type !== "image-input"

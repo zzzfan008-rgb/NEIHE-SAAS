@@ -14,6 +14,7 @@ import {
   type NodeKind,
 } from "@/types/workflow";
 import { RunButton, STATUS_TEXT } from "../nodes/NodeFrame";
+import { SceneStabilizeControls } from "../nodes/SceneStabilizeControls";
 import { ModelControls } from "../nodes/ModelControls";
 import { thumbnailImageUrl } from "@/lib/images";
 import { cn } from "@/lib/utils";
@@ -178,7 +179,7 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
   const d = node.data;
   const spec = NODE_SPECS[d.kind];
   const selectedModelId: GenerationImageModelId | undefined =
-    "modelId" in d && isImageModelId(d.modelId) && d.modelId !== "gpt-image-2" ? d.modelId : undefined;
+    "modelId" in d && isImageModelId(d.modelId) && d.modelId !== "gpt-image-2" && d.modelId !== "gemini-3-pro-image-preview" ? d.modelId : undefined;
   const selectedModelOptions = "modelOptions" in d && typeof d.modelOptions === "object" && d.modelOptions !== null
     ? d.modelOptions as ImageModelOptions
     : undefined;
@@ -328,7 +329,7 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
         </section>
       )}
 
-      {(d.kind === "sketch-to-render" || d.kind === "ai-modify" || d.kind === "fabric-recolor" || d.kind === "virtual-try-on") && (
+      {(d.kind === "sketch-to-render" || d.kind === "ai-modify" || d.kind === "fabric-recolor" || (d.kind === "virtual-try-on" && d.workflowStage !== "scene-stabilize")) && (
         <label className="block space-y-1">
           <span className="text-[10px] text-[var(--gc-text-muted)]">提示词</span>
           <Textarea
@@ -411,14 +412,13 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
 
       {d.kind === "virtual-try-on" && (
         <div className="space-y-3 border-t border-[var(--gc-border)] pt-3">
-          {d.workflowStage !== "standard" && (
+          {d.workflowStage === "scene-stabilize" && <SceneStabilizeControls nodeId={nodeId} data={d} />}
+          {d.workflowStage === "garment-refine" && (
             <p className="text-[10px] leading-relaxed text-[var(--gc-text-muted)]">
-              {d.workflowStage === "scene-stabilize"
-                ? "第一轮固定引擎：场景只控环境，姿势原图仅用于动作分析与评审"
-                : "第二轮使用固定服装精修引擎 · 中等质量"}
+              第二轮使用固定服装精修引擎 · 中等质量
             </p>
           )}
-          <fieldset className="space-y-1">
+          {d.workflowStage !== "scene-stabilize" && <fieldset className="space-y-1">
             <legend className="text-[10px] text-[var(--gc-text-muted)]">输出档位</legend>
             <div className="flex gap-2">
               {(["2K", "4K"] as const).map((imageSize) => (
@@ -442,7 +442,7 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
                 </Button>
               ))}
             </div>
-          </fieldset>
+          </fieldset>}
           <TryOnQualityControls
             nodeId={nodeId}
             data={d}

@@ -30,6 +30,19 @@
   },
   "models": [
     {
+      "id": "gemini-3-pro-image-preview",
+      "upstreamModelId": "gemini-3-pro-image-preview",
+      "label": "Gemini 3 Pro Image",
+      "channel": "official",
+      "allowedNodeKinds": ["virtual-try-on"],
+      "timeoutMs": 360000,
+      "generation": {"path": "/v1beta/models/{model}:generateContent", "contentType": "application/json"},
+      "edit": {"path": "/v1beta/models/{model}:generateContent", "contentType": "application/json", "minReferences": 1, "maxReferences": 14},
+      "aspectRatios": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+      "imageSizes": ["1K", "2K", "4K"],
+      "output": {"kind": "gemini-parts", "fields": ["inlineData"], "scanAllParts": true}
+    },
+    {
       "id": "gpt-image-2.5-flare",
       "upstreamModelId": "gpt-image-2.5-flare-2026-09-08",
       "label": "GPT-Image 2.5 Flare",

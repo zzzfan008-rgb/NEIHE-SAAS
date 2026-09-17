@@ -18,6 +18,7 @@ import {
 } from "../../src/types/workflow";
 import {
   DEFAULT_GENERATION_MODEL_ID,
+  isSceneStabilizeModelId,
   MASK_REDRAW_MODEL_ID,
   SKETCH_OPTIMIZATION_MODEL_ID,
   defaultImageModelOptions,
@@ -338,9 +339,9 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
         }
       };
       if (stage === "scene-stabilize") {
-        if (modelId !== "gemini-3.1-flash-image") {
+        if (!isSceneStabilizeModelId(modelId)) {
           throw new DagError(
-            `节点 ${step.nodeId} 第一轮必须使用 Gemini 3.1 Flash`,
+            `节点 ${step.nodeId} 第一轮所选模型不受支持`,
           );
         }
         const personSources = roleSources("person");
@@ -869,6 +870,7 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
     case "virtual-try-on":
       return {
         workflowStage: data.workflowStage,
+        sceneFraming: data.sceneFraming,
         prompt: data.prompt,
         imageSize: data.imageSize,
         aspectRatio: data.aspectRatio,

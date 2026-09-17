@@ -41,8 +41,8 @@ export async function prepareGptReferences(refs: string[]): Promise<string[]> {
   return result;
 }
 
-export async function requestGptImage25(req: ImageGenRequest, mode: "generate" | "edit") {
-  const model = mode === "generate" ? config.gptImageGenerationModel() : config.gptImageEditModel();
+export async function requestGptImage25(req: ImageGenRequest, mode: "generate" | "edit", selectedModel?: string) {
+  const model = selectedModel ?? (mode === "generate" ? config.gptImageGenerationModel() : config.gptImageEditModel());
   if (!/^gpt-image-(?:2(?:-\d{4}-\d{2}-\d{2})?|2\.5-(?:flare|sunburst)(?:-\d{4}-\d{2}-\d{2})?)$/.test(model)) {
     throw new ProviderError("GPT 图片模型环境配置无效", 400, model, "invalid_request");
   }

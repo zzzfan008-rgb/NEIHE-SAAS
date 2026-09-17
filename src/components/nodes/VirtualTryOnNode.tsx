@@ -1,5 +1,6 @@
 import { Position, type Node, type NodeProps } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
+import { SceneStabilizeControls } from "./SceneStabilizeControls";
 import { GptQualityControls } from "./GptQualityControls";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
 import { selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
@@ -86,7 +87,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
           </p>
         ) : undefined}
       >
-        <GptQualityControls nodeId={id} modelId={data.modelId} modelOptions={data.modelOptions} disabled={running} />
+        {data.workflowStage !== "scene-stabilize" && <GptQualityControls nodeId={id} modelId={data.modelId} modelOptions={data.modelOptions} disabled={running} />}
         {data.workflowStage === "standard" ? (
           <StageHelp title="系统参考图角色" lines={[
             "首图锁定最终模特身份、姿势与背景",
@@ -123,6 +124,8 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
             ))}
           </div>
         )}
+
+        {data.workflowStage === "scene-stabilize" && <SceneStabilizeControls nodeId={id} data={data} />}
 
         {!staged && <label className="block space-y-1">
           <span className="text-[10px] text-neutral-500">补充要求（可选）</span>
@@ -166,10 +169,8 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
           临时连接异常最多自动重试 2 次；参数错误不会重试。
         </p>
 
-        {staged && <div className="truncate rounded border border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-2 py-1 text-[9px] text-[var(--gc-node-muted)]">
-          {data.workflowStage === "scene-stabilize"
-            ? `第一轮固定引擎 · ${data.imageSize}`
-            : `第二轮固定引擎 · 中等质量 · ${data.imageSize}`}
+        {data.workflowStage === "garment-refine" && <div className="truncate rounded border border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-2 py-1 text-[9px] text-[var(--gc-node-muted)]">
+          {`第二轮固定引擎 · 中等质量 · ${data.imageSize}`}
           <span className="ml-1">（完整设置在右侧属性面板）</span>
         </div>}
 

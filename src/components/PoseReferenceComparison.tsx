@@ -96,7 +96,7 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
         <DialogHeader>
           <DialogTitle>姿势参考对比</DialogTitle>
           <DialogDescription id="pose-comparison-description">
-            对比后将所需图片添加到画布，再手动连线至「第一轮 · Gemini 场景化定版」的姿势输入。不会自动替换或连线。深度图亮近暗远，仅表示可见表面前后关系。
+            对比后将所需图片添加到画布，再手动连线至「第一轮 · 场景化定版」的姿势输入。不会自动替换或连线。深度图亮近暗远，仅表示可见表面前后关系。
           </DialogDescription>
         </DialogHeader>
 

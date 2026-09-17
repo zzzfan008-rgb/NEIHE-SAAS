@@ -18,6 +18,7 @@ import {
 import { isLocalImageReference, validateImageDataUrl } from "./imageValidation";
 import { isLocalMediaReference } from "./fileStore";
 import {
+  isSceneStabilizeModelId,
   MASK_REDRAW_MODEL_ID,
   SKETCH_OPTIMIZATION_MODEL_ID,
   defaultImageModelOptions,
@@ -950,7 +951,8 @@ function validateData(
     case "virtual-try-on":
       oneOf(raw.workflowStage, VIRTUAL_TRY_ON_STAGES, `${path}.workflowStage`);
       stringValue(raw.prompt, `${path}.prompt`);
-      oneOf(raw.imageSize, IMAGE_SIZES, `${path}.imageSize`);
+      oneOf(raw.imageSize, raw.workflowStage === "scene-stabilize" && String(raw.modelId).startsWith("gemini-") ? ["1K", "2K", "4K"] : IMAGE_SIZES, `${path}.imageSize`);
+      if (raw.sceneFraming !== undefined) oneOf(raw.sceneFraming, ["scene", "custom"] as const, `${path}.sceneFraming`);
       oneOf(
         raw.aspectRatio,
         ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"] as const,
@@ -986,11 +988,11 @@ function validateData(
       }
       if (
         raw.workflowStage === "scene-stabilize" &&
-        raw.modelId !== "gemini-3.1-flash-image"
+        !isSceneStabilizeModelId(raw.modelId)
       ) {
         fail(
           `${path}.modelId`,
-          "scene-stabilize must use gemini-3.1-flash-image",
+          "scene-stabilize model is not supported",
         );
       }
       if (

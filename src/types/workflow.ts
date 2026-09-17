@@ -2,7 +2,7 @@
  * 工作流核心类型契约 —— 团队共用，改动需通知全员
  * 无限画布 + 节点 DAG + 节点级图片模型选择。
  */
-import type { GenerationImageModelId, ImageModelOptions } from "./imageModels";
+import type { GenerationImageModelId, ImageModelOptions, VirtualTryOnModelId } from "./imageModels";
 import type { TryOnQualityMode } from "../lib/tryOnStylePresets";
 import type { MaterialAssetMetadata } from "./materialAnalysis";
 
@@ -345,15 +345,16 @@ export interface PrintMutateNodeData
 
 export interface VirtualTryOnNodeData extends BaseNodeData {
   kind: "virtual-try-on";
-  /** standard=通用换装；scene-stabilize=Gemini 场景定版；garment-refine=GPT 服装精修。 */
+  /** standard=通用换装；scene-stabilize=多模型场景定版；garment-refine=GPT 服装精修。 */
   workflowStage: "standard" | "scene-stabilize" | "garment-refine";
   /** 只描述最终效果的可选要求；不得重定义服务端固定的参考图角色或编号。 */
   prompt: string;
-  /** 该节点只允许两种经过验证的图片编辑模型。 */
-  modelId: "gpt-image-2" | "gpt-image-2.5-sunburst" | "gemini-3.1-flash-image";
+  modelId: VirtualTryOnModelId;
   modelOptions: ImageModelOptions;
-  imageSize: "2K" | "4K";
-  /** 标准一键换装使用服装行业常用画幅；分步换装仍由基准图推导。 */
+  imageSize: "1K" | "2K" | "4K";
+  /** 第一轮默认跟随场景画幅；custom 使用用户指定比例。 */
+  sceneFraming?: "scene" | "custom";
+  /** 标准换装和第一轮自选画幅使用此比例；跟随场景及第二轮由参考图推导。 */
   aspectRatio: "1:1" | "4:5" | "3:4" | "2:3" | "9:16" | "16:9";
   /** 第一轮语义输入、参数、输出或重跑发生变化时递增。 */
   basisRevision?: number;
@@ -505,6 +506,8 @@ export interface PersistedWorkflow {
 // ---------- Provider 抽象层契约 ----------
 /** 所有 AI 调用必须经此接口，禁止业务代码直连第三方 SDK */
 export interface ImageGenRequest {
+  /** Server-owned first-round routing: honor the selected model instead of the legacy mode alias. */
+  modelSelection?: "explicit";
   prompt: string;
   /** 参考图（dataURL 数组，按连线顺序；上限由节点与模型契约共同决定）。 */
   referenceImages?: string[];
