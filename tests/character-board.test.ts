@@ -38,6 +38,11 @@ assert.equal(request?.batchSize, 1);
 assert.equal(request?.aspectRatio, "3:4");
 assert.equal(request?.referenceImages?.length, 1);
 for (const text of ["左上：正面全身", "右上：背面全身", "左下：侧面全身", "右下：正面面部特写", "原图表情"]) assert.ok(request?.prompt.includes(text));
+assert.ok(request?.prompt.includes("浅白色无图案背心"));
+assert.ok(request?.prompt.includes("浅白色短裤"));
+assert.ok(request?.prompt.includes("移除所有配饰"));
+assert.ok(request?.prompt.includes("不保留原图的帽子、眼镜、首饰、包袋、腰带等"));
+assert.ok(!request?.prompt.includes("保留上传照片的服装与配饰"));
 assert.ok(!request?.prompt.includes("FORGED"));
 await assert.rejects(() => executeStep(plan.steps[0], [], () => provider));
 
