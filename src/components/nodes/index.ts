@@ -2,6 +2,7 @@ import type { NodeTypes } from "@xyflow/react";
 import { ImageInputNode } from "./ImageInputNode";
 import { SketchToRenderNode } from "./SketchToRenderNode";
 import { SketchOptimizeNode } from "./SketchOptimizeNode";
+import { BackgroundExtractNode } from "./BackgroundExtractNode";
 import { AiModifyNode } from "./AiModifyNode";
 import { FabricRecolorNode } from "./FabricRecolorNode";
 import { UpscaleNode } from "./UpscaleNode";
@@ -24,6 +25,7 @@ export const nodeTypes: NodeTypes = {
   "outfit-reference": OutfitReferenceNode,
   "ai-styling": AiStylingNode,
   "image-input": ImageInputNode,
+  "background-extract": BackgroundExtractNode,
   "text-input": TextInputNode,
   "video-input": VideoInputNode,
   "audio-input": AudioInputNode,
@@ -44,6 +46,7 @@ export const nodeTypes: NodeTypes = {
 };
 
 export { ImageInputNode } from "./ImageInputNode";
+export { BackgroundExtractNode } from "./BackgroundExtractNode";
 export { SketchToRenderNode } from "./SketchToRenderNode";
 export { AiModifyNode } from "./AiModifyNode";
 export { FabricRecolorNode } from "./FabricRecolorNode";

@@ -11,6 +11,7 @@ export type NodeKind =
   | "outfit-reference"
   | "ai-styling"
   | "image-input"        // 图片上传（草图/款式图/面料参考）
+  | "background-extract" // 提取背景（移除人物和物体，仅保留背景）
   | "text-input"         // 画布文本说明（typed text 输出）
   | "drawing-board"      // 可编辑画板（提交后输出预览图）
   | "color-palette"      // 显式色板（typed colors 输出）
@@ -123,6 +124,14 @@ export interface ImageInputNodeData extends BaseNodeData {
   imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
   /** 图片赋值成功后，由 Store 原子补齐的模板声明连接。 */
   autoConnectTargets?: ImageInputAutoConnectTarget[];
+}
+
+export interface BackgroundExtractNodeData extends BaseNodeData, ModelSelectableNodeData {
+  kind: "background-extract";
+  /** 自带上传的待处理原图；也可改用 references 输入端口。 */
+  imageUrl?: string;
+  /** 生成的纯背景图片，可作为任意下游图像节点的参考图。 */
+  outputImages: string[];
 }
 
 export interface ImageInputAutoConnectTarget {
@@ -359,6 +368,7 @@ export type WorkflowNodeData =
   | OutfitReferenceNodeData
   | AiStylingNodeData
   | ImageInputNodeData
+  | BackgroundExtractNodeData
   | TextInputNodeData
   | DrawingBoardNodeData
   | ColorPaletteNodeData
@@ -379,11 +389,11 @@ export type WorkflowNodeData =
 
 // ---------- 持久化工作流（项目 / 模板共用）----------
 /**
- * 版本 14 添加草图线稿优化节点；版本 13 添加多角度参考图和 AI 搭配。
- * 读取 v0-v13 时服务端确定性迁移，不自动向已有项目插入新节点；
+ * 版本 15 添加提取背景节点；版本 14 添加草图线稿优化节点；版本 13 添加多角度参考图和 AI 搭配。
+ * 读取 v0-v14 时服务端确定性迁移，不自动向已有项目插入新节点；
  * 新版本不得静默降级读取。
  */
-export const WORKFLOW_SCHEMA_VERSION = 14 as const;
+export const WORKFLOW_SCHEMA_VERSION = 15 as const;
 export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
 
 export interface PersistedWorkflowNode {
@@ -571,6 +581,16 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     inputs: 0,
     outputs: "images",
     inputPorts: noPorts,
+    outputPorts: [imageOutputPort()],
+  },
+  "background-extract": {
+    kind: "background-extract",
+    title: "提取背景",
+    description: "移除人物和物体，仅保留原图背景",
+    providerId: "apiyi",
+    inputs: 1,
+    outputs: "images",
+    inputPorts: [{ ...imageInputPort(1), required: true }],
     outputPorts: [imageOutputPort()],
   },
   "text-input": {

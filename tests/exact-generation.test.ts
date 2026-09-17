@@ -4,6 +4,7 @@ import { executeStep, postProcessGeneratedOutputImages } from "../server/engine/
 import {
   EXACT_ASPECT_DIMENSIONS,
   fitGeneratedImageToAspect,
+  fitGeneratedImageToCanvas,
   normalizeExactAspectRatio,
   normalizeUpscaleSize,
   upscaleImageToLongEdge,
@@ -43,6 +44,25 @@ async function imageInfo(dataUrl: string) {
 }
 
 console.log("精确批量生成回归测试");
+
+await test("提取背景输出保持输入图片画布尺寸", async () => {
+  const source = await fixtureDataUrl(240, 120);
+  const generated = await fixtureDataUrl(120, 120);
+  const output = await fitGeneratedImageToCanvas(generated, source);
+  const { metadata } = await imageInfo(output);
+  assert.equal(metadata.width, 240);
+  assert.equal(metadata.height, 120);
+});
+
+await test("提取背景按 EXIF 显示方向适配画布", async () => {
+  for (const orientation of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const source = await sharp({ create: { width: 30, height: 50, channels: 3, background: "navy" } })
+      .withMetadata({ orientation }).jpeg().toBuffer();
+    const output = await fitGeneratedImageToCanvas(await fixtureDataUrl(20, 20), `data:image/jpeg;base64,${source.toString("base64")}`);
+    const { metadata } = await imageInfo(output);
+    assert.deepEqual([metadata.width, metadata.height], orientation >= 5 ? [50, 30] : [30, 50]);
+  }
+});
 
 await test("线稿优化在 Seedream 忽略画幅时仍输出所选比例且只请求一张", async () => {
   const portrait = await fixtureDataUrl(100, 200);
@@ -399,6 +419,14 @@ await test("直接生成接口复用 runner 的精确比例与 2K/4K 后处理",
   );
   assert.equal((await imageInfo(modify[0])).metadata.width, 1536);
   assert.equal((await imageInfo(modify[0])).metadata.height, 864);
+
+  const background = await postProcessDirectGenerateImages(
+    "background-extract",
+    { prompt: "忽略此提示", referenceImages: [landscape] },
+    [portrait],
+  );
+  assert.equal((await imageInfo(background[0])).metadata.width, 200);
+  assert.equal((await imageInfo(background[0])).metadata.height, 100);
 
   const upscale = await postProcessDirectGenerateImages(
     "upscale",

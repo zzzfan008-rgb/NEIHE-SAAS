@@ -746,6 +746,34 @@ await test("前端未拿到 normalized:true 时不会把图片写入节点", () 
   assert.match(source, /const upload = await uploadFile\(file\)[\s\S]*assignImageInputInTab\(target, id, upload\.url\)/);
 });
 
+await test("提取背景使用原图尺寸而非 Provider 压缩副本", async () => {
+  const admin = await queryOne<{ id: string }>("SELECT id FROM users WHERE account_id = 'normalization-admin'");
+  assert.ok(admin);
+  const server = await startFilesServer(admin.id);
+  try {
+    const source = await sharp({ create: { width: 6000, height: 4000, channels: 3, background: "navy" } }).jpeg().toBuffer();
+    const response = await fetch(`${server.baseUrl}/api/files`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataUrl: dataUrl("image/jpeg", source) }),
+    });
+    assert.equal(response.status, 200);
+    const { url } = await response.json() as { url: string };
+    const provider: AIProvider = {
+      id: "stub",
+      async generate() { throw new Error("unexpected generate"); },
+      async edit(request) {
+        const metadata = await sharp(validateImageDataUrl(request.referenceImages![0]).buffer).metadata();
+        assert.equal(metadata.width, 4096);
+        return { images: [request.referenceImages![0]], model: "stub" };
+      },
+    };
+    const result = await executeStep({ nodeId: "background", kind: "background-extract", inputImages: [url], params: {} }, [url], () => provider);
+    const metadata = await sharp(validateImageDataUrl(result.images[0]).buffer).metadata();
+    assert.deepEqual([metadata.width, metadata.height], [6000, 4000]);
+    assert.deepEqual(fs.readFileSync(path.join(uploadsDir(), url.split("/").at(-1)!)), source);
+  } finally { await server.close(); }
+});
+
 await closeDatabaseForTests();
 fs.rmSync(temp, { recursive: true, force: true });
 console.log(`通过 ${passed} 项上传图片标准化测试`);

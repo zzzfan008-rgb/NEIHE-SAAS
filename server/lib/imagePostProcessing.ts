@@ -22,7 +22,7 @@ const SHARP_INPUT_OPTIONS = {
 };
 
 function isExactAspectRatio(value: unknown): value is ExactAspectRatio {
-  return typeof value === "string" && Object.prototype.hasOwnProperty.call(EXACT_ASPECT_DIMENSIONS, value);
+  return typeof value === "string" && Object.hasOwn(EXACT_ASPECT_DIMENSIONS, value);
 }
 
 function isUpscaleSize(value: unknown): value is UpscaleSize {
@@ -68,6 +68,31 @@ export async function fitGeneratedImageToAspect(
     const normalizedAspectRatio = normalizeExactAspectRatio(aspectRatio);
     const input = await imageRefToBuffer(ref);
     const { width, height } = EXACT_ASPECT_DIMENSIONS[normalizedAspectRatio];
+    const source = sharp(input, SHARP_INPUT_OPTIONS).rotate();
+    const { dominant } = await source.clone().stats();
+    const background = { r: dominant.r, g: dominant.g, b: dominant.b, alpha: 1 };
+    const output = await encodeWebpWithinLimit(
+      source
+        .resize({ width, height, fit: "contain", position: "centre", background })
+        .flatten({ background })
+        .toColourspace("srgb"),
+    );
+    return toWebpDataUrl(output);
+  });
+}
+
+/** Preserve the input image's pixel dimensions without stretching generated content. */
+export async function fitGeneratedImageToCanvas(
+  ref: string,
+  canvasRef: string,
+): Promise<string> {
+  return withImageProcessingSlot(async () => {
+    const [input, canvasInput] = await Promise.all([imageRefToBuffer(ref), imageRefToBuffer(canvasRef)]);
+    const metadata = await sharp(canvasInput, SHARP_INPUT_OPTIONS).metadata();
+    if (!metadata.width || !metadata.height) throw new Error("无法读取原图画布尺寸");
+    const swapsAxes = metadata.orientation !== undefined && metadata.orientation >= 5 && metadata.orientation <= 8;
+    const width = swapsAxes ? metadata.height : metadata.width;
+    const height = swapsAxes ? metadata.width : metadata.height;
     const source = sharp(input, SHARP_INPUT_OPTIONS).rotate();
     const { dominant } = await source.clone().stats();
     const background = { r: dominant.r, g: dominant.g, b: dominant.b, alpha: 1 };

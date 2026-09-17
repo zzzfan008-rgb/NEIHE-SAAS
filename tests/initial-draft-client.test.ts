@@ -479,6 +479,7 @@ function launchModeTemplate(kinds: string[]): Pick<WorkflowTemplate, "flow"> {
   } as unknown as Pick<WorkflowTemplate, "flow">;
 }
 assert.equal(inferTemplateLaunchMode(launchModeTemplate(["image-input"])), "upload");
+assert.equal(inferTemplateLaunchMode(launchModeTemplate(["background-extract"])), "upload");
 assert.equal(inferTemplateLaunchMode(launchModeTemplate(["sketch-to-render"])), "text");
 assert.equal(inferTemplateLaunchMode(launchModeTemplate(["result"])), "default");
 assert.match(taskLauncherSource, /inferTemplateLaunchMode\(template\)/);

@@ -29,7 +29,10 @@ interface NormalizedUploadResponse {
   normalized: true;
 }
 
-async function uploadFile(file: File): Promise<NormalizedUploadResponse> {
+export async function uploadFile(
+  file: File,
+  sourceNote = "来自图片上传节点",
+): Promise<NormalizedUploadResponse> {
   const dataUrl = await readAsDataURL(file);
   const assetName = file.name.replace(/\.[^.]+$/, "").trim().slice(0, 180) || "上传图片";
   const res = await fetch("/api/assets", {
@@ -40,7 +43,7 @@ async function uploadFile(file: File): Promise<NormalizedUploadResponse> {
       category: "upload",
       scope: "private",
       image: dataUrl,
-      sourceNote: "来自图片上传节点",
+      sourceNote,
     }),
   });
   const data = await res.json().catch(() => ({})) as Partial<NormalizedUploadResponse> & { error?: string };
@@ -67,15 +70,18 @@ function readAsDataURL(file: File): Promise<string> {
 export function ImageFileInput({
   label,
   onFile,
+  disabled = false,
   className = "nodrag nopan absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0",
 }: {
   label: string;
   onFile: (file: File | undefined) => void;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <input
       type="file"
+      disabled={disabled}
       accept="image/*"
       multiple={false}
       aria-label={label}
@@ -122,14 +128,16 @@ export function boundedImageNodeScale(width: number, height: number, factor: num
     : Math.max(1, Math.min(factor, maximumScale));
 }
 
-function FilePickerButton({
+export function FilePickerButton({
   label,
   onFile,
   compact = false,
+  disabled = false,
 }: {
   label: string;
   onFile: (file: File | undefined) => void;
   compact?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <div className="nodrag nopan relative rounded-lg focus-within:ring-1 focus-within:ring-[var(--gc-node-accent)] focus-within:ring-offset-2 focus-within:ring-offset-[var(--gc-node-main)]">
@@ -137,6 +145,7 @@ function FilePickerButton({
         type="button"
         variant="outline"
         size={compact ? "xs" : "sm"}
+        disabled={disabled}
         tabIndex={-1}
         aria-hidden="true"
         className="border-[var(--gc-node-border)] bg-white text-[var(--gc-node-text)] hover:bg-neutral-100"
@@ -144,7 +153,7 @@ function FilePickerButton({
         <UploadIcon aria-hidden="true" />
         {label}
       </Button>
-      <ImageFileInput label={label} onFile={onFile} />
+      <ImageFileInput label={label} onFile={onFile} disabled={disabled} />
     </div>
   );
 }

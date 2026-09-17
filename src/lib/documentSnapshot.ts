@@ -46,6 +46,12 @@ export type DocumentNodeData =
         targetHandle: WorkflowInputRole;
       }>;
     }
+  | ({
+      kind: "background-extract";
+      label: string;
+      imageUrl?: string;
+      outputImages: string[];
+    } & GenerationModelDocumentFields)
   | {
       kind: "text-input";
       label: string;
@@ -304,6 +310,14 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         ...(data.autoConnectTargets
           ? { autoConnectTargets: data.autoConnectTargets.map((target) => ({ ...target })) }
           : {}),
+      };
+    case "background-extract":
+      return {
+        kind: data.kind,
+        ...optionalString("imageUrl", data.imageUrl),
+        label: data.label,
+        outputImages: [...data.outputImages],
+        ...generationModelFields(data.kind, data.modelId, data.modelOptions),
       };
     case "text-input":
       return { kind: data.kind, label: data.label, text: data.text };

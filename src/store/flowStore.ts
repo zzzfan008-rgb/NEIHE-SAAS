@@ -1036,6 +1036,12 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
         modelId: DEFAULT_GENERATION_MODEL_ID, modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID, "3:4") };
     case "image-input":
       return { ...base, kind, imageRole: "default" };
+    case "background-extract":
+      return {
+        ...base, kind, outputImages: [],
+        modelId: DEFAULT_GENERATION_MODEL_ID,
+        modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID),
+      };
     case "text-input":
       return { ...base, kind, text: "" };
     case "drawing-board":
@@ -2153,6 +2159,10 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
         ? input.imageRole
         : "default";
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
+      break;
+    case "background-extract":
+      if (typeof input.imageUrl !== "string") delete data.imageUrl;
+      data.outputImages = stringArray(input.outputImages) ?? [];
       break;
     case "text-input":
       data.text = typeof input.text === "string" ? input.text : "";

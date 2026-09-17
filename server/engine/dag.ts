@@ -135,11 +135,21 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     if (!isModelAllowedForNode(modelId, step.kind)) {
       throw new DagError(`Model ${modelId} is not allowed for node ${step.nodeId}`);
     }
-    const usableImages = (step.upstream ?? []).flatMap((upstream) =>
-      executingNodeIds.has(upstream.nodeId) ? ["__runtime_output__"] : upstream.images,
-    );
+    const selfImages = step.kind === "background-extract"
+      && typeof step.params.imageUrl === "string" && step.params.imageUrl.trim()
+      ? [step.params.imageUrl]
+      : [];
+    const usableImages = [
+      ...selfImages,
+      ...(step.upstream ?? []).flatMap((upstream) =>
+        executingNodeIds.has(upstream.nodeId) ? ["__runtime_output__"] : upstream.images,
+      ),
+    ];
     if (step.kind === "sketch-optimize" && usableImages.length !== 1) {
       throw new DagError("草图线稿优化需要连接一张参考图片");
+    }
+    if (step.kind === "background-extract" && usableImages.length !== 1) {
+      throw new DagError("提取背景节点需要上传或连接一张参考图片");
     }
     const maxReferences = Math.min(
       step.kind === "virtual-try-on" ? MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES : MAX_REFERENCE_IMAGES,
@@ -421,7 +431,10 @@ export function buildExecutionPlan(
     return {
       nodeId: id,
       kind: data.kind,
-      inputImages: upstream.flatMap((u) => u.images),
+      inputImages: [
+        ...(data.kind === "background-extract" && data.imageUrl ? [data.imageUrl] : []),
+        ...upstream.flatMap((u) => u.images),
+      ],
       upstream,
       params,
     };
@@ -450,6 +463,7 @@ function extractOutputImages(data: WorkflowNodeData, sourceHandle?: string | nul
     case "text-input":
     case "color-palette":
       return [];
+    case "background-extract":
     case "sketch-optimize":
     case "sketch-to-render":
     case "ai-modify":
@@ -527,6 +541,8 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
         generateAudio: data.generateAudio,
         outputFormat: data.outputFormat,
       };
+    case "background-extract":
+      return { imageUrl: data.imageUrl, ...modelFields() };
     case "sketch-optimize":
     case "sketch-to-render":
       return {

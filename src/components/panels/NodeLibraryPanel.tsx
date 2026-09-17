@@ -14,6 +14,7 @@ import { requestCanvasLanding } from "@/lib/canvasLanding";
 
 const KIND_ORDER: NodeKind[] = [
   "image-input",
+  "background-extract",
   "sketch-optimize",
   "sketch-to-render",
   "ai-modify",
@@ -74,7 +75,7 @@ function NodeList() {
       tabId: useFlowStore.getState().activeTabId,
       nodeId,
       fitView: false,
-      activateFilePicker: kind === "image-input",
+      activateFilePicker: kind === "image-input" || kind === "background-extract",
       selectText: kind !== "image-input" && kind !== "result",
     });
   };

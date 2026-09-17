@@ -273,7 +273,7 @@ export function CanvasFlow() {
     if (intent.type === "asset-picker") {
       const detail: AssetPickerRequest = { target, nodeId };
       window.dispatchEvent(new CustomEvent(OPEN_ASSET_PICKER_EVENT, { detail }));
-    } else if (intent.type === "node" && intent.kind === "image-input" && mode === "click") {
+    } else if (intent.type === "node" && (intent.kind === "image-input" || intent.kind === "background-extract") && mode === "click") {
       requestCanvasLanding({ tabId: target.tabId, nodeId, fitView: false, activateFilePicker: true });
     }
   }, [addNode, nodes, readOnly, screenToFlowPosition]);

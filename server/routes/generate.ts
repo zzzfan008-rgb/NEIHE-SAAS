@@ -64,6 +64,9 @@ export function validateDirectGenerateRequest(
   if (kind === "sketch-optimize") {
     return { ok: false, error: "sketch-optimize requires the protected node prompt; use /api/run-plan" };
   }
+  if (kind === "background-extract" && request.referenceImages?.length !== 1) {
+    return { ok: false, error: "background-extract requires exactly one reference image" };
+  }
   if (!isDirectGenerateKind(kind)) {
     return { ok: false, error: "kind must identify a supported AI node" };
   }
@@ -101,12 +104,14 @@ export function postProcessDirectGenerateImages(
   kind: DirectGenerateKind | undefined,
   request: ImageGenRequest,
   images: string[],
+  sourceImage = request.referenceImages?.[0],
 ): Promise<string[]> {
   if (!kind) return Promise.resolve(images);
   return postProcessGeneratedOutputImages(
     kind,
     request as unknown as Record<string, unknown>,
     images,
+    sourceImage,
   );
 }
 

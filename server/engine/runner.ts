@@ -24,6 +24,7 @@ import { normalizeProviderImageDataUrl } from "../lib/uploadImageNormalization";
 import { query } from "../lib/database";
 import {
   fitGeneratedImageToAspect,
+  fitGeneratedImageToCanvas,
   normalizeExactAspectRatio,
   normalizeUpscaleSize,
   upscaleImageToLongEdge,
@@ -382,12 +383,12 @@ async function virtualTryOnModelOptions(
     : undefined;
   const [requestedWidth, requestedHeight] = requested?.split(":").map(Number) ?? [width, height];
   const useRequestedRatio = stage === "standard" && requested !== undefined;
-  return modelId !== "gemini-3.1-flash-image"
-    ? {
+  return modelId === "gemini-3.1-flash-image"
+    ? { aspectRatio: useRequestedRatio ? requested : nearestAspectRatio(width, height), imageSize }
+    : {
         size: gptOutputSize(useRequestedRatio ? requestedWidth : width, useRequestedRatio ? requestedHeight : height, imageSize),
         ...(stage === "garment-refine" ? { quality: "medium" as const } : {}),
-      }
-    : { aspectRatio: useRequestedRatio ? requested : nearestAspectRatio(width, height), imageSize };
+      };
 }
 
 function maskReferenceRolePrompt(userReferenceCount: number, labels: string[] = []): string {
@@ -574,7 +575,7 @@ async function executeRun(run: Run): Promise<void> {
         nodeId,
         status: "error",
         error: message,
-        ...(startedAt !== undefined ? { startedAt } : {}),
+        ...(startedAt === undefined ? {} : { startedAt }),
         finishedAt,
       });
     }
@@ -590,10 +591,17 @@ async function executeRun(run: Run): Promise<void> {
         images: runtimeImages ? imagesForSourceHandle(runtimeImages, upstream.sourceHandle) : upstream.images,
       };
     });
-    const inputImages = resolvedUpstreams.flatMap(({ images }) => images);
-    const referenceRoles = resolvedUpstreams.flatMap(({ upstream, images }) =>
-      images.map(() => upstream.targetHandle ?? ""),
-    );
+    const selfImages = step.kind === "background-extract"
+      && typeof step.params.imageUrl === "string" && step.params.imageUrl.trim()
+      ? [step.params.imageUrl]
+      : [];
+    const inputImages = [...selfImages, ...resolvedUpstreams.flatMap(({ images }) => images)];
+    const referenceRoles = [
+      ...selfImages.map(() => "references"),
+      ...resolvedUpstreams.flatMap(({ upstream, images }) =>
+        images.map(() => upstream.targetHandle ?? ""),
+      ),
+    ];
 
     const runtimeInputLimit = step.kind === "mask-redraw"
       ? MAX_MASK_USER_REFERENCE_IMAGES
@@ -720,7 +728,12 @@ export async function postProcessGeneratedOutputImages(
   kind: NodeExecution["kind"],
   params: Record<string, unknown>,
   images: string[],
+  sourceImage?: string,
 ): Promise<string[]> {
+  if (kind === "background-extract") {
+    if (!sourceImage) return images;
+    return Promise.all(images.map((image) => fitGeneratedImageToCanvas(image, sourceImage)));
+  }
   if (kind !== "sketch-optimize" && kind !== "sketch-to-render" && kind !== "ai-modify" && kind !== "upscale") return images;
   if (kind !== "upscale" && params.modelId === "gemini-3.1-flash-image") return images;
   const aspectRatio = normalizeExactAspectRatio(params.aspectRatio);
@@ -935,6 +948,7 @@ export async function executeStep(
         },
       };
     }
+    case "background-extract":
     case "sketch-optimize":
     case "sketch-to-render":
     case "ai-modify":
@@ -946,6 +960,9 @@ export async function executeStep(
     case "mask-redraw": {
       if (step.kind === "sketch-optimize" && (inputImages.length !== 1 || Number(step.params.batchSize ?? 1) !== 1)) {
         throw new Error("草图线稿优化需要一张参考图片，每次生成一张线稿");
+      }
+      if (step.kind === "background-extract" && inputImages.length !== 1) {
+        throw new Error("提取背景节点需要上传或连接一张参考图片");
       }
       // Persisted queue plans can predate the document schema migration.
       const requestedModelId = step.params.modelId === "gemini-3.1-flash-image-preview"
@@ -1178,6 +1195,8 @@ export async function executeStep(
       const promptParams = style ? { ...step.params, resolvedStylePrompt: style.prompt } : step.params;
       const prompt =
         step.kind === "sketch-optimize" ? sketchOptimizationPrompt(extra)
+        : step.kind === "background-extract"
+          ? "移除原图中的人物和所有物体，仅保留与原图一致的干净背景；保持原始画布尺寸、构图、透视、光线、色彩和纹理连续，不添加任何人物、物体、文字或新元素，输出仅含背景的完整图片。"
         : step.kind === "upscale"
           ? "将这张服装效果图放大为超高清版本，增强面料纹理、走线与边缘细节，保持原有构图、色彩和光影完全不变"
           : step.kind === "fabric-recolor"
@@ -1291,7 +1310,12 @@ export async function executeStep(
             compositeMaskedEdit(referenceImages[0], mask!, image)
           )))
         : result.images;
-      const images = await postProcessGeneratedOutputImages(step.kind, step.params, providerImages);
+      const images = await postProcessGeneratedOutputImages(
+        step.kind,
+        step.params,
+        providerImages,
+        step.kind === "background-extract" ? inputImages[0] : undefined,
+      );
       const providerOutputSizes = step.kind === "virtual-try-on"
         ? await Promise.all(providerImages.map(outputImageSize))
         : result.providerOutputSizes;

@@ -416,8 +416,12 @@ async function inputImagesForStep(runId: string, step: NodeExecution): Promise<S
     WHERE run_id = $1 AND status = 'succeeded'
   `, [runId]);
   const outputs = new Map(rows.map((row) => [row.node_id, parseJson<string[]>(row.output_images_json, [])]));
-  const images: string[] = [];
-  const referenceRoles: string[] = [];
+  const selfImages = step.kind === "background-extract"
+    && typeof step.params.imageUrl === "string" && step.params.imageUrl.trim()
+    ? [step.params.imageUrl]
+    : [];
+  const images: string[] = [...selfImages];
+  const referenceRoles: string[] = selfImages.map(() => "references");
   for (const upstream of step.upstream) {
     const runtimeImages = outputs.get(upstream.nodeId);
     const resolvedImages = runtimeImages

@@ -49,6 +49,7 @@ const NODE_KINDS: readonly NodeKind[] = [
   "outfit-reference",
   "ai-styling",
   "image-input",
+  "background-extract",
   "text-input",
   "drawing-board",
   "color-palette",
@@ -271,6 +272,8 @@ function migrateNodeData(kind: NodeKind, raw: Record<string, unknown>): Record<s
         outputImages: [], ...raw, ...migratedModelFields(kind, raw, "3:4") };
     case "image-input":
       return { imageRole: "default", ...raw };
+    case "background-extract":
+      return { outputImages: [], ...raw, ...migratedModelFields(kind, raw) };
     case "text-input":
       return { text: "", ...raw };
     case "drawing-board":
@@ -436,6 +439,10 @@ function validateData(kind: NodeKind, rawValue: unknown, path: string): Workflow
           seenTargets.add(key);
         });
       }
+      break;
+    case "background-extract":
+      optionalImageReference(raw.imageUrl, `${path}.imageUrl`);
+      imageReferenceArray(raw.outputImages, `${path}.outputImages`);
       break;
     case "text-input":
       stringValue(raw.text, `${path}.text`);
