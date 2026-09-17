@@ -64,7 +64,7 @@ async function imageInfo(dataUrl: string) {
 
 console.log("精确批量生成回归测试");
 
-await test("提取背景输出保持输入图片画布尺寸", async () => {
+await test("背景板生成输出保持输入图片画布尺寸", async () => {
   const source = await fixtureDataUrl(240, 120);
   const generated = await fixtureDataUrl(120, 120);
   const output = await fitGeneratedImageToCanvas(generated, source);
@@ -73,7 +73,7 @@ await test("提取背景输出保持输入图片画布尺寸", async () => {
   assert.equal(metadata.height, 120);
 });
 
-await test("提取背景按 EXIF 显示方向适配画布", async () => {
+await test("背景板生成按 EXIF 显示方向适配画布", async () => {
   for (const orientation of [1, 2, 3, 4, 5, 6, 7, 8]) {
     const source = await sharp({
       create: { width: 30, height: 50, channels: 3, background: "navy" },

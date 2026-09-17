@@ -239,7 +239,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
       throw new DagError("草图线稿优化需要连接一张参考图片");
     }
     if (step.kind === "background-extract" && usableImages.length !== 1) {
-      throw new DagError("提取背景节点需要上传或连接一张参考图片");
+      throw new DagError("背景板生成节点需要上传或连接一张图片");
     }
     const maxReferences = Math.min(
       step.kind === "virtual-try-on"
@@ -827,7 +827,7 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
         outputFormat: data.outputFormat,
       };
     case "background-extract":
-      return { imageUrl: data.imageUrl, ...modelFields() };
+      return { imageUrl: data.imageUrl, prompt: data.prompt, ...modelFields() };
     case "sketch-optimize":
     case "sketch-to-render":
       return {

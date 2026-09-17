@@ -74,6 +74,7 @@ function backgroundNode(
   id: string,
   outputImages: string[] = [],
   imageUrl?: string,
+  prompt = "",
 ): FlowNode {
   return {
     id,
@@ -81,11 +82,12 @@ function backgroundNode(
     position: { x: 0, y: 0 },
     data: {
       kind: KIND,
-      label: "提取背景",
+      label: "背景板生成",
       status: "idle",
       modelId: "gpt-image-2.5-flare",
       modelOptions: { size: "2048x2048", quality: "medium" },
       ...(imageUrl ? { imageUrl } : {}),
+      prompt,
       outputImages,
     } as never,
   };
@@ -120,13 +122,13 @@ const inputEdge = (source: string, target: string): FlowEdge => ({
 
 async function main(): Promise<void> {
   const spec = (NODE_SPECS as unknown as Record<string, Spec>)[KIND];
-  assert.ok(spec, "提取背景必须注册为独立节点规格");
+  assert.ok(spec, "背景板生成必须注册为独立节点规格");
   assert.equal(spec.inputs, 1);
   assert.equal(spec.outputs, "images");
   assert.deepEqual(spec.inputPorts, [
     {
       id: "references",
-      label: "参考图",
+      label: "图片 / 参考图",
       direction: "input",
       valueKind: "image",
       required: true,
@@ -146,7 +148,7 @@ async function main(): Promise<void> {
 
   assert.deepEqual(
     validateDirectGenerateRequest(KIND, {
-      prompt: "ignored",
+      prompt: "保留墙面纹理",
       referenceImages: [SOURCE_IMAGE],
     }),
     { ok: true, kind: KIND },
@@ -157,7 +159,12 @@ async function main(): Promise<void> {
   );
 
   const source = imageNode("source", SOURCE_IMAGE);
-  const background = backgroundNode("background", [GENERATED_IMAGE]);
+  const background = backgroundNode(
+    "background",
+    [GENERATED_IMAGE],
+    undefined,
+    "保留墙面纹理",
+  );
   const modify = modifyNode("modify");
   const edges = [
     inputEdge("source", "background"),
@@ -175,6 +182,7 @@ async function main(): Promise<void> {
       targetHandle: "references",
     },
   ]);
+  assert.equal(backgroundStep?.params.prompt, "保留墙面纹理");
   const modifyStep = plan.steps.find((step) => step.nodeId === "modify");
   assert.deepEqual(modifyStep?.upstream, [
     {
@@ -201,7 +209,8 @@ async function main(): Promise<void> {
   assert.deepEqual(persisted.nodes[1].data, {
     kind: KIND,
     status: "idle",
-    label: "提取背景",
+    label: "背景板生成",
+    prompt: "保留墙面纹理",
     modelId: "gpt-image-2.5-flare",
     modelOptions: { size: "2048x2048", quality: "medium" },
     outputImages: [GENERATED_IMAGE],
@@ -209,6 +218,20 @@ async function main(): Promise<void> {
   const validated = validateAndMigrateFlow(persisted);
   assert.equal(validated.nodes[1].type, KIND);
   assert.equal(validated.nodes[1].data.kind, KIND);
+
+  const legacyNode = backgroundNode("legacy");
+  legacyNode.data = {
+    ...legacyNode.data,
+    label: "提取背景",
+  } as never;
+  delete (legacyNode.data as Record<string, unknown>).prompt;
+  const migratedLegacy = validateAndMigrateFlow({
+    schemaVersion: WORKFLOW_SCHEMA_VERSION - 1,
+    nodes: [legacyNode],
+    edges: [],
+  });
+  assert.equal(migratedLegacy.nodes[0].data.label, "背景板生成");
+  assert.equal(migratedLegacy.nodes[0].data.prompt, "");
 
   const uploadedPersisted = documentSnapshotToPersistedWorkflow(
     createDocumentSnapshot({
@@ -240,7 +263,7 @@ async function main(): Promise<void> {
   const provider: AIProvider = {
     id: "background-test-provider",
     async generate() {
-      throw new Error("提取背景必须使用图片编辑路径");
+      throw new Error("背景板生成必须使用图片编辑路径");
     },
     async edit(request) {
       editCalls += 1;
@@ -257,6 +280,7 @@ async function main(): Promise<void> {
       params: {
         modelId: "gpt-image-2.5-flare",
         modelOptions: { size: "2048x2048", quality: "medium" },
+        prompt: "保留墙面纹理",
       },
     },
     [executionSource],
@@ -273,11 +297,12 @@ async function main(): Promise<void> {
   );
   assert.equal(editCalls, 1);
   assert.deepEqual(editRequest?.referenceImages, [executionSource]);
-  assert.match(editRequest?.prompt ?? "", /人物|物体/);
+  assert.match(editRequest?.prompt ?? "", /人物|主体|物体/);
   assert.match(editRequest?.prompt ?? "", /仅含背景|仅保留.*背景/);
+  assert.match(editRequest?.prompt ?? "", /保留墙面纹理/);
   assert.equal(editRequest?.batchSize, 1);
 
-  console.log("背景提取节点测试通过");
+  console.log("背景板生成节点测试通过");
 }
 
 await main();

@@ -661,6 +661,48 @@ await test("成功生成输出作为一次提交，撤销输出时保留最新�
   );
 });
 
+await test("背景板成功只写回节点输出，不自动创建结果节点", () => {
+  const background: FlowNode = {
+    id: "background-history",
+    type: "background-extract",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "background-extract",
+      label: "背景板生成",
+      status: "idle",
+      prompt: "",
+      outputImages: ["/api/files/previous-background.png"],
+    } as WorkflowNodeData,
+  };
+  const { tabId, nodeId } = resetDocument(background);
+
+  applyRunEventToTab(documentTargetForTab(tabId), nodeId, {
+    type: "node-status",
+    nodeId,
+    status: "running",
+  });
+  applyRunEventToTab(documentTargetForTab(tabId), nodeId, {
+    type: "node-status",
+    nodeId,
+    status: "success",
+    images: ["/api/files/final-background.png"],
+  });
+
+  const document = activeDocument();
+  const outputNode = document.nodes.find((node) => node.id === nodeId);
+  assert.equal(outputNode?.data.kind, "background-extract");
+  assert.deepEqual(
+    outputNode?.data.kind === "background-extract"
+      ? outputNode.data.outputImages
+      : [],
+    ["/api/files/final-background.png"],
+  );
+  assert.equal(
+    document.nodes.filter((node) => node.data.kind === "result").length,
+    0,
+  );
+});
+
 await test("运行期间的色板修改撤销后仍保留新生成结果", () => {
   const palette: FlowNode = {
     id: "history-palette",

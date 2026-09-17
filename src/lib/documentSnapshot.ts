@@ -69,6 +69,7 @@ export type DocumentNodeData =
       kind: "background-extract";
       label: string;
       imageUrl?: string;
+      prompt: string;
       outputImages: string[];
     } & GenerationModelDocumentFields)
   | {
@@ -411,6 +412,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         kind: data.kind,
         ...optionalString("imageUrl", data.imageUrl),
         label: data.label,
+        prompt: data.prompt,
         outputImages: [...data.outputImages],
         ...generationModelFields(data.kind, data.modelId, data.modelOptions),
       };

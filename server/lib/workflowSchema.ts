@@ -397,7 +397,13 @@ function migrateNodeData(
     case "character-board":
       return { outputImages: [], ...raw };
     case "background-extract":
-      return { outputImages: [], ...raw, ...migratedModelFields(kind, raw) };
+      return {
+        prompt: "",
+        outputImages: [],
+        ...raw,
+        ...(raw.label === "提取背景" ? { label: "背景板生成" } : {}),
+        ...migratedModelFields(kind, raw),
+      };
     case "text-input":
       return { text: "", ...raw };
     case "drawing-board":
@@ -702,6 +708,7 @@ function validateData(
       }
       break;
     case "background-extract":
+      stringValue(raw.prompt, `${path}.prompt`);
       optionalImageReference(raw.imageUrl, `${path}.imageUrl`);
       imageReferenceArray(raw.outputImages, `${path}.outputImages`);
       break;

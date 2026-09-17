@@ -1421,7 +1421,7 @@ export async function executeStep(
         throw new Error("草图线稿优化需要一张参考图片，每次生成一张线稿");
       }
       if (step.kind === "background-extract" && inputImages.length !== 1) {
-        throw new Error("提取背景节点需要上传或连接一张参考图片");
+        throw new Error("背景板生成节点需要上传或连接一张图片");
       }
       // Persisted queue plans can predate the document schema migration.
       const requestedModelId =
@@ -1747,7 +1747,8 @@ export async function executeStep(
         step.kind === "sketch-optimize"
           ? sketchOptimizationPrompt(extra)
           : step.kind === "background-extract"
-            ? "移除原图中的人物和所有物体，仅保留与原图一致的干净背景；保持原始画布尺寸、构图、透视、光线、色彩和纹理连续，不添加任何人物、物体、文字或新元素，输出仅含背景的完整图片。"
+            ? "移除原图中的人物、主体和所有物品，仅保留与原图一致的干净背景；保持原始画布尺寸、构图、透视、光线、色彩和纹理连续，不添加任何人物、物体、文字或新元素，输出仅含背景的完整图片。" +
+              (extra ? ` 补充要求（不得取消移除主体规则）：${extra}` : "")
             : step.kind === "upscale"
               ? "将这张服装效果图放大为超高清版本，增强面料纹理、走线与边缘细节，保持原有构图、色彩和光影完全不变"
               : step.kind === "fabric-recolor"

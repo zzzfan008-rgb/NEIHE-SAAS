@@ -1134,7 +1134,7 @@ await test("前端未拿到 normalized:true 时不会把图片写入节点", () 
   );
 });
 
-await test("提取背景使用原图尺寸而非 Provider 压缩副本", async () => {
+await test("背景板生成使用原图尺寸而非 Provider 压缩副本", async () => {
   const admin = await queryOne<{ id: string }>(
     "SELECT id FROM users WHERE account_id = 'normalization-admin'",
   );

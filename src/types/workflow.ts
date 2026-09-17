@@ -12,7 +12,7 @@ export type NodeKind =
   | "ai-styling"
   | "image-input" // 图片上传（草图/款式图/面料参考）
   | "character-board" // 单张模特图生成四视图人物身份板
-  | "background-extract" // 提取背景（移除人物和物体，仅保留背景）
+  | "background-extract" // 背景板生成（移除人物和物体，仅保留背景）
   | "text-input" // 画布文本说明（typed text 输出）
   | "drawing-board" // 可编辑画板（提交后输出预览图）
   | "color-palette" // 显式色板（typed colors 输出）
@@ -172,8 +172,10 @@ export interface BackgroundExtractNodeData
   extends BaseNodeData,
     ModelSelectableNodeData {
   kind: "background-extract";
-  /** 自带上传的待处理原图；也可改用 references 输入端口。 */
+  /** 可上传普通图片、参考图或意向图；也可改用 references 输入端口。 */
   imageUrl?: string;
+  /** 可选的背景补充要求；服务端始终保留移除主体的保护约束。 */
+  prompt: string;
   /** 生成的纯背景图片，可作为任意下游图像节点的参考图。 */
   outputImages: string[];
 }
@@ -467,11 +469,11 @@ export type WorkflowNodeData =
 
 // ---------- 持久化工作流（项目 / 模板共用）----------
 /**
- * 版本 16 添加人物板生成；版本 15 添加提取背景节点；版本 14 添加草图线稿优化节点；版本 13 添加多角度参考图和 AI 搭配。
- * 读取 v0-v15 时服务端确定性迁移，不自动向已有项目插入新节点；
+ * 版本 17 为背景板生成增加可选提示词；版本 16 添加人物板生成；版本 15 添加提取背景节点；版本 14 添加草图线稿优化节点；版本 13 添加多角度参考图和 AI 搭配。
+ * 读取 v0-v16 时服务端确定性迁移，不自动向已有项目插入新节点；
  * 新版本不得静默降级读取。
  */
-export const WORKFLOW_SCHEMA_VERSION = 16 as const;
+export const WORKFLOW_SCHEMA_VERSION = 17 as const;
 export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
 
 export interface PersistedWorkflowNode {
@@ -698,12 +700,12 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
   },
   "background-extract": {
     kind: "background-extract",
-    title: "提取背景",
-    description: "移除人物和物体，仅保留原图背景",
+    title: "背景板生成",
+    description: "移除人物、主体和物品，生成可复用的背景板图片",
     providerId: "apiyi",
     inputs: 1,
     outputs: "images",
-    inputPorts: [{ ...imageInputPort(1), required: true }],
+    inputPorts: [{ ...imageInputPort(1), label: "图片 / 参考图", required: true }],
     outputPorts: [imageOutputPort()],
   },
   "text-input": {

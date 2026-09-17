@@ -53,9 +53,9 @@ export const TOOL_GROUPS: readonly ToolGroup[] = [
       ),
       available(
         "background-extract",
-        "提取背景",
+        "背景板生成",
         "scan",
-        "移除人物和物体，生成可复用的背景图片。",
+        "上传或连接图片，移除人物、主体和物品，生成可复用的背景板图片。",
         { type: "node", kind: "background-extract" },
       ),
       available(

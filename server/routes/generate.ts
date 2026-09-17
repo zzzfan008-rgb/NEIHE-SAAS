@@ -66,7 +66,7 @@ export function validateDirectGenerateRequest(
     return { ok: false, error: "sketch-optimize requires the protected node prompt; use /api/run-plan" };
   }
   if (kind === "background-extract" && request.referenceImages?.length !== 1) {
-    return { ok: false, error: "background-extract requires exactly one reference image" };
+    return { ok: false, error: "background-extract requires exactly one image" };
   }
   if (!isDirectGenerateKind(kind)) {
     return { ok: false, error: "kind must identify a supported AI node" };

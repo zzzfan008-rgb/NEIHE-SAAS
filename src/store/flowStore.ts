@@ -1212,6 +1212,7 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
       return {
         ...base,
         kind,
+        prompt: "",
         outputImages: [],
         modelId: DEFAULT_GENERATION_MODEL_ID,
         modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID),
@@ -2571,14 +2572,17 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     NODE_STATUSES.has(input.status as NodeRunStatus)
       ? (input.status as NodeRunStatus)
       : "idle";
+  const label =
+    typeof input.label === "string" && input.label.trim()
+      ? kind === "background-extract" && input.label === "提取背景"
+        ? "背景板生成"
+        : input.label
+      : defaults.label;
   const data: Record<string, unknown> = {
     ...defaults,
     ...input,
     kind,
-    label:
-      typeof input.label === "string" && input.label.trim()
-        ? input.label
-        : defaults.label,
+    label,
     status,
   };
   for (const transientKey of [
@@ -2678,6 +2682,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       break;
     case "background-extract":
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
+      data.prompt = typeof input.prompt === "string" ? input.prompt : "";
       data.outputImages = stringArray(input.outputImages) ?? [];
       break;
     case "character-board":
@@ -4553,9 +4558,13 @@ function updateTabFromRunEvent(
   // before any durable branch can flush the replacement document's editor.
   const currentDocument = documentForTarget(currentState, target);
   if (!currentDocument) return;
-  if (commitsOutput && currentNode?.data.kind === "character-board") {
-    // 人物板自身就是独立结果节点；只持久化其输出，避免生成后擅自
-    // 插入结果节点，用户可以按需把它连到任意兼容的图像节点。
+  if (
+    commitsOutput &&
+    (currentNode?.data.kind === "character-board" ||
+      currentNode?.data.kind === "background-extract")
+  ) {
+    // 人物板和背景板自身就是独立结果节点；只持久化其输出，避免生成后
+    // 擅自插入结果节点，用户可以按需把它连到任意兼容的图像节点。
     updateTabNodes(set, target, updateNodes, { markDirty: true });
     return;
   }

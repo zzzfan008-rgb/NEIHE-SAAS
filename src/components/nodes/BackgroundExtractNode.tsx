@@ -11,11 +11,13 @@ import {
   isNodeRunActive,
   type BackgroundExtractNodeData,
 } from "@/types/workflow";
-import { NodeFrame, RunButton, Developing } from "./NodeFrame";
+import { NodeFrame, RunButton, Developing, inputClass } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { FilePickerButton, uploadFile } from "./ImageInputNode";
 import { ModelControls } from "./ModelControls";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
 
 export function BackgroundExtractNode({
   id,
@@ -32,6 +34,10 @@ export function BackgroundExtractNode({
   const readOnly = useFlowStore(selectActiveReadOnly);
   const running = isNodeRunActive(data.status);
   const inputCount = connectedInputCount + (data.imageUrl ? 1 : 0);
+  const promptEdit = useCoalescedTextEdit(
+    { kind: "node-data", nodeId: id, field: "prompt" },
+    { multiline: true },
+  );
   const uploadRequestRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -74,10 +80,11 @@ export function BackgroundExtractNode({
       if (!canApplyUpload()) return;
       setUploading(true);
       try {
-        const upload = await uploadFile(file, "来自提取背景节点");
+        const upload = await uploadFile(file, "来自背景板生成节点");
         if (!canApplyUpload()) return;
         updateNodeDataInTab(target, id, {
           imageUrl: upload.url,
+          outputImages: [],
           status: "idle",
           error: undefined,
         });
@@ -103,7 +110,7 @@ export function BackgroundExtractNode({
         id="references"
         type="target"
         position={Position.Left}
-        title="待提取图片（上传一张或连接一张）"
+        title="图片 / 参考图（上传一张或连接一张）"
         isConnectable={!readOnly}
       />
       <NodeFrame
@@ -115,7 +122,7 @@ export function BackgroundExtractNode({
         missingInput={inputCount !== 1}
       >
         <p className="text-[10px] leading-relaxed text-[var(--gc-node-muted)]">
-          上传或连接一张图片，移除人物和物体，仅保留原图背景。
+          上传或连接普通图片、参考图或意向图，移除人物、主体和物品，仅保留背景。
         </p>
         <div
           className={`relative mt-2 overflow-hidden rounded-lg border ${dragOver ? "border-[var(--gc-node-accent)] bg-amber-50" : "border-[var(--gc-node-border)] bg-white"}`}
@@ -135,7 +142,7 @@ export function BackgroundExtractNode({
             <div className="relative h-32">
               <img
                 src={data.imageUrl}
-                alt="待提取的原图"
+                alt="待处理图片"
                 className="block h-full w-full select-none object-contain"
                 draggable={false}
               />
@@ -153,7 +160,7 @@ export function BackgroundExtractNode({
               <div>
                 {!readOnly && (
                   <FilePickerButton
-                    label={uploading ? "处理中…" : "上传原图"}
+                    label={uploading ? "处理中…" : "上传图片"}
                     disabled={running || uploading}
                     onFile={(file) => void handleFile(file)}
                   />
@@ -183,6 +190,7 @@ export function BackgroundExtractNode({
                   if (readOnly || running || uploading) return;
                   updateNodeDataInTab(selectActiveDocumentTarget(useFlowStore.getState()), id, {
                     imageUrl: undefined,
+                    outputImages: [],
                     status: "idle",
                     error: undefined,
                   });
@@ -191,21 +199,37 @@ export function BackgroundExtractNode({
                   });
                 }}
               >
-                移除原图
+                移除图片
               </Button>
             </div>
           )}
         </div>
         {inputCount === 0 && (
           <p className="mt-2 text-[10px] text-[var(--gc-node-muted)]">
-            请上传或连接一张图片后再提取背景。
+            请上传或连接一张图片后再生成背景板。
           </p>
         )}
         {inputCount > 1 && (
           <p className="mt-2 text-[10px] text-[var(--gc-node-muted)]">
-            请只保留一张输入图片。
+            请只保留一张待处理图片。
           </p>
         )}
+        <label className="block space-y-1">
+          <span className="text-[10px] text-[var(--gc-node-text)]">补充提示词（可选）</span>
+          <Textarea
+            aria-label="背景板提示词"
+            value={data.prompt}
+            {...promptEdit.bind}
+            disabled={readOnly || running}
+            rows={3}
+            maxLength={2000}
+            placeholder="例如：保留墙面纹理，移除模特、衣架和桌面物品"
+            className={`${inputClass} min-h-20 resize-none leading-relaxed`}
+          />
+          <span className="text-[9px] leading-4 text-[var(--gc-node-muted)]">
+            只补充背景保留或清理要求，不会取消移除主体的规则。
+          </span>
+        </label>
         <ModelControls
           nodeId={id}
           modelId={data.modelId}
@@ -214,7 +238,7 @@ export function BackgroundExtractNode({
         />
         <RunButton
           status={data.status}
-          label="提取背景"
+          label="生成背景板"
           disabled={readOnly || uploading || inputCount !== 1}
           onClick={() => void runNode(id)}
         />
