@@ -6,6 +6,7 @@ import { importSqliteIfNeeded } from "./sqliteImport";
 import { migrateColorCatalog } from "./colorCatalogMigration";
 import { migrateBrandColors } from "./brandColorMigration";
 import { migrateMaterialAnalysis } from "./materialAnalysisMigration";
+import { migratePoseReferences } from "./poseReferenceMigration";
 
 const { Pool, types } = pg;
 types.setTypeParser(20, Number);
@@ -752,6 +753,7 @@ async function migrate(): Promise<void> {
     }
 
     if (!applied.has(22)) await migrateMaterialAnalysis(client, config.sceneAnalysisModel());
+    if (!applied.has(23)) await migratePoseReferences(client);
 
     // SQLite can be restored after an empty database has already applied migration 17.
     if (!applied.has(17) || imported !== undefined) {

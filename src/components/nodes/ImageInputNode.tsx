@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import {
   selectActiveDocumentTarget,
   selectActiveNodes,
+  selectActiveEdges,
   selectActiveReadOnly,
   useFlowStore,
   type FlowNode,
@@ -33,8 +34,10 @@ import {
 } from "@/lib/overlayEvents";
 import { NodeFrame } from "./NodeFrame";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
+import { isPoseReferenceNode } from "@/types/poseReference";
 
 const ImageCropEditor = lazy(() => import("./ImageCropEditor"));
+const PoseReferenceComparison = lazy(() => import("../PoseReferenceComparison"));
 interface CropSession {
   source: string;
   target: DocumentTarget;
@@ -247,12 +250,16 @@ export function ImageInputNode({
     (state) => selectActiveNodes(state).find((node) => node.id === id)?.height,
   );
   const readOnly = useFlowStore(selectActiveReadOnly);
+  const isPose = useFlowStore(s => isPoseReferenceNode(id, selectActiveNodes(s), selectActiveEdges(s)));
+  const [poseSession, setPoseSession] = useState<CropSession | null>(null);
+  const poseTriggerRef = useRef<HTMLButtonElement>(null);
   const uploadRequestRef = useRef(0);
   const [cropSession, setCropSession] = useState<CropSession | null>(null);
   const cropSessionRef = useRef<CropSession | null>(null);
   const activeDocumentKey = useFlowStore((state) =>
     JSON.stringify(selectActiveDocumentTarget(state)),
   );
+  useEffect(() => { setPoseSession(null); }, [activeDocumentKey, data.imageUrl, isPose]);
   const cropTriggerRef = useRef<HTMLButtonElement>(null);
   const closeCrop = useCallback(() => {
     cropSessionRef.current = null;
@@ -696,6 +703,15 @@ export function ImageInputNode({
           cropSession ? (event) => event.preventDefault() : undefined
         }
       />
+      {selected && isPose && data.imageUrl && !cropSession && (
+        <div className="nodrag nopan absolute left-1/2 top-[calc(100%+48px)] z-20 flex -translate-x-1/2 gap-2 whitespace-nowrap rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] p-1 shadow-xl">
+          {!readOnly && <Button size="xs" variant="outline" onClick={(event) => { poseTriggerRef.current = event.currentTarget; setPoseSession({ source: data.imageUrl!, target: selectActiveDocumentTarget(useFlowStore.getState()) }); }}>生成姿势参考</Button>}
+          <Button ref={poseTriggerRef} size="xs" variant="outline" onClick={(event) => { poseTriggerRef.current = event.currentTarget; setPoseSession({ source: data.imageUrl!, target: selectActiveDocumentTarget(useFlowStore.getState()) }); }}>查看对比</Button>
+        </div>
+      )}
+      {poseSession && <Suspense fallback={<span role="status">正在加载姿势对比…</span>}>
+        <PoseReferenceComparison target={poseSession.target} nodeId={id} source={poseSession.source} readOnly={readOnly} triggerRef={poseTriggerRef} onClose={() => setPoseSession(null)} />
+      </Suspense>}
     </div>
   );
 }
