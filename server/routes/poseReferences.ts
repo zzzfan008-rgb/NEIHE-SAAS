@@ -13,16 +13,97 @@ import { analyzeDWPoseReference } from '../lib/dwposeAnalysis';
 import { analyzeDepthReference } from '../lib/depthAnalysis';
 import { config } from '../config';
 import { ProviderError } from '../providers/base';
-import { isPoseReferenceNode, type PoseReferenceKind, type PoseReferenceRecord } from '../../src/types/poseReference';
+import { isPoseReferenceNode, type PoseOutfitReferenceRecord, type PoseOutfitReferenceStatus, type PoseReferenceKind, type PoseReferenceRecord } from '../../src/types/poseReference';
+import type { ExecutionPlan } from '../../src/types/workflow';
+import { DEFAULT_GENERATION_MODEL_ID } from '../../src/types/imageModels';
+import { POSE_OUTFIT_REFERENCE_PROMPT } from '../engine/runner';
+import {
+  ActiveRunLimitError,
+  assertGenerationOwnerActive,
+  CLIENT_REQUEST_ID_PATTERN,
+  enqueueGenerationRunInTransaction,
+  GenerationOwnerUnavailableError,
+  GenerationRequestConflictError,
+} from '../engine/runQueue';
 
 interface Row {
   id: string; owner_id: string; project_id: string; node_id: string; source: string;
   kind: PoseReferenceKind; configuration: string; attempt: string;
   status: PoseReferenceRecord['status']; result: PoseReferenceRecord['result'] | null; error: string | null;
 }
+interface PoseOutfitRow {
+  id: string;
+  status: string;
+  model: string | null;
+  error: string | null;
+  output_image: string | null;
+  provider_output_size: string | null;
+}
 type Analyzer = (image: string, kind: PoseReferenceKind, markProvider: () => Promise<void>) => Promise<NonNullable<PoseReferenceRecord['result']>>;
 class RequestError extends Error { constructor(public status: number, message: string) { super(message); } }
 const record = (row: Row): PoseReferenceRecord => ({id:row.id,kind:row.kind,source:row.source,status:row.status,...(row.result?{result:row.result}:{}),...(row.error?{error:row.error}:{})});
+const POSE_OUTFIT_REFERENCE_KIND = 'pose-reference-outfit';
+
+function poseOutfitStatus(status: string): PoseOutfitReferenceStatus {
+  if (status === 'success' || status === 'succeeded') return 'succeeded';
+  if (status === 'error' || status === 'failed') return 'failed';
+  if (status === 'cancelled') return 'cancelled';
+  if (status === 'outcome_unknown') return 'outcome_unknown';
+  if (status === 'cancel_requested') return 'running';
+  if (status === 'running' || status === 'retry_wait' || status === 'queued') return status;
+  return 'failed';
+}
+
+function isPoseOutfitActive(row: PoseOutfitRow): boolean {
+  return ['queued', 'running', 'retry_wait', 'cancel_requested'].includes(row.status);
+}
+
+async function findPoseOutfitRows(
+  owner: string,
+  input: {projectId: string; nodeId: string; source: string},
+  client: PoolClient,
+): Promise<PoseOutfitRow[]> {
+  return query<PoseOutfitRow>(`
+    SELECT r.id, r.status, r.model, r.error,
+      output.image AS output_image,
+      output.provider_output_size
+    FROM generation_runs r
+    LEFT JOIN LATERAL (
+      SELECT o.image, o.provider_output_size
+      FROM generation_outputs o
+      WHERE o.run_id = r.id AND o.status = 'success' AND o.image <> ''
+      ORDER BY o.created_at DESC, o.id DESC
+      LIMIT 1
+    ) output ON TRUE
+    WHERE r.owner_id = $1 AND r.project_id = $2 AND r.node_id = $3
+      AND r.kind = $4 AND r.reference_images_json = $5
+      AND r.deleted_at IS NULL
+    ORDER BY r.started_at DESC, r.id DESC
+    LIMIT 16
+  `, [owner, input.projectId, input.nodeId, POSE_OUTFIT_REFERENCE_KIND, JSON.stringify([input.source])], client);
+}
+
+function poseOutfitRecord(
+  row: PoseOutfitRow,
+  source: string,
+  fallback?: PoseOutfitRow,
+): PoseOutfitReferenceRecord {
+  const output = row.output_image ? row : fallback;
+  return {
+    id: row.id,
+    runId: row.id,
+    source,
+    status: poseOutfitStatus(row.status),
+    ...(output?.output_image ? {
+      result: {
+        image: output.output_image,
+        model: output.model ?? DEFAULT_GENERATION_MODEL_ID,
+        providerOutputSize: output.provider_output_size,
+      },
+    } : {}),
+    ...(row.error ? {error: row.error} : {}),
+  };
+}
 
 function configuration(kind: PoseReferenceKind): string {
   const values = kind === 'skeleton' ? ['dwpose-v1',process.env.POSE_SERVICE_URL ?? '',process.env.POSE_MODEL_REVISION ?? '1a7144101628d69ee7a3768d1ee3a094070dc388'] :
@@ -30,8 +111,8 @@ function configuration(kind: PoseReferenceKind): string {
   return createHash('sha256').update(JSON.stringify(values)).digest('hex');
 }
 
-async function authorize(owner: string, input: {projectId: string; nodeId: string; source: string}, client: PoolClient) {
-  const project = await queryOne<{flow_json:string}>(`SELECT p.flow_json FROM projects p JOIN users u ON u.id=p.owner_id
+async function authorize(owner: string, input: {projectId: string; nodeId: string; source: string}, client: PoolClient): Promise<{name: string}> {
+  const project = await queryOne<{flow_json:string; name:string}>(`SELECT p.flow_json,p.name FROM projects p JOIN users u ON u.id=p.owner_id
     WHERE p.id=$1 AND p.owner_id=$2 AND p.deleted_at IS NULL AND p.lifecycle='saved'
       AND u.active=1 AND u.deleted_at IS NULL FOR SHARE OF p,u`,[input.projectId,owner],client);
   if (!project) throw new RequestError(404,'项目不存在');
@@ -41,6 +122,7 @@ async function authorize(owner: string, input: {projectId: string; nodeId: strin
     throw new RequestError(409,'姿势参考图已变化，请保存当前项目后重试');
   }
   await assertImageReferencesAccessible([input.source],owner,client);
+  return {name:project.name};
 }
 
 function parseInput(body: Record<string,unknown>) {
@@ -137,11 +219,90 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
       res.status(row.status==='running'?202:200).json(record(row));
     } catch(error) { handleError(error,res); }
   }));
+  router.get('/outfit',asyncHandler(async(req,res)=>{
+    try {
+      const input = parseInput(req.query as Record<string,unknown>);
+      const outfit = await transaction(async(client)=>{
+        const owner = requestUser(req).id;
+        await authorize(owner,input,client);
+        const rows = await findPoseOutfitRows(owner,input,client);
+        const latest = rows[0];
+        return latest ? poseOutfitRecord(latest,input.source,rows.find((row)=>Boolean(row.output_image))) : null;
+      });
+      res.setHeader('Cache-Control','no-store');
+      res.json({record:outfit});
+    } catch(error) { handleError(error,res); }
+  }));
+  router.post('/outfit',asyncHandler(async(req,res)=>{
+    try {
+      const input = parseInput(req.body ?? {});
+      const {requestId,retry} = req.body as {requestId?: unknown; retry?: unknown};
+      if (typeof requestId!=='string' || !CLIENT_REQUEST_ID_PATTERN.test(requestId) || (retry!==undefined && typeof retry!=='boolean')) {
+        throw new RequestError(400,'生成参数无效');
+      }
+      const outcome = await transaction(async(client)=>{
+        const owner = requestUser(req).id;
+        await assertGenerationOwnerActive(client,owner);
+        const project = await authorize(owner,input,client);
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`pose-outfit:${owner}:${input.projectId}:${input.nodeId}`]);
+        const rows = await findPoseOutfitRows(owner,input,client);
+        const prior = rows[0];
+        const fallback = rows.find((row)=>Boolean(row.output_image));
+        if (prior?.status==='outcome_unknown' && retry===true) {
+          throw new RequestError(409,'上次请求结果未知，请先核对历史记录后再重试，避免重复扣费');
+        }
+        if (prior && (isPoseOutfitActive(prior) || ['success','succeeded'].includes(prior.status) || retry!==true)) {
+          return {
+            status: isPoseOutfitActive(prior) ? 202 : 200,
+            record: poseOutfitRecord(prior,input.source,fallback),
+            cached: true,
+          };
+        }
+        const plan: ExecutionPlan = {
+          steps: [{
+            nodeId: input.nodeId,
+            kind: 'character-board',
+            inputImages: [input.source],
+            params: {
+              modelId: DEFAULT_GENERATION_MODEL_ID,
+              batchSize: 1,
+              poseOutfitOnly: true,
+            },
+          }],
+        };
+        const run = await enqueueGenerationRunInTransaction(client,plan,owner,{
+          userId: owner,
+          clientRequestId: requestId,
+          projectId: input.projectId,
+          projectName: project.name,
+          nodeId: input.nodeId,
+          nodeLabel: '姿势参考·背心+短裤',
+          kind: POSE_OUTFIT_REFERENCE_KIND,
+          prompt: POSE_OUTFIT_REFERENCE_PROMPT,
+          parameters: plan.steps[0].params,
+          referenceImages: [input.source],
+          requestedCount: 1,
+        },'direct');
+        return {
+          status: 202,
+          record: {
+            id: run.id,
+            runId: run.id,
+            source: input.source,
+            status: 'queued' as const,
+          },
+          cached: false,
+        };
+      });
+      res.status(outcome.status).json({record:outcome.record,runId:outcome.record.runId,cached:outcome.cached});
+    } catch(error) { handleError(error,res); }
+  }));
   return router;
 }
 
 function handleError(error: unknown,res: import('express').Response) {
   if (error instanceof RequestError) res.status(error.status).json({error:error.message});
   else if (error instanceof ImageReferenceAccessError) res.status(404).json({error:'图片不存在'});
+  else if (error instanceof GenerationRequestConflictError || error instanceof ActiveRunLimitError || error instanceof GenerationOwnerUnavailableError) res.status(409).json({error:error.message});
   else res.status(500).json({error:'姿势参考服务暂不可用，请稍后重试'});
 }

@@ -19,12 +19,18 @@ test('pose comparison persists, preserves partial results and fits three desktop
   const png=await sharp({create:{width:300,height:500,channels:3,background:'#869ca7'}}).png().toBuffer();
   const image='data:image/png;base64,'+png.toString('base64');
   await page.route('**/api/files/pose-source.png',r=>r.fulfill({contentType:'image/png',body:png}));
+  await page.route('**/api/files/neutral-outfit.png',r=>r.fulfill({contentType:'image/png',body:png}));
   const records: Record<string,any>={};
   let posts=0;
   await page.route('**/api/pose-references**',async route=>{
-    if(route.request().method()==='GET') return route.fulfill({json:{records:Object.values(records)}});
+    const outfit=route.request().url().includes('/api/pose-references/outfit');
+    if(route.request().method()==='GET') return route.fulfill({json:outfit?{record:records.outfit??null}:{records:Object.values(records).filter(record=>record.kind)} });
     posts++;
     const body=route.request().postDataJSON();
+    if(outfit) {
+      records.outfit={id:'outfit',runId:'outfit',source:body.source,status:'succeeded',result:{image:'/api/files/neutral-outfit.png',model:'gpt-image-2'}};
+      return route.fulfill({json:{record:records.outfit}});
+    }
     records[body.kind]={id:body.kind,kind:body.kind,source:body.source,status:body.kind==='skeleton'&&!body.retry?'failed':'succeeded',...(body.kind==='skeleton'&&!body.retry?{error:'骨骼分析未成功'}:{result:{image,model:body.kind==='skeleton'?'dwpose-wholebody':'test-depth'}})};
     await route.fulfill({json:records[body.kind]});
   });
@@ -33,10 +39,13 @@ test('pose comparison persists, preserves partial results and fits three desktop
   const dialog=page.getByRole('dialog',{name:'姿势参考对比'});
   await expect(dialog).toBeVisible();
   expect(posts).toBe(0);
+  await dialog.getByRole('button',{name:'改为背心+短裤',exact:true}).click();
+  await expect(dialog.getByAltText('背心+短裤参考')).toBeVisible();
+  expect(posts).toBe(1);
   await dialog.getByRole('button',{name:'生成两种参考',exact:true}).click();
   await expect(dialog.getByText('骨骼分析未成功',{exact:true})).toBeVisible();
   await expect(dialog.getByAltText('深度图')).toBeVisible();
-  expect(posts).toBe(2);
+  expect(posts).toBe(3);
   const panels=dialog.locator('[data-pose-panel]');
   await expect(panels).toHaveCount(3);
   const boxes=await panels.evaluateAll(nodes=>nodes.map(n=>{const b=n.getBoundingClientRect();return {x:b.x,y:b.y,w:b.width,right:b.right};}));
@@ -57,15 +66,16 @@ test('pose comparison persists, preserves partial results and fits three desktop
   for(const label of ['原图','骨骼图','深度图']) {
     await dialog.getByRole('button',{name:`添加${label}到画布`,exact:true}).click();
   }
-  await expect(dialog.getByRole('status').filter({hasText:'已添加到画布'})).toHaveCount(3);
+  await dialog.getByRole('button',{name:'添加背心+短裤参考到画布',exact:true}).click();
+  await expect(dialog.getByRole('status').filter({hasText:'已添加到画布'})).toHaveCount(4);
   const exported=await page.evaluate(async()=>{
     const mod='/src/store/flowStore.ts';const {useFlowStore}=await import(mod);
     const state=useFlowStore.getState();const tab=state.tabs.find((t:any)=>t.id===state.activeTabId);
     return {nodes:tab.nodes.map((n:any)=>({id:n.id,label:n.data.label,image:n.data.imageUrl})),edges:tab.edges};
   });
   expect(exported.edges).toHaveLength(0);
-  expect(exported.nodes).toHaveLength(5);
-  for(const label of ['姿势原图','DWPose 骨骼图','人物深度图']) expect(exported.nodes.find((n:any)=>n.label===label)?.image).toMatch(/^\/api\/files\//);
+  expect(exported.nodes).toHaveLength(6);
+  for(const label of ['姿势原图','DWPose 骨骼图','人物深度图','背心+短裤姿势参考']) expect(exported.nodes.find((n:any)=>n.label===label)?.image).toMatch(/^\/api\/files\//);
   await page.screenshot({path:testInfo.outputPath('pose-comparison.png')});
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
@@ -81,7 +91,7 @@ test('pose comparison persists, preserves partial results and fits three desktop
   await setup(page);
   await page.getByRole('button',{name:'查看对比',exact:true}).click();
   await expect(dialog.getByAltText('骨骼图')).toBeVisible();
-  expect(posts).toBe(3);
+  expect(posts).toBe(4);
   await page.evaluate(async()=>{
     const mod='/src/store/flowStore.ts';const {useFlowStore,selectActiveDocumentTarget}=await import(mod);
     useFlowStore.getState().updateNodeDataInTab(selectActiveDocumentTarget(useFlowStore.getState()),'pose-test',{imageUrl:'/api/files/replacement.png'});

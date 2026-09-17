@@ -1,10 +1,29 @@
 export type PoseReferenceKind = 'skeleton' | 'depth';
+export type PoseReferenceCanvasKind = PoseReferenceKind | 'original' | 'neutral-outfit';
 export interface PoseReferenceRecord {
   id: string;
   kind: PoseReferenceKind;
   source: string;
   status: 'running' | 'succeeded' | 'failed' | 'outcome_unknown';
   result?: { image: string; model: string; checkpoint?: string; convention?: string; inputSize?: number };
+  error?: string;
+}
+
+export type PoseOutfitReferenceStatus =
+  | 'queued'
+  | 'running'
+  | 'retry_wait'
+  | 'succeeded'
+  | 'failed'
+  | 'outcome_unknown'
+  | 'cancelled';
+
+export interface PoseOutfitReferenceRecord {
+  id: string;
+  runId: string;
+  source: string;
+  status: PoseOutfitReferenceStatus;
+  result?: { image: string; model: string; providerOutputSize?: string | null };
   error?: string;
 }
 

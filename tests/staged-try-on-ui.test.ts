@@ -44,7 +44,8 @@ assert.match(stagedNode, /gc-staged-role-handle/, "分步换装输入端口必�
 assert.match(stagedNode, /data-connection-state=\{connectedSource\.length \? "connected" : port\.required \? "required" : "optional"\}/, "分步换装端口必须同时呈现确认后的连接状态");
 assert.doesNotMatch(stagedNode, /data-port-state=\{port\.id\}/, "角色行不得保留与连线端口分离的第二个状态圆点");
 assert.doesNotMatch(stagedNode, /handles\.length \+ 1/, "分步换装输入端口不得再按节点整体高度平均排列");
-assert.match(stagedNode, /data\.workflowStage !== "standard"\) return null/, "普通一键换装必须继续使用原有独立输入端口");
+assert.match(stagedNode, /data\.workflowStage === "standard"[\s\S]*id="references"[\s\S]*title="参考图"/, "普通一键换装必须继续使用原有独立输入端口");
+assert.match(stagedNode, /className="gc-global-image-input-handle"[\s\S]*aria-label="通用图片输入，连接后选择用途"/, "分步换装必须提供可选择用途的通用图片入口");
 assert.match(stagedNode, /className=\{staged \? "gc-staged-output-handle" : undefined\}/, "紧凑输出端口只能应用于两轮分步换装节点");
 
 for (const field of ["garmentCategory", "materialSpec", "constructionSpec", "imageSize", "modelId"]) {

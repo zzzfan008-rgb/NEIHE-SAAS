@@ -53,7 +53,11 @@ export function ConnectionRoleDialog() {
 
   return (
     <Dialog open={Boolean(draft)} onOpenChange={(open) => { if (!open) close(); }}>
-      <DialogContent aria-label="确认连接角色" showCloseButton={false}>
+      <DialogContent
+        aria-label="确认连接角色"
+        showCloseButton={false}
+        className="max-h-[calc(100vh-48px)] overflow-y-auto"
+      >
         <DialogHeader>
           <DialogTitle>确认连接角色</DialogTitle>
           <DialogDescription>

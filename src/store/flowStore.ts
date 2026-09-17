@@ -1633,6 +1633,41 @@ function makeStarterNode(): FlowNode {
   };
 }
 
+const POSE_REFERENCE_PRIMARY_OFFSETS = [
+  { x: 380, y: 0 },
+  { x: 380, y: 340 },
+  { x: -380, y: 0 },
+  { x: -380, y: 340 },
+] as const;
+const POSE_REFERENCE_PRIMARY_OFFSET_KEYS = new Set(
+  POSE_REFERENCE_PRIMARY_OFFSETS.map(({ x, y }) => `${x}:${y}`),
+);
+const POSE_REFERENCE_PLACEMENT_OFFSETS = [
+  ...POSE_REFERENCE_PRIMARY_OFFSETS,
+  ...Array.from({ length: 12 }, (_, index) => index + 1)
+    .flatMap((column) => Array.from({ length: 25 }, (_, index) => index - 12)
+      .flatMap((row) => [
+        { x: column * 380, y: row * 340 },
+        { x: -column * 380, y: row * 340 },
+      ]))
+    .filter(({ x, y }) => !POSE_REFERENCE_PRIMARY_OFFSET_KEYS.has(`${x}:${y}`))
+    .sort((left, right) => {
+      const distance = left.x ** 2 + left.y ** 2 - (right.x ** 2 + right.y ** 2);
+      if (distance !== 0) return distance;
+      if ((left.x > 0) !== (right.x > 0)) return left.x > 0 ? -1 : 1;
+      return Math.abs(left.y) - Math.abs(right.y) || left.y - right.y;
+    }),
+];
+
+function poseReferenceImagePosition(nodes: readonly FlowNode[], origin: FlowNode) {
+  const freeOffset = POSE_REFERENCE_PLACEMENT_OFFSETS.find((offset) => !nodes.some((node) =>
+    Math.abs(node.position.x - (origin.position.x + offset.x)) < 320
+    && Math.abs(node.position.y - (origin.position.y + offset.y)) < 320));
+  return freeOffset
+    ? { x: origin.position.x + freeOffset.x, y: origin.position.y + freeOffset.y }
+    : { x: origin.position.x + 380, y: origin.position.y + 13 * 340 };
+}
+
 /**
  * Canonical active-document boundary. A valid store always has exactly one tab
  * matching activeTabId; fail fast if an invariant violation reaches a caller.
@@ -5571,8 +5606,7 @@ export const useFlowStore = create<FlowState>()(
           const origin = tab.nodes.find(n => n.id === nodeId && n.data.kind === "image-input" && n.data.imageUrl === source);
           if (!origin || !/^\/api\/files\/[\w.-]+$/.test(image)) return null;
           const id = nanoid(8);
-          const position = { x: origin.position.x + 380, y: origin.position.y };
-          while (tab.nodes.some(n => Math.abs(n.position.x - position.x) < 320 && Math.abs(n.position.y - position.y) < 320)) position.y += 340;
+          const position = poseReferenceImagePosition(tab.nodes, origin);
           const node: FlowNode = { id, type: "image-input", position,
             data: { ...defaultNodeData("image-input"), label, imageRole: "reference", imageUrl: image, status: "success" } as ImageInputNodeData };
           // Keep comparison open and preserve selection; never create an edge.

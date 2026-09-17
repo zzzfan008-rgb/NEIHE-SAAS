@@ -28,8 +28,18 @@ function RatioIcon({ ratio }: { ratio: string }) {
 }
 
 function StageHandles({ data }: { data: VirtualTryOnNodeData }) {
-  if (data.workflowStage !== "standard") return null;
-  return <Handle id="references" type="target" position={Position.Left} title="参考图" />;
+  if (data.workflowStage === "standard") {
+    return <Handle id="references" type="target" position={Position.Left} title="参考图" />;
+  }
+  return (
+    <Handle
+      className="gc-global-image-input-handle"
+      type="target"
+      position={Position.Left}
+      aria-label="通用图片输入，连接后选择用途"
+      title="通用图片输入（连接后选择用途）"
+    />
+  );
 }
 
 export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualTryOnNodeData>>) {

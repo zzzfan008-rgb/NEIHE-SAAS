@@ -44,6 +44,8 @@ await new Promise<void>(resolve=>server.once('listening',resolve));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 const body = {projectId:'project',nodeId:'pose',source:stored.url,kind:'depth',requestId:'request-depth-123'};
 const req = (method: string, data: unknown = body, user='owner') => fetch(base+'/api/pose-references'+(method==='GET'?'?'+new URLSearchParams({projectId:'project',nodeId:'pose',source:stored.url}):''),{method,headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},...(method==='POST'?{body:JSON.stringify(data)}:{})});
+const outfitBody = {projectId:'project',nodeId:'pose',source:stored.url,requestId:'outfit-request-123'};
+const outfitReq = (method: string, data: unknown = outfitBody, user='owner') => fetch(base+'/api/pose-references/outfit'+(method==='GET'?'?'+new URLSearchParams({projectId:'project',nodeId:'pose',source:stored.url}):''),{method,headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},...(method==='POST'?{body:JSON.stringify(data)}:{})});
 try {
   assert.equal((await req('POST',body,'none')).status,401);
   assert.equal((await req('POST',body,'other')).status,404);
@@ -88,6 +90,33 @@ try {
   delete process.env.DEPTH_MODEL_REVISION;
   const reverted=await (await req('GET')).json();
   assert.equal(reverted.records.find((x:any)=>x.kind==='depth').id,record.id,'restoration must prefer the current configuration');
+  assert.equal((await outfitReq('POST',outfitBody,'none')).status,401);
+  const outfitResponse=await outfitReq('POST');
+  assert.equal(outfitResponse.status,202,'背心+短裤按钮必须把单张替换任务放入持久队列');
+  const outfit=await outfitResponse.json();
+  assert.equal(outfit.record.status,'queued');
+  assert.equal(outfit.record.runId,outfit.runId);
+  const outfitRun=await queryOne<{kind:string;prompt:string;parameters_json:string;reference_images_json:string;run_type:string}>(
+    'SELECT kind,prompt,parameters_json,reference_images_json,run_type FROM generation_runs WHERE id=$1',[outfit.runId],
+  );
+  assert.equal(outfitRun?.kind,'pose-reference-outfit');
+  assert.equal(outfitRun?.run_type,'direct');
+  assert.equal(JSON.parse(outfitRun?.parameters_json ?? '{}').poseOutfitOnly,true);
+  assert.doesNotMatch(outfitRun?.prompt ?? '',/严格2×2|左上：|右上：|四格必须|人物身份参考板/);
+  assert.deepEqual(JSON.parse(outfitRun?.reference_images_json ?? '[]'),[stored.url]);
+  const outfitRepeated=await (await outfitReq('POST')).json();
+  assert.equal(outfitRepeated.record.runId,outfit.runId,'排队中的重复点击必须复用同一个任务');
+  const outfitRestored=await (await outfitReq('GET')).json();
+  assert.equal(outfitRestored.record.runId,outfit.runId);
+  await query("UPDATE generation_runs SET status='succeeded',model='gpt-image-2',successful_count=1 WHERE id=$1",[outfit.runId]);
+  await query("INSERT INTO generation_outputs(id,run_id,image,status,created_at) VALUES('outfit-output',$1,$2,'success',$3)",[outfit.runId,stored.url,Date.now()]);
+  const outfitCompleted=await (await outfitReq('GET')).json();
+  assert.equal(outfitCompleted.record.status,'succeeded');
+  assert.equal(outfitCompleted.record.result.image,stored.url);
+  await query("UPDATE generation_runs SET status='outcome_unknown' WHERE id=$1",[outfit.runId]);
+  assert.equal((await outfitReq('POST',{...outfitBody,retry:true,requestId:'outfit-retry-123'})).status,409,'不确定结果不得盲目再次扣费');
+  assert.equal((await outfitReq('GET',undefined,'other')).status,404);
+  await query("DELETE FROM generation_runs WHERE id=$1",[outfit.runId]);
   // A legacy success remains visible while a new local configuration runs/fails.
   await query("UPDATE pose_references SET configuration='legacy-gemini',status='succeeded',result=$1::jsonb WHERE kind='skeleton'",[JSON.stringify({image:png,model:'gemini-legacy'})]);
   process.env.POSE_SERVICE_URL='http://127.0.0.1:8767';
