@@ -10,25 +10,26 @@ import type { MaterialAssetMetadata } from "./materialAnalysis";
 export type NodeKind =
   | "outfit-reference"
   | "ai-styling"
-  | "image-input"        // 图片上传（草图/款式图/面料参考）
+  | "image-input" // 图片上传（草图/款式图/面料参考）
+  | "character-board" // 单张模特图生成四视图人物身份板
   | "background-extract" // 提取背景（移除人物和物体，仅保留背景）
-  | "text-input"         // 画布文本说明（typed text 输出）
-  | "drawing-board"      // 可编辑画板（提交后输出预览图）
-  | "color-palette"      // 显式色板（typed colors 输出）
-  | "stage-approval"     // 第一轮基准人工确认门槛
-  | "video-input"       // 本地视频上传
-  | "audio-input"       // Seedance 音频参考
-  | "video-generate"    // Seedance 2.5 / 2.0 视频生成与编辑
-  | "sketch-optimize"    // 草图线稿优化（黑白灰结构表达）
-  | "sketch-to-render"   // 草图→效果图（节点内选择 API易模型）
-  | "ai-modify"          // AI 改款/变体（gpt-image-2）
-  | "fabric-recolor"     // 面料配色替换（支持面料、配色或组合模式；gpt-image-2）
-  | "upscale"            // 高清放大（节点内选择 API易模型，业务侧 2K/4K）
-  | "print-extract"      // 印花提取（gpt-image-2，抠出印花平铺展开）
-  | "print-mutate"       // 印花裂变（gpt-image-2，1~8 张风格一致变体）
-  | "virtual-try-on"     // 虚拟模特换装（GPT Image 2 / Gemini 3.1 Flash Image）
-  | "mask-redraw"        // GPT Image 2 局部修改
-  | "result";            // 结果展示/管理
+  | "text-input" // 画布文本说明（typed text 输出）
+  | "drawing-board" // 可编辑画板（提交后输出预览图）
+  | "color-palette" // 显式色板（typed colors 输出）
+  | "stage-approval" // 第一轮基准人工确认门槛
+  | "video-input" // 本地视频上传
+  | "audio-input" // Seedance 音频参考
+  | "video-generate" // Seedance 2.5 / 2.0 视频生成与编辑
+  | "sketch-optimize" // 草图线稿优化（黑白灰结构表达）
+  | "sketch-to-render" // 草图→效果图（节点内选择 API易模型）
+  | "ai-modify" // AI 改款/变体（gpt-image-2）
+  | "fabric-recolor" // 面料配色替换（支持面料、配色或组合模式；gpt-image-2）
+  | "upscale" // 高清放大（节点内选择 API易模型，业务侧 2K/4K）
+  | "print-extract" // 印花提取（gpt-image-2，抠出印花平铺展开）
+  | "print-mutate" // 印花裂变（gpt-image-2，1~8 张风格一致变体）
+  | "virtual-try-on" // 虚拟模特换装（GPT Image 2 / Gemini 3.1 Flash Image）
+  | "mask-redraw" // GPT Image 2 局部修改
+  | "result"; // 结果展示/管理
 
 // ---------- 节点执行状态机 ----------
 export type NodeRunStatus =
@@ -54,13 +55,44 @@ export type NodeDisplayState =
   | "unknown-outcome"
   | "needs-reconfirmation";
 
-export type PortValueKind = "image" | "text" | "colors" | "video" | "audio" | "none";
+export type PortValueKind =
+  | "image"
+  | "text"
+  | "colors"
+  | "video"
+  | "audio"
+  | "none";
 
 export const WORKFLOW_INPUT_ROLES = [
-  "person", "scene", "pose", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet",
-  "detail", "material", "baseline-candidate", "baseline", "palette", "prompt", "references",
-  "first-frame", "last-frame", "source-video", "reference-image", "reference-video", "reference-audio",
-  "repair-source", "eyewear", "neckwear", "belt", "watch",
+  "person",
+  "scene",
+  "pose",
+  "outfit",
+  "bag",
+  "shoes",
+  "socks",
+  "hat",
+  "ring",
+  "earrings",
+  "bracelet",
+  "detail",
+  "material",
+  "baseline-candidate",
+  "baseline",
+  "palette",
+  "prompt",
+  "references",
+  "first-frame",
+  "last-frame",
+  "source-video",
+  "reference-image",
+  "reference-video",
+  "reference-audio",
+  "repair-source",
+  "eyewear",
+  "neckwear",
+  "belt",
+  "watch",
 ] as const;
 
 export type WorkflowInputRole = (typeof WORKFLOW_INPUT_ROLES)[number];
@@ -110,11 +142,21 @@ export interface ModelSelectableNodeData {
 }
 
 export function isNodeRunActive(status: NodeRunStatus): boolean {
-  return status === "queued" || status === "running" || status === "retry_wait" || status === "cancel_requested";
+  return (
+    status === "queued" ||
+    status === "running" ||
+    status === "retry_wait" ||
+    status === "cancel_requested"
+  );
 }
 
 export function isNodeRunTerminal(status: NodeRunStatus): boolean {
-  return status === "success" || status === "error" || status === "outcome_unknown" || status === "cancelled";
+  return (
+    status === "success" ||
+    status === "error" ||
+    status === "outcome_unknown" ||
+    status === "cancelled"
+  );
 }
 
 export interface ImageInputNodeData extends BaseNodeData {
@@ -126,11 +168,20 @@ export interface ImageInputNodeData extends BaseNodeData {
   autoConnectTargets?: ImageInputAutoConnectTarget[];
 }
 
-export interface BackgroundExtractNodeData extends BaseNodeData, ModelSelectableNodeData {
+export interface BackgroundExtractNodeData
+  extends BaseNodeData,
+    ModelSelectableNodeData {
   kind: "background-extract";
   /** 自带上传的待处理原图；也可改用 references 输入端口。 */
   imageUrl?: string;
   /** 生成的纯背景图片，可作为任意下游图像节点的参考图。 */
+  outputImages: string[];
+}
+
+export interface CharacterBoardNodeData extends BaseNodeData {
+  kind: "character-board";
+  /** 上传原图仅用于本节点生成，不作为输出传给下游。 */
+  sourceImage?: string;
   outputImages: string[];
 }
 
@@ -145,7 +196,9 @@ export interface OutfitReferenceNodeData extends BaseNodeData {
   mainImage: string | null;
 }
 
-export interface AiStylingNodeData extends BaseNodeData, ModelSelectableNodeData {
+export interface AiStylingNodeData
+  extends BaseNodeData,
+    ModelSelectableNodeData {
   kind: "ai-styling";
   prompt: string;
   aspectRatio: string;
@@ -175,8 +228,13 @@ export interface DrawingBoardNodeData extends BaseNodeData {
 }
 
 export type ColorSwatchSource =
-  | "quick" | "custom" | "recent" | "favorite" | "eyedropper"
-  | "pantone" | "brand";
+  | "quick"
+  | "custom"
+  | "recent"
+  | "favorite"
+  | "eyedropper"
+  | "pantone"
+  | "brand";
 
 export interface PantoneSwatchIdentity {
   catalogId: string;
@@ -208,15 +266,19 @@ export interface StageApprovalNodeData extends BaseNodeData {
   approvedAt?: string;
 }
 
-export interface SketchToRenderNodeData extends BaseNodeData, ModelSelectableNodeData {
+export interface SketchToRenderNodeData
+  extends BaseNodeData,
+    ModelSelectableNodeData {
   kind: "sketch-to-render";
   prompt: string;
-  aspectRatio: string;       // "1:1" | "3:4" | "4:3" | "9:16" | "16:9"
+  aspectRatio: string; // "1:1" | "3:4" | "4:3" | "9:16" | "16:9"
   batchSize: BatchSize;
-  outputImages: string[];    // 生成结果
+  outputImages: string[]; // 生成结果
 }
 
-export interface SketchOptimizeNodeData extends BaseNodeData, ModelSelectableNodeData {
+export interface SketchOptimizeNodeData
+  extends BaseNodeData,
+    ModelSelectableNodeData {
   kind: "sketch-optimize";
   prompt: string;
   aspectRatio: string;
@@ -224,21 +286,25 @@ export interface SketchOptimizeNodeData extends BaseNodeData, ModelSelectableNod
   outputImages: string[];
 }
 
-export interface AiModifyNodeData extends BaseNodeData, ModelSelectableNodeData {
+export interface AiModifyNodeData
+  extends BaseNodeData,
+    ModelSelectableNodeData {
   kind: "ai-modify";
   prompt: string;
   aspectRatio: string;
-  batchSize: BatchSize;            // 改款指令，如"改成娃娃领、袖长改短"
+  batchSize: BatchSize; // 改款指令，如"改成娃娃领、袖长改短"
   outputImages: string[];
 }
 
-export interface FabricRecolorNodeData extends BaseNodeData, ModelSelectableNodeData {
+export interface FabricRecolorNodeData
+  extends BaseNodeData,
+    ModelSelectableNodeData {
   kind: "fabric-recolor";
   operationMode: "combined" | "fabric" | "color";
   /** 选中的配色（hex 数组，最多 8 个，一色出一张图），prompt 由它自动组装 */
   colors: string[];
-  prompt: string;            // 由 colors 自动组装的替换指令
-  fabricImageUrl?: string;   // 面料参考图（可来自上游 fabric 节点）
+  prompt: string; // 由 colors 自动组装的替换指令
+  fabricImageUrl?: string; // 面料参考图（可来自上游 fabric 节点）
   outputImages: string[];
 }
 
@@ -249,7 +315,9 @@ export interface UpscaleNodeData extends BaseNodeData, ModelSelectableNodeData {
   outputImages: string[];
 }
 
-export interface PrintExtractNodeData extends BaseNodeData, ModelSelectableNodeData {
+export interface PrintExtractNodeData
+  extends BaseNodeData,
+    ModelSelectableNodeData {
   kind: "print-extract";
   /** 补充说明（可选），如"只要胸前那朵花" */
   prompt: string;
@@ -259,7 +327,9 @@ export interface PrintExtractNodeData extends BaseNodeData, ModelSelectableNodeD
   savedAsAssets: string[];
 }
 
-export interface PrintMutateNodeData extends BaseNodeData, ModelSelectableNodeData {
+export interface PrintMutateNodeData
+  extends BaseNodeData,
+    ModelSelectableNodeData {
   kind: "print-mutate";
   /** 裂变方向补充说明（可选），如"改成水墨风格" */
   prompt: string;
@@ -327,7 +397,14 @@ export type SeedanceVideoModelId =
   | "doubao-seedance-2-0-fast-260128"
   | "doubao-seedance-2-0-mini-260615";
 
-export type VideoAspectRatio = "16:9" | "4:3" | "1:1" | "3:4" | "9:16" | "21:9" | "adaptive";
+export type VideoAspectRatio =
+  | "16:9"
+  | "4:3"
+  | "1:1"
+  | "3:4"
+  | "9:16"
+  | "21:9"
+  | "adaptive";
 export type VideoResolution = "480p" | "720p" | "1080p";
 export type SeedanceOutputFormat = "mp4" | "mov";
 
@@ -368,6 +445,7 @@ export type WorkflowNodeData =
   | OutfitReferenceNodeData
   | AiStylingNodeData
   | ImageInputNodeData
+  | CharacterBoardNodeData
   | BackgroundExtractNodeData
   | TextInputNodeData
   | DrawingBoardNodeData
@@ -389,11 +467,11 @@ export type WorkflowNodeData =
 
 // ---------- 持久化工作流（项目 / 模板共用）----------
 /**
- * 版本 15 添加提取背景节点；版本 14 添加草图线稿优化节点；版本 13 添加多角度参考图和 AI 搭配。
- * 读取 v0-v14 时服务端确定性迁移，不自动向已有项目插入新节点；
+ * 版本 16 添加人物板生成；版本 15 添加提取背景节点；版本 14 添加草图线稿优化节点；版本 13 添加多角度参考图和 AI 搭配。
+ * 读取 v0-v15 时服务端确定性迁移，不自动向已有项目插入新节点；
  * 新版本不得静默降级读取。
  */
-export const WORKFLOW_SCHEMA_VERSION = 15 as const;
+export const WORKFLOW_SCHEMA_VERSION = 16 as const;
 export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
 
 export interface PersistedWorkflowNode {
@@ -437,9 +515,14 @@ export interface ImageGenRequest {
 
 export interface ImageGenResult {
   /** Token accounting from this response, not a claim of actual account debit. */
-  providerUsage?: { inputTextTokens: number; inputImageTokens: number; outputTokens: number; estimatedUsd: number };
+  providerUsage?: {
+    inputTextTokens: number;
+    inputImageTokens: number;
+    outputTokens: number;
+    estimatedUsd: number;
+  };
   providerRequestId?: string;
-  images: string[];          // dataURL 或可访问 URL
+  images: string[]; // dataURL 或可访问 URL
   model: string;
   usageNote?: string;
   /** 上游声明的逐图实际输出尺寸；顺序与 images 一致，未知项为 null。 */
@@ -447,8 +530,11 @@ export interface ImageGenResult {
 }
 
 export interface AIProvider {
-  readonly id: string;                 // API易模型 ID；与本地模型知识库一致
-  validate?(req: ImageGenRequest, mode: "generate" | "edit"): void | Promise<void>;
+  readonly id: string; // API易模型 ID；与本地模型知识库一致
+  validate?(
+    req: ImageGenRequest,
+    mode: "generate" | "edit",
+  ): void | Promise<void>;
   generate(req: ImageGenRequest): Promise<ImageGenResult>;
   edit(req: ImageGenRequest): Promise<ImageGenResult>;
 }
@@ -535,8 +621,8 @@ export interface NodeSpec {
   kind: NodeKind;
   title: string;
   description: string;
-  providerId?: string;     // AI 节点对应的 provider
-  inputs: number;          // 接受的图片输入数（0 = 无输入）
+  providerId?: string; // AI 节点对应的 provider
+  inputs: number; // 接受的图片输入数（0 = 无输入）
   outputs: "images" | "videos" | "audio" | "none";
   inputPorts: readonly NodePortSpec[];
   outputPorts: readonly NodePortSpec[];
@@ -560,19 +646,46 @@ const imageOutputPort = (): NodePortSpec => ({
 });
 const imageAndPromptPorts = (maxSources: number): readonly NodePortSpec[] => [
   imageInputPort(maxSources),
-  { id: "prompt", label: "提示词", direction: "input", valueKind: "text", required: false, maxSources: 1 },
+  {
+    id: "prompt",
+    label: "提示词",
+    direction: "input",
+    valueKind: "text",
+    required: false,
+    maxSources: 1,
+  },
 ];
 const noPorts: readonly NodePortSpec[] = [];
 
 export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
+  "character-board": {
+    kind: "character-board",
+    title: "人物板生成",
+    description: "上传一张模特图，生成正面、背面、侧面与面部特写人物板",
+    providerId: "apiyi",
+    inputs: 0,
+    outputs: "images",
+    inputPorts: noPorts,
+    outputPorts: [imageOutputPort()],
+  },
   "outfit-reference": {
-    kind: "outfit-reference", title: "上传参考图", description: "主图确定服饰与人物，细节图补充服饰信息",
-    inputs: 0, outputs: "images", inputPorts: noPorts, outputPorts: [imageOutputPort()],
+    kind: "outfit-reference",
+    title: "上传参考图",
+    description: "主图确定服饰与人物，细节图补充服饰信息",
+    inputs: 0,
+    outputs: "images",
+    inputPorts: noPorts,
+    outputPorts: [imageOutputPort()],
   },
   "ai-styling": {
-    kind: "ai-styling", title: "AI 搭配", description: "识别参考服饰并生成协调的全身搭配",
-    providerId: "apiyi", inputs: 8, outputs: "images",
-    inputPorts: [{ ...imageInputPort(1), required: true }], outputPorts: [imageOutputPort()],
+    kind: "ai-styling",
+    title: "AI 搭配",
+    description: "识别参考服饰并生成协调的全身搭配",
+    providerId: "apiyi",
+    inputs: 8,
+    outputs: "images",
+    inputPorts: [{ ...imageInputPort(1), required: true }],
+    outputPorts: [imageOutputPort()],
   },
   "image-input": {
     kind: "image-input",
@@ -600,7 +713,16 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     inputs: 0,
     outputs: "none",
     inputPorts: noPorts,
-    outputPorts: [{ id: "text", label: "文本", direction: "output", valueKind: "text", required: false, maxSources: 1 }],
+    outputPorts: [
+      {
+        id: "text",
+        label: "文本",
+        direction: "output",
+        valueKind: "text",
+        required: false,
+        maxSources: 1,
+      },
+    ],
   },
   "drawing-board": {
     kind: "drawing-board",
@@ -618,7 +740,16 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     inputs: 0,
     outputs: "none",
     inputPorts: noPorts,
-    outputPorts: [{ id: "colors", label: "颜色", direction: "output", valueKind: "colors", required: false, maxSources: 1 }],
+    outputPorts: [
+      {
+        id: "colors",
+        label: "颜色",
+        direction: "output",
+        valueKind: "colors",
+        required: false,
+        maxSources: 1,
+      },
+    ],
   },
   "stage-approval": {
     kind: "stage-approval",
@@ -626,7 +757,16 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     description: "确认当前人物、场景与穿搭基准后解锁精修",
     inputs: 1,
     outputs: "images",
-    inputPorts: [{ id: "baseline-candidate", label: "待确认基准", direction: "input", valueKind: "image", required: true, maxSources: 1 }],
+    inputPorts: [
+      {
+        id: "baseline-candidate",
+        label: "待确认基准",
+        direction: "input",
+        valueKind: "image",
+        required: true,
+        maxSources: 1,
+      },
+    ],
     outputPorts: [imageOutputPort()],
   },
   "video-input": {
@@ -636,7 +776,16 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     inputs: 0,
     outputs: "videos",
     inputPorts: noPorts,
-    outputPorts: [{ id: "video", label: "视频", direction: "output", valueKind: "video", required: false, maxSources: 1 }],
+    outputPorts: [
+      {
+        id: "video",
+        label: "视频",
+        direction: "output",
+        valueKind: "video",
+        required: false,
+        maxSources: 1,
+      },
+    ],
   },
   "audio-input": {
     kind: "audio-input",
@@ -645,7 +794,16 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     inputs: 0,
     outputs: "audio",
     inputPorts: noPorts,
-    outputPorts: [{ id: "audio", label: "音频", direction: "output", valueKind: "audio", required: false, maxSources: 1 }],
+    outputPorts: [
+      {
+        id: "audio",
+        label: "音频",
+        direction: "output",
+        valueKind: "audio",
+        required: false,
+        maxSources: 1,
+      },
+    ],
   },
   "video-generate": {
     kind: "video-generate",
@@ -655,9 +813,26 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     inputs: 50,
     outputs: "videos",
     inputPorts: [
-      { id: "references", label: "参考素材", direction: "input", valueKind: "image", required: false, maxSources: 8, accepts: ["image", "video", "text"] },
+      {
+        id: "references",
+        label: "参考素材",
+        direction: "input",
+        valueKind: "image",
+        required: false,
+        maxSources: 8,
+        accepts: ["image", "video", "text"],
+      },
     ],
-    outputPorts: [{ id: "video", label: "视频", direction: "output", valueKind: "video", required: false, maxSources: 1 }],
+    outputPorts: [
+      {
+        id: "video",
+        label: "视频",
+        direction: "output",
+        valueKind: "video",
+        required: false,
+        maxSources: 1,
+      },
+    ],
   },
   "sketch-optimize": {
     kind: "sketch-optimize",
@@ -698,7 +873,14 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     outputs: "images",
     inputPorts: [
       imageInputPort(MAX_REFERENCE_IMAGES),
-      { id: "palette", label: "目标色板", direction: "input", valueKind: "colors", required: false, maxSources: 1 },
+      {
+        id: "palette",
+        label: "目标色板",
+        direction: "input",
+        valueKind: "colors",
+        required: false,
+        maxSources: 1,
+      },
     ],
     outputPorts: [imageOutputPort()],
   },
@@ -761,7 +943,15 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     outputs: "images",
     inputPorts: [{ ...imageInputPort(4), accepts: ["image", "video"] }],
     outputPorts: [
-      { id: "image", label: "媒体", direction: "output", valueKind: "image", required: false, maxSources: 1, accepts: ["image", "video"] },
+      {
+        id: "image",
+        label: "媒体",
+        direction: "output",
+        valueKind: "image",
+        required: false,
+        maxSources: 1,
+        accepts: ["image", "video"],
+      },
     ],
   },
 };

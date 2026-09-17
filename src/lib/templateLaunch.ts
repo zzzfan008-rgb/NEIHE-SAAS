@@ -25,14 +25,19 @@ export type TemplateLaunchMode = "default" | "upload" | "text";
 export function inferTemplateLaunchMode(
   template: Pick<WorkflowTemplate, "flow">,
 ): TemplateLaunchMode {
-  if (template.flow.nodes.some((node) =>
-    node.data.kind === "image-input" ||
-    node.data.kind === "outfit-reference" ||
-    node.data.kind === "background-extract"
-  )) {
+  if (
+    template.flow.nodes.some(
+      (node) =>
+        node.data.kind === "image-input" ||
+        node.data.kind === "outfit-reference" ||
+        node.data.kind === "background-extract",
+    )
+  ) {
     return "upload";
   }
-  if (template.flow.nodes.some((node) => node.data.kind === "sketch-to-render")) {
+  if (
+    template.flow.nodes.some((node) => node.data.kind === "sketch-to-render")
+  ) {
     return "text";
   }
   return "default";
@@ -50,9 +55,12 @@ function isMissingParameter(data: WorkflowNodeData): boolean {
     data.kind === "print-extract" ||
     data.kind === "print-mutate" ||
     data.kind === "mask-redraw"
-  ) return !data.prompt.trim();
+  )
+    return !data.prompt.trim();
   if (data.kind === "fabric-recolor") {
-    return data.colors.length === 0 && !data.prompt.trim() && !data.fabricImageUrl;
+    return (
+      data.colors.length === 0 && !data.prompt.trim() && !data.fabricImageUrl
+    );
   }
   return false;
 }
@@ -62,27 +70,43 @@ export function templateLandingNodeId(
   mode: TemplateLaunchMode,
 ): string | undefined {
   if (mode === "upload") {
-    return nodes.find((node) =>
-      (node.data.kind === "image-input" && !node.data.imageUrl) ||
-      (node.data.kind === "outfit-reference" && !node.data.mainImage) ||
-      (node.data.kind === "background-extract" && !node.data.imageUrl)
+    return nodes.find(
+      (node) =>
+        (node.data.kind === "image-input" && !node.data.imageUrl) ||
+        (node.data.kind === "outfit-reference" && !node.data.mainImage) ||
+        (node.data.kind === "background-extract" && !node.data.imageUrl),
     )?.id;
   }
   if (mode === "text") {
     return nodes.find((node) => node.data.kind === "sketch-to-render")?.id;
   }
-  return nodes.find((node) => isMissingParameter(node.data))?.id ??
-    nodes.find((node) => node.data.kind !== "result")?.id;
+  return (
+    nodes.find((node) => isMissingParameter(node.data))?.id ??
+    nodes.find((node) => node.data.kind !== "result")?.id
+  );
 }
 
 function cloneNodes(nodes: WorkflowTemplate["flow"]["nodes"]): FlowNode[] {
   return structuredClone(nodes).map((node) => {
     const data = { ...node.data } as Record<string, unknown>;
     delete data.error;
-    if (node.data.kind === "outfit-reference") { data.images = []; data.mainImage = null; data.status = "idle"; }
-    if (node.data.kind === "ai-styling") { delete data.analysisId; delete data.referenceFingerprint; data.preserve = null; data.status = "idle"; }
+    if (node.data.kind === "outfit-reference") {
+      data.images = [];
+      data.mainImage = null;
+      data.status = "idle";
+    }
+    if (node.data.kind === "ai-styling") {
+      delete data.analysisId;
+      delete data.referenceFingerprint;
+      data.preserve = null;
+      data.status = "idle";
+    }
     if (node.data.kind === "image-input") delete data.imageUrl;
     if (node.data.kind === "background-extract") delete data.imageUrl;
+    if (node.data.kind === "character-board") {
+      delete data.sourceImage;
+      data.status = "idle";
+    }
     if (node.data.kind === "drawing-board") {
       delete data.contentRef;
       delete data.previewImageRef;
@@ -127,7 +151,8 @@ export function launchTemplateInNewTab(
     markDirty: true,
   });
   const tabId = useFlowStore.getState().activeTabId;
-  if (landingNodeId) useFlowStore.getState().setSelectedNodeIds([landingNodeId]);
+  if (landingNodeId)
+    useFlowStore.getState().setSelectedNodeIds([landingNodeId]);
   requestCanvasLanding({
     tabId,
     nodeId: landingNodeId,
@@ -144,7 +169,10 @@ export function launchStarterTemplate(
   mode: TemplateLaunchMode = "default",
 ): { tabId: string; projectId: string; landingNodeId?: string } {
   const active = selectActiveDocument(useFlowStore.getState());
-  if (projectTabLifecycle(active) !== "initial_draft" || !isPristineProjectTab(active)) {
+  if (
+    projectTabLifecycle(active) !== "initial_draft" ||
+    !isPristineProjectTab(active)
+  ) {
     return launchTemplateInNewTab(template, mode);
   }
 
@@ -163,7 +191,8 @@ export function launchStarterTemplate(
     });
   });
   if (!changed) return { tabId: active.id, projectId: active.projectId };
-  if (landingNodeId) useFlowStore.getState().setSelectedNodeIds([landingNodeId]);
+  if (landingNodeId)
+    useFlowStore.getState().setSelectedNodeIds([landingNodeId]);
   useFlowStore.getState().closeViewer();
   requestCanvasLanding({
     tabId: active.id,

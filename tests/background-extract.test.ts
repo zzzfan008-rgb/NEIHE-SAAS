@@ -1,29 +1,57 @@
 import sharp from "sharp";
 import assert from "node:assert/strict";
-import { buildExecutionPlan, assertPlanInputs, type FlowNode, type FlowEdge } from "../server/engine/dag";
+import {
+  buildExecutionPlan,
+  assertPlanInputs,
+  type FlowNode,
+  type FlowEdge,
+} from "../server/engine/dag";
 import { executeStep } from "../server/engine/runner";
-import { createDocumentSnapshot, documentSnapshotToPersistedWorkflow } from "../src/lib/documentSnapshot";
+import {
+  createDocumentSnapshot,
+  documentSnapshotToPersistedWorkflow,
+} from "../src/lib/documentSnapshot";
 import { NODE_SPECS, WORKFLOW_SCHEMA_VERSION } from "../src/types/workflow";
-import { GENERATION_IMAGE_MODEL_IDS, defaultImageModelOptions } from "../src/types/imageModels";
+import {
+  GENERATION_IMAGE_MODEL_IDS,
+  defaultImageModelOptions,
+} from "../src/types/imageModels";
 import { validateAndMigrateFlow } from "../server/lib/workflowSchema";
 import { validateDirectGenerateRequest } from "../server/routes/generate";
 import type { AIProvider, ImageGenRequest } from "../src/types/workflow";
 
 const KIND = "background-extract";
-const SOURCE_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
-const GENERATED_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+const SOURCE_IMAGE =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+const GENERATED_IMAGE =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
-async function createImageDataUrl(width: number, height: number): Promise<string> {
+async function createImageDataUrl(
+  width: number,
+  height: number,
+): Promise<string> {
   const buffer = await sharp({
-    create: { width, height, channels: 4, background: { r: 224, g: 198, b: 170, alpha: 1 } },
-  }).png().toBuffer();
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 224, g: 198, b: 170, alpha: 1 },
+    },
+  })
+    .png()
+    .toBuffer();
   return `data:image/png;base64,${buffer.toString("base64")}`;
 }
 
 type Spec = {
   inputs: number;
   outputs: string;
-  inputPorts: Array<{ id: string; valueKind: string; required: boolean; maxSources: number }>;
+  inputPorts: Array<{
+    id: string;
+    valueKind: string;
+    required: boolean;
+    maxSources: number;
+  }>;
   outputPorts: Array<{ id: string; valueKind: string }>;
 };
 
@@ -42,7 +70,11 @@ function imageNode(id: string, imageUrl: string): FlowNode {
   };
 }
 
-function backgroundNode(id: string, outputImages: string[] = [], imageUrl?: string): FlowNode {
+function backgroundNode(
+  id: string,
+  outputImages: string[] = [],
+  imageUrl?: string,
+): FlowNode {
   return {
     id,
     type: KIND,
@@ -91,48 +123,67 @@ async function main(): Promise<void> {
   assert.ok(spec, "提取背景必须注册为独立节点规格");
   assert.equal(spec.inputs, 1);
   assert.equal(spec.outputs, "images");
-  assert.deepEqual(spec.inputPorts, [{
-    id: "references",
-    label: "参考图",
-    direction: "input",
-    valueKind: "image",
-    required: true,
-    maxSources: 1,
-  }]);
-  assert.deepEqual(spec.outputPorts, [{
-    id: "image",
-    label: "图片",
-    direction: "output",
-    valueKind: "image",
-    required: false,
-    maxSources: 1,
-  }]);
+  assert.deepEqual(spec.inputPorts, [
+    {
+      id: "references",
+      label: "参考图",
+      direction: "input",
+      valueKind: "image",
+      required: true,
+      maxSources: 1,
+    },
+  ]);
+  assert.deepEqual(spec.outputPorts, [
+    {
+      id: "image",
+      label: "图片",
+      direction: "output",
+      valueKind: "image",
+      required: false,
+      maxSources: 1,
+    },
+  ]);
 
-  assert.deepEqual(validateDirectGenerateRequest(KIND, {
-    prompt: "ignored",
-    referenceImages: [SOURCE_IMAGE],
-  }), { ok: true, kind: KIND });
-  assert.equal(validateDirectGenerateRequest(KIND, { prompt: "missing source" }).ok, false);
+  assert.deepEqual(
+    validateDirectGenerateRequest(KIND, {
+      prompt: "ignored",
+      referenceImages: [SOURCE_IMAGE],
+    }),
+    { ok: true, kind: KIND },
+  );
+  assert.equal(
+    validateDirectGenerateRequest(KIND, { prompt: "missing source" }).ok,
+    false,
+  );
 
   const source = imageNode("source", SOURCE_IMAGE);
   const background = backgroundNode("background", [GENERATED_IMAGE]);
   const modify = modifyNode("modify");
-  const edges = [inputEdge("source", "background"), inputEdge("background", "modify")];
+  const edges = [
+    inputEdge("source", "background"),
+    inputEdge("background", "modify"),
+  ];
   const plan = buildExecutionPlan([source, background, modify], edges);
-  const backgroundStep = plan.steps.find((step) => step.nodeId === "background");
-  assert.deepEqual(backgroundStep?.upstream, [{
-    nodeId: "source",
-    images: [SOURCE_IMAGE],
-    sourceHandle: "image",
-    targetHandle: "references",
-  }]);
+  const backgroundStep = plan.steps.find(
+    (step) => step.nodeId === "background",
+  );
+  assert.deepEqual(backgroundStep?.upstream, [
+    {
+      nodeId: "source",
+      images: [SOURCE_IMAGE],
+      sourceHandle: "image",
+      targetHandle: "references",
+    },
+  ]);
   const modifyStep = plan.steps.find((step) => step.nodeId === "modify");
-  assert.deepEqual(modifyStep?.upstream, [{
-    nodeId: "background",
-    images: [GENERATED_IMAGE],
-    sourceHandle: "image",
-    targetHandle: "references",
-  }]);
+  assert.deepEqual(modifyStep?.upstream, [
+    {
+      nodeId: "background",
+      images: [GENERATED_IMAGE],
+      sourceHandle: "image",
+      targetHandle: "references",
+    },
+  ]);
   assert.doesNotThrow(() => assertPlanInputs(plan, edges));
 
   const uploaded = backgroundNode("uploaded", [], SOURCE_IMAGE);
@@ -159,13 +210,18 @@ async function main(): Promise<void> {
   assert.equal(validated.nodes[1].type, KIND);
   assert.equal(validated.nodes[1].data.kind, KIND);
 
-  const uploadedPersisted = documentSnapshotToPersistedWorkflow(createDocumentSnapshot({
-    projectName: "自带上传测试",
-    nodes: [uploaded],
-    edges: [],
-  }));
+  const uploadedPersisted = documentSnapshotToPersistedWorkflow(
+    createDocumentSnapshot({
+      projectName: "自带上传测试",
+      nodes: [uploaded],
+      edges: [],
+    }),
+  );
   assert.equal(uploadedPersisted.nodes[0].data.imageUrl, SOURCE_IMAGE);
-  assert.equal(validateAndMigrateFlow(uploadedPersisted).nodes[0].data.imageUrl, SOURCE_IMAGE);
+  assert.equal(
+    validateAndMigrateFlow(uploadedPersisted).nodes[0].data.imageUrl,
+    SOURCE_IMAGE,
+  );
 
   for (const modelId of GENERATION_IMAGE_MODEL_IDS) {
     const flow = validateAndMigrateFlow({
@@ -193,19 +249,28 @@ async function main(): Promise<void> {
     },
   };
   const executionSource = await createImageDataUrl(3, 2);
-  const result = await executeStep({
-    nodeId: "background",
-    kind: KIND as never,
-    inputImages: [executionSource],
-    params: {
-      modelId: "gpt-image-2.5-flare",
-      modelOptions: { size: "2048x2048", quality: "medium" },
+  const result = await executeStep(
+    {
+      nodeId: "background",
+      kind: KIND as never,
+      inputImages: [executionSource],
+      params: {
+        modelId: "gpt-image-2.5-flare",
+        modelOptions: { size: "2048x2048", quality: "medium" },
+      },
     },
-  }, [executionSource], () => provider);
+    [executionSource],
+    () => provider,
+  );
   assert.equal(result.images.length, 1);
   assert.match(result.images[0], /^data:image\/webp;base64,/);
-  const metadata = await sharp(Buffer.from(result.images[0].split(",")[1], "base64")).metadata();
-  assert.deepEqual({ width: metadata.width, height: metadata.height }, { width: 3, height: 2 });
+  const metadata = await sharp(
+    Buffer.from(result.images[0].split(",")[1], "base64"),
+  ).metadata();
+  assert.deepEqual(
+    { width: metadata.width, height: metadata.height },
+    { width: 3, height: 2 },
+  );
   assert.equal(editCalls, 1);
   assert.deepEqual(editRequest?.referenceImages, [executionSource]);
   assert.match(editRequest?.prompt ?? "", /人物|物体/);

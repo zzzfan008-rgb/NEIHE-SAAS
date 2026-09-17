@@ -15,6 +15,7 @@ import { NodeFrame, RunButton, Developing } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { FilePickerButton, uploadFile } from "./ImageInputNode";
 import { ModelControls } from "./ModelControls";
+import { Button } from "@/components/ui/button";
 
 export function BackgroundExtractNode({
   id,
@@ -37,20 +38,51 @@ export function BackgroundExtractNode({
 
   const handleFile = useCallback(
     async (file: File | undefined | null) => {
-      if (!file || !file.type.startsWith("image/") || readOnly || running || uploading) return;
+      if (
+        !file ||
+        !file.type.startsWith("image/") ||
+        readOnly ||
+        running ||
+        uploading
+      )
+        return;
       const requestId = ++uploadRequestRef.current;
       const target = selectActiveDocumentTarget(useFlowStore.getState());
+      const document = () =>
+        useFlowStore
+          .getState()
+          .tabs.find(
+            (tab) =>
+              tab.id === target.tabId &&
+              tab.projectId === target.projectId &&
+              tab.documentEpoch === target.documentEpoch,
+          );
+      const initialData = document()?.nodes.find(
+        (node) => node.id === id,
+      )?.data;
+      const canApplyUpload = () => {
+        const tab = document();
+        const current = tab?.nodes.find((node) => node.id === id);
+        return (
+          requestId === uploadRequestRef.current &&
+          tab?.readOnly === false &&
+          current !== undefined &&
+          current.data === initialData &&
+          !isNodeRunActive(current.data.status)
+        );
+      };
+      if (!canApplyUpload()) return;
       setUploading(true);
       try {
         const upload = await uploadFile(file, "来自提取背景节点");
-        if (requestId !== uploadRequestRef.current) return;
+        if (!canApplyUpload()) return;
         updateNodeDataInTab(target, id, {
           imageUrl: upload.url,
           status: "idle",
           error: undefined,
         });
       } catch (error) {
-        if (requestId !== uploadRequestRef.current) return;
+        if (!canApplyUpload()) return;
         updateNodeDataInTab(target, id, {
           status: "error",
           error:
@@ -135,13 +167,32 @@ export function BackgroundExtractNode({
             </div>
           )}
           {data.imageUrl && !readOnly && (
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
+            <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1">
               <FilePickerButton
                 label={uploading ? "处理中…" : "重新上传"}
                 compact
                 disabled={running || uploading}
                 onFile={(file) => void handleFile(file)}
               />
+              <Button
+                variant="outline"
+                size="xs"
+                className="nodrag nopan"
+                disabled={running || uploading}
+                onClick={() => {
+                  if (readOnly || running || uploading) return;
+                  updateNodeDataInTab(selectActiveDocumentTarget(useFlowStore.getState()), id, {
+                    imageUrl: undefined,
+                    status: "idle",
+                    error: undefined,
+                  });
+                  requestAnimationFrame(() => {
+                    document.querySelector<HTMLInputElement>(`.react-flow__node[data-id="${id}"] input[type="file"]`)?.focus();
+                  });
+                }}
+              >
+                移除原图
+              </Button>
             </div>
           )}
         </div>

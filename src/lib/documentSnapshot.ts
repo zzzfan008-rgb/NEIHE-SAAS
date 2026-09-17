@@ -30,11 +30,30 @@ interface GenerationModelDocumentFields {
 }
 
 export type DocumentNodeData =
-  | { kind: "outfit-reference"; label: string; images: string[]; mainImage: string | null }
-  | ({ kind: "ai-styling"; label: string; prompt: string; aspectRatio: string; batchSize: 1 | 2 | 4;
+  | {
+      kind: "character-board";
+      label: string;
+      sourceImage?: string;
+      outputImages: string[];
+    }
+  | {
+      kind: "outfit-reference";
+      label: string;
+      images: string[];
+      mainImage: string | null;
+    }
+  | ({
+      kind: "ai-styling";
+      label: string;
+      prompt: string;
+      aspectRatio: string;
+      batchSize: 1 | 2 | 4;
       preserve: import("../types/styling").StylingPreserve | null;
       extras: import("../types/styling").StylingExtras;
-      analysisId?: string; referenceFingerprint?: string; resultNodeId?: string; outputImages: string[];
+      analysisId?: string;
+      referenceFingerprint?: string;
+      resultNodeId?: string;
+      outputImages: string[];
     } & GenerationModelDocumentFields)
   | {
       kind: "image-input";
@@ -178,7 +197,12 @@ export type DocumentNodeData =
   | {
       kind: "mask-redraw";
       label: string;
-      repairFocus: "custom" | "upper-garment" | "pants" | "accessories" | "logo-text";
+      repairFocus:
+        | "custom"
+        | "upper-garment"
+        | "pants"
+        | "accessories"
+        | "logo-text";
       executionMode: "repair" | "bypass";
       prompt: string;
       mask?: string;
@@ -231,40 +255,70 @@ interface EdgeLike {
   targetHandle?: string | null;
 }
 
-function documentTargetHandle(value: string | null | undefined): WorkflowInputRole | null | undefined {
+function documentTargetHandle(
+  value: string | null | undefined,
+): WorkflowInputRole | null | undefined {
   if (value === undefined) return undefined;
   if (value === null) return null;
-  return WORKFLOW_INPUT_ROLES.includes(value as WorkflowInputRole) ? value as WorkflowInputRole : null;
+  return WORKFLOW_INPUT_ROLES.includes(value as WorkflowInputRole)
+    ? (value as WorkflowInputRole)
+    : null;
 }
 
-function optionalString<K extends string>(key: K, value: string | undefined): Partial<Record<K, string>> {
-  return value === undefined ? {} : { [key]: value } as Record<K, string>;
+function optionalString<K extends string>(
+  key: K,
+  value: string | undefined,
+): Partial<Record<K, string>> {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, string>);
 }
 
-function optionalNumber<K extends string>(key: K, value: number | undefined): Partial<Record<K, number>> {
-  return value === undefined ? {} : { [key]: value } as Record<K, number>;
+function optionalNumber<K extends string>(
+  key: K,
+  value: number | undefined,
+): Partial<Record<K, number>> {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, number>);
 }
 
 function generationModelFields(
-  kind: Exclude<NodeKind, "image-input" | "virtual-try-on" | "mask-redraw" | "result">,
+  kind: Exclude<
+    NodeKind,
+    "image-input" | "virtual-try-on" | "mask-redraw" | "result"
+  >,
   modelIdValue: unknown,
   modelOptionsValue: unknown,
   preferredAspectRatio = "1:1",
 ): GenerationModelDocumentFields {
-  const modelId = isImageModelId(modelIdValue) && isModelAllowedForNode(modelIdValue, kind)
-    ? modelIdValue as GenerationImageModelId
-    : kind === "sketch-optimize" ? SKETCH_OPTIMIZATION_MODEL_ID : "gpt-image-2-vip";
+  const modelId =
+    isImageModelId(modelIdValue) && isModelAllowedForNode(modelIdValue, kind)
+      ? (modelIdValue as GenerationImageModelId)
+      : kind === "sketch-optimize"
+        ? SKETCH_OPTIMIZATION_MODEL_ID
+        : "gpt-image-2-vip";
   return {
     modelId,
-    modelOptions: normalizeImageModelOptions(modelId, modelOptionsValue, preferredAspectRatio),
+    modelOptions: normalizeImageModelOptions(
+      modelId,
+      modelOptionsValue,
+      preferredAspectRatio,
+    ),
   };
 }
 
-function gptDocumentQuality(modelId: unknown, modelOptions: unknown): ImageModelOptions["quality"] {
-  const quality = normalizeImageModelOptions(MASK_REDRAW_MODEL_ID, modelOptions).quality;
+function gptDocumentQuality(
+  modelId: unknown,
+  modelOptions: unknown,
+): ImageModelOptions["quality"] {
+  const quality = normalizeImageModelOptions(
+    MASK_REDRAW_MODEL_ID,
+    modelOptions,
+  ).quality;
   // 服务端也会先序列化旧文档；模型替换和质量映射必须一起完成，且只映射一次。
   return modelId === "gpt-image-2"
-    ? quality === "low" ? "low" : quality === "high" ? "max" : "high"
+    ? quality === "low"
+      ? "low"
+      : quality === "high"
+        ? "max"
+        : "high"
     : quality;
 }
 
@@ -274,33 +328,70 @@ function virtualTryOnModelFields(
   imageSize: "2K" | "4K",
 ): { modelId: VirtualTryOnModelId; modelOptions: ImageModelOptions } {
   const modelId: VirtualTryOnModelId =
-    modelIdValue === "gemini-3.1-flash-image" || modelIdValue === "gemini-3.1-flash-image-preview"
+    modelIdValue === "gemini-3.1-flash-image" ||
+    modelIdValue === "gemini-3.1-flash-image-preview"
       ? "gemini-3.1-flash-image"
       : MASK_REDRAW_MODEL_ID;
   const quality = gptDocumentQuality(modelIdValue, modelOptionsValue);
   return {
     modelId,
-    modelOptions: modelId === "gemini-3.1-flash-image"
-      ? normalizeImageModelOptions(modelId, { ...(
-          typeof modelOptionsValue === "object" && modelOptionsValue !== null
-            ? modelOptionsValue as ImageModelOptions
-            : {}
-        ), imageSize })
-      : quality ? { quality } : {},
+    modelOptions:
+      modelId === "gemini-3.1-flash-image"
+        ? normalizeImageModelOptions(modelId, {
+            ...(typeof modelOptionsValue === "object" &&
+            modelOptionsValue !== null
+              ? (modelOptionsValue as ImageModelOptions)
+              : {}),
+            imageSize,
+          })
+        : quality
+          ? { quality }
+          : {},
   };
 }
 
 function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
   switch (data.kind) {
+    case "character-board":
+      return {
+        kind: data.kind,
+        label: data.label,
+        ...(data.sourceImage ? { sourceImage: data.sourceImage } : {}),
+        outputImages: [...data.outputImages],
+      };
     case "outfit-reference":
-      return { kind: data.kind, label: data.label, images: [...data.images], mainImage: data.mainImage };
+      return {
+        kind: data.kind,
+        label: data.label,
+        images: [...data.images],
+        mainImage: data.mainImage,
+      };
     case "ai-styling":
-      return { kind: data.kind, label: data.label, prompt: data.prompt, aspectRatio: data.aspectRatio,
-        batchSize: data.batchSize, preserve: data.preserve,
-        extras: { outerwear: data.extras.outerwear, shoes: data.extras.shoes, bag: data.extras.bag, accessories: data.extras.accessories, hat: data.extras.hat },
-        ...optionalString("analysisId", data.analysisId), ...optionalString("referenceFingerprint", data.referenceFingerprint),
-        ...optionalString("resultNodeId", data.resultNodeId), outputImages: [...data.outputImages],
-        ...generationModelFields(data.kind, data.modelId, data.modelOptions, data.aspectRatio) };
+      return {
+        kind: data.kind,
+        label: data.label,
+        prompt: data.prompt,
+        aspectRatio: data.aspectRatio,
+        batchSize: data.batchSize,
+        preserve: data.preserve,
+        extras: {
+          outerwear: data.extras.outerwear,
+          shoes: data.extras.shoes,
+          bag: data.extras.bag,
+          accessories: data.extras.accessories,
+          hat: data.extras.hat,
+        },
+        ...optionalString("analysisId", data.analysisId),
+        ...optionalString("referenceFingerprint", data.referenceFingerprint),
+        ...optionalString("resultNodeId", data.resultNodeId),
+        outputImages: [...data.outputImages],
+        ...generationModelFields(
+          data.kind,
+          data.modelId,
+          data.modelOptions,
+          data.aspectRatio,
+        ),
+      };
     case "image-input":
       return {
         kind: data.kind,
@@ -308,7 +399,11 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         imageRole: data.imageRole,
         ...optionalString("imageUrl", data.imageUrl),
         ...(data.autoConnectTargets
-          ? { autoConnectTargets: data.autoConnectTargets.map((target) => ({ ...target })) }
+          ? {
+              autoConnectTargets: data.autoConnectTargets.map((target) => ({
+                ...target,
+              })),
+            }
           : {}),
       };
     case "background-extract":
@@ -390,7 +485,12 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         aspectRatio: data.aspectRatio,
         batchSize: data.batchSize,
         outputImages: [...data.outputImages],
-        ...generationModelFields(data.kind, data.modelId, data.modelOptions, data.aspectRatio),
+        ...generationModelFields(
+          data.kind,
+          data.modelId,
+          data.modelOptions,
+          data.aspectRatio,
+        ),
       };
     case "ai-modify":
       return {
@@ -400,7 +500,12 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         aspectRatio: data.aspectRatio,
         batchSize: data.batchSize,
         outputImages: [...data.outputImages],
-        ...generationModelFields(data.kind, data.modelId, data.modelOptions, data.aspectRatio),
+        ...generationModelFields(
+          data.kind,
+          data.modelId,
+          data.modelOptions,
+          data.aspectRatio,
+        ),
       };
     case "fabric-recolor":
       return {
@@ -448,7 +553,9 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         imageSize: data.imageSize,
         aspectRatio: data.aspectRatio,
         ...optionalNumber("basisRevision", data.basisRevision),
-        ...(data.garmentCategory ? { garmentCategory: data.garmentCategory } : {}),
+        ...(data.garmentCategory
+          ? { garmentCategory: data.garmentCategory }
+          : {}),
         ...optionalString("materialSpec", data.materialSpec),
         ...optionalString("constructionSpec", data.constructionSpec),
         promptEnhancement: data.promptEnhancement,
@@ -459,7 +566,11 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         ...optionalString("stylePrompt", data.stylePrompt),
         ...optionalString("styleReferenceImage", data.styleReferenceImage),
         outputImages: [...data.outputImages],
-        ...virtualTryOnModelFields(data.modelId, data.modelOptions, data.imageSize),
+        ...virtualTryOnModelFields(
+          data.modelId,
+          data.modelOptions,
+          data.imageSize,
+        ),
       };
     case "mask-redraw":
       return {
@@ -473,7 +584,9 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         outputImages: [...data.outputImages],
         modelId: MASK_REDRAW_MODEL_ID,
         // 蒙版输出尺寸由服务端按原图逐次计算，不能写入项目文档形成陈旧参数。
-        modelOptions: { quality: gptDocumentQuality(data.modelId, data.modelOptions) },
+        modelOptions: {
+          quality: gptDocumentQuality(data.modelId, data.modelOptions),
+        },
       };
     case "result":
       return {
@@ -486,7 +599,10 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
 }
 
 function cloneDocumentNodeData(data: DocumentNodeData): DocumentNodeData {
-  return createDocumentNodeData({ ...data, status: "idle" } as WorkflowNodeData);
+  return createDocumentNodeData({
+    ...data,
+    status: "idle",
+  } as WorkflowNodeData);
 }
 
 function createDocumentNode(node: NodeLike): DocumentNode {
@@ -509,18 +625,26 @@ function createDocumentEdge(edge: EdgeLike): DocumentEdge {
     id: edge.id,
     source: edge.source,
     target: edge.target,
-    ...(edge.sourceHandle === undefined ? {} : { sourceHandle: edge.sourceHandle }),
+    ...(edge.sourceHandle === undefined
+      ? {}
+      : { sourceHandle: edge.sourceHandle }),
     ...(targetHandle === undefined ? {} : { targetHandle }),
   };
 }
 
-function documentEdgeToPersisted(edge: DocumentEdge): PersistedWorkflow["edges"][number] {
+function documentEdgeToPersisted(
+  edge: DocumentEdge,
+): PersistedWorkflow["edges"][number] {
   return {
     id: edge.id,
     source: edge.source,
     target: edge.target,
-    ...(edge.sourceHandle === undefined ? {} : { sourceHandle: edge.sourceHandle }),
-    ...(edge.targetHandle === undefined ? {} : { targetHandle: edge.targetHandle }),
+    ...(edge.sourceHandle === undefined
+      ? {}
+      : { sourceHandle: edge.sourceHandle }),
+    ...(edge.targetHandle === undefined
+      ? {}
+      : { targetHandle: edge.targetHandle }),
   };
 }
 
@@ -536,14 +660,19 @@ export function createDocumentSnapshot(source: {
   };
 }
 
-export function documentSnapshotToPersistedWorkflow(snapshot: DocumentSnapshot): PersistedWorkflow {
+export function documentSnapshotToPersistedWorkflow(
+  snapshot: DocumentSnapshot,
+): PersistedWorkflow {
   return {
     schemaVersion: WORKFLOW_SCHEMA_VERSION,
     nodes: snapshot.nodes.map((node) => ({
       id: node.id,
       type: node.type,
       position: { x: node.position.x, y: node.position.y },
-      data: { ...cloneDocumentNodeData(node.data), status: "idle" } as WorkflowNodeData,
+      data: {
+        ...cloneDocumentNodeData(node.data),
+        status: "idle",
+      } as WorkflowNodeData,
     })),
     edges: snapshot.edges.map(documentEdgeToPersisted),
   };

@@ -18,14 +18,28 @@ assert.deepEqual(
 assert.deepEqual(
   TOOL_GROUPS.map((group) => group.items.map((item) => item.name)),
   [
-    ["文本节点", "本地上传图片", "提取背景", "本地上传视频", "从资产库中选择"],
+    [
+      "文本节点",
+      "本地上传图片",
+      "提取背景",
+      "人物板生成",
+      "本地上传视频",
+      "从资产库中选择",
+    ],
     ["草图到效果图", "AI 改款", "面料配色替换", "印花提取", "印花裂变"],
     ["白底图制作", "一键换装", "AI 搭配", "风格迁移"],
-    ["文生视频", "首帧生视频", "首尾帧生视频", "多模态参考生视频", "视频编辑", "视频延长"],
+    [
+      "文生视频",
+      "首帧生视频",
+      "首尾帧生视频",
+      "多模态参考生视频",
+      "视频编辑",
+      "视频延长",
+    ],
     ["绘画工具", "色彩工具"],
   ],
 );
-assert.equal(TOOL_GROUPS.flatMap((group) => group.items).length, 22);
+assert.equal(TOOL_GROUPS.flatMap((group) => group.items).length, 23);
 
 const ids = TOOL_GROUPS.flatMap((group) => group.items.map((item) => item.id));
 assert.equal(new Set(ids).size, ids.length, "工具项目 id 必须全局稳定且唯一");
@@ -36,22 +50,56 @@ for (const group of TOOL_GROUPS) {
     assert.ok(item.description.trim(), `${item.name} 缺少用途说明`);
     if (item.availability === "available") {
       assert.ok(item.creationIntent, `${item.name} 可用但没有创建意图`);
-      assert.equal(item.disabledReason, undefined, `${item.name} 可用时不得显示禁用原因`);
+      assert.equal(
+        item.disabledReason,
+        undefined,
+        `${item.name} 可用时不得显示禁用原因`,
+      );
     } else {
-      assert.ok(item.disabledReason?.trim(), `${item.name} 不可用时必须给出原因`);
-      assert.equal(item.creationIntent, undefined, `${item.name} 不可用时不得携带创建意图`);
+      assert.ok(
+        item.disabledReason?.trim(),
+        `${item.name} 不可用时必须给出原因`,
+      );
+      assert.equal(
+        item.creationIntent,
+        undefined,
+        `${item.name} 不可用时不得携带创建意图`,
+      );
     }
   }
 }
 
-const item = (name: string) => TOOL_GROUPS.flatMap((group) => group.items).find((candidate) => candidate.name === name);
-for (const name of ["草图到效果图", "AI 改款", "面料配色替换", "印花提取", "印花裂变", "白底图制作", "一键换装", "风格迁移"]) {
-  assert.equal(item(name)?.creationIntent?.type, "workflow-template", `${name} 必须创建已连线工作流`);
+const item = (name: string) =>
+  TOOL_GROUPS.flatMap((group) => group.items).find(
+    (candidate) => candidate.name === name,
+  );
+for (const name of [
+  "草图到效果图",
+  "AI 改款",
+  "面料配色替换",
+  "印花提取",
+  "印花裂变",
+  "白底图制作",
+  "一键换装",
+  "风格迁移",
+]) {
+  assert.equal(
+    item(name)?.creationIntent?.type,
+    "workflow-template",
+    `${name} 必须创建已连线工作流`,
+  );
 }
 assert.equal(item("本地上传视频")?.availability, "available");
-for (const name of ["文生视频", "首帧生视频", "首尾帧生视频", "多模态参考生视频", "视频编辑", "视频延长"]) {
+for (const name of [
+  "文生视频",
+  "首帧生视频",
+  "首尾帧生视频",
+  "多模态参考生视频",
+  "视频编辑",
+  "视频延长",
+]) {
   assert.equal(item(name)?.availability, "available");
   assert.equal(item(name)?.creationIntent?.type, "workflow-template");
 }
 
-console.log("通过 1 项工具目录测试（5 组、22 项）");
+console.log("通过 1 项工具目录测试（5 组、23 项）");

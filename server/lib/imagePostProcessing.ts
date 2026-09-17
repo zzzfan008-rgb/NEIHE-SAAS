@@ -22,7 +22,9 @@ const SHARP_INPUT_OPTIONS = {
 };
 
 function isExactAspectRatio(value: unknown): value is ExactAspectRatio {
-  return typeof value === "string" && Object.hasOwn(EXACT_ASPECT_DIMENSIONS, value);
+  return (
+    typeof value === "string" && Object.hasOwn(EXACT_ASPECT_DIMENSIONS, value)
+  );
 }
 
 function isUpscaleSize(value: unknown): value is UpscaleSize {
@@ -45,10 +47,15 @@ async function imageRefToBuffer(ref: string): Promise<Buffer> {
 /** Encode to a supported local format while enforcing the project's 20 MB encoded-file limit. */
 async function encodeWebpWithinLimit(image: Sharp): Promise<Buffer> {
   for (const quality of WEBP_QUALITIES) {
-    const output = await image.clone().webp({ quality, effort: 4, smartSubsample: true }).toBuffer();
+    const output = await image
+      .clone()
+      .webp({ quality, effort: 4, smartSubsample: true })
+      .toBuffer();
     if (output.byteLength <= MAX_IMAGE_BYTES) return output;
   }
-  throw new Error(`processed image exceeds ${MAX_IMAGE_BYTES} bytes even at minimum quality`);
+  throw new Error(
+    `processed image exceeds ${MAX_IMAGE_BYTES} bytes even at minimum quality`,
+  );
 }
 
 function toWebpDataUrl(buffer: Buffer): string {
@@ -70,10 +77,21 @@ export async function fitGeneratedImageToAspect(
     const { width, height } = EXACT_ASPECT_DIMENSIONS[normalizedAspectRatio];
     const source = sharp(input, SHARP_INPUT_OPTIONS).rotate();
     const { dominant } = await source.clone().stats();
-    const background = { r: dominant.r, g: dominant.g, b: dominant.b, alpha: 1 };
+    const background = {
+      r: dominant.r,
+      g: dominant.g,
+      b: dominant.b,
+      alpha: 1,
+    };
     const output = await encodeWebpWithinLimit(
       source
-        .resize({ width, height, fit: "contain", position: "centre", background })
+        .resize({
+          width,
+          height,
+          fit: "contain",
+          position: "centre",
+          background,
+        })
         .flatten({ background })
         .toColourspace("srgb"),
     );
@@ -87,18 +105,36 @@ export async function fitGeneratedImageToCanvas(
   canvasRef: string,
 ): Promise<string> {
   return withImageProcessingSlot(async () => {
-    const [input, canvasInput] = await Promise.all([imageRefToBuffer(ref), imageRefToBuffer(canvasRef)]);
+    const [input, canvasInput] = await Promise.all([
+      imageRefToBuffer(ref),
+      imageRefToBuffer(canvasRef),
+    ]);
     const metadata = await sharp(canvasInput, SHARP_INPUT_OPTIONS).metadata();
-    if (!metadata.width || !metadata.height) throw new Error("无法读取原图画布尺寸");
-    const swapsAxes = metadata.orientation !== undefined && metadata.orientation >= 5 && metadata.orientation <= 8;
+    if (!metadata.width || !metadata.height)
+      throw new Error("无法读取原图画布尺寸");
+    const swapsAxes =
+      metadata.orientation !== undefined &&
+      metadata.orientation >= 5 &&
+      metadata.orientation <= 8;
     const width = swapsAxes ? metadata.height : metadata.width;
     const height = swapsAxes ? metadata.width : metadata.height;
     const source = sharp(input, SHARP_INPUT_OPTIONS).rotate();
     const { dominant } = await source.clone().stats();
-    const background = { r: dominant.r, g: dominant.g, b: dominant.b, alpha: 1 };
+    const background = {
+      r: dominant.r,
+      g: dominant.g,
+      b: dominant.b,
+      alpha: 1,
+    };
     const output = await encodeWebpWithinLimit(
       source
-        .resize({ width, height, fit: "contain", position: "centre", background })
+        .resize({
+          width,
+          height,
+          fit: "contain",
+          position: "centre",
+          background,
+        })
         .flatten({ background })
         .toColourspace("srgb"),
     );
@@ -107,7 +143,10 @@ export async function fitGeneratedImageToCanvas(
 }
 
 /** Preserve the source ratio and make its long edge exactly 2048 px (2K) or 4096 px (4K). */
-export async function upscaleImageToLongEdge(ref: string, imageSize: unknown): Promise<string> {
+export async function upscaleImageToLongEdge(
+  ref: string,
+  imageSize: unknown,
+): Promise<string> {
   return withImageProcessingSlot(async () => {
     const normalizedImageSize = normalizeUpscaleSize(imageSize);
     const input = await imageRefToBuffer(ref);

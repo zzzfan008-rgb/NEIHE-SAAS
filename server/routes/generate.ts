@@ -58,6 +58,7 @@ export function validateDirectGenerateRequest(
 ): DirectGenerateValidation {
   // Backward compatibility: legacy direct callers did not send a node kind.
   if (kind === undefined) return { ok: true };
+  if (kind === "character-board") return { ok: false, error: "character-board uses uploaded input and a protected prompt; use /api/run-plan" };
   if (kind === "ai-styling") {
     return { ok: false, error: "ai-styling requires saved references and outfit analysis; use /api/run-plan" };
   }

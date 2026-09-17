@@ -12,9 +12,7 @@ import {
   type Connection,
 } from "@xyflow/react";
 import { nanoid } from "nanoid";
-import {
-  markProjectTabSessionWorkspaceRestored,
-} from "@/lib/workspaceRestoreState";
+import { markProjectTabSessionWorkspaceRestored } from "@/lib/workspaceRestoreState";
 
 export { didRestoreProjectTabSessionWorkspace } from "@/lib/workspaceRestoreState";
 import {
@@ -172,7 +170,11 @@ export interface DocumentTarget {
 
 export type CoalescedTextEditDescriptor =
   | { kind: "project-name" }
-  | { kind: "node-data"; nodeId: string; field: "label" | "prompt" | "note" | "materialSpec" | "constructionSpec" };
+  | {
+      kind: "node-data";
+      nodeId: string;
+      field: "label" | "prompt" | "note" | "materialSpec" | "constructionSpec";
+    };
 
 export interface CoalescedTextEditToken {
   readonly id: symbol;
@@ -187,7 +189,13 @@ export interface FlowState {
   /** 最近生成（底部结果面板，含运行记录），新条目在前 */
   recentResults: RecentResult[];
   /** 全局图片查看器（单击任意图片弹出，滚轮缩放 1x~2x） */
-  viewer: { url: string; title?: string; prompt?: string; meta?: string; assetCategory?: Asset["category"] } | null;
+  viewer: {
+    url: string;
+    title?: string;
+    prompt?: string;
+    meta?: string;
+    assetCategory?: Asset["category"];
+  } | null;
   /** 浏览器会话草稿未能持久化；非空时刷新可能丢失尚未保存的修改。 */
   tabSessionPersistenceError: string | null;
   /** 仅内存：打开的蒙版编辑器与尚未结束的蒙版上传总数。 */
@@ -216,7 +224,13 @@ export interface FlowState {
   toggleCompareId: (id: string) => void;
   clearCompare: () => void;
   removeRecentResult: (id: string) => void;
-  openViewer: (v: { url: string; title?: string; prompt?: string; meta?: string; assetCategory?: Asset["category"] }) => void;
+  openViewer: (v: {
+    url: string;
+    title?: string;
+    prompt?: string;
+    meta?: string;
+    assetCategory?: Asset["category"];
+  }) => void;
   closeViewer: () => void;
   onNodesChange: (changes: NodeChange<FlowNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<Edge>[]) => void;
@@ -224,7 +238,11 @@ export interface FlowState {
   confirmPendingConnection: (targetHandle: WorkflowInputRole) => boolean;
   cancelPendingConnection: () => void;
   isValidConnection: (conn: Connection | Edge) => boolean;
-  addNode: (kind: NodeKind, position: { x: number; y: number }, preset?: Record<string, unknown>) => string | null;
+  addNode: (
+    kind: NodeKind,
+    position: { x: number; y: number },
+    preset?: Record<string, unknown>,
+  ) => string | null;
   /** 在选中节点的上游或下游原子新增节点并连线；一次撤销移除节点和边。 */
   addConnectedNode: (
     anchorId: string,
@@ -243,16 +261,34 @@ export interface FlowState {
   commitDrawingBoard: (
     target: DocumentTarget,
     nodeId: string,
-    refs: { contentRef: string; previewImageRef: string; exportImageRef?: string },
+    refs: {
+      contentRef: string;
+      previewImageRef: string;
+      exportImageRef?: string;
+    },
   ) => boolean;
   /** 将已提交画板预览导出为独立图片节点；画板自身保持可编辑。 */
-  exportDrawingBoardImageNode: (target: DocumentTarget, nodeId: string) => string | null;
+  exportDrawingBoardImageNode: (
+    target: DocumentTarget,
+    nodeId: string,
+  ) => string | null;
   updateNodeData: (id: string, patch: Record<string, unknown>) => void;
   /** 原子更新视频设置，并移除新模式下不再存在的入边。 */
-  updateVideoNodeSettings: (id: string, patch: Partial<VideoGenerateNodeData>) => void;
-  updateNodeDataInTab: (target: DocumentTarget, id: string, patch: Record<string, unknown>) => void;
+  updateVideoNodeSettings: (
+    id: string,
+    patch: Partial<VideoGenerateNodeData>,
+  ) => void;
+  updateNodeDataInTab: (
+    target: DocumentTarget,
+    id: string,
+    patch: Record<string, unknown>,
+  ) => void;
   /** 为目标图片节点赋值，并在同一次历史提交中补齐模板声明的后续连接。 */
-  assignImageInputInTab: (target: DocumentTarget, id: string, imageUrl: string) => void;
+  assignImageInputInTab: (
+    target: DocumentTarget,
+    id: string,
+    imageUrl: string,
+  ) => void;
   setNodeStatus: (id: string, status: NodeRunStatus, error?: string) => void;
   runNode: (id: string) => Promise<void>;
   /** 保存当前页签；返回服务端是否确认持久化成功。 */
@@ -302,7 +338,10 @@ interface DeferredHistoryTransactionAction {
 
 interface ActiveHistoryTransaction {
   tokens: Set<HistoryTransactionToken>;
-  onSettledByToken: Map<HistoryTransactionToken, HistoryTransactionSettledCallback>;
+  onSettledByToken: Map<
+    HistoryTransactionToken,
+    HistoryTransactionSettledCallback
+  >;
   deferredActions: DeferredHistoryTransactionAction[];
   tabId: string;
   before: FlowTemporalState;
@@ -312,7 +351,10 @@ interface ActiveHistoryTransaction {
 
 let historySuppressionDepth = 0;
 let activeHistoryTransaction: ActiveHistoryTransaction | null = null;
-let recordHistoryEntry: (pastState: FlowTemporalState, currentState: FlowTemporalState) => void = () => undefined;
+let recordHistoryEntry: (
+  pastState: FlowTemporalState,
+  currentState: FlowTemporalState,
+) => void = () => undefined;
 let flushDeferredTabSessionPersistence = (): void => undefined;
 let flushPendingTabSessionPersistence = (): boolean => true;
 const DOCUMENT_HISTORY_LIMIT = 50;
@@ -369,13 +411,19 @@ const AMBIGUOUS_RUN_STORAGE_KEY = "garment-canvas-ambiguous-run-requests";
 function loadAmbiguousRunRequestIds(): Map<string, string> {
   if (typeof window === "undefined") return new Map();
   try {
-    const parsed = JSON.parse(window.sessionStorage.getItem(AMBIGUOUS_RUN_STORAGE_KEY) ?? "[]") as unknown;
+    const parsed = JSON.parse(
+      window.sessionStorage.getItem(AMBIGUOUS_RUN_STORAGE_KEY) ?? "[]",
+    ) as unknown;
     if (!Array.isArray(parsed)) return new Map();
-    return new Map(parsed.filter(
-      (entry): entry is [string, string] =>
-        Array.isArray(entry) && entry.length === 2 &&
-        typeof entry[0] === "string" && typeof entry[1] === "string",
-    ));
+    return new Map(
+      parsed.filter(
+        (entry): entry is [string, string] =>
+          Array.isArray(entry) &&
+          entry.length === 2 &&
+          typeof entry[0] === "string" &&
+          typeof entry[1] === "string",
+      ),
+    );
   } catch {
     return new Map();
   }
@@ -395,7 +443,10 @@ function persistAmbiguousRunRequestIds(): void {
   }
 }
 
-function rememberAmbiguousRunRequest(key: string, clientRequestId: string): void {
+function rememberAmbiguousRunRequest(
+  key: string,
+  clientRequestId: string,
+): void {
   ambiguousRunRequestIds.set(key, clientRequestId);
   persistAmbiguousRunRequestIds();
 }
@@ -423,9 +474,15 @@ function latestActiveRecordsByNode(
 ): Map<string, RecentResult> {
   const result = new Map<string, RecentResult>();
   for (const record of records) {
-    if (record.projectId !== projectId || !isNodeRunActive(record.status) || !record.runId) continue;
+    if (
+      record.projectId !== projectId ||
+      !isNodeRunActive(record.status) ||
+      !record.runId
+    )
+      continue;
     const existing = result.get(record.nodeId);
-    if (!existing || existing.startedAt < record.startedAt) result.set(record.nodeId, record);
+    if (!existing || existing.startedAt < record.startedAt)
+      result.set(record.nodeId, record);
   }
   return result;
 }
@@ -442,7 +499,8 @@ export function isLatestTrackedRun(
       record.projectId !== candidate.projectId ||
       record.nodeId !== candidate.nodeId ||
       !record.runId
-    ) continue;
+    )
+      continue;
     if (!latest || latest.startedAt < record.startedAt) latest = record;
   }
   return latest?.runId === candidate.runId;
@@ -474,7 +532,12 @@ const TRANSIENT_NODE_KEYS = new Set([
   "resizeDocumentPosition",
 ]);
 
-const PRESERVED_NODE_TRANSIENT_KEYS = ["dragging", "measured", "width", "height"] as const;
+const PRESERVED_NODE_TRANSIENT_KEYS = [
+  "dragging",
+  "measured",
+  "width",
+  "height",
+] as const;
 
 function preserveNodeRuntimeAndTransients(
   target: FlowNode,
@@ -494,14 +557,21 @@ function preserveNodeRuntimeAndTransients(
   const currentRecord = current as unknown as Record<string, unknown>;
   for (const key of PRESERVED_NODE_TRANSIENT_KEYS) {
     if (key === "dragging" && options?.preserveDragging === false) continue;
-    if (Object.prototype.hasOwnProperty.call(currentRecord, key)) nextRecord[key] = currentRecord[key];
+    if (Object.hasOwn(currentRecord, key)) nextRecord[key] = currentRecord[key];
     else delete nextRecord[key];
   }
   if (current.resizeDocumentPosition) {
-    const targetDocumentPosition = target.resizeDocumentPosition ?? target.position;
+    const targetDocumentPosition =
+      target.resizeDocumentPosition ?? target.position;
     next.position = {
-      x: targetDocumentPosition.x + current.position.x - current.resizeDocumentPosition.x,
-      y: targetDocumentPosition.y + current.position.y - current.resizeDocumentPosition.y,
+      x:
+        targetDocumentPosition.x +
+        current.position.x -
+        current.resizeDocumentPosition.x,
+      y:
+        targetDocumentPosition.y +
+        current.position.y -
+        current.resizeDocumentPosition.y,
     };
     next.resizeDocumentPosition = { ...targetDocumentPosition };
   }
@@ -541,12 +611,16 @@ function sameDocumentNode(left: FlowNode, right: FlowNode): boolean {
     left.type !== right.type ||
     left.position.x !== right.position.x ||
     left.position.y !== right.position.y
-  ) return false;
-  if (!sameRecordValues(
-    left as unknown as Record<string, unknown>,
-    right as unknown as Record<string, unknown>,
-    DOCUMENT_NODE_SHELL_EXCLUDED_KEYS,
-  )) return false;
+  )
+    return false;
+  if (
+    !sameRecordValues(
+      left as unknown as Record<string, unknown>,
+      right as unknown as Record<string, unknown>,
+      DOCUMENT_NODE_SHELL_EXCLUDED_KEYS,
+    )
+  )
+    return false;
   if (left.data === right.data) return true;
   return sameRecordValues(
     left.data as unknown as Record<string, unknown>,
@@ -574,17 +648,25 @@ function sameDocumentEdges(left: Edge[], right: Edge[]): boolean {
   if (left.length !== right.length) return false;
   for (let index = 0; index < left.length; index += 1) {
     if (left[index] === right[index]) continue;
-    if (JSON.stringify(documentEdgeValue(left[index])) !== JSON.stringify(documentEdgeValue(right[index]))) {
+    if (
+      JSON.stringify(documentEdgeValue(left[index])) !==
+      JSON.stringify(documentEdgeValue(right[index]))
+    ) {
       return false;
     }
   }
   return true;
 }
 
-function sameTemporalDocument(left: FlowTemporalState, right: FlowTemporalState): boolean {
-  return left.projectName === right.projectName &&
+function sameTemporalDocument(
+  left: FlowTemporalState,
+  right: FlowTemporalState,
+): boolean {
+  return (
+    left.projectName === right.projectName &&
     sameDocumentNodes(left.nodes, right.nodes) &&
-    sameDocumentEdges(left.edges, right.edges);
+    sameDocumentEdges(left.edges, right.edges)
+  );
 }
 
 function temporalDocument(tab: ProjectTab): FlowTemporalState {
@@ -593,7 +675,10 @@ function temporalDocument(tab: ProjectTab): FlowTemporalState {
 
 function stashActiveTemporalHistory(tabId: string): void {
   const temporalState = useFlowStore.temporal.getState();
-  if (temporalState.pastStates.length === 0 && temporalState.futureStates.length === 0) {
+  if (
+    temporalState.pastStates.length === 0 &&
+    temporalState.futureStates.length === 0
+  ) {
     temporalHistoryByTab.delete(tabId);
     return;
   }
@@ -617,17 +702,26 @@ function recordInactiveTabHistory(
   current: FlowTemporalState,
 ): void {
   if (sameTemporalDocument(before, current)) return;
-  const history = temporalHistoryByTab.get(tabId) ?? { pastStates: [], futureStates: [] };
+  const history = temporalHistoryByTab.get(tabId) ?? {
+    pastStates: [],
+    futureStates: [],
+  };
   temporalHistoryByTab.set(tabId, {
     pastStates: [...history.pastStates, before].slice(-DOCUMENT_HISTORY_LIMIT),
     futureStates: [],
   });
 }
 
-function documentMutationChanged(tab: ProjectTab, patch: Partial<ProjectTab>): boolean {
-  if (patch.projectName !== undefined && patch.projectName !== tab.projectName) return true;
-  if (patch.nodes !== undefined && !sameDocumentNodes(tab.nodes, patch.nodes)) return true;
-  if (patch.edges !== undefined && !sameDocumentEdges(tab.edges, patch.edges)) return true;
+function documentMutationChanged(
+  tab: ProjectTab,
+  patch: Partial<ProjectTab>,
+): boolean {
+  if (patch.projectName !== undefined && patch.projectName !== tab.projectName)
+    return true;
+  if (patch.nodes !== undefined && !sameDocumentNodes(tab.nodes, patch.nodes))
+    return true;
+  if (patch.edges !== undefined && !sameDocumentEdges(tab.edges, patch.edges))
+    return true;
   return false;
 }
 
@@ -643,9 +737,13 @@ function captureTransactionPositionChanges(
     if (
       !currentNode ||
       transaction.positionBeforeByNodeId.has(nextNode.id) ||
-      (currentNode.position.x === nextNode.position.x && currentNode.position.y === nextNode.position.y)
-    ) continue;
-    transaction.positionBeforeByNodeId.set(nextNode.id, { ...currentNode.position });
+      (currentNode.position.x === nextNode.position.x &&
+        currentNode.position.y === nextNode.position.y)
+    )
+      continue;
+    transaction.positionBeforeByNodeId.set(nextNode.id, {
+      ...currentNode.position,
+    });
   }
 }
 
@@ -658,7 +756,9 @@ function rebaseDocumentOutsideTransaction(
   transaction: ActiveHistoryTransaction,
 ): FlowTemporalState {
   if (transaction.positionBeforeByNodeId.size === 0) return document;
-  const baselineById = new Map(transaction.before.nodes.map((node) => [node.id, node]));
+  const baselineById = new Map(
+    transaction.before.nodes.map((node) => [node.id, node]),
+  );
   let changed = false;
   const nodes = document.nodes.map((node) => {
     const position = transaction.positionBeforeByNodeId.get(node.id);
@@ -668,7 +768,8 @@ function rebaseDocumentOutsideTransaction(
       node.position.x === position.x &&
       node.position.y === position.y &&
       node.dragging === baseline?.dragging
-    ) return node;
+    )
+      return node;
     changed = true;
     return {
       ...node,
@@ -699,27 +800,52 @@ function commitDocumentMutationWithSet(
     const tab = selectActiveDocument(state);
     const patch = typeof mutation === "function" ? mutation(tab) : mutation;
     if (patch.edges && patch.edges !== tab.edges) {
-      const edgeKey = (edges: Edge[], id: string) => JSON.stringify(edges.filter(edge => edge.target === id).map(edge => [edge.source, edge.sourceHandle, edge.targetHandle]));
-      patch.nodes = (patch.nodes ?? tab.nodes).map(node => {
-        if (node.data.kind !== "ai-styling" || edgeKey(tab.edges, node.id) === edgeKey(patch.edges!, node.id)) return node;
-        invalidateStylingRequest({tabId:tab.id,projectId:tab.projectId,documentEpoch:tab.documentEpoch},node.id);
-        return { ...node, data: { ...node.data, analysisId: undefined, referenceFingerprint: undefined, preserve: null } };
+      const edgeKey = (edges: Edge[], id: string) =>
+        JSON.stringify(
+          edges
+            .filter((edge) => edge.target === id)
+            .map((edge) => [edge.source, edge.sourceHandle, edge.targetHandle]),
+        );
+      patch.nodes = (patch.nodes ?? tab.nodes).map((node) => {
+        if (
+          node.data.kind !== "ai-styling" ||
+          edgeKey(tab.edges, node.id) === edgeKey(patch.edges!, node.id)
+        )
+          return node;
+        invalidateStylingRequest(
+          {
+            tabId: tab.id,
+            projectId: tab.projectId,
+            documentEpoch: tab.documentEpoch,
+          },
+          node.id,
+        );
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            analysisId: undefined,
+            referenceFingerprint: undefined,
+            preserve: null,
+          },
+        };
       });
     }
     if (!documentMutationChanged(tab, patch)) {
       // 同一次 action 可能只更新运行态或选择投影；应用它，但不写 history/revision。
       // 完全同引用的真正 no-op 仍直接返回空 patch。
-      const hasTransientChange = Object.entries(patch).some(([key, value]) => (
-        value !== tab[key as keyof ProjectTab]
-      ));
+      const hasTransientChange = Object.entries(patch).some(
+        ([key, value]) => value !== tab[key as keyof ProjectTab],
+      );
       return hasTransientChange
         ? { tabs: replaceTab(state.tabs, { ...tab, ...patch }) }
         : {};
     }
     changed = true;
-    const transaction = activeHistoryTransaction?.tabId === state.activeTabId
-      ? activeHistoryTransaction
-      : null;
+    const transaction =
+      activeHistoryTransaction?.tabId === state.activeTabId
+        ? activeHistoryTransaction
+        : null;
     if (transaction && options?.coalesceWithActiveTransaction) {
       captureTransactionPositionChanges(transaction, tab, patch);
       transaction.documentChanged = true;
@@ -742,7 +868,10 @@ function commitDocumentMutationWithSet(
     return { tabs: replaceTab(state.tabs, nextTab) };
   });
   if (changed && concurrent.transaction && concurrent.before) {
-    const latest = documentForTab(useFlowStore.getState(), concurrent.transaction.tabId);
+    const latest = documentForTab(
+      useFlowStore.getState(),
+      concurrent.transaction.tabId,
+    );
     if (!latest) return changed;
     const concurrentAfter = rebaseDocumentOutsideTransaction(
       temporalDocument(latest),
@@ -795,7 +924,10 @@ export function beginHistoryTransaction(
   // before live drag frames begin so a pagehide during the gesture cannot lose them.
   if (!activeHistoryTransaction) flushPendingTabSessionPersistence();
   const state = useFlowStore.getState();
-  if (!activeHistoryTransaction || activeHistoryTransaction.tabId !== state.activeTabId) {
+  if (
+    !activeHistoryTransaction ||
+    activeHistoryTransaction.tabId !== state.activeTabId
+  ) {
     const tab = selectActiveDocument(state);
     activeHistoryTransaction = {
       tokens: new Set(),
@@ -808,12 +940,15 @@ export function beginHistoryTransaction(
     };
   }
   activeHistoryTransaction.tokens.add(token);
-  if (onSettled) activeHistoryTransaction.onSettledByToken.set(token, onSettled);
+  if (onSettled)
+    activeHistoryTransaction.onSettledByToken.set(token, onSettled);
   return token;
 }
 
 function notifyHistoryTransactionSettled(
-  callbacks: Array<[HistoryTransactionToken, HistoryTransactionSettledCallback]>,
+  callbacks: Array<
+    [HistoryTransactionToken, HistoryTransactionSettledCallback]
+  >,
   outcome: HistoryTransactionOutcome,
 ): void {
   for (const [token, callback] of callbacks) {
@@ -827,7 +962,9 @@ function notifyHistoryTransactionSettled(
 
 interface HistoryTransactionCompletion {
   tabId: string;
-  callbacks: Array<[HistoryTransactionToken, HistoryTransactionSettledCallback]>;
+  callbacks: Array<
+    [HistoryTransactionToken, HistoryTransactionSettledCallback]
+  >;
   actions: DeferredHistoryTransactionAction[];
 }
 
@@ -857,7 +994,8 @@ function finishHistoryTransactionCompletion(
     for (const action of completion.actions) {
       const allowed =
         (outcome === "ended" || action.runOnCancel) &&
-        (!action.requireActiveTab || useFlowStore.getState().activeTabId === completion.tabId);
+        (!action.requireActiveTab ||
+          useFlowStore.getState().activeTabId === completion.tabId);
       if (!allowed) {
         action.discard?.();
         continue;
@@ -872,7 +1010,9 @@ function finishHistoryTransactionCompletion(
   });
 }
 
-function waitForHistoryTransactionSettlement(tabId: string): Promise<void> | null {
+function waitForHistoryTransactionSettlement(
+  tabId: string,
+): Promise<void> | null {
   const transaction = activeHistoryTransaction;
   if (!transaction || transaction.tabId !== tabId) return null;
   return new Promise((resolve) => {
@@ -891,7 +1031,8 @@ function waitForHistoryTransactionSettlement(tabId: string): Promise<void> | nul
 
 function deferHistoryCommandUntilSettlement(command: "undo" | "redo"): boolean {
   const transaction = activeHistoryTransaction;
-  if (!transaction || transaction.tabId !== useFlowStore.getState().activeTabId) return false;
+  if (!transaction || transaction.tabId !== useFlowStore.getState().activeTabId)
+    return false;
   const tabId = transaction.tabId;
   transaction.deferredActions.push({
     runOnCancel: false,
@@ -899,25 +1040,30 @@ function deferHistoryCommandUntilSettlement(command: "undo" | "redo"): boolean {
     // Promise resolvers for save/run naturally schedule their continuations as
     // microtasks. Queue history commands the same way so the single action list
     // preserves the user's Save→Undo and Undo→Save registration order.
-    run: () => queueMicrotask(() => {
-      if (useFlowStore.getState().activeTabId !== tabId) return;
-      useFlowStore.getState()[command]();
-    }),
+    run: () =>
+      queueMicrotask(() => {
+        if (useFlowStore.getState().activeTabId !== tabId) return;
+        useFlowStore.getState()[command]();
+      }),
   });
   return true;
 }
 
 function commitHistoryTransaction(
   transaction: ActiveHistoryTransaction,
-  callbacks?: Array<[HistoryTransactionToken, HistoryTransactionSettledCallback]>,
+  callbacks?: Array<
+    [HistoryTransactionToken, HistoryTransactionSettledCallback]
+  >,
 ): boolean {
   let state = useFlowStore.getState();
   let tab = selectActiveDocument(state);
-  const settledNodes = tab.nodes.map((node) => (
-    node.dragging ? { ...node, dragging: false } : node
-  ));
+  const settledNodes = tab.nodes.map((node) =>
+    node.dragging ? { ...node, dragging: false } : node,
+  );
   if (settledNodes.some((node, index) => node !== tab.nodes[index])) {
-    runWithoutHistory(() => patchTab(useFlowStore.setState, tab.id, { nodes: settledNodes }));
+    runWithoutHistory(() =>
+      patchTab(useFlowStore.setState, tab.id, { nodes: settledNodes }),
+    );
     state = useFlowStore.getState();
     tab = selectActiveDocument(state);
   }
@@ -943,12 +1089,14 @@ function commitHistoryTransaction(
   runWithoutHistory(() => {
     useFlowStore.setState((latest) => {
       const latestTab = selectActiveDocument(latest);
-      return { tabs: replaceTab(latest.tabs, {
-        ...latestTab,
-        revision: latestTab.revision + 1,
-        dirty: true,
-        saveState: latestTab.saveState === "saving" ? "saving" : "idle",
-      }) };
+      return {
+        tabs: replaceTab(latest.tabs, {
+          ...latestTab,
+          revision: latestTab.revision + 1,
+          dirty: true,
+          saveState: latestTab.saveState === "saving" ? "saving" : "idle",
+        }),
+      };
     });
   });
   flushDeferredTabSessionPersistence();
@@ -962,9 +1110,9 @@ export function endHistoryTransaction(token: HistoryTransactionToken): boolean {
   if (!transaction || !transaction.tokens.delete(token)) return false;
   const callback = transaction.onSettledByToken.get(token);
   transaction.onSettledByToken.delete(token);
-  const callbacks: Array<[HistoryTransactionToken, HistoryTransactionSettledCallback]> = callback
-    ? [[token, callback]]
-    : [];
+  const callbacks: Array<
+    [HistoryTransactionToken, HistoryTransactionSettledCallback]
+  > = callback ? [[token, callback]] : [];
   if (transaction.tokens.size > 0) {
     notifyHistoryTransactionSettled(callbacks, "ended");
     return false;
@@ -990,7 +1138,9 @@ function cancelHistoryTransaction(): void {
   // without a history entry or revision. Runtime status and current selection are
   // transient, so keep those values while rolling the persisted document back.
   const currentById = new Map(tab.nodes.map((node) => [node.id, node]));
-  const selectedEdges = new Map(tab.edges.map((edge) => [edge.id, edge.selected]));
+  const selectedEdges = new Map(
+    tab.edges.map((edge) => [edge.id, edge.selected]),
+  );
   const nodes = transaction.before.nodes.map((node) => {
     const restored = preserveNodeRuntimeAndTransients(
       node,
@@ -1020,7 +1170,9 @@ function cancelHistoryTransaction(): void {
  * 直接执行受控的画布内容变更，并同步 revision/dirty。
  * 用于 App 等既有调用方尚未迁移到 store action 的兼容路径。
  */
-export function markFlowDocumentChanged(partial: Pick<ProjectTab, "nodes"> | Pick<ProjectTab, "edges">): void {
+export function markFlowDocumentChanged(
+  partial: Pick<ProjectTab, "nodes"> | Pick<ProjectTab, "edges">,
+): void {
   commitDocumentMutation(partial);
 }
 
@@ -1031,21 +1183,50 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
     case "outfit-reference":
       return { ...base, kind, images: [], mainImage: null };
     case "ai-styling":
-      return { ...base, kind, prompt: "", aspectRatio: "3:4", batchSize: 1, outputImages: [], preserve: null,
-        extras: { outerwear: false, shoes: false, bag: false, accessories: false, hat: false },
-        modelId: DEFAULT_GENERATION_MODEL_ID, modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID, "3:4") };
+      return {
+        ...base,
+        kind,
+        prompt: "",
+        aspectRatio: "3:4",
+        batchSize: 1,
+        outputImages: [],
+        preserve: null,
+        extras: {
+          outerwear: false,
+          shoes: false,
+          bag: false,
+          accessories: false,
+          hat: false,
+        },
+        modelId: DEFAULT_GENERATION_MODEL_ID,
+        modelOptions: defaultImageModelOptions(
+          DEFAULT_GENERATION_MODEL_ID,
+          "3:4",
+        ),
+      };
     case "image-input":
       return { ...base, kind, imageRole: "default" };
+    case "character-board":
+      return { ...base, kind, outputImages: [] };
     case "background-extract":
       return {
-        ...base, kind, outputImages: [],
+        ...base,
+        kind,
+        outputImages: [],
         modelId: DEFAULT_GENERATION_MODEL_ID,
         modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID),
       };
     case "text-input":
       return { ...base, kind, text: "" };
     case "drawing-board":
-      return { ...base, kind, boardVersion: 1, width: 1024, height: 1024, background: "#FFFFFF" };
+      return {
+        ...base,
+        kind,
+        boardVersion: 1,
+        width: 1024,
+        height: 1024,
+        background: "#FFFFFF",
+      };
     case "color-palette":
       return {
         ...base,
@@ -1075,63 +1256,115 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
       };
     case "sketch-optimize":
     case "sketch-to-render": {
-      const modelId = kind === "sketch-optimize" ? SKETCH_OPTIMIZATION_MODEL_ID : DEFAULT_GENERATION_MODEL_ID;
+      const modelId =
+        kind === "sketch-optimize"
+          ? SKETCH_OPTIMIZATION_MODEL_ID
+          : DEFAULT_GENERATION_MODEL_ID;
       return {
-        ...base, kind, prompt: "", aspectRatio: "3:4", batchSize: 1, outputImages: [],
+        ...base,
+        kind,
+        prompt: "",
+        aspectRatio: "3:4",
+        batchSize: 1,
+        outputImages: [],
         modelId,
         modelOptions: defaultImageModelOptions(modelId, "3:4"),
       };
     }
     case "ai-modify":
       return {
-        ...base, kind, prompt: "", aspectRatio: "1:1", batchSize: 1, outputImages: [],
+        ...base,
+        kind,
+        prompt: "",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        outputImages: [],
         modelId: DEFAULT_GENERATION_MODEL_ID,
         modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID),
       };
     case "fabric-recolor":
       return {
-        ...base, kind, operationMode: "combined", colors: [], prompt: "", outputImages: [],
+        ...base,
+        kind,
+        operationMode: "combined",
+        colors: [],
+        prompt: "",
+        outputImages: [],
         modelId: DEFAULT_GENERATION_MODEL_ID,
         modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID),
       };
     case "upscale":
       return {
-        ...base, kind, imageSize: "2K", outputImages: [],
+        ...base,
+        kind,
+        imageSize: "2K",
+        outputImages: [],
         modelId: DEFAULT_GENERATION_MODEL_ID,
         modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID),
       };
     case "print-extract":
       return {
-        ...base, kind, prompt: "", outputImages: [], savedAsAssets: [],
+        ...base,
+        kind,
+        prompt: "",
+        outputImages: [],
+        savedAsAssets: [],
         modelId: DEFAULT_GENERATION_MODEL_ID,
         modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID),
       };
     case "print-mutate":
       return {
-        ...base, kind, prompt: "", count: 4, outputImages: [],
+        ...base,
+        kind,
+        prompt: "",
+        count: 4,
+        outputImages: [],
         modelId: DEFAULT_GENERATION_MODEL_ID,
         modelOptions: defaultImageModelOptions(DEFAULT_GENERATION_MODEL_ID),
       };
     case "virtual-try-on":
       return {
-        ...base, kind, workflowStage: "standard", prompt: "", imageSize: "2K", aspectRatio: "3:4", basisRevision: 0,
-        promptEnhancement: false, qualityMode: "fast", safetyFallback: false, stylePresetId: "faithful", outputImages: [],
-        modelId: MASK_REDRAW_MODEL_ID, modelOptions: {},
+        ...base,
+        kind,
+        workflowStage: "standard",
+        prompt: "",
+        imageSize: "2K",
+        aspectRatio: "3:4",
+        basisRevision: 0,
+        promptEnhancement: false,
+        qualityMode: "fast",
+        safetyFallback: false,
+        stylePresetId: "faithful",
+        outputImages: [],
+        modelId: MASK_REDRAW_MODEL_ID,
+        modelOptions: {},
       };
     case "mask-redraw":
       return {
-        ...base, kind, repairFocus: "custom", executionMode: "repair", prompt: "", outputImages: [],
-        modelId: MASK_REDRAW_MODEL_ID, modelOptions: {},
+        ...base,
+        kind,
+        repairFocus: "custom",
+        executionMode: "repair",
+        prompt: "",
+        outputImages: [],
+        modelId: MASK_REDRAW_MODEL_ID,
+        modelOptions: {},
       };
     case "result":
       return { ...base, kind, images: [] };
   }
 }
 
-function defaultNodeDataWithPreset(kind: NodeKind, preset?: Record<string, unknown>): WorkflowNodeData {
+function defaultNodeDataWithPreset(
+  kind: NodeKind,
+  preset?: Record<string, unknown>,
+): WorkflowNodeData {
   const data = defaultNodeData(kind);
   if (!preset) return data;
-  if (data.kind === "fabric-recolor" && (preset.operationMode === "fabric" || preset.operationMode === "color")) {
+  if (
+    data.kind === "fabric-recolor" &&
+    (preset.operationMode === "fabric" || preset.operationMode === "color")
+  ) {
     return { ...data, operationMode: preset.operationMode };
   }
   if (data.kind === "color-palette" && Array.isArray(preset.swatches)) {
@@ -1147,48 +1380,76 @@ function defaultNodeDataWithPreset(kind: NodeKind, preset?: Record<string, unkno
       return data;
     }
   }
-  if ((data.kind === "ai-modify" || data.kind === "sketch-to-render") && typeof preset.prompt === "string") {
+  if (
+    (data.kind === "ai-modify" || data.kind === "sketch-to-render") &&
+    typeof preset.prompt === "string"
+  ) {
     return { ...data, prompt: preset.prompt };
   }
-  if (data.kind === "upscale" && (preset.imageSize === "2K" || preset.imageSize === "4K")) {
+  if (
+    data.kind === "upscale" &&
+    (preset.imageSize === "2K" || preset.imageSize === "4K")
+  ) {
     return { ...data, imageSize: preset.imageSize };
   }
   if (
-    data.kind === "video-input"
-    && typeof preset.videoUrl === "string"
-    && typeof preset.mimeType === "string"
-    && ["video/mp4", "video/webm", "video/quicktime"].includes(preset.mimeType)
+    data.kind === "video-input" &&
+    typeof preset.videoUrl === "string" &&
+    typeof preset.mimeType === "string" &&
+    ["video/mp4", "video/webm", "video/quicktime"].includes(preset.mimeType)
   ) {
     return {
       ...data,
-      label: typeof preset.label === "string" && preset.label.trim() ? preset.label.trim() : data.label,
+      label:
+        typeof preset.label === "string" && preset.label.trim()
+          ? preset.label.trim()
+          : data.label,
       videoUrl: preset.videoUrl,
-      mimeType: preset.mimeType as "video/mp4" | "video/webm" | "video/quicktime",
+      mimeType: preset.mimeType as
+        | "video/mp4"
+        | "video/webm"
+        | "video/quicktime",
     };
   }
   if (
-    data.kind === "audio-input"
-    && typeof preset.audioUrl === "string"
-    && typeof preset.mimeType === "string"
-    && ["audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg"].includes(preset.mimeType)
+    data.kind === "audio-input" &&
+    typeof preset.audioUrl === "string" &&
+    typeof preset.mimeType === "string" &&
+    ["audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg"].includes(
+      preset.mimeType,
+    )
   ) {
     return {
       ...data,
-      label: typeof preset.label === "string" && preset.label.trim() ? preset.label.trim() : data.label,
+      label:
+        typeof preset.label === "string" && preset.label.trim()
+          ? preset.label.trim()
+          : data.label,
       audioUrl: preset.audioUrl,
-      mimeType: preset.mimeType as "audio/mpeg" | "audio/wav" | "audio/mp4" | "audio/ogg",
+      mimeType: preset.mimeType as
+        | "audio/mpeg"
+        | "audio/wav"
+        | "audio/mp4"
+        | "audio/ogg",
     };
   }
   return data;
 }
 
 /** 从节点 data 中取它对外输出的图片 */
-function nodeOutputImages(data: WorkflowNodeData, sourceHandle?: string | null): string[] {
-  if (data.kind === "outfit-reference") return data.mainImage && data.images.includes(data.mainImage)
-    ? [data.mainImage, ...data.images.filter((ref) => ref !== data.mainImage)] : [];
+function nodeOutputImages(
+  data: WorkflowNodeData,
+  sourceHandle?: string | null,
+): string[] {
+  if (data.kind === "outfit-reference")
+    return data.mainImage && data.images.includes(data.mainImage)
+      ? [data.mainImage, ...data.images.filter((ref) => ref !== data.mainImage)]
+      : [];
   if (data.kind === "image-input") return data.imageUrl ? [data.imageUrl] : [];
-  if (data.kind === "drawing-board") return data.previewImageRef ? [data.previewImageRef] : [];
-  if (data.kind === "stage-approval") return data.approvedBaselineRef ? [data.approvedBaselineRef] : [];
+  if (data.kind === "drawing-board")
+    return data.previewImageRef ? [data.previewImageRef] : [];
+  if (data.kind === "stage-approval")
+    return data.approvedBaselineRef ? [data.approvedBaselineRef] : [];
   if (data.kind === "video-input") return data.videoUrl ? [data.videoUrl] : [];
   if (data.kind === "audio-input") return data.audioUrl ? [data.audioUrl] : [];
   if (data.kind === "result") {
@@ -1198,13 +1459,23 @@ function nodeOutputImages(data: WorkflowNodeData, sourceHandle?: string | null):
   return data.outputImages ?? [];
 }
 
-function virtualTryOnRunBlockReason(node: FlowNode, document: ProjectTab): string | undefined {
-  if (node.data.kind !== "virtual-try-on" || node.data.workflowStage === "standard") return undefined;
+function virtualTryOnRunBlockReason(
+  node: FlowNode,
+  document: ProjectTab,
+): string | undefined {
+  if (
+    node.data.kind !== "virtual-try-on" ||
+    node.data.workflowStage === "standard"
+  )
+    return undefined;
   const incoming = document.edges.filter((edge) => edge.target === node.id);
-  const edgesFor = (role: string) => incoming.filter((edge) => edge.targetHandle === role);
+  const edgesFor = (role: string) =>
+    incoming.filter((edge) => edge.targetHandle === role);
   const imageFor = (role: string) => {
     const edge = edgesFor(role)[0];
-    const source = edge ? document.nodes.find((candidate) => candidate.id === edge.source) : undefined;
+    const source = edge
+      ? document.nodes.find((candidate) => candidate.id === edge.source)
+      : undefined;
     return source ? nodeOutputImages(source.data)[0] : undefined;
   };
   const requireSingle = (role: string, label: string) => {
@@ -1215,41 +1486,68 @@ function virtualTryOnRunBlockReason(node: FlowNode, document: ProjectTab): strin
   };
 
   if (node.data.workflowStage === "scene-stabilize") {
-    if (node.data.modelId !== "gemini-3.1-flash-image") return "第一轮必须使用 Gemini 3.1 Flash";
+    if (node.data.modelId !== "gemini-3.1-flash-image")
+      return "第一轮必须使用 Gemini 3.1 Flash";
     const personEdges = edgesFor("person");
-    if (personEdges.length < 1 || personEdges.length > 3) return "人物身份图必须连接 1 至 3 张";
-    if (personEdges.some((edge) => {
-      const source = document.nodes.find((candidate) => candidate.id === edge.source);
-      return !source || nodeOutputImages(source.data).length === 0;
-    })) return "人物身份图尚未全部提供可用图片";
-    return requireSingle("scene", "场景参考图")
-      ?? requireSingle("pose", "人物姿势参考图")
-      ?? requireSingle("outfit", "主穿搭图");
+    if (personEdges.length < 1 || personEdges.length > 3)
+      return "人物身份图必须连接 1 至 3 张";
+    if (
+      personEdges.some((edge) => {
+        const source = document.nodes.find(
+          (candidate) => candidate.id === edge.source,
+        );
+        return !source || nodeOutputImages(source.data).length === 0;
+      })
+    )
+      return "人物身份图尚未全部提供可用图片";
+    return (
+      requireSingle("scene", "场景参考图") ??
+      requireSingle("pose", "人物姿势参考图") ??
+      requireSingle("outfit", "主穿搭图")
+    );
   }
 
-  if (node.data.modelId !== MASK_REDRAW_MODEL_ID && node.data.modelId !== "gpt-image-2") return "第二轮必须使用 GPT Image 2.5 Sunburst";
+  if (
+    node.data.modelId !== MASK_REDRAW_MODEL_ID &&
+    node.data.modelId !== "gpt-image-2"
+  )
+    return "第二轮必须使用 GPT Image 2.5 Sunburst";
   const baselineError = requireSingle("baseline", "已确认基准图");
   if (baselineError) return baselineError;
   const outfitError = requireSingle("outfit", "主穿搭图");
   if (outfitError) return outfitError;
   if (edgesFor("material").length > 1) return "面料参考图最多连接 1 张";
   const baselineEdge = edgesFor("baseline")[0];
-  const approval = baselineEdge ? document.nodes.find((candidate) => candidate.id === baselineEdge.source) : undefined;
-  const candidateEdge = approval?.data.kind === "stage-approval"
-    ? document.edges.find((edge) => edge.target === approval.id && edge.targetHandle === "baseline-candidate")
+  const approval = baselineEdge
+    ? document.nodes.find((candidate) => candidate.id === baselineEdge.source)
     : undefined;
-  const candidate = candidateEdge ? document.nodes.find((source) => source.id === candidateEdge.source) : undefined;
-  const currentBaseline = candidate ? nodeOutputImages(candidate.data)[0] : undefined;
-  const currentBasis = candidate?.data.kind === "virtual-try-on" && candidate.data.workflowStage === "scene-stabilize"
-    ? candidate.data.basisRevision ?? 0
+  const candidateEdge =
+    approval?.data.kind === "stage-approval"
+      ? document.edges.find(
+          (edge) =>
+            edge.target === approval.id &&
+            edge.targetHandle === "baseline-candidate",
+        )
+      : undefined;
+  const candidate = candidateEdge
+    ? document.nodes.find((source) => source.id === candidateEdge.source)
     : undefined;
+  const currentBaseline = candidate
+    ? nodeOutputImages(candidate.data)[0]
+    : undefined;
+  const currentBasis =
+    candidate?.data.kind === "virtual-try-on" &&
+    candidate.data.workflowStage === "scene-stabilize"
+      ? (candidate.data.basisRevision ?? 0)
+      : undefined;
   if (
-    approval?.data.kind !== "stage-approval"
-    || !currentBaseline
-    || approval.data.approvedSourceNodeId !== candidate?.id
-    || approval.data.approvedBaselineRef !== currentBaseline
-    || approval.data.approvedBasisRevision !== currentBasis
-  ) return "请先在独立确认节点检查并确认当前第一轮基准图";
+    approval?.data.kind !== "stage-approval" ||
+    !currentBaseline ||
+    approval.data.approvedSourceNodeId !== candidate?.id ||
+    approval.data.approvedBaselineRef !== currentBaseline ||
+    approval.data.approvedBasisRevision !== currentBasis
+  )
+    return "请先在独立确认节点检查并确认当前第一轮基准图";
   if (!node.data.garmentCategory) return "请选择服装品类";
   if (!node.data.materialSpec?.trim()) return "请填写面料或材料说明";
   if (!node.data.constructionSpec?.trim()) return "请填写针织、织造或加工工艺";
@@ -1257,8 +1555,10 @@ function virtualTryOnRunBlockReason(node: FlowNode, document: ProjectTab): strin
 }
 
 function sameStringList(left: string[], right: string[]): boolean {
-  return left === right || (
-    left.length === right.length && left.every((value, index) => value === right[index])
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((value, index) => value === right[index]))
   );
 }
 
@@ -1304,13 +1604,15 @@ function selectionIdsAfterNodeChanges(
   );
   let nextIds = currentIds.filter((id) => selectedNodeIds.has(id));
   const selectionChanges = changes.filter(
-    (change): change is Extract<NodeChange<FlowNode>, { type: "select" }> => change.type === "select",
+    (change): change is Extract<NodeChange<FlowNode>, { type: "select" }> =>
+      change.type === "select",
   );
   if (selectionChanges.length === 0) return nextIds;
 
   for (const change of selectionChanges) {
     nextIds = nextIds.filter((id) => id !== change.id);
-    if (change.selected && selectedNodeIds.has(change.id)) nextIds.push(change.id);
+    if (change.selected && selectedNodeIds.has(change.id))
+      nextIds.push(change.id);
   }
   // Defensive fallback for a React Flow version that batches a selected node
   // without an explicit select change; event order remains authoritative.
@@ -1335,7 +1637,8 @@ function makeStarterNode(): FlowNode {
  */
 export function selectActiveDocument(state: FlowState): ProjectTab {
   const document = state.tabs.find((tab) => tab.id === state.activeTabId);
-  if (!document) throw new Error(`Active project tab not found: ${state.activeTabId}`);
+  if (!document)
+    throw new Error(`Active project tab not found: ${state.activeTabId}`);
   return document;
 }
 
@@ -1387,7 +1690,9 @@ export function selectActiveSelectedNodeId(state: FlowState): string | null {
   return selectActiveDocument(state).selectedNodeId;
 }
 
-export function selectActivePrimarySelectedNodeId(state: FlowState): string | null {
+export function selectActivePrimarySelectedNodeId(
+  state: FlowState,
+): string | null {
   return selectPrimarySelectedNodeId(selectActiveDocument(state));
 }
 
@@ -1434,19 +1739,28 @@ export function isPristineProjectTab(tab: ProjectTab): boolean {
     tab.revision !== 0 ||
     tab.savedRevision !== 0 ||
     (lifecycle === "initial_draft"
-      ? !/^\u672a\u4fee\u6539\u9879\u76ee\u540d\u79f0\d{8}000000$/.test(tab.projectName)
+      ? !/^\u672a\u4fee\u6539\u9879\u76ee\u540d\u79f0\d{8}000000$/.test(
+          tab.projectName,
+        )
       : tab.projectName !== DEFAULT_PROJECT_NAME) ||
     tab.edges.length !== 0 ||
     tab.nodes.length !== 1
-  ) return false;
+  )
+    return false;
   const node = tab.nodes[0];
-  return node.data.kind === "image-input" &&
+  return (
+    node.data.kind === "image-input" &&
     node.data.status === "idle" &&
-    !node.data.imageUrl;
+    !node.data.imageUrl
+  );
 }
 
 export function projectTabLifecycle(tab: ProjectTab): ProjectLifecycle {
-  if (tab.lifecycle === "initial_draft" || tab.lifecycle === "saved" || tab.lifecycle === "local") {
+  if (
+    tab.lifecycle === "initial_draft" ||
+    tab.lifecycle === "saved" ||
+    tab.lifecycle === "local"
+  ) {
     return tab.lifecycle;
   }
   return tab.hasBeenPersisted || tab.saveState === "saved" ? "saved" : "local";
@@ -1474,60 +1788,86 @@ export function isDocumentConnectionValid(
     !connection.target ||
     connection.source === connection.target ||
     !document.nodes.some((node) => node.id === connection.source)
-  ) return false;
+  )
+    return false;
   const target = document.nodes.find((node) => node.id === connection.target);
   if (!target) return false;
   const source = document.nodes.find((node) => node.id === connection.source);
   if (!source) return false;
   if (
-    source.data.kind === "drawing-board"
-    && (!source.data.contentRef || !source.data.previewImageRef)
-  ) return false;
+    source.data.kind === "drawing-board" &&
+    (!source.data.contentRef || !source.data.previewImageRef)
+  )
+    return false;
   const targetPort = inputPortFor(target.data, connection.targetHandle);
   if (targetPort?.valueKind === "image") {
-    const incomingImageCount = document.edges.filter((edge) => (
-      edge.target === connection.target
-      && inputPortFor(target.data, edge.targetHandle)?.valueKind === "image"
-    )).length;
+    const incomingImageCount = document.edges.filter(
+      (edge) =>
+        edge.target === connection.target &&
+        inputPortFor(target.data, edge.targetHandle)?.valueKind === "image",
+    ).length;
     if (incomingImageCount >= NODE_SPECS[target.data.kind].inputs) return false;
   }
   if (isStagedTryOnData(target.data) && !connection.targetHandle) {
-    return compatibleUnusedInputRoles({
+    return (
+      compatibleUnusedInputRoles({
+        source,
+        target,
+        sourceHandle: connection.sourceHandle,
+        existingEdges: document.edges,
+      }).length > 0
+    );
+  }
+  return (
+    connectionCompatibilityError({
       source,
       target,
       sourceHandle: connection.sourceHandle,
+      targetHandle: connection.targetHandle,
       existingEdges: document.edges,
-    }).length > 0;
-  }
-  return connectionCompatibilityError({
-    source,
-    target,
-    sourceHandle: connection.sourceHandle,
-    targetHandle: connection.targetHandle,
-    existingEdges: document.edges,
-  }) === undefined;
+    }) === undefined
+  );
 }
 
-function incrementSceneBasis(nodes: FlowNode[], targetIds: ReadonlySet<string>): FlowNode[] {
+function incrementSceneBasis(
+  nodes: FlowNode[],
+  targetIds: ReadonlySet<string>,
+): FlowNode[] {
   if (targetIds.size === 0) return nodes;
-  return nodes.map((node) => node.data.kind === "virtual-try-on"
-    && node.data.workflowStage === "scene-stabilize"
-    && targetIds.has(node.id)
-    ? {
-        ...node,
-        data: {
-          ...node.data,
-          basisRevision: (node.data.basisRevision ?? 0) + 1,
-        },
-      }
-    : node);
+  return nodes.map((node) =>
+    node.data.kind === "virtual-try-on" &&
+    node.data.workflowStage === "scene-stabilize" &&
+    targetIds.has(node.id)
+      ? {
+          ...node,
+          data: {
+            ...node.data,
+            basisRevision: (node.data.basisRevision ?? 0) + 1,
+          },
+        }
+      : node,
+  );
 }
 
-function sceneBasisTargetsForSource(tab: Pick<ProjectTab, "nodes" | "edges">, sourceId: string): Set<string> {
-  const stageIds = new Set(tab.nodes.flatMap((node) => (
-    node.data.kind === "virtual-try-on" && node.data.workflowStage === "scene-stabilize" ? [node.id] : []
-  )));
-  return new Set(tab.edges.flatMap((edge) => edge.source === sourceId && stageIds.has(edge.target) ? [edge.target] : []));
+function sceneBasisTargetsForSource(
+  tab: Pick<ProjectTab, "nodes" | "edges">,
+  sourceId: string,
+): Set<string> {
+  const stageIds = new Set(
+    tab.nodes.flatMap((node) =>
+      node.data.kind === "virtual-try-on" &&
+      node.data.workflowStage === "scene-stabilize"
+        ? [node.id]
+        : [],
+    ),
+  );
+  return new Set(
+    tab.edges.flatMap((edge) =>
+      edge.source === sourceId && stageIds.has(edge.target)
+        ? [edge.target]
+        : [],
+    ),
+  );
 }
 
 function replaceTab(tabs: ProjectTab[], tab: ProjectTab): ProjectTab[] {
@@ -1538,23 +1878,36 @@ function replaceTab(tabs: ProjectTab[], tab: ProjectTab): ProjectTab[] {
   return next;
 }
 
-function documentForTab(state: FlowState, tabId: string): ProjectTab | undefined {
+function documentForTab(
+  state: FlowState,
+  tabId: string,
+): ProjectTab | undefined {
   return state.tabs.find((tab) => tab.id === tabId);
 }
 
-function matchesDocumentTarget(tab: ProjectTab, target: DocumentTarget): boolean {
-  return tab.id === target.tabId &&
+function matchesDocumentTarget(
+  tab: ProjectTab,
+  target: DocumentTarget,
+): boolean {
+  return (
+    tab.id === target.tabId &&
     tab.projectId === target.projectId &&
-    tab.documentEpoch === target.documentEpoch;
+    tab.documentEpoch === target.documentEpoch
+  );
 }
 
-function documentForTarget(state: FlowState, target: DocumentTarget): ProjectTab | undefined {
+function documentForTarget(
+  state: FlowState,
+  target: DocumentTarget,
+): ProjectTab | undefined {
   const tab = documentForTab(state, target.tabId);
   return tab && matchesDocumentTarget(tab, target) ? tab : undefined;
 }
 
 function patchTab(
-  set: (partial: Partial<FlowState> | ((state: FlowState) => Partial<FlowState>)) => unknown,
+  set: (
+    partial: Partial<FlowState> | ((state: FlowState) => Partial<FlowState>),
+  ) => unknown,
   tabId: string,
   patch: Partial<ProjectTab> | ((tab: ProjectTab) => Partial<ProjectTab>),
 ): void {
@@ -1562,7 +1915,11 @@ function patchTab(
     const tab = documentForTab(state, tabId);
     if (!tab) return {};
     const changes = typeof patch === "function" ? patch(tab) : patch;
-    if (Object.entries(changes).every(([key, value]) => value === tab[key as keyof ProjectTab])) {
+    if (
+      Object.entries(changes).every(
+        ([key, value]) => value === tab[key as keyof ProjectTab],
+      )
+    ) {
       return {};
     }
     const next = { ...tab, ...changes };
@@ -1587,11 +1944,16 @@ function patchDocumentTarget(
 const drawingCreationLocks = new Set<string>();
 
 /** 防止全量保存覆盖已提交但响应尚未确认的画板；未知结果期间保持锁定。 */
-export function acquireDrawingCreationLock(target: DocumentTarget): (() => void) | undefined {
+export function acquireDrawingCreationLock(
+  target: DocumentTarget,
+): (() => void) | undefined {
   const key = documentTargetKey(target);
-  if (drawingCreationLocks.has(key) || saveQueueByDocument.has(key)) return undefined;
+  if (drawingCreationLocks.has(key) || saveQueueByDocument.has(key))
+    return undefined;
   drawingCreationLocks.add(key);
-  return () => { drawingCreationLocks.delete(key); };
+  return () => {
+    drawingCreationLocks.delete(key);
+  };
 }
 
 export interface CreatedDrawingBoard {
@@ -1604,10 +1966,18 @@ export interface CreatedDrawingBoard {
 }
 
 /** 服务端已原子创建版本与项目节点后，把完整节点作为唯一一次本地文档提交。 */
-export function commitCreatedDrawingBoard(target: DocumentTarget, created: CreatedDrawingBoard): boolean {
+export function commitCreatedDrawingBoard(
+  target: DocumentTarget,
+  created: CreatedDrawingBoard,
+): boolean {
   const state = useFlowStore.getState();
   const tab = documentForTarget(state, target);
-  if (!tab || tab.readOnly || tab.nodes.some((node) => node.id === created.nodeId)) return false;
+  if (
+    !tab ||
+    tab.readOnly ||
+    tab.nodes.some((node) => node.id === created.nodeId)
+  )
+    return false;
   const node: FlowNode = {
     id: created.nodeId,
     type: "drawing-board",
@@ -1630,27 +2000,37 @@ export function commitCreatedDrawingBoard(target: DocumentTarget, created: Creat
   if (state.activeTabId === target.tabId) recordHistoryEntry(before, current);
   else recordInactiveTabHistory(target.tabId, before, current);
   const nextRevision = tab.revision + 1;
-  const serverContainsLatestDocument = tab.revision === created.baselineRevision
-    && tab.savedRevision === created.baselineRevision
-    && !tab.dirty;
-  const nodePatch = state.activeTabId === target.tabId
-    ? normalizeNodeSelection(nodes, [created.nodeId])
-    : { nodes };
+  const serverContainsLatestDocument =
+    tab.revision === created.baselineRevision &&
+    tab.savedRevision === created.baselineRevision &&
+    !tab.dirty;
+  const nodePatch =
+    state.activeTabId === target.tabId
+      ? normalizeNodeSelection(nodes, [created.nodeId])
+      : { nodes };
   let committed = false;
   runWithoutHistory(() => {
     committed = patchDocumentTarget(useFlowStore.setState, target, {
       ...nodePatch,
       selectedResultId: null,
       revision: nextRevision,
-      savedRevision: serverContainsLatestDocument ? nextRevision : tab.savedRevision,
+      savedRevision: serverContainsLatestDocument
+        ? nextRevision
+        : tab.savedRevision,
       dirty: !serverContainsLatestDocument,
-      saveState: serverContainsLatestDocument ? "saved" : tab.saveState === "saving" ? "saving" : "idle",
+      saveState: serverContainsLatestDocument
+        ? "saved"
+        : tab.saveState === "saving"
+          ? "saving"
+          : "idle",
     });
   });
   return committed;
 }
 
-function textEditDescriptorKey(descriptor: CoalescedTextEditDescriptor): string {
+function textEditDescriptorKey(
+  descriptor: CoalescedTextEditDescriptor,
+): string {
   return descriptor.kind === "project-name"
     ? "project-name"
     : JSON.stringify(["node-data", descriptor.nodeId, descriptor.field]);
@@ -1663,9 +2043,11 @@ function readTextEditValue(
   if (descriptor.kind === "project-name") {
     return { value: tab.projectName, fieldExisted: true };
   }
-  const node = tab.nodes.find((candidate) => candidate.id === descriptor.nodeId);
+  const node = tab.nodes.find(
+    (candidate) => candidate.id === descriptor.nodeId,
+  );
   if (!node) return null;
-  const fieldExisted = Object.prototype.hasOwnProperty.call(node.data, descriptor.field);
+  const fieldExisted = Object.hasOwn(node.data, descriptor.field);
   const value = node.data[descriptor.field];
   return { value: typeof value === "string" ? value : "", fieldExisted };
 }
@@ -1698,7 +2080,8 @@ function scheduleTextEditCommit(edit: ActiveTextEdit): void {
   clearTextEditTimer(edit);
   if (edit.composing) return;
   edit.timer = setTimeout(() => {
-    if (activeTextEdit?.token.id === edit.token.id) flushActiveTextEdit(edit.token);
+    if (activeTextEdit?.token.id === edit.token.id)
+      flushActiveTextEdit(edit.token);
   }, COALESCED_TEXT_EDIT_IDLE_MS);
 }
 
@@ -1725,11 +2108,15 @@ export function flushActiveTextEdit(token?: CoalescedTextEditToken): boolean {
   finalizingTextEdit = true;
   try {
     runWithoutHistory(() => {
-      patchDocumentTarget(useFlowStore.setState, edit.token.target, (latest) => ({
-        revision: latest.revision + 1,
-        dirty: true,
-        saveState: latest.saveState === "saving" ? "saving" : "idle",
-      }));
+      patchDocumentTarget(
+        useFlowStore.setState,
+        edit.token.target,
+        (latest) => ({
+          revision: latest.revision + 1,
+          dirty: true,
+          saveState: latest.saveState === "saving" ? "saving" : "idle",
+        }),
+      );
     });
   } finally {
     finalizingTextEdit = false;
@@ -1748,7 +2135,8 @@ function flushActiveTextEditForTarget(target: DocumentTarget): boolean {
     edit.token.target.tabId !== target.tabId ||
     edit.token.target.projectId !== target.projectId ||
     edit.token.target.documentEpoch !== target.documentEpoch
-  ) return false;
+  )
+    return false;
   return flushActiveTextEdit(edit.token);
 }
 
@@ -1764,7 +2152,11 @@ function rebaseTemporalDocumentWithSystemResult(
   let nodes = document.nodes.map((node) => {
     if (node.id !== resultNode.id) return node;
     resultFound = true;
-    if (node.data.kind !== "result" || sameStringList(node.data.images, resultImages)) return node;
+    if (
+      node.data.kind !== "result" ||
+      sameStringList(node.data.images, resultImages)
+    )
+      return node;
     nodesChanged = true;
     return { ...node, data: { ...node.data, images: [...resultImages] } };
   });
@@ -1774,14 +2166,16 @@ function rebaseTemporalDocumentWithSystemResult(
     nodesChanged = true;
   }
   const createdEdge = createdTopology?.edge;
-  const canRestoreEdge = createdEdge !== undefined
-    && nodes.some((node) => node.id === createdEdge.source)
-    && !document.edges.some((edge) => (
-      edge.source === createdEdge.source
-      && edge.sourceHandle === createdEdge.sourceHandle
-      && edge.target === createdEdge.target
-      && edge.targetHandle === createdEdge.targetHandle
-    ));
+  const canRestoreEdge =
+    createdEdge !== undefined &&
+    nodes.some((node) => node.id === createdEdge.source) &&
+    !document.edges.some(
+      (edge) =>
+        edge.source === createdEdge.source &&
+        edge.sourceHandle === createdEdge.sourceHandle &&
+        edge.target === createdEdge.target &&
+        edge.targetHandle === createdEdge.targetHandle,
+    );
   if (!nodesChanged && !canRestoreEdge) return document;
   return {
     projectName: document.projectName,
@@ -1796,22 +2190,30 @@ function rebaseSystemResultHistory(
   resultNode: FlowNode,
   createdTopology?: { edge?: Edge },
 ): void {
-  const rebase = (document: FlowTemporalState) => (
-    rebaseTemporalDocumentWithSystemResult(document, resultNode, createdTopology)
-  );
+  const rebase = (document: FlowTemporalState) =>
+    rebaseTemporalDocumentWithSystemResult(
+      document,
+      resultNode,
+      createdTopology,
+    );
   const edit = activeTextEdit;
   if (
-    edit
-    && edit.token.target.tabId === target.tabId
-    && edit.token.target.projectId === target.projectId
-    && edit.token.target.documentEpoch === target.documentEpoch
-  ) edit.before = rebase(edit.before);
+    edit &&
+    edit.token.target.tabId === target.tabId &&
+    edit.token.target.projectId === target.projectId &&
+    edit.token.target.documentEpoch === target.documentEpoch
+  )
+    edit.before = rebase(edit.before);
 
   if (useFlowStore.getState().activeTabId === target.tabId) {
     const history = useFlowStore.temporal.getState();
     useFlowStore.temporal.setState({
-      pastStates: history.pastStates.map((document) => rebase(document as FlowTemporalState)),
-      futureStates: history.futureStates.map((document) => rebase(document as FlowTemporalState)),
+      pastStates: history.pastStates.map((document) =>
+        rebase(document as FlowTemporalState),
+      ),
+      futureStates: history.futureStates.map((document) =>
+        rebase(document as FlowTemporalState),
+      ),
     });
     return;
   }
@@ -1824,18 +2226,22 @@ function rebaseSystemResultHistory(
 }
 
 /** Restore only the field owned by the active editor, without creating history. */
-export function cancelCoalescedTextEdit(token: CoalescedTextEditToken): boolean {
+export function cancelCoalescedTextEdit(
+  token: CoalescedTextEditToken,
+): boolean {
   const edit = activeTextEdit;
   if (!edit || edit.token.id !== token.id) return false;
   clearTextEditTimer(edit);
   activeTextEdit = null;
   runWithoutHistory(() => {
-    patchDocumentTarget(useFlowStore.setState, edit.token.target, (tab) => textEditPatch(
-      tab,
-      edit.descriptor,
-      edit.originalValue,
-      edit.originalFieldExisted,
-    ));
+    patchDocumentTarget(useFlowStore.setState, edit.token.target, (tab) =>
+      textEditPatch(
+        tab,
+        edit.descriptor,
+        edit.originalValue,
+        edit.originalFieldExisted,
+      ),
+    );
   });
   return true;
 }
@@ -1864,12 +2270,14 @@ export function updateCoalescedTextEdit(
   const tab = documentForTarget(state, target);
   const descriptorKey = textEditDescriptorKey(descriptor);
   if (!tab || tab.readOnly) return null;
-  if (token && (
-    token.target.tabId !== target.tabId ||
-    token.target.projectId !== target.projectId ||
-    token.target.documentEpoch !== target.documentEpoch ||
-    token.descriptorKey !== descriptorKey
-  )) return null;
+  if (
+    token &&
+    (token.target.tabId !== target.tabId ||
+      token.target.projectId !== target.projectId ||
+      token.target.documentEpoch !== target.documentEpoch ||
+      token.descriptorKey !== descriptorKey)
+  )
+    return null;
 
   if (activeTextEdit && token?.id !== activeTextEdit.token.id) {
     // A delayed event from an older editor must not terminate or overwrite the
@@ -1877,7 +2285,8 @@ export function updateCoalescedTextEdit(
     if (token) return null;
     flushActiveTextEdit();
   }
-  if (activeHistoryTransaction) commitHistoryTransaction(activeHistoryTransaction);
+  if (activeHistoryTransaction)
+    commitHistoryTransaction(activeHistoryTransaction);
 
   let edit = activeTextEdit;
   if (!edit) {
@@ -1906,7 +2315,9 @@ export function updateCoalescedTextEdit(
   runWithoutHistory(() => {
     patchDocumentTarget(useFlowStore.setState, edit.token.target, (latest) => {
       const current = readTextEditValue(latest, edit.descriptor);
-      return current?.value === value ? {} : textEditPatch(latest, edit.descriptor, value);
+      return current?.value === value
+        ? {}
+        : textEditPatch(latest, edit.descriptor, value);
     });
   });
   scheduleTextEditCommit(edit);
@@ -1914,12 +2325,25 @@ export function updateCoalescedTextEdit(
 }
 
 function migrateLegacyGptNode(node: FlowNode): FlowNode {
-  if (!("modelId" in node.data) || node.data.modelId !== "gpt-image-2") return node;
-  const oldQuality = (node.data.modelOptions as ImageModelOptions | undefined)?.quality;
-  return { ...node, data: { ...node.data, modelId: MASK_REDRAW_MODEL_ID,
-    modelOptions: { ...normalizeImageModelOptions(MASK_REDRAW_MODEL_ID, node.data.modelOptions),
-      quality: oldQuality === "low" ? "low" : oldQuality === "high" ? "max" : "high" },
-  } as WorkflowNodeData };
+  if (!("modelId" in node.data) || node.data.modelId !== "gpt-image-2")
+    return node;
+  const oldQuality = (node.data.modelOptions as ImageModelOptions | undefined)
+    ?.quality;
+  return {
+    ...node,
+    data: {
+      ...node.data,
+      modelId: MASK_REDRAW_MODEL_ID,
+      modelOptions: {
+        ...normalizeImageModelOptions(
+          MASK_REDRAW_MODEL_ID,
+          node.data.modelOptions,
+        ),
+        quality:
+          oldQuality === "low" ? "low" : oldQuality === "high" ? "max" : "high",
+      },
+    } as WorkflowNodeData,
+  };
 }
 
 function newTab(opts?: {
@@ -1935,7 +2359,10 @@ function newTab(opts?: {
 }): ProjectTab {
   const markDirty = opts?.markDirty ?? false;
   const persisted = opts?.persisted === true && !markDirty;
-  const selection = normalizeNodeSelection(opts?.nodes ?? [makeStarterNode()], []);
+  const selection = normalizeNodeSelection(
+    opts?.nodes ?? [makeStarterNode()],
+    [],
+  );
   return {
     id: nanoid(10),
     projectId: opts?.projectId ?? nanoid(10),
@@ -1959,7 +2386,9 @@ function newTab(opts?: {
 
 /** 在目标页签内更新节点。 */
 function updateTabNodes(
-  set: (partial: Partial<FlowState> | ((state: FlowState) => Partial<FlowState>)) => unknown,
+  set: (
+    partial: Partial<FlowState> | ((state: FlowState) => Partial<FlowState>),
+  ) => unknown,
   target: DocumentTarget,
   update: (nodes: FlowNode[]) => FlowNode[],
   opts?: { markDirty?: boolean },
@@ -1982,16 +2411,26 @@ function updateTabNodes(
   patchDocumentTarget(set, target, (tab) => {
     const nodes = update(tab.nodes);
     if (nodes === tab.nodes) return {};
-    const documentChanged = opts?.markDirty === true && !sameDocumentNodes(tab.nodes, nodes);
+    const documentChanged =
+      opts?.markDirty === true && !sameDocumentNodes(tab.nodes, nodes);
     if (documentChanged) {
-      history.before = { projectName: tab.projectName, nodes: tab.nodes, edges: tab.edges };
-      history.current = { projectName: tab.projectName, nodes, edges: tab.edges };
+      history.before = {
+        projectName: tab.projectName,
+        nodes: tab.nodes,
+        edges: tab.edges,
+      };
+      history.current = {
+        projectName: tab.projectName,
+        nodes,
+        edges: tab.edges,
+      };
     }
     return {
       nodes,
       revision: documentChanged ? tab.revision + 1 : tab.revision,
       dirty: documentChanged ? true : tab.dirty,
-      saveState: documentChanged && tab.saveState !== "saving" ? "idle" : tab.saveState,
+      saveState:
+        documentChanged && tab.saveState !== "saving" ? "idle" : tab.saveState,
     };
   });
   if (history.before && history.current) {
@@ -2009,14 +2448,19 @@ function commitDocumentMutationForTarget(
   const state = useFlowStore.getState();
   if (!documentForTarget(state, target)) return false;
   if (state.activeTabId === target.tabId) {
-    return commitDocumentMutationWithSet(set, (tab) => (
+    return commitDocumentMutationWithSet(set, (tab) =>
       matchesDocumentTarget(tab, target)
-        ? (typeof mutation === "function" ? mutation(tab) : mutation)
-        : {}
-    ));
+        ? typeof mutation === "function"
+          ? mutation(tab)
+          : mutation
+        : {},
+    );
   }
 
-  const history: { before: FlowTemporalState | null; current: FlowTemporalState | null } = {
+  const history: {
+    before: FlowTemporalState | null;
+    current: FlowTemporalState | null;
+  } = {
     before: null,
     current: null,
   };
@@ -2058,22 +2502,37 @@ export interface TabSessionWriteResult {
   failedTabIds?: string[];
 }
 
-const TAB_SESSION_WRITE_ERROR = "本地草稿未写入浏览器，请先保存项目或重新保存大蒙版；刷新会丢失本页修改";
-const TAB_SESSION_READ_ERROR = "浏览器暂时无法读取完整草稿；为避免覆盖恢复点，本页不再写入会话缓存，请刷新后重试";
+const TAB_SESSION_WRITE_ERROR =
+  "本地草稿未写入浏览器，请先保存项目或重新保存大蒙版；刷新会丢失本页修改";
+const TAB_SESSION_READ_ERROR =
+  "浏览器暂时无法读取完整草稿；为避免覆盖恢复点，本页不再写入会话缓存，请刷新后重试";
 
 const NODE_KINDS = new Set<NodeKind>(Object.keys(NODE_SPECS) as NodeKind[]);
 const NODE_STATUSES = new Set<NodeRunStatus>([
-  "idle", "queued", "running", "retry_wait", "cancel_requested",
-  "success", "error", "outcome_unknown", "cancelled",
+  "idle",
+  "queued",
+  "running",
+  "retry_wait",
+  "cancel_requested",
+  "success",
+  "error",
+  "outcome_unknown",
+  "cancelled",
 ]);
 
 function finiteNonNegative(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : fallback;
 }
 
 function stringList(value: unknown, max = 100): string[] {
   return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string" && item.length > 0).slice(0, max)
+    ? value
+        .filter(
+          (item): item is string => typeof item === "string" && item.length > 0,
+        )
+        .slice(0, max)
     : [];
 }
 
@@ -2093,89 +2552,168 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     typeof raw.position !== "object" ||
     !raw.data ||
     typeof raw.data !== "object"
-  ) return undefined;
+  )
+    return undefined;
   const position = raw.position as Record<string, unknown>;
   if (
-    typeof position.x !== "number" || !Number.isFinite(position.x) ||
-    typeof position.y !== "number" || !Number.isFinite(position.y)
-  ) return undefined;
+    typeof position.x !== "number" ||
+    !Number.isFinite(position.x) ||
+    typeof position.y !== "number" ||
+    !Number.isFinite(position.y)
+  )
+    return undefined;
 
   const kind = raw.type as NodeKind;
   const input = raw.data as Record<string, unknown>;
   const defaults = defaultNodeData(kind) as unknown as Record<string, unknown>;
-  const status = typeof input.status === "string" && NODE_STATUSES.has(input.status as NodeRunStatus)
-    ? input.status as NodeRunStatus
-    : "idle";
+  const status =
+    typeof input.status === "string" &&
+    NODE_STATUSES.has(input.status as NodeRunStatus)
+      ? (input.status as NodeRunStatus)
+      : "idle";
   const data: Record<string, unknown> = {
     ...defaults,
     ...input,
     kind,
-    label: typeof input.label === "string" && input.label.trim() ? input.label : defaults.label,
+    label:
+      typeof input.label === "string" && input.label.trim()
+        ? input.label
+        : defaults.label,
     status,
   };
   for (const transientKey of [
-    "selectionRange", "editorSelection", "drawingRecoveryDraft", "recentColors",
-    "confirmPopoverOpen", "approvalDialogOpen", "displayState",
-  ]) delete data[transientKey];
+    "selectionRange",
+    "editorSelection",
+    "drawingRecoveryDraft",
+    "recentColors",
+    "confirmPopoverOpen",
+    "approvalDialogOpen",
+    "displayState",
+  ])
+    delete data[transientKey];
   if (typeof input.error !== "string") delete data.error;
-  if (NODE_SPECS[kind].providerId && kind !== "video-generate") {
-    const migratedModelId = input.modelId === "gemini-3.1-flash-image-preview"
-      ? "gemini-3.1-flash-image" : input.modelId === "gpt-image-2" ? MASK_REDRAW_MODEL_ID : input.modelId;
-    const modelId = isImageModelId(migratedModelId) && isModelAllowedForNode(migratedModelId, kind)
-      ? migratedModelId
-      : kind === "mask-redraw" || kind === "virtual-try-on"
-        ? MASK_REDRAW_MODEL_ID
-        : kind === "sketch-optimize"
-          ? SKETCH_OPTIMIZATION_MODEL_ID
-        : DEFAULT_GENERATION_MODEL_ID;
-    const preferredAspectRatio = typeof input.aspectRatio === "string" ? input.aspectRatio : "1:1";
+  if (
+    NODE_SPECS[kind].providerId &&
+    kind !== "video-generate" &&
+    kind !== "character-board"
+  ) {
+    const migratedModelId =
+      input.modelId === "gemini-3.1-flash-image-preview"
+        ? "gemini-3.1-flash-image"
+        : input.modelId === "gpt-image-2"
+          ? MASK_REDRAW_MODEL_ID
+          : input.modelId;
+    const modelId =
+      isImageModelId(migratedModelId) &&
+      isModelAllowedForNode(migratedModelId, kind)
+        ? migratedModelId
+        : kind === "mask-redraw" || kind === "virtual-try-on"
+          ? MASK_REDRAW_MODEL_ID
+          : kind === "sketch-optimize"
+            ? SKETCH_OPTIMIZATION_MODEL_ID
+            : DEFAULT_GENERATION_MODEL_ID;
+    const preferredAspectRatio =
+      typeof input.aspectRatio === "string" ? input.aspectRatio : "1:1";
     data.modelId = modelId;
-    data.modelOptions = normalizeImageModelOptions(modelId, input.modelOptions, preferredAspectRatio);
+    data.modelOptions = normalizeImageModelOptions(
+      modelId,
+      input.modelOptions,
+      preferredAspectRatio,
+    );
     if (input.modelId === "gpt-image-2") {
-      const oldQuality = (input.modelOptions as ImageModelOptions | undefined)?.quality;
-      data.modelOptions = { ...data.modelOptions as ImageModelOptions,
-        quality: oldQuality === "low" ? "low" : oldQuality === "high" ? "max" : "high" };
+      const oldQuality = (input.modelOptions as ImageModelOptions | undefined)
+        ?.quality;
+      data.modelOptions = {
+        ...(data.modelOptions as ImageModelOptions),
+        quality:
+          oldQuality === "low" ? "low" : oldQuality === "high" ? "max" : "high",
+      };
     }
   }
 
   switch (kind) {
     case "outfit-reference":
       data.images = stringArray(input.images)?.slice(0, 8) ?? [];
-      data.mainImage = typeof input.mainImage === "string" && (data.images as string[]).includes(input.mainImage) ? input.mainImage : (data.images as string[])[0] ?? null;
+      data.mainImage =
+        typeof input.mainImage === "string" &&
+        (data.images as string[]).includes(input.mainImage)
+          ? input.mainImage
+          : ((data.images as string[])[0] ?? null);
       break;
     case "ai-styling": {
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
-      data.aspectRatio = typeof input.aspectRatio === "string" ? input.aspectRatio : "3:4";
-      data.batchSize = input.batchSize === 2 || input.batchSize === 4 ? input.batchSize : 1;
-      data.preserve = ["upper", "lower", "one-piece", "whole"].includes(String(input.preserve)) ? input.preserve : null;
-      const extras = input.extras && typeof input.extras === "object" ? input.extras as Record<string, unknown> : {};
-      data.extras = Object.fromEntries(["outerwear", "shoes", "bag", "accessories", "hat"].map((key) => [key, extras[key] === true]));
+      data.aspectRatio =
+        typeof input.aspectRatio === "string" ? input.aspectRatio : "3:4";
+      data.batchSize =
+        input.batchSize === 2 || input.batchSize === 4 ? input.batchSize : 1;
+      data.preserve = ["upper", "lower", "one-piece", "whole"].includes(
+        String(input.preserve),
+      )
+        ? input.preserve
+        : null;
+      const extras =
+        input.extras && typeof input.extras === "object"
+          ? (input.extras as Record<string, unknown>)
+          : {};
+      data.extras = Object.fromEntries(
+        ["outerwear", "shoes", "bag", "accessories", "hat"].map((key) => [
+          key,
+          extras[key] === true,
+        ]),
+      );
       data.outputImages = stringArray(input.outputImages) ?? [];
-      for (const key of ["analysisId", "referenceFingerprint", "resultNodeId"]) if (typeof input[key] !== "string") delete data[key];
+      for (const key of ["analysisId", "referenceFingerprint", "resultNodeId"])
+        if (typeof input[key] !== "string") delete data[key];
       break;
     }
     case "image-input":
-      data.imageRole = typeof input.imageRole === "string" && ["default", "sketch", "garment", "fabric", "reference"].includes(input.imageRole)
-        ? input.imageRole
-        : "default";
+      data.imageRole =
+        typeof input.imageRole === "string" &&
+        ["default", "sketch", "garment", "fabric", "reference"].includes(
+          input.imageRole,
+        )
+          ? input.imageRole
+          : "default";
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
       break;
     case "background-extract":
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
       data.outputImages = stringArray(input.outputImages) ?? [];
       break;
+    case "character-board":
+      if (
+        typeof input.sourceImage !== "string" ||
+        !/^\/api\/files\/[A-Za-z0-9_-]+\.(png|jpe?g|webp|gif)$/i.test(
+          input.sourceImage,
+        )
+      )
+        delete data.sourceImage;
+      data.outputImages = (stringArray(input.outputImages) ?? []).slice(0, 1);
+      break;
     case "text-input":
       data.text = typeof input.text === "string" ? input.text : "";
       break;
     case "drawing-board":
       data.boardVersion = 1;
-      data.width = Number.isSafeInteger(input.width) && Number(input.width) >= 256 && Number(input.width) <= 4096
-        ? input.width : 1024;
-      data.height = Number.isSafeInteger(input.height) && Number(input.height) >= 256 && Number(input.height) <= 4096
-        ? input.height : 1024;
-      data.background = typeof input.background === "string" && input.background ? input.background : "#FFFFFF";
+      data.width =
+        Number.isSafeInteger(input.width) &&
+        Number(input.width) >= 256 &&
+        Number(input.width) <= 4096
+          ? input.width
+          : 1024;
+      data.height =
+        Number.isSafeInteger(input.height) &&
+        Number(input.height) >= 256 &&
+        Number(input.height) <= 4096
+          ? input.height
+          : 1024;
+      data.background =
+        typeof input.background === "string" && input.background
+          ? input.background
+          : "#FFFFFF";
       if (typeof input.contentRef !== "string") delete data.contentRef;
-      if (typeof input.previewImageRef !== "string") delete data.previewImageRef;
+      if (typeof input.previewImageRef !== "string")
+        delete data.previewImageRef;
       if (typeof input.exportImageRef !== "string") delete data.exportImageRef;
       break;
     case "color-palette": {
@@ -2183,46 +2721,81 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       data.paletteVersion = paletteVersion;
       const seen = new Set<string>();
       data.swatches = Array.isArray(input.swatches)
-        ? input.swatches.flatMap((value) => {
-            if (!value || typeof value !== "object") return [];
-            const swatch = value as Record<string, unknown>;
-            if (typeof swatch.id !== "string" || typeof swatch.value !== "string") return [];
-            const source = [
-              "quick", "custom", "recent", "favorite", "eyedropper", "pantone", "brand",
-            ].includes(String(swatch.source)) ? swatch.source as ColorSwatch["source"] : "custom";
-            if (paletteVersion === 1 && (source === "pantone" || source === "brand")) return [];
-            try {
-              const [normalized] = normalizeColorSwatches([{
-                id: swatch.id,
-                value: swatch.value,
-                source,
-                ...(typeof swatch.name === "string" ? { name: swatch.name } : {}),
-                ...(swatch.pantone && typeof swatch.pantone === "object"
-                  ? { pantone: swatch.pantone as ColorSwatch["pantone"] } : {}),
-              }]);
-              const identityKey = normalized.pantone
-                ? `pantone:${normalized.pantone.catalogId}` : `hex:${normalized.value}`;
-              if (seen.has(identityKey)) return [];
-              seen.add(identityKey);
-              return [normalized];
-            } catch {
-              return [];
-            }
-          }).slice(0, 32)
+        ? input.swatches
+            .flatMap((value) => {
+              if (!value || typeof value !== "object") return [];
+              const swatch = value as Record<string, unknown>;
+              if (
+                typeof swatch.id !== "string" ||
+                typeof swatch.value !== "string"
+              )
+                return [];
+              const source = [
+                "quick",
+                "custom",
+                "recent",
+                "favorite",
+                "eyedropper",
+                "pantone",
+                "brand",
+              ].includes(String(swatch.source))
+                ? (swatch.source as ColorSwatch["source"])
+                : "custom";
+              if (
+                paletteVersion === 1 &&
+                (source === "pantone" || source === "brand")
+              )
+                return [];
+              try {
+                const [normalized] = normalizeColorSwatches([
+                  {
+                    id: swatch.id,
+                    value: swatch.value,
+                    source,
+                    ...(typeof swatch.name === "string"
+                      ? { name: swatch.name }
+                      : {}),
+                    ...(swatch.pantone && typeof swatch.pantone === "object"
+                      ? { pantone: swatch.pantone as ColorSwatch["pantone"] }
+                      : {}),
+                  },
+                ]);
+                const identityKey = normalized.pantone
+                  ? `pantone:${normalized.pantone.catalogId}`
+                  : `hex:${normalized.value}`;
+                if (seen.has(identityKey)) return [];
+                seen.add(identityKey);
+                return [normalized];
+              } catch {
+                return [];
+              }
+            })
+            .slice(0, 32)
         : defaults.swatches;
-      if ((data.swatches as unknown[]).length === 0) data.swatches = defaults.swatches;
+      if ((data.swatches as unknown[]).length === 0)
+        data.swatches = defaults.swatches;
       break;
     }
     case "stage-approval":
       data.approvalKind = "scene-baseline";
-      if (typeof input.approvedSourceNodeId !== "string") delete data.approvedSourceNodeId;
-      if (typeof input.approvedBaselineRef !== "string") delete data.approvedBaselineRef;
-      if (!Number.isSafeInteger(input.approvedBasisRevision) || Number(input.approvedBasisRevision) < 0) delete data.approvedBasisRevision;
+      if (typeof input.approvedSourceNodeId !== "string")
+        delete data.approvedSourceNodeId;
+      if (typeof input.approvedBaselineRef !== "string")
+        delete data.approvedBaselineRef;
+      if (
+        !Number.isSafeInteger(input.approvedBasisRevision) ||
+        Number(input.approvedBasisRevision) < 0
+      )
+        delete data.approvedBasisRevision;
       if (typeof input.approvedAt !== "string") delete data.approvedAt;
       break;
     case "video-input":
       if (typeof input.videoUrl !== "string") delete data.videoUrl;
-      if (input.mimeType === "video/mp4" || input.mimeType === "video/webm" || input.mimeType === "video/quicktime") {
+      if (
+        input.mimeType === "video/mp4" ||
+        input.mimeType === "video/webm" ||
+        input.mimeType === "video/quicktime"
+      ) {
         data.mimeType = input.mimeType;
       } else {
         delete data.mimeType;
@@ -2230,30 +2803,42 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       break;
     case "audio-input":
       if (typeof input.audioUrl !== "string") delete data.audioUrl;
-      if (["audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg"].includes(String(input.mimeType))) {
+      if (
+        ["audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg"].includes(
+          String(input.mimeType),
+        )
+      ) {
         data.mimeType = input.mimeType;
       } else {
         delete data.mimeType;
       }
       break;
     case "video-generate": {
-      const mode = input.mode === "multi-image-video"
-        ? "multimodal-reference"
-        : input.mode === "video-to-video"
-          ? "video-edit"
-          : SEEDANCE_VIDEO_MODES.includes(input.mode as never)
-            ? input.mode as (typeof SEEDANCE_VIDEO_MODES)[number]
-            : "text-to-video";
+      const mode =
+        input.mode === "multi-image-video"
+          ? "multimodal-reference"
+          : input.mode === "video-to-video"
+            ? "video-edit"
+            : SEEDANCE_VIDEO_MODES.includes(input.mode as never)
+              ? (input.mode as (typeof SEEDANCE_VIDEO_MODES)[number])
+              : "text-to-video";
       const model = isSeedanceVideoModel(input.videoModel)
         ? input.videoModel
         : "doubao-seedance-2-5-260628";
       const normalized = normalizedSeedanceSettings({
         model,
         mode,
-        resolution: input.resolution === "480p" ? "480p"
-          : input.resolution === "1080p" || input.resolution === "4k" ? "1080p" : "720p",
-        ratio: typeof input.aspectRatio === "string" ? input.aspectRatio : "16:9",
-        duration: Number.isSafeInteger(input.seconds) ? Number(input.seconds) : 5,
+        resolution:
+          input.resolution === "480p"
+            ? "480p"
+            : input.resolution === "1080p" || input.resolution === "4k"
+              ? "1080p"
+              : "720p",
+        ratio:
+          typeof input.aspectRatio === "string" ? input.aspectRatio : "16:9",
+        duration: Number.isSafeInteger(input.seconds)
+          ? Number(input.seconds)
+          : 5,
         outputFormat: input.outputFormat === "mov" ? "mov" : "mp4",
       });
       data.mode = normalized.mode;
@@ -2262,7 +2847,8 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       data.aspectRatio = normalized.ratio;
       data.resolution = normalized.resolution;
       data.seconds = normalized.duration;
-      data.generateAudio = typeof input.generateAudio === "boolean" ? input.generateAudio : true;
+      data.generateAudio =
+        typeof input.generateAudio === "boolean" ? input.generateAudio : true;
       data.outputFormat = normalized.outputFormat;
       delete data.quality;
       data.outputImages = stringList(input.outputImages);
@@ -2272,16 +2858,26 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     case "sketch-to-render":
     case "ai-modify":
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
-      data.aspectRatio = typeof input.aspectRatio === "string" && ["1:1", "3:4", "4:3", "9:16", "16:9"].includes(input.aspectRatio)
-        ? input.aspectRatio
-        : kind === "sketch-to-render" || kind === "sketch-optimize" ? "3:4" : "1:1";
-      data.batchSize = [1, 2, 4, 8].includes(Number(input.batchSize)) ? Number(input.batchSize) : 1;
+      data.aspectRatio =
+        typeof input.aspectRatio === "string" &&
+        ["1:1", "3:4", "4:3", "9:16", "16:9"].includes(input.aspectRatio)
+          ? input.aspectRatio
+          : kind === "sketch-to-render" || kind === "sketch-optimize"
+            ? "3:4"
+            : "1:1";
+      data.batchSize = [1, 2, 4, 8].includes(Number(input.batchSize))
+        ? Number(input.batchSize)
+        : 1;
       data.outputImages = stringList(input.outputImages);
       break;
     case "fabric-recolor":
-      data.operationMode = input.operationMode === "fabric" || input.operationMode === "color"
-        ? input.operationMode : "combined";
-      data.colors = stringList(input.colors, 8).filter((color) => /^#[0-9a-fA-F]{6}$/.test(color));
+      data.operationMode =
+        input.operationMode === "fabric" || input.operationMode === "color"
+          ? input.operationMode
+          : "combined";
+      data.colors = stringList(input.colors, 8).filter((color) =>
+        /^#[0-9a-fA-F]{6}$/.test(color),
+      );
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
       data.outputImages = stringList(input.outputImages);
       if (typeof input.fabricImageUrl !== "string") delete data.fabricImageUrl;
@@ -2297,66 +2893,108 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       break;
     case "print-mutate":
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
-      data.count = Number.isInteger(input.count) && Number(input.count) >= 1 && Number(input.count) <= 8
-        ? input.count
-        : 4;
+      data.count =
+        Number.isInteger(input.count) &&
+        Number(input.count) >= 1 &&
+        Number(input.count) <= 8
+          ? input.count
+          : 4;
       data.outputImages = stringList(input.outputImages);
       break;
     case "virtual-try-on":
-      data.workflowStage = input.workflowStage === "scene-stabilize" || input.workflowStage === "garment-refine"
-        ? input.workflowStage
-        : "standard";
+      data.workflowStage =
+        input.workflowStage === "scene-stabilize" ||
+        input.workflowStage === "garment-refine"
+          ? input.workflowStage
+          : "standard";
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
       data.imageSize = input.imageSize === "4K" ? "4K" : "2K";
-      data.aspectRatio = typeof input.aspectRatio === "string" && ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"].includes(input.aspectRatio)
-        ? input.aspectRatio : "3:4";
+      data.aspectRatio =
+        typeof input.aspectRatio === "string" &&
+        ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"].includes(input.aspectRatio)
+          ? input.aspectRatio
+          : "3:4";
       data.outputImages = stringList(input.outputImages);
-      data.basisRevision = Number.isSafeInteger(input.basisRevision) && Number(input.basisRevision) >= 0
-        ? input.basisRevision : 0;
-      if (input.garmentCategory === "knit" || input.garmentCategory === "woven" || input.garmentCategory === "other") {
+      data.basisRevision =
+        Number.isSafeInteger(input.basisRevision) &&
+        Number(input.basisRevision) >= 0
+          ? input.basisRevision
+          : 0;
+      if (
+        input.garmentCategory === "knit" ||
+        input.garmentCategory === "woven" ||
+        input.garmentCategory === "other"
+      ) {
         data.garmentCategory = input.garmentCategory;
       } else {
         delete data.garmentCategory;
       }
-      if (typeof input.materialSpec === "string") data.materialSpec = input.materialSpec;
+      if (typeof input.materialSpec === "string")
+        data.materialSpec = input.materialSpec;
       else delete data.materialSpec;
-      if (typeof input.constructionSpec === "string") data.constructionSpec = input.constructionSpec;
+      if (typeof input.constructionSpec === "string")
+        data.constructionSpec = input.constructionSpec;
       else delete data.constructionSpec;
-      data.promptEnhancement = typeof input.promptEnhancement === "boolean" ? input.promptEnhancement : false;
-      data.qualityMode = input.qualityMode === "balanced" || input.qualityMode === "best"
-        ? input.qualityMode
-        : "fast";
-      data.safetyFallback = typeof input.safetyFallback === "boolean" ? input.safetyFallback : false;
-      data.stylePresetId = typeof input.stylePresetId === "string" && input.stylePresetId.trim()
-        ? input.stylePresetId.trim()
-        : "faithful";
-      if (typeof input.stylePresetName === "string") data.stylePresetName = input.stylePresetName;
+      data.promptEnhancement =
+        typeof input.promptEnhancement === "boolean"
+          ? input.promptEnhancement
+          : false;
+      data.qualityMode =
+        input.qualityMode === "balanced" || input.qualityMode === "best"
+          ? input.qualityMode
+          : "fast";
+      data.safetyFallback =
+        typeof input.safetyFallback === "boolean"
+          ? input.safetyFallback
+          : false;
+      data.stylePresetId =
+        typeof input.stylePresetId === "string" && input.stylePresetId.trim()
+          ? input.stylePresetId.trim()
+          : "faithful";
+      if (typeof input.stylePresetName === "string")
+        data.stylePresetName = input.stylePresetName;
       else delete data.stylePresetName;
-      if (typeof input.stylePrompt === "string") data.stylePrompt = input.stylePrompt;
+      if (typeof input.stylePrompt === "string")
+        data.stylePrompt = input.stylePrompt;
       else delete data.stylePrompt;
-      if (typeof input.styleReferenceImage === "string") data.styleReferenceImage = input.styleReferenceImage;
+      if (typeof input.styleReferenceImage === "string")
+        data.styleReferenceImage = input.styleReferenceImage;
       else delete data.styleReferenceImage;
       if (data.workflowStage === "scene-stabilize") {
         data.modelId = "gemini-3.1-flash-image";
       }
-      if (data.workflowStage === "garment-refine") data.modelId = MASK_REDRAW_MODEL_ID;
+      if (data.workflowStage === "garment-refine")
+        data.modelId = MASK_REDRAW_MODEL_ID;
       if (data.modelId === "gemini-3.1-flash-image") {
         data.modelOptions = normalizeImageModelOptions(data.modelId, {
-          ...(typeof data.modelOptions === "object" && data.modelOptions ? data.modelOptions : {}),
+          ...(typeof data.modelOptions === "object" && data.modelOptions
+            ? data.modelOptions
+            : {}),
           imageSize: data.imageSize,
         });
       } else {
         data.modelId = MASK_REDRAW_MODEL_ID;
-        data.modelOptions = normalizeImageModelOptions(MASK_REDRAW_MODEL_ID, data.modelOptions);
+        data.modelOptions = normalizeImageModelOptions(
+          MASK_REDRAW_MODEL_ID,
+          data.modelOptions,
+        );
       }
       break;
     case "mask-redraw":
       data.modelId = MASK_REDRAW_MODEL_ID;
-      data.modelOptions = normalizeImageModelOptions(MASK_REDRAW_MODEL_ID, data.modelOptions);
-      data.repairFocus = input.repairFocus === "upper-garment" || input.repairFocus === "pants"
-        || input.repairFocus === "accessories" || input.repairFocus === "logo-text"
-        ? input.repairFocus : "custom";
-      data.executionMode = input.executionMode === "bypass" ? "bypass" : "repair";
+      data.modelOptions = normalizeImageModelOptions(
+        MASK_REDRAW_MODEL_ID,
+        data.modelOptions,
+      );
+      data.repairFocus =
+        input.repairFocus === "upper-garment" ||
+        input.repairFocus === "pants" ||
+        input.repairFocus === "accessories" ||
+        input.repairFocus === "logo-text"
+          ? input.repairFocus
+          : "custom";
+      data.executionMode =
+        input.executionMode === "bypass" ? "bypass" : "repair";
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
       data.outputImages = stringList(input.outputImages);
       if (typeof input.mask !== "string") delete data.mask;
@@ -2378,21 +3016,31 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
   } as FlowNode;
 }
 
-function normalizeSessionEdge(value: unknown, nodeIds: Set<string>): Edge | undefined {
+function normalizeSessionEdge(
+  value: unknown,
+  nodeIds: Set<string>,
+): Edge | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Record<string, unknown>;
   if (
-    typeof raw.id !== "string" || !raw.id ||
-    typeof raw.source !== "string" || !nodeIds.has(raw.source) ||
-    typeof raw.target !== "string" || !nodeIds.has(raw.target)
-  ) return undefined;
+    typeof raw.id !== "string" ||
+    !raw.id ||
+    typeof raw.source !== "string" ||
+    !nodeIds.has(raw.source) ||
+    typeof raw.target !== "string" ||
+    !nodeIds.has(raw.target)
+  )
+    return undefined;
   const id = SAFE_DOCUMENT_EDGE_ID.test(raw.id)
     ? raw.id
     : raw.id.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 128);
   return { ...raw, id, source: raw.source, target: raw.target } as Edge;
 }
 
-function recoverDeclaredAutoConnectEdgeHandles(nodes: readonly FlowNode[], edges: readonly Edge[]): Edge[] {
+function recoverDeclaredAutoConnectEdgeHandles(
+  nodes: readonly FlowNode[],
+  edges: readonly Edge[],
+): Edge[] {
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   return edges.map((edge) => {
     if (edge.targetHandle) return edge;
@@ -2404,7 +3052,10 @@ function recoverDeclaredAutoConnectEdgeHandles(nodes: readonly FlowNode[], edges
   });
 }
 
-function recoverSessionStagedTryOnNodes(nodes: readonly FlowNode[], edges: readonly Edge[]): FlowNode[] {
+function recoverSessionStagedTryOnNodes(
+  nodes: readonly FlowNode[],
+  edges: readonly Edge[],
+): FlowNode[] {
   const incomingRoles = new Map<string, Set<string>>();
   for (const edge of edges) {
     if (!edge.targetHandle) continue;
@@ -2413,16 +3064,29 @@ function recoverSessionStagedTryOnNodes(nodes: readonly FlowNode[], edges: reado
     incomingRoles.set(edge.target, roles);
   }
   return nodes.map((node) => {
-    if (node.data.kind !== "virtual-try-on" || node.data.workflowStage !== "standard") return node;
+    if (
+      node.data.kind !== "virtual-try-on" ||
+      node.data.workflowStage !== "standard"
+    )
+      return node;
     const roles = incomingRoles.get(node.id);
     if (!roles) return node;
     if (
-      node.data.modelId === "gemini-3.1-flash-image"
-      && roles.has("person") && roles.has("scene") && roles.has("outfit")
+      node.data.modelId === "gemini-3.1-flash-image" &&
+      roles.has("person") &&
+      roles.has("scene") &&
+      roles.has("outfit")
     ) {
-      return { ...node, data: { ...node.data, workflowStage: "scene-stabilize" as const } };
+      return {
+        ...node,
+        data: { ...node.data, workflowStage: "scene-stabilize" as const },
+      };
     }
-    if (node.data.modelId === MASK_REDRAW_MODEL_ID && roles.has("baseline") && roles.has("outfit")) {
+    if (
+      node.data.modelId === MASK_REDRAW_MODEL_ID &&
+      roles.has("baseline") &&
+      roles.has("outfit")
+    ) {
       return {
         ...node,
         data: {
@@ -2440,17 +3104,20 @@ function migrateSessionLegacyDualModelAccessorySlot(
   nodes: readonly FlowNode[],
   edges: readonly Edge[],
 ): { nodes: FlowNode[]; edges: Edge[] } {
-  const structure = nodes.find((node) => node.id === "structure" && node.data.kind === "image-input");
+  const structure = nodes.find(
+    (node) => node.id === "structure" && node.data.kind === "image-input",
+  );
   if (
-    !structure
-    || structure.data.kind !== "image-input"
-    || !nodes.some((node) => node.id === "accessory")
-    || !nodes.some((node) => node.id === "person")
-    || !nodes.some((node) => node.id === "scene")
-    || !nodes.some((node) => node.id === "outfit")
-    || !nodes.some((node) => node.id === "stabilize")
-    || !nodes.some((node) => node.id === "refine")
-  ) return { nodes: [...nodes], edges: [...edges] };
+    !structure ||
+    structure.data.kind !== "image-input" ||
+    !nodes.some((node) => node.id === "accessory") ||
+    !nodes.some((node) => node.id === "person") ||
+    !nodes.some((node) => node.id === "scene") ||
+    !nodes.some((node) => node.id === "outfit") ||
+    !nodes.some((node) => node.id === "stabilize") ||
+    !nodes.some((node) => node.id === "refine")
+  )
+    return { nodes: [...nodes], edges: [...edges] };
 
   const nextNodes = nodes.map((node): FlowNode => {
     if (node.id === "accessory" && node.data.kind === "image-input") {
@@ -2510,13 +3177,18 @@ function migrateSessionLegacyDualModelAccessorySlot(
   }
 
   const accessoryRoles = new Map<string, string>([
-    ["accessory", "shoes"], ["structure", "bag"], ["hat", "hat"],
-    ["ring", "ring"], ["earrings", "earrings"], ["bracelet", "bracelet"],
+    ["accessory", "shoes"],
+    ["structure", "bag"],
+    ["hat", "hat"],
+    ["ring", "ring"],
+    ["earrings", "earrings"],
+    ["bracelet", "bracelet"],
   ]);
   const seenAccessorySources = new Set<string>();
   const nextEdges = edges.flatMap((edge): Edge[] => {
     if (edge.source === "structure" && edge.target === "refine") return [];
-    if (edge.source === "garment-detail" && edge.target === "stabilize") return [];
+    if (edge.source === "garment-detail" && edge.target === "stabilize")
+      return [];
     if (edge.target === "stabilize" && accessoryRoles.has(edge.source)) {
       if (seenAccessorySources.has(edge.source)) return [];
       seenAccessorySources.add(edge.source);
@@ -2527,59 +3199,97 @@ function migrateSessionLegacyDualModelAccessorySlot(
   for (const [source, targetHandle] of accessoryRoles) {
     if (seenAccessorySources.has(source)) continue;
     nextEdges.push({
-      id: `${source}-stabilize`, source, target: "stabilize", targetHandle,
+      id: `${source}-stabilize`,
+      source,
+      target: "stabilize",
+      targetHandle,
     });
   }
   if (!nextEdges.some((edge) => edge.id === "garment-detail-refine")) {
     nextEdges.push({
-      id: "garment-detail-refine", source: "garment-detail", target: "refine", targetHandle: "detail",
+      id: "garment-detail-refine",
+      source: "garment-detail",
+      target: "refine",
+      targetHandle: "detail",
     });
   }
   return { nodes: nextNodes, edges: nextEdges };
 }
 
-function discardUntypedStagedDuplicateEdges(nodes: readonly FlowNode[], edges: readonly Edge[]): Edge[] {
-  const stagedNodeIds = new Set(nodes.flatMap((node) => (
-    node.data.kind === "virtual-try-on" && node.data.workflowStage !== "standard" ? [node.id] : []
-  )));
-  const typedPairs = new Set(edges.flatMap((edge) => (
-    stagedNodeIds.has(edge.target) && edge.targetHandle
-      ? [`${edge.source}\u0000${edge.target}`]
-      : []
-  )));
-  return edges.filter((edge) => !(
-    stagedNodeIds.has(edge.target)
-    && !edge.targetHandle
-    && typedPairs.has(`${edge.source}\u0000${edge.target}`)
-  ));
+function discardUntypedStagedDuplicateEdges(
+  nodes: readonly FlowNode[],
+  edges: readonly Edge[],
+): Edge[] {
+  const stagedNodeIds = new Set(
+    nodes.flatMap((node) =>
+      node.data.kind === "virtual-try-on" &&
+      node.data.workflowStage !== "standard"
+        ? [node.id]
+        : [],
+    ),
+  );
+  const typedPairs = new Set(
+    edges.flatMap((edge) =>
+      stagedNodeIds.has(edge.target) && edge.targetHandle
+        ? [`${edge.source}\u0000${edge.target}`]
+        : [],
+    ),
+  );
+  return edges.filter(
+    (edge) =>
+      !(
+        stagedNodeIds.has(edge.target) &&
+        !edge.targetHandle &&
+        typedPairs.has(`${edge.source}\u0000${edge.target}`)
+      ),
+  );
 }
 
-function migrateSessionLegacyVideoEdges(nodes: readonly FlowNode[], edges: readonly Edge[]): Edge[] {
-  const multimodalIds = new Set(nodes.flatMap((node) => (
-    node.data.kind === "video-generate" && node.data.mode === "multimodal-reference"
-      ? [node.id]
-      : []
-  )));
-  return edges.map((edge) => (
-    multimodalIds.has(edge.target) && (edge.targetHandle === "first-frame" || edge.targetHandle === "last-frame")
+function migrateSessionLegacyVideoEdges(
+  nodes: readonly FlowNode[],
+  edges: readonly Edge[],
+): Edge[] {
+  const multimodalIds = new Set(
+    nodes.flatMap((node) =>
+      node.data.kind === "video-generate" &&
+      node.data.mode === "multimodal-reference"
+        ? [node.id]
+        : [],
+    ),
+  );
+  return edges.map((edge) =>
+    multimodalIds.has(edge.target) &&
+    (edge.targetHandle === "first-frame" || edge.targetHandle === "last-frame")
       ? { ...edge, targetHandle: "reference-image" }
-      : edge
-  ));
+      : edge,
+  );
 }
 
-function migrateSessionLegacyMaskEdges(nodes: readonly FlowNode[], edges: readonly Edge[]): Edge[] {
-  const maskNodeIds = new Set(nodes.flatMap((node) => (
-    node.data.kind === "mask-redraw" ? [node.id] : []
-  )));
-  const explicitSources = new Set(edges.flatMap((edge) => (
-    maskNodeIds.has(edge.target) && edge.targetHandle === "repair-source" ? [edge.target] : []
-  )));
+function migrateSessionLegacyMaskEdges(
+  nodes: readonly FlowNode[],
+  edges: readonly Edge[],
+): Edge[] {
+  const maskNodeIds = new Set(
+    nodes.flatMap((node) =>
+      node.data.kind === "mask-redraw" ? [node.id] : [],
+    ),
+  );
+  const explicitSources = new Set(
+    edges.flatMap((edge) =>
+      maskNodeIds.has(edge.target) && edge.targetHandle === "repair-source"
+        ? [edge.target]
+        : [],
+    ),
+  );
   return edges.map((edge) => {
     if (
-      !maskNodeIds.has(edge.target)
-      || explicitSources.has(edge.target)
-      || (edge.targetHandle !== undefined && edge.targetHandle !== null && edge.targetHandle !== "references")
-    ) return edge;
+      !maskNodeIds.has(edge.target) ||
+      explicitSources.has(edge.target) ||
+      (edge.targetHandle !== undefined &&
+        edge.targetHandle !== null &&
+        edge.targetHandle !== "references")
+    )
+      return edge;
     explicitSources.add(edge.target);
     return { ...edge, targetHandle: "repair-source" };
   });
@@ -2592,11 +3302,15 @@ function normalizeSessionTab(
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Partial<ProjectTab>;
   if (
-    typeof raw.id !== "string" || !raw.id ||
-    typeof raw.projectId !== "string" || !raw.projectId ||
+    typeof raw.id !== "string" ||
+    !raw.id ||
+    typeof raw.projectId !== "string" ||
+    !raw.projectId ||
     typeof raw.projectName !== "string" ||
-    !Array.isArray(raw.nodes) || !Array.isArray(raw.edges)
-  ) return undefined;
+    !Array.isArray(raw.nodes) ||
+    !Array.isArray(raw.edges)
+  )
+    return undefined;
 
   const seenNodeIds = new Set<string>();
   const nodes = raw.nodes.flatMap((node): FlowNode[] => {
@@ -2617,28 +3331,49 @@ function normalizeSessionTab(
   const videoEdges = migrateSessionLegacyVideoEdges(nodes, normalizedEdges);
   const upgraded = migrateSessionLegacyDualModelAccessorySlot(
     nodes,
-    options.migrateLegacyMaskEdges ? migrateSessionLegacyMaskEdges(nodes, videoEdges) : videoEdges,
+    options.migrateLegacyMaskEdges
+      ? migrateSessionLegacyMaskEdges(nodes, videoEdges)
+      : videoEdges,
   );
-  const declaredEdges = recoverDeclaredAutoConnectEdgeHandles(upgraded.nodes, upgraded.edges);
-  const recoveredNodes = recoverSessionStagedTryOnNodes(upgraded.nodes, declaredEdges);
-  const edges = discardUntypedStagedDuplicateEdges(recoveredNodes, declaredEdges);
+  const declaredEdges = recoverDeclaredAutoConnectEdgeHandles(
+    upgraded.nodes,
+    upgraded.edges,
+  );
+  const recoveredNodes = recoverSessionStagedTryOnNodes(
+    upgraded.nodes,
+    declaredEdges,
+  );
+  const edges = discardUntypedStagedDuplicateEdges(
+    recoveredNodes,
+    declaredEdges,
+  );
   const revision = finiteNonNegative(raw.revision, 0);
   const wasSaving = raw.saveState === "saving";
   const dirty = wasSaving || raw.dirty === true;
-  const savedRevision = Math.min(finiteNonNegative(raw.savedRevision, 0), revision);
-  const hasBeenPersisted = raw.hasBeenPersisted === true ||
+  const savedRevision = Math.min(
+    finiteNonNegative(raw.savedRevision, 0),
+    revision,
+  );
+  const hasBeenPersisted =
+    raw.hasBeenPersisted === true ||
     raw.saveState === "saved" ||
     savedRevision > 0;
-  const lifecycle: ProjectLifecycle = raw.lifecycle === "initial_draft" ||
-    raw.lifecycle === "saved" || raw.lifecycle === "local"
-    ? raw.lifecycle
-    : hasBeenPersisted ? "saved" : "local";
-  const draftRevision = lifecycle === "initial_draft"
-    ? finiteNonNegative(raw.draftRevision, 0)
-    : undefined;
-  const draftSyncedRevision = lifecycle === "initial_draft"
-    ? Math.min(finiteNonNegative(raw.draftSyncedRevision, 0), revision)
-    : undefined;
+  const lifecycle: ProjectLifecycle =
+    raw.lifecycle === "initial_draft" ||
+    raw.lifecycle === "saved" ||
+    raw.lifecycle === "local"
+      ? raw.lifecycle
+      : hasBeenPersisted
+        ? "saved"
+        : "local";
+  const draftRevision =
+    lifecycle === "initial_draft"
+      ? finiteNonNegative(raw.draftRevision, 0)
+      : undefined;
+  const draftSyncedRevision =
+    lifecycle === "initial_draft"
+      ? Math.min(finiteNonNegative(raw.draftSyncedRevision, 0), revision)
+      : undefined;
   const requestedSelection = Array.isArray(raw.selectedNodeIds)
     ? stringList(raw.selectedNodeIds, recoveredNodes.length)
     : typeof raw.selectedNodeId === "string"
@@ -2661,7 +3396,10 @@ function normalizeSessionTab(
     selectedResultId: null,
     compareIds: [],
     // 刷新会中断 in-flight 请求；必须恢复成可再次保存，同时保守地视为未保存。
-    saveState: raw.saveState === "saved" || raw.saveState === "error" ? raw.saveState : "idle",
+    saveState:
+      raw.saveState === "saved" || raw.saveState === "error"
+        ? raw.saveState
+        : "idle",
     hasBeenPersisted,
     revision,
     savedRevision,
@@ -2676,23 +3414,34 @@ function normalizeSessionTab(
   };
 }
 
-export function normalizeTabSessionValue(value: unknown): PersistedTabSession | undefined {
+export function normalizeTabSessionValue(
+  value: unknown,
+): PersistedTabSession | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const raw = value as { schemaVersion?: unknown; tabs?: unknown; activeTabId?: unknown };
+  const raw = value as {
+    schemaVersion?: unknown;
+    tabs?: unknown;
+    activeTabId?: unknown;
+  };
   if (
     raw.schemaVersion !== undefined &&
     raw.schemaVersion !== 0 &&
     raw.schemaVersion !== 1 &&
     raw.schemaVersion !== TAB_SESSION_SCHEMA_VERSION
-  ) return undefined;
-  if (!Array.isArray(raw.tabs) || typeof raw.activeTabId !== "string") return undefined;
-  const migrateLegacyMaskEdges = raw.schemaVersion !== TAB_SESSION_SCHEMA_VERSION;
+  )
+    return undefined;
+  if (!Array.isArray(raw.tabs) || typeof raw.activeTabId !== "string")
+    return undefined;
+  const migrateLegacyMaskEdges =
+    raw.schemaVersion !== TAB_SESSION_SCHEMA_VERSION;
   const tabs = raw.tabs.flatMap((tab): ProjectTab[] => {
     const normalized = normalizeSessionTab(tab, { migrateLegacyMaskEdges });
     return normalized ? [normalized] : [];
   });
   if (tabs.length === 0) return undefined;
-  const activeTabId = tabs.some((tab) => tab.id === raw.activeTabId) ? raw.activeTabId : tabs[0].id;
+  const activeTabId = tabs.some((tab) => tab.id === raw.activeTabId)
+    ? raw.activeTabId
+    : tabs[0].id;
   return { schemaVersion: TAB_SESSION_SCHEMA_VERSION, tabs, activeTabId };
 }
 
@@ -2752,12 +3501,19 @@ export function readTabSessionSnapshotResult(
     return {
       manifest,
       unreadable,
-      snapshot: { schemaVersion: TAB_SESSION_SCHEMA_VERSION, tabs, activeTabId },
+      snapshot: {
+        schemaVersion: TAB_SESSION_SCHEMA_VERSION,
+        tabs,
+        activeTabId,
+      },
     };
   }
 
   try {
-    return { unreadable: false, snapshot: normalizeTabSessionValue(JSON.parse(raw)) };
+    return {
+      unreadable: false,
+      snapshot: normalizeTabSessionValue(JSON.parse(raw)),
+    };
   } catch {
     return { unreadable: false };
   }
@@ -2765,9 +3521,15 @@ export function readTabSessionSnapshotResult(
 
 let initialTabSessionReadResult: TabSessionReadResult | undefined;
 
-function loadTabSession(): { tabs: ProjectTab[]; activeTabId: string } | undefined {
-  initialTabSessionReadResult = readTabSessionSnapshotResult(window.sessionStorage);
-  markProjectTabSessionWorkspaceRestored(initialTabSessionReadResult.snapshot !== undefined);
+function loadTabSession():
+  | { tabs: ProjectTab[]; activeTabId: string }
+  | undefined {
+  initialTabSessionReadResult = readTabSessionSnapshotResult(
+    window.sessionStorage,
+  );
+  markProjectTabSessionWorkspaceRestored(
+    initialTabSessionReadResult.snapshot !== undefined,
+  );
   return initialTabSessionReadResult.snapshot;
 }
 
@@ -2808,14 +3570,25 @@ export function writeTabSessionSnapshot(
 ): DetailedTabSessionWriteResult {
   let previousRaw: string | null = null;
   let previousReadFailed = false;
-  try { previousRaw = storage.getItem(TAB_SESSION_STORAGE_KEY); } catch { previousReadFailed = true; }
+  try {
+    previousRaw = storage.getItem(TAB_SESSION_STORAGE_KEY);
+  } catch {
+    previousReadFailed = true;
+  }
   const previousManifest = parseProjectTabsStorageManifest(previousRaw);
   let migratingLegacy = false;
   if (previousRaw && !previousManifest) {
-    try { migratingLegacy = Boolean(normalizeTabSessionValue(JSON.parse(previousRaw))); } catch { /* invalid */ }
+    try {
+      migratingLegacy = Boolean(
+        normalizeTabSessionValue(JSON.parse(previousRaw)),
+      );
+    } catch {
+      /* invalid */
+    }
   }
   const writeTabIds = options?.writeTabIds;
-  const knownPersistedTabIds = options?.knownPersistedTabIds ?? new Set<string>();
+  const knownPersistedTabIds =
+    options?.knownPersistedTabIds ?? new Set<string>();
   const unresolvedTabIds = options?.unresolvedTabIds ?? new Set<string>();
   const persistedTabIds: string[] = [];
   const failedTabIds: string[] = [];
@@ -2835,8 +3608,8 @@ export function writeTabSessionSnapshot(
       }
       if (knownPersistedTabIds.has(tab.id)) {
         try {
-          if (storage.getItem(key) !== null) persistedTabIds.push(tab.id);
-          else recordFailure(tab.id);
+          if (storage.getItem(key) === null) recordFailure(tab.id);
+          else persistedTabIds.push(tab.id);
         } catch {
           recordFailure(tab.id);
           indeterminateTabIds.push(tab.id);
@@ -2851,7 +3624,11 @@ export function writeTabSessionSnapshot(
     } catch {
       recordFailure(tab.id);
       // Never restore the stale version of the one tab whose latest write failed.
-      try { storage.removeItem(key); } catch { /* best effort */ }
+      try {
+        storage.removeItem(key);
+      } catch {
+        /* best effort */
+      }
     }
   }
 
@@ -2860,9 +3637,8 @@ export function writeTabSessionSnapshot(
   if (
     previousReadFailed ||
     indeterminateRead ||
-    (migratingLegacy && (
-      failedTabIds.length > 0 || persistedTabIds.length !== value.tabs.length
-    ))
+    (migratingLegacy &&
+      (failedTabIds.length > 0 || persistedTabIds.length !== value.tabs.length))
   ) {
     return {
       ok: false,
@@ -2876,7 +3652,11 @@ export function writeTabSessionSnapshot(
 
   if (persistedTabIds.length === 0) {
     if (!migratingLegacy) {
-      try { storage.removeItem(TAB_SESSION_STORAGE_KEY); } catch { /* best effort */ }
+      try {
+        storage.removeItem(TAB_SESSION_STORAGE_KEY);
+      } catch {
+        /* best effort */
+      }
     }
     return {
       ok: false,
@@ -2891,17 +3671,21 @@ export function writeTabSessionSnapshot(
     ? value.activeTabId
     : persistedTabIds[0];
   try {
-    storage.setItem(TAB_SESSION_STORAGE_KEY, JSON.stringify({
-      schemaVersion: TAB_SESSION_SCHEMA_VERSION,
-      activeTabId,
-      tabIds: persistedTabIds,
-    }));
+    storage.setItem(
+      TAB_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: TAB_SESSION_SCHEMA_VERSION,
+        activeTabId,
+        tabIds: persistedTabIds,
+      }),
+    );
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error && error.name !== "QuotaExceededError"
-        ? `${TAB_SESSION_WRITE_ERROR}（${error.message}）`
-        : TAB_SESSION_WRITE_ERROR,
+      error:
+        error instanceof Error && error.name !== "QuotaExceededError"
+          ? `${TAB_SESSION_WRITE_ERROR}（${error.message}）`
+          : TAB_SESSION_WRITE_ERROR,
       failedTabIds,
       persistedTabIds,
       manifestWritten: false,
@@ -2911,7 +3695,9 @@ export function writeTabSessionSnapshot(
   clearUnreferencedProjectTabSessionStorage(storage, new Set(persistedTabIds));
   return {
     ok: failedTabIds.length === 0,
-    ...(failedTabIds.length > 0 ? { error: TAB_SESSION_WRITE_ERROR, failedTabIds } : {}),
+    ...(failedTabIds.length > 0
+      ? { error: TAB_SESSION_WRITE_ERROR, failedTabIds }
+      : {}),
     persistedTabIds,
     manifestWritten: true,
   };
@@ -2921,11 +3707,15 @@ function persistTabSession(
   state: FlowState,
   options?: TabSessionWriteOptions,
 ): DetailedTabSessionWriteResult {
-  return writeTabSessionSnapshot(window.sessionStorage, {
-    schemaVersion: TAB_SESSION_SCHEMA_VERSION,
-    tabs: state.tabs,
-    activeTabId: state.activeTabId,
-  }, options);
+  return writeTabSessionSnapshot(
+    window.sessionStorage,
+    {
+      schemaVersion: TAB_SESSION_SCHEMA_VERSION,
+      tabs: state.tabs,
+      activeTabId: state.activeTabId,
+    },
+    options,
+  );
 }
 
 /** 错误边界恢复：只丢弃当前损坏页签，其他页签与服务端项目都不受影响。 */
@@ -2938,20 +3728,32 @@ export function discardActiveTabSession(): void {
     if (manifest) {
       const activeIndex = manifest.tabIds.indexOf(manifest.activeTabId);
       try {
-        window.sessionStorage.removeItem(projectTabStorageKey(manifest.activeTabId));
-      } catch { /* best effort */ }
-      const tabIds = manifest.tabIds.filter((tabId) => tabId !== manifest.activeTabId);
+        window.sessionStorage.removeItem(
+          projectTabStorageKey(manifest.activeTabId),
+        );
+      } catch {
+        /* best effort */
+      }
+      const tabIds = manifest.tabIds.filter(
+        (tabId) => tabId !== manifest.activeTabId,
+      );
       if (tabIds.length === 0) {
         window.sessionStorage.removeItem(TAB_SESSION_STORAGE_KEY);
         return;
       }
-      const fallbackIndex = Math.max(0, Math.min(activeIndex, tabIds.length - 1));
+      const fallbackIndex = Math.max(
+        0,
+        Math.min(activeIndex, tabIds.length - 1),
+      );
       try {
-        window.sessionStorage.setItem(TAB_SESSION_STORAGE_KEY, JSON.stringify({
-          schemaVersion: TAB_SESSION_SCHEMA_VERSION,
-          activeTabId: tabIds[fallbackIndex],
-          tabIds,
-        }));
+        window.sessionStorage.setItem(
+          TAB_SESSION_STORAGE_KEY,
+          JSON.stringify({
+            schemaVersion: TAB_SESSION_SCHEMA_VERSION,
+            activeTabId: tabIds[fallbackIndex],
+            tabIds,
+          }),
+        );
       } catch {
         // The old manifest now references a missing active key; load filters it
         // and still recovers every remaining independently stored tab.
@@ -2963,17 +3765,29 @@ export function discardActiveTabSession(): void {
       window.sessionStorage.removeItem(TAB_SESSION_STORAGE_KEY);
       return;
     }
-    const activeIndex = parsed.tabs.findIndex(
-      (value) => Boolean(value && typeof value === "object" && (value as { id?: unknown }).id === parsed.activeTabId),
+    const activeIndex = parsed.tabs.findIndex((value) =>
+      Boolean(
+        value &&
+          typeof value === "object" &&
+          (value as { id?: unknown }).id === parsed.activeTabId,
+      ),
     );
     const remaining = parsed.tabs.filter(
-      (value) => !(value && typeof value === "object" && (value as { id?: unknown }).id === parsed.activeTabId),
+      (value) =>
+        !(
+          value &&
+          typeof value === "object" &&
+          (value as { id?: unknown }).id === parsed.activeTabId
+        ),
     );
     if (remaining.length === 0) {
       window.sessionStorage.removeItem(TAB_SESSION_STORAGE_KEY);
       return;
     }
-    const fallbackIndex = Math.max(0, Math.min(activeIndex, remaining.length - 1));
+    const fallbackIndex = Math.max(
+      0,
+      Math.min(activeIndex, remaining.length - 1),
+    );
     const fallback = remaining[fallbackIndex] as { id?: unknown };
     if (typeof fallback.id !== "string") {
       window.sessionStorage.removeItem(TAB_SESSION_STORAGE_KEY);
@@ -2984,7 +3798,11 @@ export function discardActiveTabSession(): void {
       JSON.stringify({ tabs: remaining, activeTabId: fallback.id }),
     );
   } catch {
-    try { window.sessionStorage.removeItem(TAB_SESSION_STORAGE_KEY); } catch { /* best effort */ }
+    try {
+      window.sessionStorage.removeItem(TAB_SESSION_STORAGE_KEY);
+    } catch {
+      /* best effort */
+    }
   }
 }
 
@@ -3060,10 +3878,18 @@ export type NodeStatusRunEvent =
 export type RunEvent =
   | NodeStatusRunEvent
   | { seq?: number; type: "done" }
-  | { seq?: number; type: "run-error"; nodeId?: string; error: string; finishedAt?: number };
+  | {
+      seq?: number;
+      type: "run-error";
+      nodeId?: string;
+      error: string;
+      finishedAt?: number;
+    };
 
 function optionalFiniteNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -3072,7 +3898,10 @@ function optionalString(value: unknown): string | undefined {
 
 function stringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return value.filter(
+    (item): item is string =>
+      typeof item === "string" && item.trim().length > 0,
+  );
 }
 
 function nullableStringArray(value: unknown): Array<string | null> | undefined {
@@ -3087,14 +3916,21 @@ function runFailures(value: unknown): RunFailure[] | undefined {
     const candidate = item as { prompt?: unknown; error?: unknown };
     const error = optionalString(candidate.error);
     if (!error) return [];
-    return [{ error, ...(optionalString(candidate.prompt) ? { prompt: optionalString(candidate.prompt) } : {}) }];
+    return [
+      {
+        error,
+        ...(optionalString(candidate.prompt)
+          ? { prompt: optionalString(candidate.prompt) }
+          : {}),
+      },
+    ];
   });
   return failures.length ? failures : undefined;
 }
 
 function recordObject(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 
@@ -3103,42 +3939,88 @@ export function normalizeRunEvent(value: unknown): RunEvent {
   if (!value || typeof value !== "object") throw new Error("运行事件格式无效");
   const raw = value as Record<string, unknown>;
   const seq = optionalFiniteNumber(raw.seq);
-  if (raw.type === "done") return { type: "done", ...(seq !== undefined ? { seq } : {}) };
+  if (raw.type === "done")
+    return { type: "done", ...(seq === undefined ? {} : { seq }) };
   if (raw.type === "run-error") {
     return {
       type: "run-error",
       error: optionalString(raw.error) ?? "运行失败",
-      ...(optionalString(raw.nodeId) ? { nodeId: optionalString(raw.nodeId) } : {}),
-      ...(optionalFiniteNumber(raw.finishedAt) !== undefined ? { finishedAt: optionalFiniteNumber(raw.finishedAt) } : {}),
-      ...(seq !== undefined ? { seq } : {}),
+      ...(optionalString(raw.nodeId)
+        ? { nodeId: optionalString(raw.nodeId) }
+        : {}),
+      ...(optionalFiniteNumber(raw.finishedAt) === undefined
+        ? {}
+        : { finishedAt: optionalFiniteNumber(raw.finishedAt) }),
+      ...(seq === undefined ? {} : { seq }),
     };
   }
   if (raw.type !== "node-status") throw new Error("运行事件类型无效");
   const nodeId = optionalString(raw.nodeId);
   if (!nodeId) throw new Error("运行事件缺少节点标识");
   const common: RunEventMeta = {
-    ...(seq !== undefined ? { seq } : {}),
+    ...(seq === undefined ? {} : { seq }),
     ...(optionalString(raw.error) ? { error: optionalString(raw.error) } : {}),
     ...(optionalString(raw.model) ? { model: optionalString(raw.model) } : {}),
     ...(stringArray(raw.prompts) ? { prompts: stringArray(raw.prompts) } : {}),
     ...(nullableStringArray(raw.providerOutputSizes)
       ? { providerOutputSizes: nullableStringArray(raw.providerOutputSizes) }
       : {}),
-    ...(runFailures(raw.failures) ? { failures: runFailures(raw.failures) } : {}),
-    ...(recordObject(raw.executionMeta) ? { executionMeta: recordObject(raw.executionMeta) } : {}),
-    ...(optionalFiniteNumber(raw.startedAt) !== undefined ? { startedAt: optionalFiniteNumber(raw.startedAt) } : {}),
-    ...(optionalFiniteNumber(raw.finishedAt) !== undefined ? { finishedAt: optionalFiniteNumber(raw.finishedAt) } : {}),
+    ...(runFailures(raw.failures)
+      ? { failures: runFailures(raw.failures) }
+      : {}),
+    ...(recordObject(raw.executionMeta)
+      ? { executionMeta: recordObject(raw.executionMeta) }
+      : {}),
+    ...(optionalFiniteNumber(raw.startedAt) === undefined
+      ? {}
+      : { startedAt: optionalFiniteNumber(raw.startedAt) }),
+    ...(optionalFiniteNumber(raw.finishedAt) === undefined
+      ? {}
+      : { finishedAt: optionalFiniteNumber(raw.finishedAt) }),
   };
   if (raw.status === "success") {
-    return { ...common, type: "node-status", nodeId, status: "success", images: stringArray(raw.images) ?? [] };
+    return {
+      ...common,
+      type: "node-status",
+      nodeId,
+      status: "success",
+      images: stringArray(raw.images) ?? [],
+    };
   }
-  if (raw.status === "error" || raw.status === "outcome_unknown" || raw.status === "cancelled") {
+  if (
+    raw.status === "error" ||
+    raw.status === "outcome_unknown" ||
+    raw.status === "cancelled"
+  ) {
     const { error: commonError, ...meta } = common;
-    const fallback = raw.status === "cancelled" ? "任务已取消" : raw.status === "outcome_unknown" ? "生成结果未知" : "生成失败";
-    return { ...meta, type: "node-status", nodeId, status: raw.status, error: commonError ?? fallback, ...(Array.isArray(raw.images) ? { images: stringArray(raw.images) } : {}) };
+    const fallback =
+      raw.status === "cancelled"
+        ? "任务已取消"
+        : raw.status === "outcome_unknown"
+          ? "生成结果未知"
+          : "生成失败";
+    return {
+      ...meta,
+      type: "node-status",
+      nodeId,
+      status: raw.status,
+      error: commonError ?? fallback,
+      ...(Array.isArray(raw.images) ? { images: stringArray(raw.images) } : {}),
+    };
   }
-  if (raw.status === "queued" || raw.status === "running" || raw.status === "retry_wait" || raw.status === "cancel_requested") {
-    return { ...common, type: "node-status", nodeId, status: raw.status, ...(Array.isArray(raw.images) ? { images: stringArray(raw.images) } : {}) };
+  if (
+    raw.status === "queued" ||
+    raw.status === "running" ||
+    raw.status === "retry_wait" ||
+    raw.status === "cancel_requested"
+  ) {
+    return {
+      ...common,
+      type: "node-status",
+      nodeId,
+      status: raw.status,
+      ...(Array.isArray(raw.images) ? { images: stringArray(raw.images) } : {}),
+    };
   }
   throw new Error("运行事件状态无效");
 }
@@ -3151,21 +4033,29 @@ export function applyRunEventToNode(
   if (event.status === "success") {
     return {
       ...data,
-      ...(data.kind !== "image-input" && data.kind !== "result" ? { outputImages: event.images } : {}),
+      ...(data.kind !== "image-input" && data.kind !== "result"
+        ? { outputImages: event.images }
+        : {}),
       status: "success",
       error: event.error,
     } as WorkflowNodeData;
   }
   return {
     ...data,
-    ...(data.kind === "ai-styling" && event.images?.length ? { outputImages: event.images } : {}),
+    ...(data.kind === "ai-styling" && event.images?.length
+      ? { outputImages: event.images }
+      : {}),
     status: event.status,
     error: event.error,
   } as WorkflowNodeData;
 }
 
 function recordPrompt(data: WorkflowNodeData): string | undefined {
-  if ("prompt" in data && typeof data.prompt === "string" && data.prompt.trim()) {
+  if (
+    "prompt" in data &&
+    typeof data.prompt === "string" &&
+    data.prompt.trim()
+  ) {
     return data.prompt.trim();
   }
   return undefined;
@@ -3194,17 +4084,19 @@ export function requestedResultCountForNode(
   document: Pick<ProjectTab, "nodes" | "edges">,
   node: FlowNode,
 ): number {
-  if (node.data.kind !== "fabric-recolor") return requestedResultCount(node.data);
+  if (node.data.kind !== "fabric-recolor")
+    return requestedResultCount(node.data);
   if (node.data.operationMode === "fabric") return 1;
-  const paletteSourceId = document.edges.find((edge) => (
-    edge.target === node.id && edge.targetHandle === "palette"
-  ))?.source;
+  const paletteSourceId = document.edges.find(
+    (edge) => edge.target === node.id && edge.targetHandle === "palette",
+  )?.source;
   const palette = paletteSourceId
     ? document.nodes.find((candidate) => candidate.id === paletteSourceId)
     : undefined;
-  const colorCount = palette?.data.kind === "color-palette"
-    ? palette.data.swatches.length
-    : node.data.colors.length;
+  const colorCount =
+    palette?.data.kind === "color-palette"
+      ? palette.data.swatches.length
+      : node.data.colors.length;
   return Math.max(1, Math.min(8, colorCount || 1));
 }
 
@@ -3212,7 +4104,10 @@ function pendingResultCardId(recordId: string, index: number): string {
   return `${recordId}:pending:${index}`;
 }
 
-export function createQueuedResultCards(initial: RecentResult, count: number): RecentResult[] {
+export function createQueuedResultCards(
+  initial: RecentResult,
+  count: number,
+): RecentResult[] {
   const requestedCount = Math.max(1, Math.min(8, Math.floor(count) || 1));
   return Array.from({ length: requestedCount }, (_, index) => ({
     ...initial,
@@ -3221,7 +4116,11 @@ export function createQueuedResultCards(initial: RecentResult, count: number): R
   }));
 }
 
-function terminalResultCardId(recordId: string, kind: "image" | "failure", index: number): string {
+function terminalResultCardId(
+  recordId: string,
+  kind: "image" | "failure",
+  index: number,
+): string {
   return `${recordId}:terminal:${kind}:${index}`;
 }
 
@@ -3246,22 +4145,32 @@ export function applyRunEventToRecentResults(
     if (current.kind === "ai-styling" && event.images?.length) {
       const images = event.images;
       const total = Math.max(images.length, current.requestedCount ?? 1);
-      const cards: RecentResult[] = Array.from({ length: total }, (_, index) => ({
-        ...current,
-        id: index === 0 ? recordId : pendingResultCardId(recordId, index),
-        image: images[index] ?? "",
-        thumbnail: undefined,
-        status: images[index] ? "success" : status,
-        error: images[index] ? undefined : event.error,
-        prompt: event.prompts?.[index] ?? current.prompt,
-        model: event.model ?? current.model,
-        executionMeta: event.executionMeta ?? current.executionMeta,
-        startedAt: event.startedAt ?? current.startedAt,
-      }));
+      const cards: RecentResult[] = Array.from(
+        { length: total },
+        (_, index) => ({
+          ...current,
+          id: index === 0 ? recordId : pendingResultCardId(recordId, index),
+          image: images[index] ?? "",
+          thumbnail: undefined,
+          status: images[index] ? "success" : status,
+          error: images[index] ? undefined : event.error,
+          prompt: event.prompts?.[index] ?? current.prompt,
+          model: event.model ?? current.model,
+          executionMeta: event.executionMeta ?? current.executionMeta,
+          startedAt: event.startedAt ?? current.startedAt,
+        }),
+      );
       // Keep one active anchor during the final checkpoint-to-terminal interval.
-      if (images.length >= total) cards.push({ ...current, id: pendingResultCardId(recordId, total), image: "", status, executionMeta: event.executionMeta });
+      if (images.length >= total)
+        cards.push({
+          ...current,
+          id: pendingResultCardId(recordId, total),
+          image: "",
+          status,
+          executionMeta: event.executionMeta,
+        });
       let inserted = false;
-      return records.flatMap(record => {
+      return records.flatMap((record) => {
         if (!isBatchSibling(record)) return [record];
         if (inserted) return [];
         inserted = true;
@@ -3272,7 +4181,12 @@ export function applyRunEventToRecentResults(
       isBatchSibling(record)
         ? {
             ...record,
-            status: current.kind === "ai-styling" && record.image && record.status === "success" ? "success" : status,
+            status:
+              current.kind === "ai-styling" &&
+              record.image &&
+              record.status === "success"
+                ? "success"
+                : status,
             error: event.error,
             model: event.model ?? record.model,
             startedAt: event.startedAt ?? record.startedAt,
@@ -3285,7 +4199,10 @@ export function applyRunEventToRecentResults(
 
   const startedAt = event.startedAt ?? current.startedAt;
   const finishedAt = event.finishedAt ?? Date.now();
-  const { providerOutputSize: _previousProviderOutputSize, ...currentWithoutProviderOutputSize } = current;
+  const {
+    providerOutputSize: _previousProviderOutputSize,
+    ...currentWithoutProviderOutputSize
+  } = current;
   const base = {
     ...currentWithoutProviderOutputSize,
     model: event.model ?? current.model,
@@ -3295,15 +4212,24 @@ export function applyRunEventToRecentResults(
   };
   const images = event.images ?? [];
   const failures = event.failures ?? [];
-  const targetCount = Math.max(1, Math.min(8,
-    current.requestedCount ?? Math.max(images.length + failures.length, 1),
-  ));
+  const targetCount = Math.max(
+    1,
+    Math.min(
+      8,
+      current.requestedCount ?? Math.max(images.length + failures.length, 1),
+    ),
+  );
   const terminalCards: RecentResult[] = [];
 
-  for (let index = 0; index < Math.min(images.length, targetCount); index += 1) {
+  for (
+    let index = 0;
+    index < Math.min(images.length, targetCount);
+    index += 1
+  ) {
     terminalCards.push({
       ...base,
-      id: index === 0 ? recordId : terminalResultCardId(recordId, "image", index),
+      id:
+        index === 0 ? recordId : terminalResultCardId(recordId, "image", index),
       image: images[index],
       thumbnail: undefined,
       prompt: event.prompts?.[index] ?? current.prompt,
@@ -3321,12 +4247,18 @@ export function applyRunEventToRecentResults(
     const cardIndex = terminalCards.length;
     terminalCards.push({
       ...base,
-      id: cardIndex === 0 ? recordId : terminalResultCardId(recordId, "failure", failureIndex),
+      id:
+        cardIndex === 0
+          ? recordId
+          : terminalResultCardId(recordId, "failure", failureIndex),
       image: "",
       thumbnail: undefined,
       prompt: failure?.prompt ?? current.prompt,
       status: event.status === "success" ? "error" : event.status,
-      error: failure?.error || event.error || (images.length > 0 ? "未返回图片" : "运行完成但未返回图片"),
+      error:
+        failure?.error ||
+        event.error ||
+        (images.length > 0 ? "未返回图片" : "运行完成但未返回图片"),
     });
     failureIndex += 1;
   }
@@ -3375,10 +4307,13 @@ export function mergeRecentResults(
 ): RecentResult[] {
   const incomingById = new Map(incoming.map((record) => [record.id, record]));
   const currentIds = new Set(current.map((record) => record.id));
-  return trimRecentResults([
-    ...current.map((record) => incomingById.get(record.id) ?? record),
-    ...incoming.filter((record) => !currentIds.has(record.id)),
-  ], limit);
+  return trimRecentResults(
+    [
+      ...current.map((record) => incomingById.get(record.id) ?? record),
+      ...incoming.filter((record) => !currentIds.has(record.id)),
+    ],
+    limit,
+  );
 }
 
 function pruneResultReferences(
@@ -3386,13 +4321,19 @@ function pruneResultReferences(
   validIds: Set<string>,
   comparableIds: Set<string>,
 ): ProjectTab {
-  const selectedResultId = tab.selectedResultId && validIds.has(tab.selectedResultId)
-    ? tab.selectedResultId
-    : null;
-  const compareIds = tab.compareIds.filter((id, index, ids) => (
-    comparableIds.has(id) && ids.indexOf(id) === index
-  )).slice(0, 4);
-  if (selectedResultId === tab.selectedResultId && sameStringList(compareIds, tab.compareIds)) {
+  const selectedResultId =
+    tab.selectedResultId && validIds.has(tab.selectedResultId)
+      ? tab.selectedResultId
+      : null;
+  const compareIds = tab.compareIds
+    .filter(
+      (id, index, ids) => comparableIds.has(id) && ids.indexOf(id) === index,
+    )
+    .slice(0, 4);
+  if (
+    selectedResultId === tab.selectedResultId &&
+    sameStringList(compareIds, tab.compareIds)
+  ) {
     return tab;
   }
   return { ...tab, selectedResultId, compareIds };
@@ -3438,11 +4379,13 @@ export function reconcileRunHistory(records: RecentResult[]): void {
         clearAmbiguousRunRequest(requestKey);
       }
     }
-    if (!record.projectId || !isNodeRunActive(record.status) || !record.runId) continue;
+    if (!record.projectId || !isNodeRunActive(record.status) || !record.runId)
+      continue;
     confirmedActiveRunIds.add(record.runId);
     const key = `${record.projectId}\u0000${record.nodeId}`;
     const existing = activeByNode.get(key);
-    if (!existing || existing.startedAt < record.startedAt) activeByNode.set(key, record);
+    if (!existing || existing.startedAt < record.startedAt)
+      activeByNode.set(key, record);
   }
   runWithoutHistory(() => {
     useFlowStore.setState((state) => {
@@ -3453,18 +4396,26 @@ export function reconcileRunHistory(records: RecentResult[]): void {
           if (active) {
             return {
               ...node,
-              data: { ...node.data, status: active.status, error: active.error } as WorkflowNodeData,
+              data: {
+                ...node.data,
+                status: active.status,
+                error: active.error,
+              } as WorkflowNodeData,
             };
           }
           if (!isNodeRunActive(node.data.status)) return node;
-          const data = { ...node.data, status: "idle" as const } as WorkflowNodeData;
+          const data = {
+            ...node.data,
+            status: "idle" as const,
+          } as WorkflowNodeData;
           delete data.error;
           return { ...node, data };
         }),
       }));
-      const retainedResults = state.recentResults.filter((record) =>
-        !isNodeRunActive(record.status) ||
-        (Boolean(record.runId) && confirmedActiveRunIds.has(record.runId!)),
+      const retainedResults = state.recentResults.filter(
+        (record) =>
+          !isNodeRunActive(record.status) ||
+          (Boolean(record.runId) && confirmedActiveRunIds.has(record.runId!)),
       );
       const resultPatch = recentResultsPatch(
         { ...state, tabs },
@@ -3475,7 +4426,10 @@ export function reconcileRunHistory(records: RecentResult[]): void {
   });
 }
 
-export function appendSavedAsset(current: string[] | undefined, url: string): string[] {
+export function appendSavedAsset(
+  current: string[] | undefined,
+  url: string,
+): string[] {
   const existing = current ?? [];
   return existing.includes(url) ? existing : [...existing, url];
 }
@@ -3495,7 +4449,9 @@ function consumeRunEvents(
   onEvent: (event: RunEvent) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const source = new EventSource(`/api/run-plan/${encodeURIComponent(runId)}/events`);
+    const source = new EventSource(
+      `/api/run-plan/${encodeURIComponent(runId)}/events`,
+    );
     const seenEvents = new Set<string>();
     let lastSeq = 0;
     let targetTerminalSeen = false;
@@ -3529,9 +4485,14 @@ function consumeRunEvents(
           targetTerminalSeen = true;
         }
         if (event.type === "done") {
-          finish(targetTerminalSeen ? undefined : new Error("运行已结束，但目标节点未返回终态"));
+          finish(
+            targetTerminalSeen
+              ? undefined
+              : new Error("运行已结束，但目标节点未返回终态"),
+          );
         }
-        if (event.type === "run-error") finish(new Error(event.error || "运行失败"));
+        if (event.type === "run-error")
+          finish(new Error(event.error || "运行失败"));
       } catch {
         finish(new Error("运行事件格式无效"));
       }
@@ -3544,36 +4505,60 @@ function consumeRunEvents(
 }
 
 function updateTabFromRunEvent(
-  set: (partial: Partial<FlowState> | ((state: FlowState) => Partial<FlowState>)) => unknown,
+  set: (
+    partial: Partial<FlowState> | ((state: FlowState) => Partial<FlowState>),
+  ) => unknown,
   target: DocumentTarget,
   nodeId: string,
   event: NodeStatusRunEvent,
 ): void {
-  const currentNode = documentForTarget(useFlowStore.getState(), target)?.nodes.find((node) => node.id === nodeId);
-  const commitsOutput = Boolean(event.images?.length && (event.status === "success" || currentNode?.data.kind === "ai-styling"));
-  const fixedResultId = currentNode?.data.kind === "ai-styling" ? currentNode.data.resultNodeId : undefined;
-  const updateNodes = (nodes: FlowNode[]) => nodes.map((node) =>
-    node.id === nodeId
-      ? {
-          ...node,
-          data: (() => {
-            const updated = applyRunEventToNode(node.data, event);
-            return event.status === "success"
-              && node.data.kind === "virtual-try-on"
-              && node.data.workflowStage === "scene-stabilize"
-              ? { ...updated, basisRevision: (node.data.basisRevision ?? 0) + 1 }
-              : updated;
-          })(),
-        }
-      : node.id === fixedResultId && node.data.kind === "result"
-        ? { ...node, data: { ...node.data, status: event.status, error: event.error } }
-        : node,
+  const currentNode = documentForTarget(
+    useFlowStore.getState(),
+    target,
+  )?.nodes.find((node) => node.id === nodeId);
+  const commitsOutput = Boolean(
+    event.images?.length &&
+      (event.status === "success" || currentNode?.data.kind === "ai-styling"),
   );
+  const fixedResultId =
+    currentNode?.data.kind === "ai-styling"
+      ? currentNode.data.resultNodeId
+      : undefined;
+  const updateNodes = (nodes: FlowNode[]) =>
+    nodes.map((node) =>
+      node.id === nodeId
+        ? {
+            ...node,
+            data: (() => {
+              const updated = applyRunEventToNode(node.data, event);
+              return event.status === "success" &&
+                node.data.kind === "virtual-try-on" &&
+                node.data.workflowStage === "scene-stabilize"
+                ? {
+                    ...updated,
+                    basisRevision: (node.data.basisRevision ?? 0) + 1,
+                  }
+                : updated;
+            })(),
+          }
+        : node.id === fixedResultId && node.data.kind === "result"
+          ? {
+              ...node,
+              data: { ...node.data, status: event.status, error: event.error },
+            }
+          : node,
+    );
   const currentState = useFlowStore.getState();
   // A tab container can be reused for another project. Reject its old run
   // before any durable branch can flush the replacement document's editor.
   const currentDocument = documentForTarget(currentState, target);
   if (!currentDocument) return;
+  if (commitsOutput && currentNode?.data.kind === "character-board") {
+    // 人物板自身就是独立结果节点；只持久化其输出，避免生成后擅自
+    // 插入结果节点，用户可以按需把它连到任意兼容的图像节点。
+    updateTabNodes(set, target, updateNodes, { markDirty: true });
+    return;
+  }
   if (commitsOutput) {
     let generatedResultId = "";
     // 先把自动结果节点放入当前文档但不写撤销历史。随后单独提交生成
@@ -3593,15 +4578,27 @@ function updateTabFromRunEvent(
         };
       });
     });
-    const documentWithResult = documentForTarget(useFlowStore.getState(), target);
-    const generatedResult = documentWithResult?.nodes.find((node) => node.id === generatedResultId);
+    const documentWithResult = documentForTarget(
+      useFlowStore.getState(),
+      target,
+    );
+    const generatedResult = documentWithResult?.nodes.find(
+      (node) => node.id === generatedResultId,
+    );
     if (generatedResult?.data.kind === "result") {
-      const resultTopologyWasCreated = !currentDocument.nodes.some((node) => node.id === generatedResultId);
+      const resultTopologyWasCreated = !currentDocument.nodes.some(
+        (node) => node.id === generatedResultId,
+      );
       rebaseSystemResultHistory(
         target,
         generatedResult,
         resultTopologyWasCreated
-          ? { edge: documentWithResult?.edges.find((edge) => edge.source === nodeId && edge.target === generatedResultId) }
+          ? {
+              edge: documentWithResult?.edges.find(
+                (edge) =>
+                  edge.source === nodeId && edge.target === generatedResultId,
+              ),
+            }
           : undefined,
       );
     }
@@ -3621,12 +4618,8 @@ function updateTabFromRunEvent(
     updateTabNodes(set, target, updateNodes, { markDirty: true });
     return;
   }
-  const update = () => updateTabNodes(
-    set,
-    target,
-    updateNodes,
-    { markDirty: commitsOutput },
-  );
+  const update = () =>
+    updateTabNodes(set, target, updateNodes, { markDirty: commitsOutput });
   runWithoutHistory(update);
 }
 
@@ -3644,12 +4637,34 @@ export function ensureGeneratedResultNode(
   if (!source || media.length === 0) return { nodes, edges, resultNodeId: "" };
   if (source.data.kind === "ai-styling") {
     const resultNodeId = source.data.resultNodeId;
-    if (!resultNodeId || !edges.some((edge) => edge.source === sourceNodeId && edge.target === resultNodeId)) return { nodes, edges, resultNodeId: "" };
-    return { nodes: nodes.map((node) => node.id === resultNodeId && node.data.kind === "result"
-      ? { ...node, data: { ...node.data, images: [...media], status: "success" as const } } : node), edges, resultNodeId };
+    if (
+      !resultNodeId ||
+      !edges.some(
+        (edge) => edge.source === sourceNodeId && edge.target === resultNodeId,
+      )
+    )
+      return { nodes, edges, resultNodeId: "" };
+    return {
+      nodes: nodes.map((node) =>
+        node.id === resultNodeId && node.data.kind === "result"
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                images: [...media],
+                status: "success" as const,
+              },
+            }
+          : node,
+      ),
+      edges,
+      resultNodeId,
+    };
   }
   const resultNodeId = `result-${nanoid(8)}`;
-  const siblingCount = edges.filter((edge) => edge.source === sourceNodeId && edge.target.startsWith("result-")).length;
+  const siblingCount = edges.filter(
+    (edge) => edge.source === sourceNodeId && edge.target.startsWith("result-"),
+  ).length;
   const resultNode: FlowNode = {
     id: resultNodeId,
     type: "result",
@@ -3664,7 +4679,8 @@ export function ensureGeneratedResultNode(
       images: [...media],
     },
   };
-  const sourceHandle = source.data.kind === "video-generate" ? "video" : "image";
+  const sourceHandle =
+    source.data.kind === "video-generate" ? "video" : "image";
   const edge: Edge = {
     id: `edge-${nanoid(10)}`,
     source: sourceNodeId,
@@ -3673,12 +4689,17 @@ export function ensureGeneratedResultNode(
     targetHandle: "references",
     type: "pulse",
   };
-  return { nodes: [...nodes, resultNode], edges: [...edges, edge], resultNodeId };
+  return {
+    nodes: [...nodes, resultNode],
+    edges: [...edges, edge],
+    resultNodeId,
+  };
 }
 
 function applyActiveTemporalHistory(direction: "undo" | "redo"): void {
   const temporal = useFlowStore.temporal.getState();
-  const source = direction === "undo" ? temporal.pastStates : temporal.futureStates;
+  const source =
+    direction === "undo" ? temporal.pastStates : temporal.futureStates;
   if (source.length === 0) return;
 
   const state = useFlowStore.getState();
@@ -3686,11 +4707,16 @@ function applyActiveTemporalHistory(direction: "undo" | "redo"): void {
   const current = temporalDocument(tab);
   const target = source[source.length - 1] as FlowTemporalState;
   const currentById = new Map(tab.nodes.map((node) => [node.id, node]));
-  const selectedEdges = new Map(tab.edges.map((edge) => [edge.id, edge.selected]));
+  const selectedEdges = new Map(
+    tab.edges.map((edge) => [edge.id, edge.selected]),
+  );
   const nodesWithRuntime = target.nodes.map((node) => {
     return preserveNodeRuntimeAndTransients(node, currentById.get(node.id));
   });
-  const selection = normalizeNodeSelection(nodesWithRuntime, tab.selectedNodeIds);
+  const selection = normalizeNodeSelection(
+    nodesWithRuntime,
+    tab.selectedNodeIds,
+  );
   const edges = target.edges.map((edge) => {
     const selected = selectedEdges.get(edge.id);
     return edge.selected === selected ? edge : { ...edge, selected };
@@ -3702,36 +4728,46 @@ function applyActiveTemporalHistory(direction: "undo" | "redo"): void {
       useFlowStore.setState((latest) => {
         if (latest.activeTabId !== tab.id) return {};
         const latestTab = selectActiveDocument(latest);
-        return { tabs: replaceTab(latest.tabs, {
-          ...latestTab,
-          projectName: target.projectName,
-          ...selection,
-          edges,
-          revision: latestTab.revision + 1,
-          dirty: true,
-          saveState: latestTab.saveState === "saving" ? "saving" : "idle",
-        }) };
+        return {
+          tabs: replaceTab(latest.tabs, {
+            ...latestTab,
+            projectName: target.projectName,
+            ...selection,
+            edges,
+            revision: latestTab.revision + 1,
+            dirty: true,
+            saveState: latestTab.saveState === "saving" ? "saving" : "idle",
+          }),
+        };
       });
     }
-    useFlowStore.temporal.setState(direction === "undo"
-      ? {
-        pastStates: temporal.pastStates.slice(0, -1),
-        futureStates: [...temporal.futureStates, current],
-      }
-      : {
-        pastStates: [...temporal.pastStates, current].slice(-DOCUMENT_HISTORY_LIMIT),
-        futureStates: temporal.futureStates.slice(0, -1),
-      });
+    useFlowStore.temporal.setState(
+      direction === "undo"
+        ? {
+            pastStates: temporal.pastStates.slice(0, -1),
+            futureStates: [...temporal.futureStates, current],
+          }
+        : {
+            pastStates: [...temporal.pastStates, current].slice(
+              -DOCUMENT_HISTORY_LIMIT,
+            ),
+            futureStates: temporal.futureStates.slice(0, -1),
+          },
+    );
   });
 }
 
 export const useFlowStore = create<FlowState>()(
   temporal<FlowState, [], [], FlowTemporalState>(
     (set, get) => {
-      const restored = typeof window === "undefined" ? undefined : loadTabSession();
+      const restored =
+        typeof window === "undefined" ? undefined : loadTabSession();
       const initialTab =
-        restored?.tabs.find((tab) => tab.id === restored.activeTabId) ?? newTab();
-      const saveTab = async (target: DocumentTarget): Promise<SaveTabResult> => {
+        restored?.tabs.find((tab) => tab.id === restored.activeTabId) ??
+        newTab();
+      const saveTab = async (
+        target: DocumentTarget,
+      ): Promise<SaveTabResult> => {
         const tabId = target.tabId;
         const queueKey = documentTargetKey(target);
         if (drawingCreationLocks.has(queueKey)) {
@@ -3770,7 +4806,8 @@ export const useFlowStore = create<FlowState>()(
         };
         queue.promise = (async () => {
           while (true) {
-            const pendingSettlement = waitForHistoryTransactionSettlement(tabId);
+            const pendingSettlement =
+              waitForHistoryTransactionSettlement(tabId);
             if (pendingSettlement) await pendingSettlement;
             const attemptGeneration = queue.explicitRetryGeneration;
             const snapshot = documentForTarget(get(), target);
@@ -3784,7 +4821,10 @@ export const useFlowStore = create<FlowState>()(
               }
               const synchronizedSnapshot = documentForTarget(get(), target);
               if (!synchronizedSnapshot || synchronizedSnapshot.readOnly) {
-                return { ok: false, error: "项目已切换、不存在或当前页签为只读" };
+                return {
+                  ok: false,
+                  error: "项目已切换、不存在或当前页签为只读",
+                };
               }
               const document = createDocumentSnapshot(synchronizedSnapshot);
               const flow = documentSnapshotToPersistedWorkflow(document);
@@ -3795,8 +4835,12 @@ export const useFlowStore = create<FlowState>()(
                   id: synchronizedSnapshot.projectId,
                   name: document.projectName,
                   flow,
-                  ...(projectTabLifecycle(synchronizedSnapshot) === "initial_draft"
-                    ? { expectedDraftRevision: synchronizedSnapshot.draftRevision ?? 0 }
+                  ...(projectTabLifecycle(synchronizedSnapshot) ===
+                  "initial_draft"
+                    ? {
+                        expectedDraftRevision:
+                          synchronizedSnapshot.draftRevision ?? 0,
+                      }
                     : {}),
                 }),
               });
@@ -3804,14 +4848,18 @@ export const useFlowStore = create<FlowState>()(
                 const body = await res.json().catch(() => ({}));
                 throw new Error(responseErrorMessage(res.status, body));
               }
-              const responseSettlement = waitForHistoryTransactionSettlement(tabId);
+              const responseSettlement =
+                waitForHistoryTransactionSettlement(tabId);
               if (responseSettlement) await responseSettlement;
               let needsRevisionFollowup = false;
               const matched = patchDocumentTarget(set, target, (latest) => {
                 const clean = latest.revision === synchronizedSnapshot.revision;
                 needsRevisionFollowup = !clean;
                 return {
-                  savedRevision: Math.max(latest.savedRevision, synchronizedSnapshot.revision),
+                  savedRevision: Math.max(
+                    latest.savedRevision,
+                    synchronizedSnapshot.revision,
+                  ),
                   dirty: !clean,
                   saveState: clean ? "saved" : "saving",
                   hasBeenPersisted: true,
@@ -3821,17 +4869,20 @@ export const useFlowStore = create<FlowState>()(
                   draftCreatedAt: undefined,
                 };
               });
-              if (!matched) return { ok: false, error: "项目已切换，旧保存响应已忽略" };
+              if (!matched)
+                return { ok: false, error: "项目已切换，旧保存响应已忽略" };
               if (!needsRevisionFollowup) return { ok: true };
             } catch (error) {
-              const failureSettlement = waitForHistoryTransactionSettlement(tabId);
+              const failureSettlement =
+                waitForHistoryTransactionSettlement(tabId);
               if (failureSettlement) await failureSettlement;
               if (queue.explicitRetryGeneration > attemptGeneration) continue;
               const matched = patchDocumentTarget(set, target, (latest) => ({
                 saveState: "error",
                 dirty: latest.revision !== latest.savedRevision,
               }));
-              if (!matched) return { ok: false, error: "项目已切换，旧保存失败已忽略" };
+              if (!matched)
+                return { ok: false, error: "项目已切换，旧保存失败已忽略" };
               return {
                 ok: false,
                 error: error instanceof Error ? error.message : String(error),
@@ -3843,10 +4894,11 @@ export const useFlowStore = create<FlowState>()(
         try {
           return await queue.promise;
         } finally {
-          if (saveQueueByDocument.get(queueKey) === queue) saveQueueByDocument.delete(queueKey);
+          if (saveQueueByDocument.get(queueKey) === queue)
+            saveQueueByDocument.delete(queueKey);
         }
       };
-      return ({
+      return {
         tabs: restored?.tabs ?? [initialTab],
         activeTabId: initialTab.id,
         tabSessionPersistenceError: null,
@@ -3857,932 +4909,1325 @@ export const useFlowStore = create<FlowState>()(
         recentResults: [],
         viewer: null,
 
-      switchTab: (tabId) => {
-        const initialState = get();
-        if (tabId === initialState.activeTabId) return;
-        if (!initialState.tabs.some((tab) => tab.id === tabId)) return;
-        flushActiveTextEdit();
-        cancelHistoryTransaction();
-        const state = get();
-        const target = state.tabs.find((tab) => tab.id === tabId);
-        if (!target) return;
-        stashActiveTemporalHistory(state.activeTabId);
-        runWithoutHistory(() => set({
-          activeTabId: target.id,
-          viewer: null,
-          pendingConnectionDraft: null,
-          connectionDraftError: null,
-        }));
-        restoreTemporalHistory(target.id);
-      },
-      closeTab: (tabId) => {
-        flushActiveTextEdit();
-        // Session snapshots intentionally strip runtime status. Until active
-        // runs reconcile, an apparently-idle restored tab may still own paid work.
-        if (getGenerationSafetyBlockReason()) return;
-        const initialState = get();
-        const initialClosingTab = initialState.tabs.find((tab) => tab.id === tabId);
-        if (!initialClosingTab) return;
-        const closingTab = initialClosingTab;
-        if (closingTab.nodes.some((node) => isNodeRunActive(node.data.status))) {
-          return;
-        }
-        if (tabId === initialState.activeTabId) cancelHistoryTransaction();
-        const state = get();
-        const closingIndex = state.tabs.findIndex((tab) => tab.id === tabId);
-        if (closingIndex < 0) return;
-        const remaining = state.tabs.filter((tab) => tab.id !== tabId);
-        if (remaining.length === 0) remaining.push(newTab());
-        if (tabId !== state.activeTabId) {
-          temporalHistoryByTab.delete(tabId);
-          set({ tabs: remaining, pendingConnectionDraft: null, connectionDraftError: null });
-          return;
-        }
-        temporalHistoryByTab.delete(tabId);
-        const target = remaining[Math.min(closingIndex, remaining.length - 1)];
-        runWithoutHistory(() => set({
-          tabs: remaining,
-          activeTabId: target.id,
-          viewer: null,
-          pendingConnectionDraft: null,
-          connectionDraftError: null,
-        }));
-        restoreTemporalHistory(target.id);
-      },
-      openFlowTab: ({ projectId, projectName, nodes, edges, markDirty = false, readOnly = false }) => {
-        flushActiveTextEdit();
-        cancelHistoryTransaction();
-        const state = get();
-        const applyActiveHistory = (inputNodes: FlowNode[]) => {
-          const activeByNode = latestActiveRecordsByNode(state.recentResults, projectId);
-          return inputNodes.map(migrateLegacyGptNode).map((node) => {
-            const active = activeByNode.get(node.id);
-            return active
-              ? {
-                ...node,
-                data: { ...node.data, status: active.status, error: active.error } as WorkflowNodeData,
-              }
-              : node;
-          });
-        };
-        const found = state.tabs.find((tab) => tab.projectId === projectId);
-        const existing = found ? { ...found, nodes: applyActiveHistory(found.nodes) } : undefined;
-        if (existing) {
-          const switchesTab = existing.id !== state.activeTabId;
-          if (switchesTab) stashActiveTemporalHistory(state.activeTabId);
-          const tabs = replaceTab(state.tabs, existing);
-          runWithoutHistory(() => set({
-            tabs,
-            activeTabId: existing.id,
-            viewer: null,
-            pendingConnectionDraft: null,
-            connectionDraftError: null,
-          }));
-          if (switchesTab) restoreTemporalHistory(existing.id);
-        } else {
+        switchTab: (tabId) => {
+          const initialState = get();
+          if (tabId === initialState.activeTabId) return;
+          if (!initialState.tabs.some((tab) => tab.id === tabId)) return;
+          flushActiveTextEdit();
+          cancelHistoryTransaction();
+          const state = get();
+          const target = state.tabs.find((tab) => tab.id === tabId);
+          if (!target) return;
           stashActiveTemporalHistory(state.activeTabId);
-          const tab = newTab({
-            projectId,
-            projectName,
-            nodes: applyActiveHistory(nodes),
-            edges,
-            markDirty,
-            readOnly,
-            persisted: !markDirty,
-          });
-          runWithoutHistory(() => set({
-            tabs: [...state.tabs, tab],
-            activeTabId: tab.id,
-            viewer: null,
-            pendingConnectionDraft: null,
-            connectionDraftError: null,
-          }));
+          runWithoutHistory(() =>
+            set({
+              activeTabId: target.id,
+              viewer: null,
+              pendingConnectionDraft: null,
+              connectionDraftError: null,
+            }),
+          );
+          restoreTemporalHistory(target.id);
+        },
+        closeTab: (tabId) => {
+          flushActiveTextEdit();
+          // Session snapshots intentionally strip runtime status. Until active
+          // runs reconcile, an apparently-idle restored tab may still own paid work.
+          if (getGenerationSafetyBlockReason()) return;
+          const initialState = get();
+          const initialClosingTab = initialState.tabs.find(
+            (tab) => tab.id === tabId,
+          );
+          if (!initialClosingTab) return;
+          const closingTab = initialClosingTab;
+          if (
+            closingTab.nodes.some((node) => isNodeRunActive(node.data.status))
+          ) {
+            return;
+          }
+          if (tabId === initialState.activeTabId) cancelHistoryTransaction();
+          const state = get();
+          const closingIndex = state.tabs.findIndex((tab) => tab.id === tabId);
+          if (closingIndex < 0) return;
+          const remaining = state.tabs.filter((tab) => tab.id !== tabId);
+          if (remaining.length === 0) remaining.push(newTab());
+          if (tabId !== state.activeTabId) {
+            temporalHistoryByTab.delete(tabId);
+            set({
+              tabs: remaining,
+              pendingConnectionDraft: null,
+              connectionDraftError: null,
+            });
+            return;
+          }
+          temporalHistoryByTab.delete(tabId);
+          const target =
+            remaining[Math.min(closingIndex, remaining.length - 1)];
+          runWithoutHistory(() =>
+            set({
+              tabs: remaining,
+              activeTabId: target.id,
+              viewer: null,
+              pendingConnectionDraft: null,
+              connectionDraftError: null,
+            }),
+          );
+          restoreTemporalHistory(target.id);
+        },
+        openFlowTab: ({
+          projectId,
+          projectName,
+          nodes,
+          edges,
+          markDirty = false,
+          readOnly = false,
+        }) => {
+          flushActiveTextEdit();
+          cancelHistoryTransaction();
+          const state = get();
+          const applyActiveHistory = (inputNodes: FlowNode[]) => {
+            const activeByNode = latestActiveRecordsByNode(
+              state.recentResults,
+              projectId,
+            );
+            return inputNodes.map(migrateLegacyGptNode).map((node) => {
+              const active = activeByNode.get(node.id);
+              return active
+                ? {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      status: active.status,
+                      error: active.error,
+                    } as WorkflowNodeData,
+                  }
+                : node;
+            });
+          };
+          const found = state.tabs.find((tab) => tab.projectId === projectId);
+          const existing = found
+            ? { ...found, nodes: applyActiveHistory(found.nodes) }
+            : undefined;
+          if (existing) {
+            const switchesTab = existing.id !== state.activeTabId;
+            if (switchesTab) stashActiveTemporalHistory(state.activeTabId);
+            const tabs = replaceTab(state.tabs, existing);
+            runWithoutHistory(() =>
+              set({
+                tabs,
+                activeTabId: existing.id,
+                viewer: null,
+                pendingConnectionDraft: null,
+                connectionDraftError: null,
+              }),
+            );
+            if (switchesTab) restoreTemporalHistory(existing.id);
+          } else {
+            stashActiveTemporalHistory(state.activeTabId);
+            const tab = newTab({
+              projectId,
+              projectName,
+              nodes: applyActiveHistory(nodes),
+              edges,
+              markDirty,
+              readOnly,
+              persisted: !markDirty,
+            });
+            runWithoutHistory(() =>
+              set({
+                tabs: [...state.tabs, tab],
+                activeTabId: tab.id,
+                viewer: null,
+                pendingConnectionDraft: null,
+                connectionDraftError: null,
+              }),
+            );
+            temporalHistoryByTab.delete(tab.id);
+            restoreTemporalHistory(tab.id);
+          }
+        },
+        createBlankTab: () => {
+          flushActiveTextEdit();
+          cancelHistoryTransaction();
+          const tab = newTab();
+          const state = get();
+          stashActiveTemporalHistory(state.activeTabId);
+          runWithoutHistory(() =>
+            set({
+              tabs: [...state.tabs, tab],
+              activeTabId: tab.id,
+              viewer: null,
+              pendingConnectionDraft: null,
+              connectionDraftError: null,
+            }),
+          );
           temporalHistoryByTab.delete(tab.id);
           restoreTemporalHistory(tab.id);
-        }
-      },
-      createBlankTab: () => {
-        flushActiveTextEdit();
-        cancelHistoryTransaction();
-        const tab = newTab();
-        const state = get();
-        stashActiveTemporalHistory(state.activeTabId);
-        runWithoutHistory(() => set({
-          tabs: [...state.tabs, tab],
-          activeTabId: tab.id,
-          viewer: null,
-          pendingConnectionDraft: null,
-          connectionDraftError: null,
-        }));
-        temporalHistoryByTab.delete(tab.id);
-        restoreTemporalHistory(tab.id);
-      },
+        },
 
-      setProjectName: (name) => {
-        const tab = selectActiveDocument(get());
-        if (tab.readOnly || name === tab.projectName) return;
-        commitDocumentMutationWithSet(set, { projectName: name });
-      },
-      setSelectedNodeIds: (ids) => {
-        runWithoutHistory(() => {
-          set((state) => {
-            const tab = selectActiveDocument(state);
-            const selection = normalizeNodeSelection(tab.nodes, ids);
-            if (
-              sameStringList(selection.selectedNodeIds, tab.selectedNodeIds) &&
-              selection.nodes === tab.nodes &&
-              tab.selectedResultId === null
-            ) return {};
-            return { tabs: replaceTab(state.tabs, {
-              ...tab,
-              ...selection,
-              selectedResultId: null,
-            }) };
+        setProjectName: (name) => {
+          const tab = selectActiveDocument(get());
+          if (tab.readOnly || name === tab.projectName) return;
+          commitDocumentMutationWithSet(set, { projectName: name });
+        },
+        setSelectedNodeIds: (ids) => {
+          runWithoutHistory(() => {
+            set((state) => {
+              const tab = selectActiveDocument(state);
+              const selection = normalizeNodeSelection(tab.nodes, ids);
+              if (
+                sameStringList(
+                  selection.selectedNodeIds,
+                  tab.selectedNodeIds,
+                ) &&
+                selection.nodes === tab.nodes &&
+                tab.selectedResultId === null
+              )
+                return {};
+              return {
+                tabs: replaceTab(state.tabs, {
+                  ...tab,
+                  ...selection,
+                  selectedResultId: null,
+                }),
+              };
+            });
           });
-        });
-      },
-      setSelectedNodeId: (id) => get().setSelectedNodeIds(id ? [id] : []),
-      autoLayoutSelectedWorkflow: () => {
-        const tab = selectActiveDocument(get());
-        if (tab.readOnly) return "当前项目为只读状态";
-        const selectedNodeId = selectPrimarySelectedNodeId(tab);
-        if (!selectedNodeId) return "请先选择需要整理的工作流节点";
-        let nodes: FlowNode[];
-        try {
-          nodes = layoutConnectedComponent(selectedNodeId, tab.nodes, tab.edges);
-        } catch (error) {
-          return error instanceof Error ? error.message : "自动整理失败";
-        }
-        commitDocumentMutationWithSet(set, { nodes });
-        return null;
-      },
-      setSelectedResultId: (id) => {
-        const nextId = id && get().recentResults.some((record) => record.id === id) ? id : null;
-        runWithoutHistory(() => {
-          set((state) => {
-            const tab = selectActiveDocument(state);
-            return { tabs: replaceTab(state.tabs, {
-              ...tab,
-              ...normalizeNodeSelection(tab.nodes, []),
-              selectedResultId: nextId,
-            }) };
-          });
-        });
-      },
-      toggleCompareId: (id) => {
-        const document = selectActiveDocument(get());
-        const comparableIds = new Set(
-          get().recentResults
-            .filter((record) => record.status === "success" && Boolean(record.image))
-            .map((record) => record.id),
-        );
-        const cur = document.compareIds.filter((candidate, index, ids) => (
-          comparableIds.has(candidate) && ids.indexOf(candidate) === index
-        ));
-        if (!comparableIds.has(id)) {
-          if (!sameStringList(cur, document.compareIds)) patchTab(set, document.id, { compareIds: cur });
-          return;
-        }
-        if (cur.includes(id)) {
-          runWithoutHistory(() => patchTab(set, document.id, { compareIds: cur.filter((c) => c !== id) }));
-        } else if (cur.length < 4) {
-          runWithoutHistory(() => patchTab(set, document.id, (tab) => ({
-            compareIds: [...cur, id],
-            selectedResultId: null,
-            ...normalizeNodeSelection(tab.nodes, []),
-          })));
-        } else if (typeof window !== "undefined") {
-          window.alert("最多选择 4 张图片进行对比");
-        }
-      },
-      clearCompare: () => runWithoutHistory(() => {
-        const tab = selectActiveDocument(get());
-        patchTab(set, tab.id, { compareIds: [] });
-      }),
-      removeRecentResult: (id) => {
-        runWithoutHistory(() => set((state) => recentResultsPatch(
-          state,
-          state.recentResults.filter((record) => record.id !== id),
-        )));
-      },
-      openViewer: (v) => set({ viewer: v }),
-      closeViewer: () => set({ viewer: null }),
-
-      onNodesChange: (changes) => {
-        const state = get();
-        const tab = selectActiveDocument(state);
-        const allowed = tab.readOnly ? changes.filter((change) => change.type === "select" || change.type === "dimensions") : changes;
-        const dimensionChangeIds = new Set(allowed.flatMap((change) => change.type === "dimensions" ? [change.id] : []));
-        const currentlyResizingIds = new Set(tab.nodes.flatMap((node) => node.resizing ? [node.id] : []));
-        const resizePositionIds = new Set(allowed.flatMap((change) => (
-          change.type === "position" && (dimensionChangeIds.has(change.id) || currentlyResizingIds.has(change.id))
-            ? [change.id]
-            : []
-        )));
-        let nodes = applyNodeChanges(allowed, tab.nodes);
-        if (nodes === tab.nodes) return;
-        if (resizePositionIds.size > 0) {
-          nodes = nodes.map((node) => {
-            if (!resizePositionIds.has(node.id)) return node;
-            const previous = tab.nodes.find((candidate) => candidate.id === node.id);
-            if (!previous || previous.resizeDocumentPosition) return node;
-            return { ...node, resizeDocumentPosition: { ...previous.position } };
-          });
-        }
-        const documentPositionIds = new Set(allowed.flatMap((change) => (
-          change.type === "position" && !resizePositionIds.has(change.id) ? [change.id] : []
-        )));
-        if (documentPositionIds.size > 0) {
-          nodes = nodes.map((node) => {
-            if (!documentPositionIds.has(node.id)) return node;
-            const previous = tab.nodes.find((candidate) => candidate.id === node.id);
-            if (!previous?.resizeDocumentPosition) return node;
-            return {
-              ...node,
-              resizeDocumentPosition: {
-                x: previous.resizeDocumentPosition.x + node.position.x - previous.position.x,
-                y: previous.resizeDocumentPosition.y + node.position.y - previous.position.y,
-              },
-            };
-          });
-        }
-        const selection = normalizeNodeSelection(
-          nodes,
-          selectionIdsAfterNodeChanges(tab.selectedNodeIds, nodes, allowed),
-        );
-        const patch = {
-          ...selection,
-          ...(selection.selectedNodeIds.length > 0 ? { selectedResultId: null } : {}),
-        };
-        const changesDocument = allowed.some((change) => (
-          change.type !== "select"
-          && change.type !== "dimensions"
-          && !(change.type === "position" && resizePositionIds.has(change.id))
-        ));
-        const onlyMovesNodes = changesDocument && allowed.every(
-          (change) => change.type === "select" || change.type === "dimensions" || change.type === "position",
-        );
-        if (changesDocument) {
-          commitDocumentMutationWithSet(set, patch, {
-            coalesceWithActiveTransaction: onlyMovesNodes,
-          });
-        }
-        else runWithoutHistory(() => patchTab(set, tab.id, patch));
-      },
-      onEdgesChange: (changes) => {
-        const tab = selectActiveDocument(get());
-        const allowed = tab.readOnly ? changes.filter((change) => change.type === "select") : changes;
-        const edges = applyEdgeChanges(allowed, tab.edges);
-        if (edges === tab.edges) return;
-        const changesDocument = allowed.some((change) => change.type !== "select");
-        if (changesDocument) {
-          const changedStageIds = new Set<string>();
-          for (const edge of [...tab.edges, ...edges]) {
-            const target = tab.nodes.find((node) => node.id === edge.target);
-            if (target?.data.kind === "virtual-try-on" && target.data.workflowStage === "scene-stabilize") {
-              const before = tab.edges.some((candidate) => candidate.id === edge.id);
-              const after = edges.some((candidate) => candidate.id === edge.id);
-              if (before !== after) changedStageIds.add(edge.target);
-            }
-          }
-          commitDocumentMutationWithSet(set, { edges, nodes: incrementSceneBasis(tab.nodes, changedStageIds) });
-        }
-        else runWithoutHistory(() => patchTab(set, tab.id, { edges }));
-      },
-
-      isValidConnection: (conn) => {
-        const tab = selectActiveDocument(get());
-        return isDocumentConnectionValid(tab, conn);
-      },
-
-      onConnect: (conn) => {
-        const tab = selectActiveDocument(get());
-        if (tab.readOnly) return;
-        const targetNode = tab.nodes.find((node) => node.id === conn.target);
-        if (targetNode && isStagedTryOnData(targetNode.data) && conn.source && conn.target) {
-          const target = selectActiveDocumentTarget(get());
-          runWithoutHistory(() => set({
-            pendingConnectionDraft: {
-              target,
-              sourceNodeId: conn.source,
-              targetNodeId: conn.target,
-              sourceHandle: conn.sourceHandle ?? null,
-              proposedTargetHandle: (conn.targetHandle as WorkflowInputRole | null | undefined) ?? null,
-            },
-            connectionDraftError: null,
-          }));
-          return;
-        }
-        if (!get().isValidConnection(conn)) return;
-        commitDocumentMutationWithSet(set, { edges: addDocumentEdge(conn, tab.edges) });
-      },
-
-      confirmPendingConnection: (targetHandle) => {
-        const state = get();
-        const draft = state.pendingConnectionDraft;
-        if (!draft) return false;
-        const tab = documentForTarget(state, draft.target);
-        if (!tab || tab.readOnly) {
-          set({ pendingConnectionDraft: null, connectionDraftError: null });
-          return false;
-        }
-        const source = tab.nodes.find((node) => node.id === draft.sourceNodeId);
-        const target = tab.nodes.find((node) => node.id === draft.targetNodeId);
-        if (!source || !target || !isStagedTryOnData(target.data)) {
-          set({ connectionDraftError: "连接对象已变化，请重新拖线" });
-          return false;
-        }
-        if (draft.proposedTargetHandle && draft.proposedTargetHandle !== targetHandle) {
-          const proposed = STAGED_ROLE_LABELS[draft.proposedTargetHandle] ?? draft.proposedTargetHandle;
-          const selected = STAGED_ROLE_LABELS[targetHandle] ?? targetHandle;
-          set({ connectionDraftError: `该连线已指定为${proposed}，不能改为${selected}` });
-          return false;
-        }
-        const connection: Connection = {
-          source: draft.sourceNodeId,
-          target: draft.targetNodeId,
-          sourceHandle: draft.sourceHandle,
-          targetHandle,
-        };
-        const compatibilityError = connectionCompatibilityError({
-          source,
-          target,
-          sourceHandle: connection.sourceHandle,
-          targetHandle,
-          existingEdges: tab.edges,
-        });
-        if (compatibilityError) {
-          set({ connectionDraftError: compatibilityError });
-          return false;
-        }
-        const nextEdges = addDocumentEdge(connection, tab.edges);
-        commitDocumentMutationWithSet(set, {
-          edges: nextEdges,
-          nodes: incrementSceneBasis(tab.nodes, new Set([target.id])),
-        });
-        runWithoutHistory(() => set({ pendingConnectionDraft: null, connectionDraftError: null }));
-        return true;
-      },
-
-      cancelPendingConnection: () => runWithoutHistory(() => set({
-        pendingConnectionDraft: null,
-        connectionDraftError: null,
-      })),
-
-      addNode: (kind, position, preset) => {
-        const tab = selectActiveDocument(get());
-        if (tab.readOnly) return null;
-        const node: FlowNode = {
-          id: nanoid(8),
-          type: kind,
-          position,
-          data: defaultNodeDataWithPreset(kind, preset),
-        };
-        const selection = normalizeNodeSelection([...tab.nodes, node], [node.id]);
-        commitDocumentMutationWithSet(set, { ...selection, selectedResultId: null });
-        return node.id;
-      },
-
-      addConnectedNode: (anchorId, kind, direction, options) => {
-        const tab = selectActiveDocument(get());
-        if (tab.readOnly) return null;
-        const anchor = tab.nodes.find((node) => node.id === anchorId);
-        if (!anchor) return null;
-        const id = nanoid(8);
-        const horizontalGap = 380;
-        const node: FlowNode = {
-          id,
-          type: kind,
-          position: {
-            x: anchor.position.x + (direction === "downstream" ? horizontalGap : -horizontalGap),
-            y: anchor.position.y,
-          },
-          data: defaultNodeDataWithPreset(kind, options?.preset),
-        };
-        const nodes = [...tab.nodes, node];
-        const connection: Connection = direction === "downstream"
-          ? {
-              source: anchor.id,
-              target: id,
-              sourceHandle: options?.sourceHandle ?? null,
-              targetHandle: options?.targetHandle ?? null,
-            }
-          : { source: id, target: anchor.id, sourceHandle: null, targetHandle: null };
-        const draft = { nodes, edges: tab.edges };
-        if (!isDocumentConnectionValid(draft, connection)) return null;
-        const selection = normalizeNodeSelection(nodes, [id]);
-        commitDocumentMutationWithSet(set, {
-          ...selection,
-          edges: addDocumentEdge(connection, tab.edges),
-          selectedResultId: null,
-        });
-        return id;
-      },
-
-      addAssetNode: (asset, position) => {
-        const state = get();
-        const tab = selectActiveDocument(state);
-        if (tab.readOnly) return null;
-        const id = nanoid(8);
-        const node: FlowNode = {
-          id,
-          type: "image-input",
-          position,
-          data: {
-            ...defaultNodeData("image-input"),
-            label: asset.name,
-            status: "success",
-            imageUrl: asset.image,
-          } as ImageInputNodeData,
-        };
-        const selection = normalizeNodeSelection([...tab.nodes, node], [id]);
-        commitDocumentMutationWithSet(set, { ...selection, selectedResultId: null });
-        return id;
-      },
-
-      addExistingNode: (node) => {
-        const tab = selectActiveDocument(get());
-        if (tab.readOnly) return;
-        const selection = normalizeNodeSelection([...tab.nodes, node], [node.id]);
-        commitDocumentMutationWithSet(set, { ...selection, selectedResultId: null });
-      },
-
-      commitDrawingBoard: (target, nodeId, refs) => {
-        const state = get();
-        const tab = documentForTarget(state, target);
-        if (!tab || tab.readOnly || state.activeTabId !== target.tabId) return false;
-        const node = tab.nodes.find((candidate) => candidate.id === nodeId);
-        if (!node || node.data.kind !== "drawing-board") return false;
-        return commitDocumentMutationWithSet(set, (latest) => {
-          if (!matchesDocumentTarget(latest, target)) return {};
-          const nodes = latest.nodes.map((candidate) => candidate.id === nodeId && candidate.data.kind === "drawing-board"
-            ? {
-                ...candidate,
-                data: {
-                  ...candidate.data,
-                  ...refs,
-                  status: "success" as const,
-                  error: undefined,
-                },
-              }
-            : candidate);
-          return { nodes };
-        });
-      },
-
-      exportDrawingBoardImageNode: (target, nodeId) => {
-        const state = get();
-        const tab = documentForTarget(state, target);
-        if (!tab || tab.readOnly || state.activeTabId !== target.tabId) return null;
-        const board = tab.nodes.find((candidate) => candidate.id === nodeId);
-        if (!board || board.data.kind !== "drawing-board" || !board.data.previewImageRef || !board.data.contentRef) return null;
-        const id = nanoid(8);
-        const imageNode: FlowNode = {
-          id,
-          type: "image-input",
-          position: { x: board.position.x + 380, y: board.position.y },
-          data: {
-            ...defaultNodeData("image-input"),
-            label: `${board.data.label} 导出`,
-            status: "success",
-            imageUrl: board.data.previewImageRef,
-          } as ImageInputNodeData,
-        };
-        const nextBoard = {
-          ...board,
-          data: { ...board.data, exportImageRef: board.data.previewImageRef },
-        };
-        const nodes = [...tab.nodes.map((candidate) => candidate.id === nodeId ? nextBoard : candidate), imageNode];
-        const selection = normalizeNodeSelection(nodes, [id]);
-        const changed = commitDocumentMutationWithSet(set, { ...selection, selectedResultId: null });
-        return changed ? id : null;
-      },
-
-      updateNodeData: (id, patch) => {
-        const tab = selectActiveDocument(get());
-        if (tab.readOnly) return;
-        if (!tab.nodes.some((n) => n.id === id)) return;
-        const edited = tab.nodes.find((node) => node.id === id)!;
-        const basisKeys = new Set(["prompt", "imageSize", "modelId", "modelOptions", "outputImages"]);
-        const sourceOutputKeys = new Set(["imageUrl", "outputImages", "previewImageRef", "exportImageRef"]);
-        const stageTargets = new Set<string>();
-        if (
-          edited.data.kind === "virtual-try-on"
-          && edited.data.workflowStage === "scene-stabilize"
-          && Object.keys(patch).some((key) => basisKeys.has(key) && !Object.is(edited.data[key], patch[key]))
-        ) stageTargets.add(id);
-        if (Object.keys(patch).some((key) => sourceOutputKeys.has(key) && !Object.is(edited.data[key], patch[key]))) {
-          for (const targetId of sceneBasisTargetsForSource(tab, id)) stageTargets.add(targetId);
-        }
-        const patchedNodes = tab.nodes.map((n) =>
-          n.id === id ? { ...n, data: { ...n.data, ...patch } as WorkflowNodeData } : n,
-        );
-        commitDocumentMutationWithSet(set, {
-          nodes: incrementSceneBasis(patchedNodes, stageTargets),
-        });
-      },
-      updateVideoNodeSettings: (id, patch) => {
-        const tab = selectActiveDocument(get());
-        if (tab.readOnly) return;
-        const edited = tab.nodes.find((node) => node.id === id);
-        if (!edited || edited.data.kind !== "video-generate") return;
-
-        const nextData = { ...edited.data, ...patch } as VideoGenerateNodeData;
-        const validInputPorts = inputPortSpecs(nextData);
-        const validHandles = new Set(validInputPorts.map((port) => port.id));
-        const nodes = tab.nodes.map((node) => node.id === id
-          ? { ...node, data: nextData }
-          : node);
-        const edges = tab.edges.filter((edge) => {
-          if (edge.target !== id) return true;
-          if (edge.targetHandle) return validHandles.has(edge.targetHandle);
-          return validInputPorts.length === 1;
-        });
-        commitDocumentMutationWithSet(set, { nodes, edges });
-      },
-      updateNodeDataInTab: (target, id, patch) => {
-        if (documentForTarget(get(), target)?.readOnly !== false) return;
-        updateTabNodes(
-          set,
-          target,
-          (nodes) => {
-            if (!nodes.some((node) => node.id === id)) return nodes;
-            const tab = documentForTarget(get(), target)!;
-            const source = nodes.find((node) => node.id === id);
-            const invalidatesAnalysis = source?.data.kind === "outfit-reference" &&
-              ((patch.images !== undefined && JSON.stringify(patch.images) !== JSON.stringify(source.data.images)) ||
-              (patch.mainImage !== undefined && patch.mainImage !== source.data.mainImage));
-            const dependentIds = new Set(invalidatesAnalysis ? tab.edges.filter((edge) => edge.source === id).map((edge) => edge.target) : []);
-            for (const dependentId of dependentIds) invalidateStylingRequest(target, dependentId);
-            return nodes.map((node) =>
-              node.id === id
-                ? { ...node, data: { ...node.data, ...patch } as WorkflowNodeData }
-                : node.data.kind === "ai-styling" && dependentIds.has(node.id)
-                  ? { ...node, data: { ...node.data, analysisId: undefined, referenceFingerprint: undefined, preserve: null } }
-                : node,
+        },
+        setSelectedNodeId: (id) => get().setSelectedNodeIds(id ? [id] : []),
+        autoLayoutSelectedWorkflow: () => {
+          const tab = selectActiveDocument(get());
+          if (tab.readOnly) return "当前项目为只读状态";
+          const selectedNodeId = selectPrimarySelectedNodeId(tab);
+          if (!selectedNodeId) return "请先选择需要整理的工作流节点";
+          let nodes: FlowNode[];
+          try {
+            nodes = layoutConnectedComponent(
+              selectedNodeId,
+              tab.nodes,
+              tab.edges,
             );
-          },
-          { markDirty: true },
-        );
-      },
-
-      assignImageInputInTab: (target, id, imageUrl) => {
-        if (!imageUrl || documentForTarget(get(), target)?.readOnly !== false) return;
-        commitDocumentMutationForTarget(set, target, (tab) => {
-          const source = tab.nodes.find((node) => node.id === id);
-          if (!source || source.data.kind !== "image-input") return {};
-
-          const imageChanged = source.data.imageUrl !== imageUrl;
-          let nodes = tab.nodes.map((node) => node.id === id
-            ? {
-                ...node,
-                data: {
-                  ...node.data,
-                  imageUrl,
-                  status: "success" as const,
-                  error: undefined,
-                },
-              }
-            : node);
-          let edges = tab.edges;
-          const changedStageIds = imageChanged
-            ? sceneBasisTargetsForSource(tab, id)
-            : new Set<string>();
-
-          for (const declaredTarget of source.data.autoConnectTargets ?? []) {
-            const connection: Connection = {
-              source: id,
-              sourceHandle: "image",
-              target: declaredTarget.targetNodeId,
-              targetHandle: declaredTarget.targetHandle,
-            };
-            const exactEdgeExists = edges.some((edge) => (
-              edge.source === connection.source
-              && edge.sourceHandle === connection.sourceHandle
-              && edge.target === connection.target
-              && edge.targetHandle === connection.targetHandle
-            ));
-            if (exactEdgeExists || !isDocumentConnectionValid({ nodes, edges }, connection)) continue;
-            edges = addDocumentEdge(connection, edges);
-            const targetNode = nodes.find((node) => node.id === connection.target);
-            if (targetNode?.data.kind === "virtual-try-on" && targetNode.data.workflowStage === "scene-stabilize") {
-              changedStageIds.add(targetNode.id);
-            }
+          } catch (error) {
+            return error instanceof Error ? error.message : "自动整理失败";
           }
-
-          nodes = incrementSceneBasis(nodes, changedStageIds);
-          return { nodes, edges };
-        });
-      },
-
-      setNodeStatus: (id, status, error) =>
-        (() => {
+          commitDocumentMutationWithSet(set, { nodes });
+          return null;
+        },
+        setSelectedResultId: (id) => {
+          const nextId =
+            id && get().recentResults.some((record) => record.id === id)
+              ? id
+              : null;
+          runWithoutHistory(() => {
+            set((state) => {
+              const tab = selectActiveDocument(state);
+              return {
+                tabs: replaceTab(state.tabs, {
+                  ...tab,
+                  ...normalizeNodeSelection(tab.nodes, []),
+                  selectedResultId: nextId,
+                }),
+              };
+            });
+          });
+        },
+        toggleCompareId: (id) => {
+          const document = selectActiveDocument(get());
+          const comparableIds = new Set(
+            get()
+              .recentResults.filter(
+                (record) =>
+                  record.status === "success" && Boolean(record.image),
+              )
+              .map((record) => record.id),
+          );
+          const cur = document.compareIds.filter(
+            (candidate, index, ids) =>
+              comparableIds.has(candidate) && ids.indexOf(candidate) === index,
+          );
+          if (!comparableIds.has(id)) {
+            if (!sameStringList(cur, document.compareIds))
+              patchTab(set, document.id, { compareIds: cur });
+            return;
+          }
+          if (cur.includes(id)) {
+            runWithoutHistory(() =>
+              patchTab(set, document.id, {
+                compareIds: cur.filter((c) => c !== id),
+              }),
+            );
+          } else if (cur.length < 4) {
+            runWithoutHistory(() =>
+              patchTab(set, document.id, (tab) => ({
+                compareIds: [...cur, id],
+                selectedResultId: null,
+                ...normalizeNodeSelection(tab.nodes, []),
+              })),
+            );
+          } else if (typeof window !== "undefined") {
+            window.alert("最多选择 4 张图片进行对比");
+          }
+        },
+        clearCompare: () =>
           runWithoutHistory(() => {
             const tab = selectActiveDocument(get());
-            patchTab(set, tab.id, {
-              nodes: tab.nodes.map((n) =>
-                n.id === id ? { ...n, data: { ...n.data, status, error } } : n,
+            patchTab(set, tab.id, { compareIds: [] });
+          }),
+        removeRecentResult: (id) => {
+          runWithoutHistory(() =>
+            set((state) =>
+              recentResultsPatch(
+                state,
+                state.recentResults.filter((record) => record.id !== id),
               ),
+            ),
+          );
+        },
+        openViewer: (v) => set({ viewer: v }),
+        closeViewer: () => set({ viewer: null }),
+
+        onNodesChange: (changes) => {
+          const state = get();
+          const tab = selectActiveDocument(state);
+          const allowed = tab.readOnly
+            ? changes.filter(
+                (change) =>
+                  change.type === "select" || change.type === "dimensions",
+              )
+            : changes;
+          const dimensionChangeIds = new Set(
+            allowed.flatMap((change) =>
+              change.type === "dimensions" ? [change.id] : [],
+            ),
+          );
+          const currentlyResizingIds = new Set(
+            tab.nodes.flatMap((node) => (node.resizing ? [node.id] : [])),
+          );
+          const resizePositionIds = new Set(
+            allowed.flatMap((change) =>
+              change.type === "position" &&
+              (dimensionChangeIds.has(change.id) ||
+                currentlyResizingIds.has(change.id))
+                ? [change.id]
+                : [],
+            ),
+          );
+          let nodes = applyNodeChanges(allowed, tab.nodes);
+          if (nodes === tab.nodes) return;
+          if (resizePositionIds.size > 0) {
+            nodes = nodes.map((node) => {
+              if (!resizePositionIds.has(node.id)) return node;
+              const previous = tab.nodes.find(
+                (candidate) => candidate.id === node.id,
+              );
+              if (!previous || previous.resizeDocumentPosition) return node;
+              return {
+                ...node,
+                resizeDocumentPosition: { ...previous.position },
+              };
             });
-          });
-        })(),
-
-      runNode: async (id) => {
-        // UI 禁用只是反馈层；所有付费运行仍必须在唯一 action 入口二次校验。
-        if (getGenerationSafetyBlockReason()) return;
-        flushActiveTextEdit();
-        const target = selectActiveDocumentTarget(get());
-        const tabId = target.tabId;
-        const pendingSettlement = waitForHistoryTransactionSettlement(tabId);
-        if (pendingSettlement) await pendingSettlement;
-        if (getGenerationSafetyBlockReason()) return;
-        const initialState = get();
-        const initialDocument = documentForTarget(initialState, target);
-        if (!initialDocument || initialState.activeTabId !== tabId) return;
-        if (initialDocument.readOnly) return;
-        const node = initialDocument.nodes.find((n) => n.id === id);
-        if (
-          !node ||
-          isNodeRunActive(node.data.status) ||
-          initialState.recentResults.some((record) =>
-            record.projectId === initialDocument.projectId &&
-            record.nodeId === id &&
-            isNodeRunActive(record.status) &&
-            Boolean(record.runId),
-          )
-        ) return;
-        const kind = node.data.kind;
-        if (node.data.kind === "mask-redraw" && node.data.executionMode === "bypass") return;
-        const spec = NODE_SPECS[kind];
-        if (!spec.providerId) return;
-        let preparationError = virtualTryOnRunBlockReason(node, initialDocument);
-        if (node.data.kind === "ai-styling") {
-          const { validStylingAnalysis, stylingInput } = await import("./stylingRuntime");
-          const { stylingBlockReason } = await import("../lib/styling");
-          const currentDocument = documentForTarget(get(), target);
-          if (!currentDocument || currentDocument.readOnly || currentDocument.nodes.find(candidate => candidate.id === id)?.data !== node.data || stylingInput(currentDocument, id).key !== stylingInput(initialDocument, id).key) return;
-          const analysis = validStylingAnalysis(target, id);
-          const protectedOuterwear = Boolean(analysis?.result && ((node.data.preserve === "whole" && analysis.result.existingExtras.outerwear) || (node.data.preserve === "upper" && analysis.result.upperIsOuterwear)));
-          preparationError = stylingBlockReason(node.data, stylingInput(initialDocument, id).images, Boolean(analysis), protectedOuterwear) ?? undefined;
-        }
-        if (preparationError) {
-          runWithoutHistory(() => {
-            updateTabNodes(set, target, (nodes) => nodes.map((candidate) =>
-              candidate.id === id
-                ? { ...candidate, data: { ...candidate.data, status: "error", error: preparationError } }
-                : candidate,
-            ));
-          });
-          return;
-        }
-        if (node.data.kind === "virtual-try-on" && node.data.workflowStage === "scene-stabilize") {
-          commitDocumentMutationWithSet(set, {
-            nodes: incrementSceneBasis(initialDocument.nodes, new Set([node.id])),
-          });
-        }
-
-        const preparationKey = runPreparationKey(target, id);
-        const submissionKey = runSubmissionKey(initialDocument.projectId, id);
-        if (runPreparations.has(preparationKey)) return;
-        runPreparations.add(preparationKey);
-        const localStartedAt = Date.now();
-        const recordId = nanoid(8);
-        const ambiguousClientRequestId = ambiguousRunRequestIds.get(submissionKey);
-        const clientRequestId = ambiguousClientRequestId ?? nanoid(16);
-        const retryingAmbiguousSubmission = ambiguousClientRequestId !== undefined;
-        const requestedCount = requestedResultCountForNode(initialDocument, node);
-        let terminalRecorded = false;
-        let knownRunId: string | undefined;
-
-        // 先记录用户的这次生成操作，再请求后端；即使请求失败或页面刷新也不会丢记录。
-        const initialRecord: RecentResult = {
-          id: recordId,
-          image: "",
-          nodeId: id,
-          nodeLabel: node.data.label,
-          kind,
-          projectId: initialDocument.projectId,
-          projectName: initialDocument.projectName,
-          prompt: recordPrompt(node.data),
-          startedAt: localStartedAt,
-          status: "queued",
-          clientRequestId,
-          requestedCount,
-        };
-        const queuedRecords = createQueuedResultCards(initialRecord, requestedCount);
-        set((state) => recentResultsPatch(state, trimRecentResults([
-            ...queuedRecords,
-            ...state.recentResults,
-          ])));
-
-        try {
-          runWithoutHistory(() => {
-            updateTabNodes(set, target, (nodes) =>
-              nodes.map((candidate) =>
-                candidate.id === id
-                  ? { ...candidate, data: { ...candidate.data, status: "queued", error: undefined } }
-                  : candidate,
-              ),
+          }
+          const documentPositionIds = new Set(
+            allowed.flatMap((change) =>
+              change.type === "position" && !resizePositionIds.has(change.id)
+                ? [change.id]
+                : [],
+            ),
+          );
+          if (documentPositionIds.size > 0) {
+            nodes = nodes.map((node) => {
+              if (!documentPositionIds.has(node.id)) return node;
+              const previous = tab.nodes.find(
+                (candidate) => candidate.id === node.id,
+              );
+              if (!previous?.resizeDocumentPosition) return node;
+              return {
+                ...node,
+                resizeDocumentPosition: {
+                  x:
+                    previous.resizeDocumentPosition.x +
+                    node.position.x -
+                    previous.position.x,
+                  y:
+                    previous.resizeDocumentPosition.y +
+                    node.position.y -
+                    previous.position.y,
+                },
+              };
+            });
+          }
+          const selection = normalizeNodeSelection(
+            nodes,
+            selectionIdsAfterNodeChanges(tab.selectedNodeIds, nodes, allowed),
+          );
+          const patch = {
+            ...selection,
+            ...(selection.selectedNodeIds.length > 0
+              ? { selectedResultId: null }
+              : {}),
+          };
+          const changesDocument = allowed.some(
+            (change) =>
+              change.type !== "select" &&
+              change.type !== "dimensions" &&
+              !(change.type === "position" && resizePositionIds.has(change.id)),
+          );
+          const onlyMovesNodes =
+            changesDocument &&
+            allowed.every(
+              (change) =>
+                change.type === "select" ||
+                change.type === "dimensions" ||
+                change.type === "position",
             );
-          });
-          // 付费动作严格绑定点击时的不可变快照；保存期间发生编辑时服务端会以 409 拒绝旧快照。
-          const submissionSnapshot = documentForTarget(get(), target);
-          if (!submissionSnapshot) throw new Error("项目或节点已关闭，未调用生图服务");
-          const submissionDocument = createDocumentSnapshot(submissionSnapshot);
-          const submissionFlow = documentSnapshotToPersistedWorkflow(submissionDocument);
-          const saveResult = await saveTab(target);
-          if (!saveResult.ok) {
-            throw new Error(`项目保存失败，未调用生图服务：${saveResult.error ?? "未知错误"}`);
-          }
-          if (!submissionFlow.nodes.some((candidate) => candidate.id === id)) {
-            throw new Error("项目或节点已关闭，未调用生图服务");
-          }
-          let response: Response;
-          try {
-            response = await fetch("/api/run-plan", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                nodes: submissionFlow.nodes,
-                edges: submissionFlow.edges,
-                onlyNodeId: id,
-                includeDownstream: false,
-                projectId: submissionSnapshot.projectId,
-                clientRequestId,
-              }),
+          if (changesDocument) {
+            commitDocumentMutationWithSet(set, patch, {
+              coalesceWithActiveTransaction: onlyMovesNodes,
             });
-          } catch (error) {
-            rememberAmbiguousRunRequest(submissionKey, clientRequestId);
-            const message = error instanceof Error ? error.message : String(error);
-            throw new AmbiguousRunSubmissionError(`生成请求已发出，但响应未送达：${message}`);
-          }
-          let payload: { runId?: string; error?: string };
-          try {
-            payload = await response.json() as { runId?: string; error?: string };
-          } catch {
-            if (response.ok) {
-              rememberAmbiguousRunRequest(submissionKey, clientRequestId);
-              throw new AmbiguousRunSubmissionError("生成服务已接收请求，但返回内容无法确认");
+          } else runWithoutHistory(() => patchTab(set, tab.id, patch));
+        },
+        onEdgesChange: (changes) => {
+          const tab = selectActiveDocument(get());
+          const allowed = tab.readOnly
+            ? changes.filter((change) => change.type === "select")
+            : changes;
+          const edges = applyEdgeChanges(allowed, tab.edges);
+          if (edges === tab.edges) return;
+          const changesDocument = allowed.some(
+            (change) => change.type !== "select",
+          );
+          if (changesDocument) {
+            const changedStageIds = new Set<string>();
+            for (const edge of [...tab.edges, ...edges]) {
+              const target = tab.nodes.find((node) => node.id === edge.target);
+              if (
+                target?.data.kind === "virtual-try-on" &&
+                target.data.workflowStage === "scene-stabilize"
+              ) {
+                const before = tab.edges.some(
+                  (candidate) => candidate.id === edge.id,
+                );
+                const after = edges.some(
+                  (candidate) => candidate.id === edge.id,
+                );
+                if (before !== after) changedStageIds.add(edge.target);
+              }
             }
-            payload = {};
+            commitDocumentMutationWithSet(set, {
+              edges,
+              nodes: incrementSceneBasis(tab.nodes, changedStageIds),
+            });
+          } else runWithoutHistory(() => patchTab(set, tab.id, { edges }));
+        },
+
+        isValidConnection: (conn) => {
+          const tab = selectActiveDocument(get());
+          return isDocumentConnectionValid(tab, conn);
+        },
+
+        onConnect: (conn) => {
+          const tab = selectActiveDocument(get());
+          if (tab.readOnly) return;
+          const targetNode = tab.nodes.find((node) => node.id === conn.target);
+          if (
+            targetNode &&
+            isStagedTryOnData(targetNode.data) &&
+            conn.source &&
+            conn.target
+          ) {
+            const target = selectActiveDocumentTarget(get());
+            runWithoutHistory(() =>
+              set({
+                pendingConnectionDraft: {
+                  target,
+                  sourceNodeId: conn.source,
+                  targetNodeId: conn.target,
+                  sourceHandle: conn.sourceHandle ?? null,
+                  proposedTargetHandle:
+                    (conn.targetHandle as
+                      | WorkflowInputRole
+                      | null
+                      | undefined) ?? null,
+                },
+                connectionDraftError: null,
+              }),
+            );
+            return;
+          }
+          if (!get().isValidConnection(conn)) return;
+          commitDocumentMutationWithSet(set, {
+            edges: addDocumentEdge(conn, tab.edges),
+          });
+        },
+
+        confirmPendingConnection: (targetHandle) => {
+          const state = get();
+          const draft = state.pendingConnectionDraft;
+          if (!draft) return false;
+          const tab = documentForTarget(state, draft.target);
+          if (!tab || tab.readOnly) {
+            set({ pendingConnectionDraft: null, connectionDraftError: null });
+            return false;
+          }
+          const source = tab.nodes.find(
+            (node) => node.id === draft.sourceNodeId,
+          );
+          const target = tab.nodes.find(
+            (node) => node.id === draft.targetNodeId,
+          );
+          if (!source || !target || !isStagedTryOnData(target.data)) {
+            set({ connectionDraftError: "连接对象已变化，请重新拖线" });
+            return false;
           }
           if (
-            !response.ok &&
-            (response.status === 408 || (response.status === 409 && retryingAmbiguousSubmission))
+            draft.proposedTargetHandle &&
+            draft.proposedTargetHandle !== targetHandle
           ) {
-            rememberAmbiguousRunRequest(submissionKey, clientRequestId);
-            throw new AmbiguousRunSubmissionError(
-              `生成服务返回 HTTP ${response.status}，旧请求可能已创建任务但当前参数已变化`,
-            );
+            const proposed =
+              STAGED_ROLE_LABELS[draft.proposedTargetHandle] ??
+              draft.proposedTargetHandle;
+            const selected = STAGED_ROLE_LABELS[targetHandle] ?? targetHandle;
+            set({
+              connectionDraftError: `该连线已指定为${proposed}，不能改为${selected}`,
+            });
+            return false;
           }
-          if (!response.ok && response.status < 500) clearAmbiguousRunRequest(submissionKey);
-          if (!response.ok && response.status >= 500) {
-            rememberAmbiguousRunRequest(submissionKey, clientRequestId);
-            throw new AmbiguousRunSubmissionError(
-              `生成服务返回 HTTP ${response.status}，无法确认是否已创建任务`,
-            );
-          }
-          if (response.ok && !payload.runId) {
-            rememberAmbiguousRunRequest(submissionKey, clientRequestId);
-            throw new AmbiguousRunSubmissionError("生成服务已接收请求，但未返回可确认的运行编号");
-          }
-          if (!response.ok || !payload.runId) {
-            throw new Error(responseErrorMessage(response.status, payload));
-          }
-          clearAmbiguousRunRequest(submissionKey);
-          knownRunId = payload.runId;
-
-          set((state) => recentResultsPatch(
-            state,
-            state.recentResults.map((record) =>
-              record.id === recordId || record.id.startsWith(`${recordId}:pending:`)
-                ? { ...record, runId: payload.runId }
-              : record,
-            ),
-          ));
-          runPreparations.delete(preparationKey);
-
-          const runStatus = await fetch(`/api/run-plan/${encodeURIComponent(payload.runId)}`);
-          if (!runStatus.ok) {
-            throw new Error(
-              runStatus.status === 404
-                ? "服务已重启或运行状态已丢失，请重新发起任务"
-                : `确认运行状态失败（HTTP ${runStatus.status}）`,
-            );
-          }
-
-          await consumeRunEvents(payload.runId, id, (event) => {
-            if (event.type !== "node-status" || event.nodeId !== id) return;
-            set((state) => recentResultsPatch(
-              state,
-              applyRunEventToRecentResults(state.recentResults, recordId, event),
-            ));
-            if (kind !== "ai-styling" || isLatestTrackedRun(get().recentResults, { projectId: target.projectId, nodeId: id, runId: knownRunId, startedAt: localStartedAt })) updateTabFromRunEvent(set, target, id, event);
-            if (isNodeRunTerminal(event.status)) terminalRecorded = true;
+          const connection: Connection = {
+            source: draft.sourceNodeId,
+            target: draft.targetNodeId,
+            sourceHandle: draft.sourceHandle,
+            targetHandle,
+          };
+          const compatibilityError = connectionCompatibilityError({
+            source,
+            target,
+            sourceHandle: connection.sourceHandle,
+            targetHandle,
+            existingEdges: tab.edges,
           });
-        } catch (err) {
-          if (!terminalRecorded) {
-            const message = err instanceof Error ? err.message : String(err);
-            const status: "retry_wait" | "outcome_unknown" | "error" = knownRunId
-              ? "retry_wait"
-              : err instanceof AmbiguousRunSubmissionError ? "outcome_unknown" : "error";
-            const safeMessage = knownRunId
-              ? `运行 ${knownRunId} 已创建，但状态同步中断：${message}；请刷新页面继续同步，勿重复提交`
-              : err instanceof AmbiguousRunSubmissionError
-                ? `${message}；再次点击会使用同一请求号安全确认，请勿新建重复任务`
-                : message;
-            const event: NodeStatusRunEvent = {
+          if (compatibilityError) {
+            set({ connectionDraftError: compatibilityError });
+            return false;
+          }
+          const nextEdges = addDocumentEdge(connection, tab.edges);
+          commitDocumentMutationWithSet(set, {
+            edges: nextEdges,
+            nodes: incrementSceneBasis(tab.nodes, new Set([target.id])),
+          });
+          runWithoutHistory(() =>
+            set({ pendingConnectionDraft: null, connectionDraftError: null }),
+          );
+          return true;
+        },
+
+        cancelPendingConnection: () =>
+          runWithoutHistory(() =>
+            set({
+              pendingConnectionDraft: null,
+              connectionDraftError: null,
+            }),
+          ),
+
+        addNode: (kind, position, preset) => {
+          const tab = selectActiveDocument(get());
+          if (tab.readOnly) return null;
+          const node: FlowNode = {
+            id: nanoid(8),
+            type: kind,
+            position,
+            data: defaultNodeDataWithPreset(kind, preset),
+          };
+          const selection = normalizeNodeSelection(
+            [...tab.nodes, node],
+            [node.id],
+          );
+          commitDocumentMutationWithSet(set, {
+            ...selection,
+            selectedResultId: null,
+          });
+          return node.id;
+        },
+
+        addConnectedNode: (anchorId, kind, direction, options) => {
+          const tab = selectActiveDocument(get());
+          if (tab.readOnly) return null;
+          const anchor = tab.nodes.find((node) => node.id === anchorId);
+          if (!anchor) return null;
+          const id = nanoid(8);
+          const horizontalGap = 380;
+          const node: FlowNode = {
+            id,
+            type: kind,
+            position: {
+              x:
+                anchor.position.x +
+                (direction === "downstream" ? horizontalGap : -horizontalGap),
+              y: anchor.position.y,
+            },
+            data: defaultNodeDataWithPreset(kind, options?.preset),
+          };
+          const nodes = [...tab.nodes, node];
+          const connection: Connection =
+            direction === "downstream"
+              ? {
+                  source: anchor.id,
+                  target: id,
+                  sourceHandle: options?.sourceHandle ?? null,
+                  targetHandle: options?.targetHandle ?? null,
+                }
+              : {
+                  source: id,
+                  target: anchor.id,
+                  sourceHandle: null,
+                  targetHandle: null,
+                };
+          const draft = { nodes, edges: tab.edges };
+          if (!isDocumentConnectionValid(draft, connection)) return null;
+          const selection = normalizeNodeSelection(nodes, [id]);
+          commitDocumentMutationWithSet(set, {
+            ...selection,
+            edges: addDocumentEdge(connection, tab.edges),
+            selectedResultId: null,
+          });
+          return id;
+        },
+
+        addAssetNode: (asset, position) => {
+          const state = get();
+          const tab = selectActiveDocument(state);
+          if (tab.readOnly) return null;
+          const id = nanoid(8);
+          const node: FlowNode = {
+            id,
+            type: "image-input",
+            position,
+            data: {
+              ...defaultNodeData("image-input"),
+              label: asset.name,
+              status: "success",
+              imageUrl: asset.image,
+            } as ImageInputNodeData,
+          };
+          const selection = normalizeNodeSelection([...tab.nodes, node], [id]);
+          commitDocumentMutationWithSet(set, {
+            ...selection,
+            selectedResultId: null,
+          });
+          return id;
+        },
+
+        addExistingNode: (node) => {
+          const tab = selectActiveDocument(get());
+          if (tab.readOnly) return;
+          const selection = normalizeNodeSelection(
+            [...tab.nodes, node],
+            [node.id],
+          );
+          commitDocumentMutationWithSet(set, {
+            ...selection,
+            selectedResultId: null,
+          });
+        },
+
+        commitDrawingBoard: (target, nodeId, refs) => {
+          const state = get();
+          const tab = documentForTarget(state, target);
+          if (!tab || tab.readOnly || state.activeTabId !== target.tabId)
+            return false;
+          const node = tab.nodes.find((candidate) => candidate.id === nodeId);
+          if (!node || node.data.kind !== "drawing-board") return false;
+          return commitDocumentMutationWithSet(set, (latest) => {
+            if (!matchesDocumentTarget(latest, target)) return {};
+            const nodes = latest.nodes.map((candidate) =>
+              candidate.id === nodeId && candidate.data.kind === "drawing-board"
+                ? {
+                    ...candidate,
+                    data: {
+                      ...candidate.data,
+                      ...refs,
+                      status: "success" as const,
+                      error: undefined,
+                    },
+                  }
+                : candidate,
+            );
+            return { nodes };
+          });
+        },
+
+        exportDrawingBoardImageNode: (target, nodeId) => {
+          const state = get();
+          const tab = documentForTarget(state, target);
+          if (!tab || tab.readOnly || state.activeTabId !== target.tabId)
+            return null;
+          const board = tab.nodes.find((candidate) => candidate.id === nodeId);
+          if (
+            !board ||
+            board.data.kind !== "drawing-board" ||
+            !board.data.previewImageRef ||
+            !board.data.contentRef
+          )
+            return null;
+          const id = nanoid(8);
+          const imageNode: FlowNode = {
+            id,
+            type: "image-input",
+            position: { x: board.position.x + 380, y: board.position.y },
+            data: {
+              ...defaultNodeData("image-input"),
+              label: `${board.data.label} 导出`,
+              status: "success",
+              imageUrl: board.data.previewImageRef,
+            } as ImageInputNodeData,
+          };
+          const nextBoard = {
+            ...board,
+            data: { ...board.data, exportImageRef: board.data.previewImageRef },
+          };
+          const nodes = [
+            ...tab.nodes.map((candidate) =>
+              candidate.id === nodeId ? nextBoard : candidate,
+            ),
+            imageNode,
+          ];
+          const selection = normalizeNodeSelection(nodes, [id]);
+          const changed = commitDocumentMutationWithSet(set, {
+            ...selection,
+            selectedResultId: null,
+          });
+          return changed ? id : null;
+        },
+
+        updateNodeData: (id, patch) => {
+          const tab = selectActiveDocument(get());
+          if (tab.readOnly) return;
+          if (!tab.nodes.some((n) => n.id === id)) return;
+          const edited = tab.nodes.find((node) => node.id === id)!;
+          const basisKeys = new Set([
+            "prompt",
+            "imageSize",
+            "modelId",
+            "modelOptions",
+            "outputImages",
+          ]);
+          const sourceOutputKeys = new Set([
+            "imageUrl",
+            "outputImages",
+            "previewImageRef",
+            "exportImageRef",
+          ]);
+          const stageTargets = new Set<string>();
+          if (
+            edited.data.kind === "virtual-try-on" &&
+            edited.data.workflowStage === "scene-stabilize" &&
+            Object.keys(patch).some(
+              (key) =>
+                basisKeys.has(key) && !Object.is(edited.data[key], patch[key]),
+            )
+          )
+            stageTargets.add(id);
+          if (
+            Object.keys(patch).some(
+              (key) =>
+                sourceOutputKeys.has(key) &&
+                !Object.is(edited.data[key], patch[key]),
+            )
+          ) {
+            for (const targetId of sceneBasisTargetsForSource(tab, id))
+              stageTargets.add(targetId);
+          }
+          const patchedNodes = tab.nodes.map((n) =>
+            n.id === id
+              ? { ...n, data: { ...n.data, ...patch } as WorkflowNodeData }
+              : n,
+          );
+          commitDocumentMutationWithSet(set, {
+            nodes: incrementSceneBasis(patchedNodes, stageTargets),
+          });
+        },
+        updateVideoNodeSettings: (id, patch) => {
+          const tab = selectActiveDocument(get());
+          if (tab.readOnly) return;
+          const edited = tab.nodes.find((node) => node.id === id);
+          if (!edited || edited.data.kind !== "video-generate") return;
+
+          const nextData = {
+            ...edited.data,
+            ...patch,
+          } as VideoGenerateNodeData;
+          const validInputPorts = inputPortSpecs(nextData);
+          const validHandles = new Set(validInputPorts.map((port) => port.id));
+          const nodes = tab.nodes.map((node) =>
+            node.id === id ? { ...node, data: nextData } : node,
+          );
+          const edges = tab.edges.filter((edge) => {
+            if (edge.target !== id) return true;
+            if (edge.targetHandle) return validHandles.has(edge.targetHandle);
+            return validInputPorts.length === 1;
+          });
+          commitDocumentMutationWithSet(set, { nodes, edges });
+        },
+        updateNodeDataInTab: (target, id, patch) => {
+          if (documentForTarget(get(), target)?.readOnly !== false) return;
+          updateTabNodes(
+            set,
+            target,
+            (nodes) => {
+              if (!nodes.some((node) => node.id === id)) return nodes;
+              const tab = documentForTarget(get(), target)!;
+              const source = nodes.find((node) => node.id === id);
+              const invalidatesAnalysis =
+                source?.data.kind === "outfit-reference" &&
+                ((patch.images !== undefined &&
+                  JSON.stringify(patch.images) !==
+                    JSON.stringify(source.data.images)) ||
+                  (patch.mainImage !== undefined &&
+                    patch.mainImage !== source.data.mainImage));
+              const dependentIds = new Set(
+                invalidatesAnalysis
+                  ? tab.edges
+                      .filter((edge) => edge.source === id)
+                      .map((edge) => edge.target)
+                  : [],
+              );
+              for (const dependentId of dependentIds)
+                invalidateStylingRequest(target, dependentId);
+              return nodes.map((node) =>
+                node.id === id
+                  ? {
+                      ...node,
+                      data: { ...node.data, ...patch } as WorkflowNodeData,
+                    }
+                  : node.data.kind === "ai-styling" && dependentIds.has(node.id)
+                    ? {
+                        ...node,
+                        data: {
+                          ...node.data,
+                          analysisId: undefined,
+                          referenceFingerprint: undefined,
+                          preserve: null,
+                        },
+                      }
+                    : node,
+              );
+            },
+            { markDirty: true },
+          );
+        },
+
+        assignImageInputInTab: (target, id, imageUrl) => {
+          if (!imageUrl || documentForTarget(get(), target)?.readOnly !== false)
+            return;
+          commitDocumentMutationForTarget(set, target, (tab) => {
+            const source = tab.nodes.find((node) => node.id === id);
+            if (!source || source.data.kind !== "image-input") return {};
+
+            const imageChanged = source.data.imageUrl !== imageUrl;
+            let nodes = tab.nodes.map((node) =>
+              node.id === id
+                ? {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      imageUrl,
+                      status: "success" as const,
+                      error: undefined,
+                    },
+                  }
+                : node,
+            );
+            let edges = tab.edges;
+            const changedStageIds = imageChanged
+              ? sceneBasisTargetsForSource(tab, id)
+              : new Set<string>();
+
+            for (const declaredTarget of source.data.autoConnectTargets ?? []) {
+              const connection: Connection = {
+                source: id,
+                sourceHandle: "image",
+                target: declaredTarget.targetNodeId,
+                targetHandle: declaredTarget.targetHandle,
+              };
+              const exactEdgeExists = edges.some(
+                (edge) =>
+                  edge.source === connection.source &&
+                  edge.sourceHandle === connection.sourceHandle &&
+                  edge.target === connection.target &&
+                  edge.targetHandle === connection.targetHandle,
+              );
+              if (
+                exactEdgeExists ||
+                !isDocumentConnectionValid({ nodes, edges }, connection)
+              )
+                continue;
+              edges = addDocumentEdge(connection, edges);
+              const targetNode = nodes.find(
+                (node) => node.id === connection.target,
+              );
+              if (
+                targetNode?.data.kind === "virtual-try-on" &&
+                targetNode.data.workflowStage === "scene-stabilize"
+              ) {
+                changedStageIds.add(targetNode.id);
+              }
+            }
+
+            nodes = incrementSceneBasis(nodes, changedStageIds);
+            return { nodes, edges };
+          });
+        },
+
+        setNodeStatus: (id, status, error) =>
+          (() => {
+            runWithoutHistory(() => {
+              const tab = selectActiveDocument(get());
+              patchTab(set, tab.id, {
+                nodes: tab.nodes.map((n) =>
+                  n.id === id
+                    ? { ...n, data: { ...n.data, status, error } }
+                    : n,
+                ),
+              });
+            });
+          })(),
+
+        runNode: async (id) => {
+          // UI 禁用只是反馈层；所有付费运行仍必须在唯一 action 入口二次校验。
+          if (getGenerationSafetyBlockReason()) return;
+          flushActiveTextEdit();
+          const target = selectActiveDocumentTarget(get());
+          const tabId = target.tabId;
+          const pendingSettlement = waitForHistoryTransactionSettlement(tabId);
+          if (pendingSettlement) await pendingSettlement;
+          if (getGenerationSafetyBlockReason()) return;
+          const initialState = get();
+          const initialDocument = documentForTarget(initialState, target);
+          if (!initialDocument || initialState.activeTabId !== tabId) return;
+          if (initialDocument.readOnly) return;
+          const node = initialDocument.nodes.find((n) => n.id === id);
+          if (
+            !node ||
+            isNodeRunActive(node.data.status) ||
+            initialState.recentResults.some(
+              (record) =>
+                record.projectId === initialDocument.projectId &&
+                record.nodeId === id &&
+                isNodeRunActive(record.status) &&
+                Boolean(record.runId),
+            )
+          )
+            return;
+          const kind = node.data.kind;
+          if (
+            node.data.kind === "mask-redraw" &&
+            node.data.executionMode === "bypass"
+          )
+            return;
+          const spec = NODE_SPECS[kind];
+          if (!spec.providerId) return;
+          let preparationError = virtualTryOnRunBlockReason(
+            node,
+            initialDocument,
+          );
+          if (node.data.kind === "character-board" && !node.data.sourceImage) {
+            preparationError = "请先上传一张模特图";
+          }
+          if (node.data.kind === "ai-styling") {
+            const { validStylingAnalysis, stylingInput } = await import(
+              "./stylingRuntime"
+            );
+            const { stylingBlockReason } = await import("../lib/styling");
+            const currentDocument = documentForTarget(get(), target);
+            if (
+              !currentDocument ||
+              currentDocument.readOnly ||
+              currentDocument.nodes.find((candidate) => candidate.id === id)
+                ?.data !== node.data ||
+              stylingInput(currentDocument, id).key !==
+                stylingInput(initialDocument, id).key
+            )
+              return;
+            const analysis = validStylingAnalysis(target, id);
+            const protectedOuterwear = Boolean(
+              analysis?.result &&
+                ((node.data.preserve === "whole" &&
+                  analysis.result.existingExtras.outerwear) ||
+                  (node.data.preserve === "upper" &&
+                    analysis.result.upperIsOuterwear)),
+            );
+            preparationError =
+              stylingBlockReason(
+                node.data,
+                stylingInput(initialDocument, id).images,
+                Boolean(analysis),
+                protectedOuterwear,
+              ) ?? undefined;
+          }
+          if (preparationError) {
+            runWithoutHistory(() => {
+              updateTabNodes(set, target, (nodes) =>
+                nodes.map((candidate) =>
+                  candidate.id === id
+                    ? {
+                        ...candidate,
+                        data: {
+                          ...candidate.data,
+                          status: "error",
+                          error: preparationError,
+                        },
+                      }
+                    : candidate,
+                ),
+              );
+            });
+            return;
+          }
+          if (
+            node.data.kind === "virtual-try-on" &&
+            node.data.workflowStage === "scene-stabilize"
+          ) {
+            commitDocumentMutationWithSet(set, {
+              nodes: incrementSceneBasis(
+                initialDocument.nodes,
+                new Set([node.id]),
+              ),
+            });
+          }
+
+          const preparationKey = runPreparationKey(target, id);
+          const submissionKey = runSubmissionKey(initialDocument.projectId, id);
+          if (runPreparations.has(preparationKey)) return;
+          runPreparations.add(preparationKey);
+          const localStartedAt = Date.now();
+          const recordId = nanoid(8);
+          const ambiguousClientRequestId =
+            ambiguousRunRequestIds.get(submissionKey);
+          const clientRequestId = ambiguousClientRequestId ?? nanoid(16);
+          const retryingAmbiguousSubmission =
+            ambiguousClientRequestId !== undefined;
+          const requestedCount = requestedResultCountForNode(
+            initialDocument,
+            node,
+          );
+          let terminalRecorded = false;
+          let knownRunId: string | undefined;
+
+          // 先记录用户的这次生成操作，再请求后端；即使请求失败或页面刷新也不会丢记录。
+          const initialRecord: RecentResult = {
+            id: recordId,
+            image: "",
+            nodeId: id,
+            nodeLabel: node.data.label,
+            kind,
+            projectId: initialDocument.projectId,
+            projectName: initialDocument.projectName,
+            prompt: recordPrompt(node.data),
+            startedAt: localStartedAt,
+            status: "queued",
+            clientRequestId,
+            requestedCount,
+          };
+          const queuedRecords = createQueuedResultCards(
+            initialRecord,
+            requestedCount,
+          );
+          set((state) =>
+            recentResultsPatch(
+              state,
+              trimRecentResults([...queuedRecords, ...state.recentResults]),
+            ),
+          );
+
+          try {
+            runWithoutHistory(() => {
+              updateTabNodes(set, target, (nodes) =>
+                nodes.map((candidate) =>
+                  candidate.id === id
+                    ? {
+                        ...candidate,
+                        data: {
+                          ...candidate.data,
+                          status: "queued",
+                          error: undefined,
+                        },
+                      }
+                    : candidate,
+                ),
+              );
+            });
+            // 付费动作严格绑定点击时的不可变快照；保存期间发生编辑时服务端会以 409 拒绝旧快照。
+            const submissionSnapshot = documentForTarget(get(), target);
+            if (!submissionSnapshot)
+              throw new Error("项目或节点已关闭，未调用生图服务");
+            const submissionDocument =
+              createDocumentSnapshot(submissionSnapshot);
+            const submissionFlow =
+              documentSnapshotToPersistedWorkflow(submissionDocument);
+            const saveResult = await saveTab(target);
+            if (!saveResult.ok) {
+              throw new Error(
+                `项目保存失败，未调用生图服务：${saveResult.error ?? "未知错误"}`,
+              );
+            }
+            if (
+              !submissionFlow.nodes.some((candidate) => candidate.id === id)
+            ) {
+              throw new Error("项目或节点已关闭，未调用生图服务");
+            }
+            let response: Response;
+            try {
+              response = await fetch("/api/run-plan", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  nodes: submissionFlow.nodes,
+                  edges: submissionFlow.edges,
+                  onlyNodeId: id,
+                  includeDownstream: false,
+                  projectId: submissionSnapshot.projectId,
+                  clientRequestId,
+                }),
+              });
+            } catch (error) {
+              rememberAmbiguousRunRequest(submissionKey, clientRequestId);
+              const message =
+                error instanceof Error ? error.message : String(error);
+              throw new AmbiguousRunSubmissionError(
+                `生成请求已发出，但响应未送达：${message}`,
+              );
+            }
+            let payload: { runId?: string; error?: string };
+            try {
+              payload = (await response.json()) as {
+                runId?: string;
+                error?: string;
+              };
+            } catch {
+              if (response.ok) {
+                rememberAmbiguousRunRequest(submissionKey, clientRequestId);
+                throw new AmbiguousRunSubmissionError(
+                  "生成服务已接收请求，但返回内容无法确认",
+                );
+              }
+              payload = {};
+            }
+            if (
+              !response.ok &&
+              (response.status === 408 ||
+                (response.status === 409 && retryingAmbiguousSubmission))
+            ) {
+              rememberAmbiguousRunRequest(submissionKey, clientRequestId);
+              throw new AmbiguousRunSubmissionError(
+                `生成服务返回 HTTP ${response.status}，旧请求可能已创建任务但当前参数已变化`,
+              );
+            }
+            if (!response.ok && response.status < 500)
+              clearAmbiguousRunRequest(submissionKey);
+            if (!response.ok && response.status >= 500) {
+              rememberAmbiguousRunRequest(submissionKey, clientRequestId);
+              throw new AmbiguousRunSubmissionError(
+                `生成服务返回 HTTP ${response.status}，无法确认是否已创建任务`,
+              );
+            }
+            if (response.ok && !payload.runId) {
+              rememberAmbiguousRunRequest(submissionKey, clientRequestId);
+              throw new AmbiguousRunSubmissionError(
+                "生成服务已接收请求，但未返回可确认的运行编号",
+              );
+            }
+            if (!response.ok || !payload.runId) {
+              throw new Error(responseErrorMessage(response.status, payload));
+            }
+            clearAmbiguousRunRequest(submissionKey);
+            knownRunId = payload.runId;
+
+            set((state) =>
+              recentResultsPatch(
+                state,
+                state.recentResults.map((record) =>
+                  record.id === recordId ||
+                  record.id.startsWith(`${recordId}:pending:`)
+                    ? { ...record, runId: payload.runId }
+                    : record,
+                ),
+              ),
+            );
+            runPreparations.delete(preparationKey);
+
+            const runStatus = await fetch(
+              `/api/run-plan/${encodeURIComponent(payload.runId)}`,
+            );
+            if (!runStatus.ok) {
+              throw new Error(
+                runStatus.status === 404
+                  ? "服务已重启或运行状态已丢失，请重新发起任务"
+                  : `确认运行状态失败（HTTP ${runStatus.status}）`,
+              );
+            }
+
+            await consumeRunEvents(payload.runId, id, (event) => {
+              if (event.type !== "node-status" || event.nodeId !== id) return;
+              set((state) =>
+                recentResultsPatch(
+                  state,
+                  applyRunEventToRecentResults(
+                    state.recentResults,
+                    recordId,
+                    event,
+                  ),
+                ),
+              );
+              if (
+                kind !== "ai-styling" ||
+                isLatestTrackedRun(get().recentResults, {
+                  projectId: target.projectId,
+                  nodeId: id,
+                  runId: knownRunId,
+                  startedAt: localStartedAt,
+                })
+              )
+                updateTabFromRunEvent(set, target, id, event);
+              if (isNodeRunTerminal(event.status)) terminalRecorded = true;
+            });
+          } catch (err) {
+            if (!terminalRecorded) {
+              const message = err instanceof Error ? err.message : String(err);
+              const status: "retry_wait" | "outcome_unknown" | "error" =
+                knownRunId
+                  ? "retry_wait"
+                  : err instanceof AmbiguousRunSubmissionError
+                    ? "outcome_unknown"
+                    : "error";
+              const safeMessage = knownRunId
+                ? `运行 ${knownRunId} 已创建，但状态同步中断：${message}；请刷新页面继续同步，勿重复提交`
+                : err instanceof AmbiguousRunSubmissionError
+                  ? `${message}；再次点击会使用同一请求号安全确认，请勿新建重复任务`
+                  : message;
+              const event: NodeStatusRunEvent = {
                 type: "node-status",
                 nodeId: id,
                 status,
                 error: safeMessage,
                 startedAt: localStartedAt,
-                ...(isNodeRunTerminal(status) ? { finishedAt: Date.now() } : {}),
+                ...(isNodeRunTerminal(status)
+                  ? { finishedAt: Date.now() }
+                  : {}),
               };
-            set((state) => recentResultsPatch(
-              state,
-              applyRunEventToRecentResults(state.recentResults, recordId, event),
-            ));
-            if (kind !== "ai-styling" || !knownRunId || isLatestTrackedRun(get().recentResults, { projectId: target.projectId, nodeId: id, runId: knownRunId, startedAt: localStartedAt })) updateTabFromRunEvent(set, target, id, event);
-          }
-        } finally {
-          runPreparations.delete(preparationKey);
-        }
-      },
-
-      saveProject: async () => {
-        // Capture the invoking tab before awaiting a real dragStop/cancel. A tab
-        // switch must save the rolled-back source tab, never the new active tab.
-        flushActiveTextEdit();
-        const target = selectActiveDocumentTarget(get());
-        return (await saveTab(target)).ok;
-      },
-
-      saveProjectInTab: async (target) => {
-        flushActiveTextEdit();
-        return (await saveTab(target)).ok;
-      },
-
-      undo: () => {
-        flushActiveTextEdit();
-        if (deferHistoryCommandUntilSettlement("undo")) return;
-        applyActiveTemporalHistory("undo");
-      },
-      redo: () => {
-        flushActiveTextEdit();
-        if (deferHistoryCommandUntilSettlement("redo")) return;
-        applyActiveTemporalHistory("redo");
-      },
-
-      loadFlow: ({ projectId, projectName, nodes, edges, markDirty = false }) => {
-        flushActiveTextEdit();
-        cancelHistoryTransaction();
-        const state = get();
-        const activeByNode = latestActiveRecordsByNode(state.recentResults, projectId);
-        const loadedNodes = nodes.map(migrateLegacyGptNode).map((node) => {
-          const active = activeByNode.get(node.id);
-          return active
-            ? {
-              ...node,
-              data: { ...node.data, status: active.status, error: active.error } as WorkflowNodeData,
+              set((state) =>
+                recentResultsPatch(
+                  state,
+                  applyRunEventToRecentResults(
+                    state.recentResults,
+                    recordId,
+                    event,
+                  ),
+                ),
+              );
+              if (
+                kind !== "ai-styling" ||
+                !knownRunId ||
+                isLatestTrackedRun(get().recentResults, {
+                  projectId: target.projectId,
+                  nodeId: id,
+                  runId: knownRunId,
+                  startedAt: localStartedAt,
+                })
+              )
+                updateTabFromRunEvent(set, target, id, event);
             }
-            : node;
-        });
-        const selection = normalizeNodeSelection(loadedNodes, []);
-        const current = selectActiveDocument(state);
-        const tab: ProjectTab = {
-          ...current,
+          } finally {
+            runPreparations.delete(preparationKey);
+          }
+        },
+
+        saveProject: async () => {
+          // Capture the invoking tab before awaiting a real dragStop/cancel. A tab
+          // switch must save the rolled-back source tab, never the new active tab.
+          flushActiveTextEdit();
+          const target = selectActiveDocumentTarget(get());
+          return (await saveTab(target)).ok;
+        },
+
+        saveProjectInTab: async (target) => {
+          flushActiveTextEdit();
+          return (await saveTab(target)).ok;
+        },
+
+        undo: () => {
+          flushActiveTextEdit();
+          if (deferHistoryCommandUntilSettlement("undo")) return;
+          applyActiveTemporalHistory("undo");
+        },
+        redo: () => {
+          flushActiveTextEdit();
+          if (deferHistoryCommandUntilSettlement("redo")) return;
+          applyActiveTemporalHistory("redo");
+        },
+
+        loadFlow: ({
           projectId,
           projectName,
-          readOnly: false,
-          nodes: selection.nodes,
+          nodes,
           edges,
-          selectedNodeIds: selection.selectedNodeIds,
-          selectedNodeId: selection.selectedNodeId,
-          selectedResultId: null,
-          compareIds: [],
-          saveState: markDirty ? "idle" : "saved",
-          hasBeenPersisted: !markDirty,
-          revision: markDirty ? 1 : 0,
-          savedRevision: 0,
-          dirty: markDirty,
-          documentEpoch: current.documentEpoch + 1,
-          lifecycle: markDirty ? "local" : "saved",
-          draftRevision: undefined,
-          draftSyncedRevision: undefined,
-          draftCreatedAt: undefined,
-        };
-        runWithoutHistory(() => set({
-          tabs: replaceTab(state.tabs, tab),
-          viewer: null,
-          pendingConnectionDraft: null,
-          connectionDraftError: null,
-        }));
-        // 清空撤销历史，避免撤销回上一个项目的画布状态
-        temporalHistoryByTab.delete(state.activeTabId);
-        useFlowStore.temporal.getState().clear();
-      },
-    });
+          markDirty = false,
+        }) => {
+          flushActiveTextEdit();
+          cancelHistoryTransaction();
+          const state = get();
+          const activeByNode = latestActiveRecordsByNode(
+            state.recentResults,
+            projectId,
+          );
+          const loadedNodes = nodes.map(migrateLegacyGptNode).map((node) => {
+            const active = activeByNode.get(node.id);
+            return active
+              ? {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    status: active.status,
+                    error: active.error,
+                  } as WorkflowNodeData,
+                }
+              : node;
+          });
+          const selection = normalizeNodeSelection(loadedNodes, []);
+          const current = selectActiveDocument(state);
+          const tab: ProjectTab = {
+            ...current,
+            projectId,
+            projectName,
+            readOnly: false,
+            nodes: selection.nodes,
+            edges,
+            selectedNodeIds: selection.selectedNodeIds,
+            selectedNodeId: selection.selectedNodeId,
+            selectedResultId: null,
+            compareIds: [],
+            saveState: markDirty ? "idle" : "saved",
+            hasBeenPersisted: !markDirty,
+            revision: markDirty ? 1 : 0,
+            savedRevision: 0,
+            dirty: markDirty,
+            documentEpoch: current.documentEpoch + 1,
+            lifecycle: markDirty ? "local" : "saved",
+            draftRevision: undefined,
+            draftSyncedRevision: undefined,
+            draftCreatedAt: undefined,
+          };
+          runWithoutHistory(() =>
+            set({
+              tabs: replaceTab(state.tabs, tab),
+              viewer: null,
+              pendingConnectionDraft: null,
+              connectionDraftError: null,
+            }),
+          );
+          // 清空撤销历史，避免撤销回上一个项目的画布状态
+          temporalHistoryByTab.delete(state.activeTabId);
+          useFlowStore.temporal.getState().clear();
+        },
+      };
     },
     {
       limit: DOCUMENT_HISTORY_LIMIT,
@@ -4828,7 +6273,9 @@ export interface ServerInitialDraftSnapshot {
   updatedAt: string;
 }
 
-export function persistedWorkflowForProjectTab(tab: ProjectTab): PersistedWorkflow {
+export function persistedWorkflowForProjectTab(
+  tab: ProjectTab,
+): PersistedWorkflow {
   return documentSnapshotToPersistedWorkflow(createDocumentSnapshot(tab));
 }
 
@@ -4869,7 +6316,8 @@ export function applyServerInitialDraftToTab(
     revision,
     savedRevision: 0,
     dirty,
-    documentEpoch: source.documentEpoch + (source.projectId === draft.id ? 0 : 1),
+    documentEpoch:
+      source.documentEpoch + (source.projectId === draft.id ? 0 : 1),
     lifecycle: "initial_draft",
     draftRevision: draft.revision,
     draftSyncedRevision: revision,
@@ -4877,10 +6325,13 @@ export function applyServerInitialDraftToTab(
   };
   let tabs = state.tabs
     .filter((tab) => tab.id === tabId || tab.projectId !== draft.id)
-    .map((tab) => tab.id === tabId ? serverTab : tab);
+    .map((tab) => (tab.id === tabId ? serverTab : tab));
   if (options?.preserveReplacedAsBackup) {
     const prepared = options.preserveReplacedAsBackup;
-    const selection = normalizeNodeSelection(prepared.flow.nodes as FlowNode[], source.selectedNodeIds);
+    const selection = normalizeNodeSelection(
+      prepared.flow.nodes as FlowNode[],
+      source.selectedNodeIds,
+    );
     const backup: ProjectTab = {
       ...source,
       id: nanoid(10),
@@ -4906,7 +6357,9 @@ export function applyServerInitialDraftToTab(
     const index = tabs.findIndex((tab) => tab.id === tabId);
     tabs = [...tabs.slice(0, index + 1), backup, ...tabs.slice(index + 1)];
   }
-  runWithoutHistory(() => useFlowStore.setState({ tabs, activeTabId: tabId, viewer: null }));
+  runWithoutHistory(() =>
+    useFlowStore.setState({ tabs, activeTabId: tabId, viewer: null }),
+  );
   temporalHistoryByTab.delete(tabId);
   useFlowStore.temporal.getState().clear();
   return true;
@@ -4924,31 +6377,40 @@ export function markInitialDraftSynced(
       if (
         projectTabLifecycle(tab) !== "initial_draft" ||
         (tab.draftRevision ?? 0) !== expectedDraftRevision
-      ) return {};
+      )
+        return {};
       matched = true;
       return {
         draftRevision: nextDraftRevision,
-        draftSyncedRevision: Math.max(tab.draftSyncedRevision ?? 0, localRevision),
+        draftSyncedRevision: Math.max(
+          tab.draftSyncedRevision ?? 0,
+          localRevision,
+        ),
       };
     });
   });
   return matched;
 }
 
-export function replaceAbandonedInitialDraftWithFreshLocalTab(tabId: string): ProjectTab | undefined {
+export function replaceAbandonedInitialDraftWithFreshLocalTab(
+  tabId: string,
+): ProjectTab | undefined {
   flushActiveTextEdit();
   cancelHistoryTransaction();
   const state = useFlowStore.getState();
   const index = state.tabs.findIndex((tab) => tab.id === tabId);
-  if (index < 0 || projectTabLifecycle(state.tabs[index]) !== "initial_draft") return undefined;
+  if (index < 0 || projectTabLifecycle(state.tabs[index]) !== "initial_draft")
+    return undefined;
   const fresh = newTab();
   const tabs = [...state.tabs];
   tabs[index] = fresh;
-  runWithoutHistory(() => useFlowStore.setState({
-    tabs,
-    activeTabId: state.activeTabId === tabId ? fresh.id : state.activeTabId,
-    viewer: null,
-  }));
+  runWithoutHistory(() =>
+    useFlowStore.setState({
+      tabs,
+      activeTabId: state.activeTabId === tabId ? fresh.id : state.activeTabId,
+      viewer: null,
+    }),
+  );
   temporalHistoryByTab.delete(tabId);
   temporalHistoryByTab.delete(fresh.id);
   if (state.activeTabId === tabId) useFlowStore.temporal.getState().clear();
@@ -4959,7 +6421,9 @@ export function replaceAbandonedInitialDraftWithFreshLocalTab(tabId: string): Pr
  * 服务器尚无初始草稿时创建全新身份。只替换真正空白的本地占位页签；
  * 已保存或有意义的页签会被保留，并在旁边追加初始草稿。
  */
-export function createFreshLocalTabForInitialDraft(placeholderTabId: string): ProjectTab | undefined {
+export function createFreshLocalTabForInitialDraft(
+  placeholderTabId: string,
+): ProjectTab | undefined {
   flushActiveTextEdit();
   cancelHistoryTransaction();
   const state = useFlowStore.getState();
@@ -4967,20 +6431,21 @@ export function createFreshLocalTabForInitialDraft(placeholderTabId: string): Pr
   if (index < 0) return undefined;
   const placeholder = state.tabs[index];
   const fresh = newTab();
-  const replacePlaceholder = (
+  const replacePlaceholder =
     projectTabLifecycle(placeholder) === "local" &&
     !placeholder.hasBeenPersisted &&
-    isPristineProjectTab(placeholder)
-  );
+    isPristineProjectTab(placeholder);
   const tabs = replacePlaceholder
-    ? state.tabs.map((tab) => tab.id === placeholderTabId ? fresh : tab)
+    ? state.tabs.map((tab) => (tab.id === placeholderTabId ? fresh : tab))
     : [...state.tabs, fresh];
   stashActiveTemporalHistory(state.activeTabId);
-  runWithoutHistory(() => useFlowStore.setState({
-    tabs,
-    activeTabId: fresh.id,
-    viewer: null,
-  }));
+  runWithoutHistory(() =>
+    useFlowStore.setState({
+      tabs,
+      activeTabId: fresh.id,
+      viewer: null,
+    }),
+  );
   if (replacePlaceholder) temporalHistoryByTab.delete(placeholderTabId);
   temporalHistoryByTab.delete(fresh.id);
   useFlowStore.temporal.getState().clear();
@@ -4994,11 +6459,13 @@ export function createFreshLocalTabForInitialDraft(placeholderTabId: string): Pr
 useFlowStore.temporal.setState({
   undo: (steps = 1) => {
     const count = Number.isFinite(steps) ? Math.max(0, Math.floor(steps)) : 1;
-    for (let index = 0; index < count; index += 1) useFlowStore.getState().undo();
+    for (let index = 0; index < count; index += 1)
+      useFlowStore.getState().undo();
   },
   redo: (steps = 1) => {
     const count = Number.isFinite(steps) ? Math.max(0, Math.floor(steps)) : 1;
-    for (let index = 0; index < count; index += 1) useFlowStore.getState().redo();
+    for (let index = 0; index < count; index += 1)
+      useFlowStore.getState().redo();
   },
 });
 
@@ -5034,7 +6501,8 @@ export function flushTabSessionPersistence(): boolean {
 }
 
 if (typeof window !== "undefined") {
-  const bootstrapStorageUnreadable = initialTabSessionReadResult?.unreadable === true;
+  const bootstrapStorageUnreadable =
+    initialTabSessionReadResult?.unreadable === true;
   const storedTabMarkers = new Map<string, string>();
   const attemptedTabMarkers = new Map<string, string>();
   const failedTabIds = new Set<string>();
@@ -5044,38 +6512,54 @@ if (typeof window !== "undefined") {
   let idleHandle: number | null = null;
   let debounceHandle: number | null = null;
 
-  const tabMarker = (tab: ProjectTab): string => [
-    tab.projectId,
-    tab.documentEpoch,
-    tab.revision,
-    tab.savedRevision,
-    tab.dirty ? 1 : 0,
-    tab.readOnly ? 1 : 0,
-    tab.saveState,
-    tab.hasBeenPersisted ? 1 : 0,
-    projectTabLifecycle(tab),
-    tab.draftRevision ?? "",
-    tab.draftSyncedRevision ?? "",
-    tab.draftCreatedAt ?? "",
-  ].join("\u0000");
-  const persistenceSignalChanged = (state: FlowState, previous: FlowState): boolean => {
-    if (state.activeTabId !== previous.activeTabId || state.tabs.length !== previous.tabs.length) {
+  const tabMarker = (tab: ProjectTab): string =>
+    [
+      tab.projectId,
+      tab.documentEpoch,
+      tab.revision,
+      tab.savedRevision,
+      tab.dirty ? 1 : 0,
+      tab.readOnly ? 1 : 0,
+      tab.saveState,
+      tab.hasBeenPersisted ? 1 : 0,
+      projectTabLifecycle(tab),
+      tab.draftRevision ?? "",
+      tab.draftSyncedRevision ?? "",
+      tab.draftCreatedAt ?? "",
+    ].join("\u0000");
+  const persistenceSignalChanged = (
+    state: FlowState,
+    previous: FlowState,
+  ): boolean => {
+    if (
+      state.activeTabId !== previous.activeTabId ||
+      state.tabs.length !== previous.tabs.length
+    ) {
       return true;
     }
     return state.tabs.some((tab, index) => {
       const previousTab = previous.tabs[index];
-      return !previousTab || tab.id !== previousTab.id || tabMarker(tab) !== tabMarker(previousTab);
+      return (
+        !previousTab ||
+        tab.id !== previousTab.id ||
+        tabMarker(tab) !== tabMarker(previousTab)
+      );
     });
   };
   const publishPersistenceResult = (result: TabSessionWriteResult): void => {
-    const nextError = result.ok ? null : result.error ?? TAB_SESSION_WRITE_ERROR;
+    const nextError = result.ok
+      ? null
+      : (result.error ?? TAB_SESSION_WRITE_ERROR);
     if (useFlowStore.getState().tabSessionPersistenceError !== nextError) {
       useFlowStore.setState({ tabSessionPersistenceError: nextError });
     }
   };
 
   const cancelScheduledPersistence = () => {
-    if (idleHandle !== null && typeof window.cancelIdleCallback === "function") {
+    if (
+      idleHandle !== null &&
+      typeof window.cancelIdleCallback === "function"
+    ) {
       window.cancelIdleCallback(idleHandle);
     }
     if (debounceHandle !== null) window.clearTimeout(debounceHandle);
@@ -5141,7 +6625,8 @@ if (typeof window !== "undefined") {
     const writeTabIds = new Set<string>();
     for (const tab of state.tabs) {
       const marker = tabMarker(tab);
-      if (retryAllTabs || attemptedTabMarkers.get(tab.id) !== marker) writeTabIds.add(tab.id);
+      if (retryAllTabs || attemptedTabMarkers.get(tab.id) !== marker)
+        writeTabIds.add(tab.id);
     }
     const result = persistTabSession(state, {
       writeTabIds,
@@ -5151,7 +6636,9 @@ if (typeof window !== "undefined") {
     const persistedIds = new Set(result.persistedTabIds);
     const indeterminateThisAttempt = new Set(result.indeterminateTabIds ?? []);
     const failedThisAttempt = new Set(
-      (result.failedTabIds ?? []).filter((tabId) => !indeterminateThisAttempt.has(tabId)),
+      (result.failedTabIds ?? []).filter(
+        (tabId) => !indeterminateThisAttempt.has(tabId),
+      ),
     );
     for (const tabId of failedThisAttempt) {
       failedTabIds.add(tabId);
@@ -5166,11 +6653,13 @@ if (typeof window !== "undefined") {
         storedTabMarkers.set(tab.id, marker);
       }
     }
-    const unresolvedFailure = [...failedTabIds].some((tabId) => currentIds.has(tabId));
+    const unresolvedFailure = [...failedTabIds].some((tabId) =>
+      currentIds.has(tabId),
+    );
     const ok = result.manifestWritten && !unresolvedFailure;
     publishPersistenceResult({
       ok,
-      ...(!ok ? { error: result.error ?? TAB_SESSION_WRITE_ERROR } : {}),
+      ...(ok ? {} : { error: result.error ?? TAB_SESSION_WRITE_ERROR }),
     });
     return ok;
   };
@@ -5183,10 +6672,13 @@ if (typeof window !== "undefined") {
   const scheduleIdlePersistence = () => {
     if (typeof window.requestIdleCallback === "function") {
       let ranSynchronously = false;
-      const handle = window.requestIdleCallback(() => {
-        ranSynchronously = true;
-        runScheduledPersistence();
-      }, { timeout: 500 });
+      const handle = window.requestIdleCallback(
+        () => {
+          ranSynchronously = true;
+          runScheduledPersistence();
+        },
+        { timeout: 500 },
+      );
       if (!ranSynchronously) idleHandle = handle;
       return;
     }
@@ -5218,7 +6710,8 @@ if (typeof window !== "undefined") {
   retryTabSessionPersistenceImpl = () => persistLatestStableState(true);
   flushTabSessionPersistenceImpl = () => persistLatestStableState(false, true);
   flushPendingTabSessionPersistence = () => {
-    if (!tabSessionPersistencePending && !tabSessionPersistenceDeferred) return true;
+    if (!tabSessionPersistencePending && !tabSessionPersistenceDeferred)
+      return true;
     return persistLatestStableState(false);
   };
 
@@ -5248,11 +6741,12 @@ if (typeof window !== "undefined") {
       attemptedTabMarkers.set(tab.id, marker);
     }
     const recoveredIds = initialState.tabs.map((tab) => tab.id);
-    const manifestMatches = (
+    const manifestMatches =
       restoredManifest.activeTabId === initialState.activeTabId &&
       restoredManifest.tabIds.length === recoveredIds.length &&
-      restoredManifest.tabIds.every((tabId, index) => tabId === recoveredIds[index])
-    );
+      restoredManifest.tabIds.every(
+        (tabId, index) => tabId === recoveredIds[index],
+      );
     if (!manifestMatches) scheduleTabSessionPersistence();
   } else {
     persistLatestStableState(true);
@@ -5262,8 +6756,7 @@ if (typeof window !== "undefined") {
 /** 登录后以服务器历史为准，恢复仍在当前服务进程中执行的任务。 */
 export function resumeRecentResults(records: RecentResult[]): void {
   const resumable = records.filter(
-    (record) =>
-      isNodeRunActive(record.status) && Boolean(record.runId),
+    (record) => isNodeRunActive(record.status) && Boolean(record.runId),
   );
   for (const record of resumable) {
     const runId = record.runId!;
@@ -5272,7 +6765,9 @@ export function resumeRecentResults(records: RecentResult[]): void {
     void (async () => {
       let terminalRecorded = false;
       try {
-        const response = await fetch(`/api/run-plan/${encodeURIComponent(runId)}`);
+        const response = await fetch(
+          `/api/run-plan/${encodeURIComponent(runId)}`,
+        );
         if (!response.ok) {
           throw new Error(
             response.status === 404
@@ -5281,16 +6776,32 @@ export function resumeRecentResults(records: RecentResult[]): void {
           );
         }
         await consumeRunEvents(runId, record.nodeId, (event) => {
-          if (event.type !== "node-status" || event.nodeId !== record.nodeId) return;
-          useFlowStore.setState((state) => recentResultsPatch(
-            state,
-            applyRunEventToRecentResults(state.recentResults, record.id, event),
-          ));
+          if (event.type !== "node-status" || event.nodeId !== record.nodeId)
+            return;
+          useFlowStore.setState((state) =>
+            recentResultsPatch(
+              state,
+              applyRunEventToRecentResults(
+                state.recentResults,
+                record.id,
+                event,
+              ),
+            ),
+          );
           const tab = useFlowStore
             .getState()
             .tabs.find((candidate) => candidate.projectId === record.projectId);
-          if (tab && event.status && isLatestTrackedRun(useFlowStore.getState().recentResults, record)) {
-            updateTabFromRunEvent(useFlowStore.setState, documentTarget(tab), record.nodeId, event);
+          if (
+            tab &&
+            event.status &&
+            isLatestTrackedRun(useFlowStore.getState().recentResults, record)
+          ) {
+            updateTabFromRunEvent(
+              useFlowStore.setState,
+              documentTarget(tab),
+              record.nodeId,
+              event,
+            );
           }
           if (isNodeRunTerminal(event.status)) terminalRecorded = true;
         });
@@ -5298,27 +6809,37 @@ export function resumeRecentResults(records: RecentResult[]): void {
         if (terminalRecorded) return;
         const message = error instanceof Error ? error.message : String(error);
         const recoveryMessage = `运行 ${runId} 的状态同步中断：${message}；请稍后重试同步，勿重复提交`;
-        useFlowStore.setState((state) => recentResultsPatch(
-          state,
-          applyRunEventToRecentResults(state.recentResults, record.id, {
-            type: "node-status",
-            nodeId: record.nodeId,
-            status: "retry_wait",
-            error: recoveryMessage,
-            startedAt: record.startedAt,
-          }),
-        ));
+        useFlowStore.setState((state) =>
+          recentResultsPatch(
+            state,
+            applyRunEventToRecentResults(state.recentResults, record.id, {
+              type: "node-status",
+              nodeId: record.nodeId,
+              status: "retry_wait",
+              error: recoveryMessage,
+              startedAt: record.startedAt,
+            }),
+          ),
+        );
         const tab = useFlowStore
           .getState()
           .tabs.find((candidate) => candidate.projectId === record.projectId);
-        if (tab && isLatestTrackedRun(useFlowStore.getState().recentResults, record)) {
-          updateTabFromRunEvent(useFlowStore.setState, documentTarget(tab), record.nodeId, {
-            type: "node-status",
-            nodeId: record.nodeId,
-            status: "retry_wait",
-            error: recoveryMessage,
-            startedAt: record.startedAt,
-          });
+        if (
+          tab &&
+          isLatestTrackedRun(useFlowStore.getState().recentResults, record)
+        ) {
+          updateTabFromRunEvent(
+            useFlowStore.setState,
+            documentTarget(tab),
+            record.nodeId,
+            {
+              type: "node-status",
+              nodeId: record.nodeId,
+              status: "retry_wait",
+              error: recoveryMessage,
+              startedAt: record.startedAt,
+            },
+          );
         }
       } finally {
         // 成功、后端失败、恢复查询失败都必须释放，允许后续重试。
@@ -5341,7 +6862,8 @@ export function applyRunEventToTab(
 export function selectResultImages(state: FlowState, nodeId: string): string[] {
   const document = selectActiveDocument(state);
   const result = document.nodes.find((node) => node.id === nodeId);
-  if (result?.data.kind === "result" && result.data.images.length > 0) return result.data.images;
+  if (result?.data.kind === "result" && result.data.images.length > 0)
+    return result.data.images;
   const urls: string[] = [];
   for (const e of document.edges) {
     if (e.target !== nodeId) continue;
@@ -5356,11 +6878,19 @@ export function selectNodeInputImages(
   document: Pick<ProjectTab, "nodes" | "edges">,
   nodeId: string,
 ): string[] {
-  return effectiveIncomingSources(document.nodes, document.edges, nodeId)
-    .flatMap(({ node, sourceHandle }) => nodeOutputImages(node.data, sourceHandle));
+  return effectiveIncomingSources(
+    document.nodes,
+    document.edges,
+    nodeId,
+  ).flatMap(({ node, sourceHandle }) =>
+    nodeOutputImages(node.data, sourceHandle),
+  );
 }
 
 /** Active-tab wrapper used by React subscriptions; the leaf result stays stable. */
-export function selectActiveNodeInputImages(state: FlowState, nodeId: string): string[] {
+export function selectActiveNodeInputImages(
+  state: FlowState,
+  nodeId: string,
+): string[] {
   return selectNodeInputImages(selectActiveDocument(state), nodeId);
 }

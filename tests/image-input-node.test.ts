@@ -160,7 +160,7 @@ test("所有参考图节点提供四角实时缩放、自然尺寸初始值和�
   assert.match(source, /NodeResizeControl/);
   assert.match(source, /selected && !readOnly/);
   assert.match(source, /keepAspectRatio=\{hasDisplayImage\}/);
-  assert.match(source, /IMAGE_RESIZE_CORNERS = \["top-left", "top-right", "bottom-right", "bottom-left"\]/, "只提供四角缩放控制，不增加边线拖动");
+  assert.match(source, /IMAGE_RESIZE_CORNERS\s*=\s*\[\s*"top-left",\s*"top-right",\s*"bottom-right",\s*"bottom-left",?\s*\]/, "只提供四角缩放控制，不增加边线拖动");
   assert.match(source, /explicitWidth[\s\S]*?selectActiveNodes/, "只有显式节点宽高才能覆盖图片自然适配尺寸");
   assert.match(source, /className="block h-full w-full select-none object-contain"/);
   assert.match(source, /height: "100%"/);

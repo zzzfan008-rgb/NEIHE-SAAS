@@ -1,5 +1,6 @@
 import type { NodeTypes } from "@xyflow/react";
 import { ImageInputNode } from "./ImageInputNode";
+import { CharacterBoardNode } from "./CharacterBoardNode";
 import { SketchToRenderNode } from "./SketchToRenderNode";
 import { SketchOptimizeNode } from "./SketchOptimizeNode";
 import { BackgroundExtractNode } from "./BackgroundExtractNode";
@@ -22,6 +23,7 @@ import { OutfitReferenceNode } from "./OutfitReferenceNode";
 import { AiStylingNode } from "./AiStylingNode";
 
 export const nodeTypes: NodeTypes = {
+  "character-board": CharacterBoardNode,
   "outfit-reference": OutfitReferenceNode,
   "ai-styling": AiStylingNode,
   "image-input": ImageInputNode,
