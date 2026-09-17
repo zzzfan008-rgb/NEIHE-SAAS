@@ -43,12 +43,24 @@ assert.equal(rejected.selectedIndex, null);
 assert.equal(rejected.allHardFail, true);
 
 const scores = [
-  { index: 0, identity: 20, anatomy: 15, garment: 20, material: 20, accessories: 15, scene: 10, hardFail: false, poseMatches: false, reasons: ["头部与肩线不符"] },
-  { index: 1, identity: 18, anatomy: 14, garment: 19, material: 18, accessories: 14, scene: 9, hardFail: false, poseMatches: true, reasons: [] },
+  { index: 0, identity: 20, anatomy: 15, garment: 20, material: 20, accessories: 15, scene: 10, hardFail: false, poseMatches: false, poseChecks: { headAndTorso: false, armsAndHands: false, legsAndWeight: true }, reasons: ["头部与肩线不符"] },
+  { index: 1, identity: 18, anatomy: 14, garment: 19, material: 18, accessories: 14, scene: 9, hardFail: false, poseMatches: true, poseChecks: { headAndTorso: true, armsAndHands: true, legsAndWeight: true }, reasons: [] },
 ];
 const responsePayload = { choices: [{ message: { content: JSON.stringify({ scores }) } }] };
 assert.equal(parseTryOnCandidateSelection(responsePayload, 2, "judge", true).selectedIndex, 1);
 assert.throws(() => parseTryOnCandidateSelection({ choices: [{ message: { content: JSON.stringify({ scores: scores.map(({ poseMatches: _pose, ...score }) => score) }) } }] }, 2, "judge", true), /姿势/);
+const strictPoseSelection = parseTryOnCandidateSelection({
+  choices: [{ message: { content: JSON.stringify({ scores: [
+    { index: 0, identity: 20, anatomy: 15, garment: 20, material: 20, accessories: 15, scene: 10, hardFail: false, poseMatches: true, poseChecks: { headAndTorso: true, armsAndHands: false, legsAndWeight: true }, reasons: ["双臂与手部不符"] },
+    { index: 1, identity: 18, anatomy: 14, garment: 19, material: 18, accessories: 14, scene: 9, hardFail: false, poseMatches: true, poseChecks: { headAndTorso: true, armsAndHands: true, legsAndWeight: true }, reasons: [] },
+  ] }) } }],
+}, 2, "judge", true, true);
+assert.equal(strictPoseSelection.selectedIndex, 1, "手臂或手部不符的第一轮候选不得自动胜出");
+assert.equal(strictPoseSelection.scores[0].hardFail, true);
+assert.throws(
+  () => parseTryOnCandidateSelection({ choices: [{ message: { content: JSON.stringify({ scores: scores.map(({ poseChecks: _poseChecks, ...score }) => score) }) } }] }, 2, "judge", true, true),
+  /姿势分项/,
+);
 
 const originalFetch = globalThis.fetch;
 const originalKey = process.env.APIYI_API_KEY;
@@ -68,6 +80,8 @@ try {
       .map((part: { text?: string }) => part.text ?? "")
       .join("\n");
     assert.match(reviewInstructions, /pose 参考图是第一轮姿势判断的唯一标准/);
+    assert.match(reviewInstructions, /poseChecks/);
+    assert.match(reviewInstructions, /任一分项为 false/);
     assert.match(reviewInstructions, /用户手动选择的原图、骨骼图或深度图/);
     assert.match(reviewInstructions, /不因骨骼或深度图缺少外观而扣分/);
     assert.match(reviewInstructions, /不得偏好站姿、坐姿或任何所谓“标准姿势”/);
