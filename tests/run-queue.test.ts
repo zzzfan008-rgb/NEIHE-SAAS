@@ -253,6 +253,7 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
     ],
     params: {
       workflowStage: "scene-stabilize",
+      poseReferenceType: "depth",
       prompt: "",
       imageSize: "2K",
       modelId: "gemini-3.1-flash-image",
@@ -329,7 +330,8 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
   assert.equal(fake.requests()[0].referenceImages?.length, 6);
   assert.equal(fake.requests()[0].referenceImages?.at(-2), expectedPose, "所选姿势图仅经过现有传输标准化，不再生成替代骨架");
   assert.equal(fake.requests()[0].referenceImages?.at(-1), sceneInputs[0]);
-  assert.match(fake.requests()[0].prompt, /参考图1.*脸部锚点/);
+  assert.match(fake.requests()[0].prompt, /【身份】参考图1是由视觉定位后从主要人物脸部裁切的身份锚点/);
+  assert.match(fake.requests()[0].prompt, /类型：深度图，亮近暗远/);
   assert.match(fake.requests()[0].prompt, /参考图2.*完整人物身份图/);
   assert.match(fake.requests()[0].prompt, /参考图3.*服装与搭配风格的唯一来源/);
   assert.match(fake.requests()[0].prompt, /参考图4只控制目标包袋/);

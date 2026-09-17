@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invalidateStylingRequest } from "./stylingRequestVersions";
 import { temporal } from "zundo";
+import { validPoseReferenceSource } from '../types/poseReference';
 import {
   applyNodeChanges,
   applyEdgeChanges,
@@ -257,7 +258,7 @@ export interface FlowState {
   ) => string | null;
   /** 复制/粘贴等调用方已有完整节点时，仍通过此入口维护 revision/dirty。 */
   addExistingNode: (node: FlowNode) => void;
-  addPoseReferenceImageNode: (target: DocumentTarget, nodeId: string, source: string, image: string, label: string) => string | null;
+  addPoseReferenceImageNode: (target: DocumentTarget, nodeId: string, source: string, image: string, label: string, kind?: import('../types/poseReference').PoseReferenceCanvasKind) => string | null;
   /** 画板会话完成时只提交一次项目历史；异步结果必须仍匹配原 DocumentTarget。 */
   commitDrawingBoard: (
     target: DocumentTarget,
@@ -2715,6 +2716,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
           ? input.imageRole
           : "default";
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
+      if (!validPoseReferenceSource(input.poseReferenceSource, input.imageUrl)) delete data.poseReferenceSource;
       break;
     case "background-extract":
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
@@ -5600,7 +5602,7 @@ export const useFlowStore = create<FlowState>()(
           });
         },
 
-        addPoseReferenceImageNode: (target, nodeId, source, image, label) => {
+        addPoseReferenceImageNode: (target, nodeId, source, image, label, kind) => {
           const tab = documentForTarget(get(), target);
           if (!tab || tab.readOnly) return null;
           const origin = tab.nodes.find(n => n.id === nodeId && n.data.kind === "image-input" && n.data.imageUrl === source);
@@ -5608,7 +5610,7 @@ export const useFlowStore = create<FlowState>()(
           const id = nanoid(8);
           const position = poseReferenceImagePosition(tab.nodes, origin);
           const node: FlowNode = { id, type: "image-input", position,
-            data: { ...defaultNodeData("image-input"), label, imageRole: "reference", imageUrl: image, status: "success" } as ImageInputNodeData };
+            data: { ...defaultNodeData("image-input"), label, imageRole: "reference", imageUrl: image, status: "success", ...(kind ? { poseReferenceSource: { kind, image } } : {}) } as ImageInputNodeData };
           // Keep comparison open and preserve selection; never create an edge.
           const changed = commitDocumentMutationForTarget(set, target, current => ({ nodes: [...current.nodes, node] }));
           return changed ? id : null;

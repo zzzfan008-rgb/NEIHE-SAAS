@@ -1,3 +1,4 @@
+import { validPoseReferenceSource } from '../types/poseReference';
 import {
   MASK_REDRAW_MODEL_ID,
   SKETCH_OPTIMIZATION_MODEL_ID,
@@ -59,6 +60,7 @@ export type DocumentNodeData =
       kind: "image-input";
       label: string;
       poseReference?: boolean;
+      poseReferenceSource?: import('../types/poseReference').PoseReferenceSource;
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
       imageUrl?: string;
       autoConnectTargets?: Array<{
@@ -400,6 +402,9 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         label: data.label,
         imageRole: data.imageRole,
         ...(data.poseReference === true ? { poseReference: true } : {}),
+        ...(validPoseReferenceSource(data.poseReferenceSource, data.imageUrl)
+          ? { poseReferenceSource: { kind: data.poseReferenceSource.kind, image: data.poseReferenceSource.image } }
+          : {}),
         ...optionalString("imageUrl", data.imageUrl),
         ...(data.autoConnectTargets
           ? {

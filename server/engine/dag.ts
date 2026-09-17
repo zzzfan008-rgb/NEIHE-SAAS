@@ -31,6 +31,7 @@ import {
 } from "../../src/lib/maskRepair";
 import { imagesForSourceHandle } from "../../src/lib/workflowPorts";
 import { orderedOutfitImages } from "../../src/lib/styling";
+import { validPoseReferenceSource } from "../../src/types/poseReference";
 import {
   SEEDANCE_MODEL_CAPABILITIES,
   SEEDANCE_OUTPUT_FORMATS,
@@ -606,6 +607,14 @@ export function buildExecutionPlan(
     }
 
     const params = extractParams(data);
+    if (data.kind === 'virtual-try-on' && data.workflowStage === 'scene-stabilize') {
+      const pose = upstream.find(source => source.targetHandle === 'pose');
+      const source = pose && nodeMap.get(pose.nodeId)?.data;
+      // Untagged legacy images use neutral geometry instructions, never title inference.
+      params.poseReferenceType = source?.kind === 'image-input' &&
+        validPoseReferenceSource(source.poseReferenceSource, source.imageUrl)
+        ? source.poseReferenceSource.kind : 'unspecified';
+    }
     if (data.kind === "mask-redraw") {
       params.referenceLabels = upstream.map(
         (source) => nodeMap.get(source.nodeId)?.data.label ?? source.nodeId,

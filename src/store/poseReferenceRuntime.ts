@@ -8,6 +8,7 @@ export interface PoseReferenceState {
   busy: Partial<Record<PoseReferenceKind,boolean>>;
   errors: Partial<Record<PoseReferenceKind,string>>;
   neutralOutfit?: PoseOutfitReferenceRecord;
+  legacyOutfit?: PoseOutfitReferenceRecord;
   neutralOutfitBusy?: boolean;
   neutralOutfitError?: string;
   adding?: Partial<Record<PoseReferenceCanvasKind,boolean>>;
@@ -51,24 +52,24 @@ function validateOutfit(value:PoseOutfitReferenceRecord|undefined|null,source:st
   if(value.status==='succeeded'&&(!value.result||!isLocalImageReference(value.result.image)||typeof value.result.model!=='string')) throw new Error('服饰替换图片格式无效');
   return value;
 }
-export async function restorePoseReferences(target:DocumentTarget,nodeId:string,source:string) {
-  const key=poseReferenceKey(target,nodeId,source);
+export async function restorePoseReferences(target:DocumentTarget,nodeId:string,source:string,analysisSource=source) {
+  const key=poseReferenceKey(target,nodeId,analysisSource);
   if(reads.has(key)||!current(target,nodeId,source)) return;
   reads.add(key);
   const version=versions.get(key)??0;
   try {
-    const params=new URLSearchParams({projectId:target.projectId,nodeId,source});
+    const params=new URLSearchParams({projectId:target.projectId,nodeId,source,analysisSource});
     const value=await response(await fetch(`/api/pose-references?${params}`,{cache:'no-store',signal:AbortSignal.timeout(30_000)}));
     if(!Array.isArray(value.records)) throw new Error('姿势参考结果格式无效');
-    const records=value.records.map((r:PoseReferenceRecord)=>validate(r,source));
+    const records=value.records.map((r:PoseReferenceRecord)=>validate(r,analysisSource));
     if(!current(target,nodeId,source)||(versions.get(key)??0)!==version) return;
     patch(key,s=>({ ...s,error:undefined,records:{...s.records,...Object.fromEntries(records.map((r:PoseReferenceRecord)=>[r.kind,r]))} }));
   } catch(error) {
     if(current(target,nodeId,source)&&(versions.get(key)??0)===version) patch(key,s=>({...s,error:error instanceof Error?error.message:'结果恢复失败'}));
   } finally { reads.delete(key); }
 }
-export async function generatePoseReference(target:DocumentTarget,nodeId:string,source:string,kind:PoseReferenceKind,retry=false) {
-  const key=poseReferenceKey(target,nodeId,source);
+export async function generatePoseReference(target:DocumentTarget,nodeId:string,source:string,kind:PoseReferenceKind,retry=false,analysisSource=source) {
+  const key=poseReferenceKey(target,nodeId,analysisSource);
   const state=usePoseReferenceRuntime.getState().entries[key];
   if(!current(target,nodeId,source,true)||state?.busy[kind]||state?.records[kind]?.status==='running') return;
   versions.set(key,(versions.get(key)??0)+1);
@@ -77,7 +78,7 @@ export async function generatePoseReference(target:DocumentTarget,nodeId:string,
     if(!await useFlowStore.getState().saveProjectInTab(target)) throw new Error('项目保存失败，请先保存后重试');
     if(!current(target,nodeId,source,true)) return;
     const record=validate(await response(await fetch('/api/pose-references',{method:'POST',headers:{'Content-Type':'application/json'},
-      signal:AbortSignal.timeout(30_000),body:JSON.stringify({projectId:target.projectId,nodeId,source,kind,retry,requestId:nanoid(16)})})),source);
+      signal:AbortSignal.timeout(30_000),body:JSON.stringify({projectId:target.projectId,nodeId,source,analysisSource,kind,retry,requestId:nanoid(16)})})),analysisSource);
     if(current(target,nodeId,source)) patch(key,s=>({...s,records:{...s.records,[kind]:{...record,result:record.result??s.records[kind]?.result}}}));
   } catch(error) {
     if(current(target,nodeId,source)) patch(key,s=>({...s,errors:{...s.errors,[kind]:error instanceof Error?error.message:'提交失败，请先刷新结果，避免重复调用'}}));
@@ -94,8 +95,9 @@ export async function restorePoseOutfitReference(target:DocumentTarget,nodeId:st
     const params=new URLSearchParams({projectId:target.projectId,nodeId,source});
     const value=await response(await fetch(`/api/pose-references/outfit?${params}`,{cache:'no-store',signal:AbortSignal.timeout(30_000)}));
     const outfit=validateOutfit(value.record as PoseOutfitReferenceRecord|undefined,source);
+    const legacyOutfit=validateOutfit(value.legacyRecord as PoseOutfitReferenceRecord|undefined,source);
     if(!current(target,nodeId,source)||(outfitVersions.get(key)??0)!==version) return;
-    patch(key,s=>({...s,neutralOutfit:outfit,neutralOutfitError:undefined}));
+    patch(key,s=>({...s,neutralOutfit:outfit,legacyOutfit,neutralOutfitError:undefined}));
   } catch(error) {
     if(current(target,nodeId,source)&&(outfitVersions.get(key)??0)===version) patch(key,s=>({...s,neutralOutfitError:error instanceof Error?error.message:'结果恢复失败'}));
   } finally { outfitReads.delete(readKey); }
@@ -125,8 +127,8 @@ export async function generatePoseOutfitReference(target:DocumentTarget,nodeId:s
 }
 
 /** Persist generated images before atomically exporting into the initiating document. */
-export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:string,source:string,kind:PoseReferenceCanvasKind) {
-  const key=poseReferenceKey(target,nodeId,source);
+export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:string,source:string,kind:PoseReferenceCanvasKind,analysisSource=source) {
+  const key=poseReferenceKey(target,nodeId,kind==='skeleton'||kind==='depth'?analysisSource:source);
   const state=usePoseReferenceRuntime.getState().entries[key];
   if(!current(target,nodeId,source,true)||state?.adding?.[kind]) return;
   const image=kind==='original'?source:kind==='neutral-outfit'?state?.neutralOutfit?.result?.image:state?.records[kind]?.result?.image;
@@ -140,8 +142,9 @@ export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:stri
         }))).url;
     if(!current(target,nodeId,source,true)) return;
     if(typeof url!=='string'||!/^\/api\/files\/[\w.-]+$/.test(url)) throw new Error('图片保存结果无效');
-    const label=kind==='original'?'姿势原图':kind==='neutral-outfit'?'背心+短裤姿势参考':kind==='skeleton'?(state?.records.skeleton?.result?.model==='dwpose-wholebody'?'DWPose 骨骼图':'旧版骨骼图'):'人物深度图';
-    const id=useFlowStore.getState().addPoseReferenceImageNode(target,nodeId,source,url,label);
+    const baseLabel=kind==='original'?'姿势原图':kind==='neutral-outfit'?'背心+紧身裤姿势参考':kind==='skeleton'?(state?.records.skeleton?.result?.model==='dwpose-wholebody'?'DWPose 骨骼图':'旧版骨骼图'):'人物深度图';
+    const label=(kind==='skeleton'||kind==='depth')&&analysisSource!==source?`${baseLabel}（背心+紧身裤）`:baseLabel;
+    const id=useFlowStore.getState().addPoseReferenceImageNode(target,nodeId,source,url,label,kind);
     if(!id) throw new Error('文档已变化，未添加图片');
     patch(key,s=>({...s,added:{...s.added,[kind]:id}}));
   } catch(error) {

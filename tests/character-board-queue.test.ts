@@ -79,6 +79,13 @@ try {
   const poseRecord = await db.queryOne<{ status: string; successful_count: number }>("SELECT status, successful_count FROM generation_runs WHERE id=$1", [poseRun.id]);
   assert.equal(poseRecord?.status, "succeeded");
   assert.equal(poseRecord?.successful_count, 1);
+  const leggingsRun = await queue.enqueueGenerationRun({ steps: [{...poseStep, params:{...poseStep.params,poseOutfitVersion:'leggings-v1'}}] }, owner.id, {
+    userId:owner.id,nodeId:'pose',nodeLabel:'姿势参考·背心+紧身裤',kind:'pose-reference-outfit',requestedCount:1,
+  });
+  await queue.processNextGenerationJob('leggings-test',{resolveProvider:()=>poseProvider});
+  assert.match(poseRequest?.prompt ?? '', /不透肤的紧身长裤/);
+  assert.doesNotMatch(poseRequest?.prompt ?? '', /短裤|严格2×2/);
+  assert.equal((await db.queryOne<{status:string}>('SELECT status FROM generation_runs WHERE id=$1',[leggingsRun.id]))?.status,'succeeded');
   console.log("character-board durable queue: uploaded reference, success, failure and unknown result passed");
 } finally {
   await db.closeDatabaseForTests();

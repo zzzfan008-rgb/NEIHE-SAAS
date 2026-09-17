@@ -102,6 +102,8 @@ try {
   assert.equal(outfitRun?.kind,'pose-reference-outfit');
   assert.equal(outfitRun?.run_type,'direct');
   assert.equal(JSON.parse(outfitRun?.parameters_json ?? '{}').poseOutfitOnly,true);
+  assert.equal(JSON.parse(outfitRun?.parameters_json ?? '{}').poseOutfitVersion,'leggings-v1');
+  assert.match(outfitRun?.prompt ?? '',/不透肤的紧身长裤/);
   assert.doesNotMatch(outfitRun?.prompt ?? '',/严格2×2|左上：|右上：|四格必须|人物身份参考板/);
   assert.deepEqual(JSON.parse(outfitRun?.reference_images_json ?? '[]'),[stored.url]);
   const outfitRepeated=await (await outfitReq('POST')).json();
@@ -113,9 +115,28 @@ try {
   const outfitCompleted=await (await outfitReq('GET')).json();
   assert.equal(outfitCompleted.record.status,'succeeded');
   assert.equal(outfitCompleted.record.result.image,stored.url);
+  const derivedFile=saveDataUrl(png);
+  await query("INSERT INTO files(id,owner_id,created_at) VALUES($1,'owner',$2)",[derivedFile.id,now]);
+  assert.equal((await req('POST',{...body,analysisSource:derivedFile.url,requestId:'derived-rejected'})).status,404,'同账号无关图片不能冒充换装结果');
+  await query("UPDATE generation_outputs SET image=$1 WHERE id='outfit-output'",[derivedFile.url]);
+  const derivedResponse=await req('POST',{...body,analysisSource:derivedFile.url,requestId:'derived-depth-123'});
+  assert.equal(derivedResponse.status,202);
+  const derivedRecord=await derivedResponse.json();
+  assert.equal(derivedRecord.source,derivedFile.url);
+  assert.notEqual(derivedRecord.id,record.id,'原图与换装图不能共用缓存');
+  assert.equal((await req('POST',{...body,analysisSource:derivedFile.url},'other')).status,404);
+  const derivedGet=await fetch(base+'/api/pose-references?'+new URLSearchParams({...outfitBody,analysisSource:derivedFile.url}),{headers:{cookie:`${SESSION_COOKIE}=${sessions.owner}`}});
+  assert.equal(derivedGet.status,200);
+  assert.ok((await derivedGet.json()).records.every((r:any)=>r.source===derivedFile.url));
   await query("UPDATE generation_runs SET status='outcome_unknown' WHERE id=$1",[outfit.runId]);
   assert.equal((await outfitReq('POST',{...outfitBody,retry:true,requestId:'outfit-retry-123'})).status,409,'不确定结果不得盲目再次扣费');
   assert.equal((await outfitReq('GET',undefined,'other')).status,404);
+  await query("UPDATE generation_runs SET status='succeeded',parameters_json=$2 WHERE id=$1",[outfit.runId,JSON.stringify({poseOutfitOnly:true})]);
+  const legacy=await (await outfitReq('GET')).json();
+  assert.equal(legacy.record,null);
+  assert.equal(legacy.legacyRecord.result.image,derivedFile.url);
+  const fresh=await (await outfitReq('POST',{...outfitBody,requestId:'leggings-new-version'})).json();
+  assert.notEqual(fresh.runId,outfit.runId,'旧短裤成功记录不能挡住新版紧身裤任务');
   await query("DELETE FROM generation_runs WHERE id=$1",[outfit.runId]);
   // A legacy success remains visible while a new local configuration runs/fails.
   await query("UPDATE pose_references SET configuration='legacy-gemini',status='succeeded',result=$1::jsonb WHERE kind='skeleton'",[JSON.stringify({image:png,model:'gemini-legacy'})]);

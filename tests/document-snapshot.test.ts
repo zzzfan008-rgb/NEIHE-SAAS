@@ -546,4 +546,27 @@ for (const kind of ["mask-redraw", "virtual-try-on"] as const) {
   }
 }
 
+for (const kind of ['original', 'neutral-outfit', 'skeleton', 'depth'] as const) {
+  const image = '/api/files/pose.png';
+  const data: WorkflowNodeData = {
+    kind: 'image-input', label: '任意标题', status: 'success', imageRole: 'reference', imageUrl: image,
+    poseReferenceSource: { kind, image },
+  };
+  const snapshot = () => documentSnapshotToPersistedWorkflow(createDocumentSnapshot({
+    projectName: 'pose types', nodes: [{ id: 'pose', type: 'image-input', position: { x: 0, y: 0 }, data }], edges: [],
+  }));
+  const saved = snapshot();
+  const restored = validateAndMigrateFlow(saved).nodes[0].data;
+  assert.equal(restored.kind, 'image-input');
+  if (restored.kind !== 'image-input') throw new Error('fixture');
+  assert.deepEqual(restored.poseReferenceSource, { kind, image });
+  const invalid = structuredClone(saved);
+  (invalid.nodes[0].data as any).poseReferenceSource.kind = 'wrong';
+  assert.throws(() => validateAndMigrateFlow(invalid), /poseReferenceSource.kind/);
+  data.imageUrl = '/api/files/replacement.png';
+  assert.equal((snapshot().nodes[0].data as any).poseReferenceSource, undefined);
+  (saved.nodes[0].data as any).imageUrl = data.imageUrl;
+  assert.equal((validateAndMigrateFlow(saved).nodes[0].data as any).poseReferenceSource, undefined);
+}
+
 console.log("通过纯文档快照边界与多模态端口往返测试");

@@ -1,5 +1,16 @@
 export type PoseReferenceKind = 'skeleton' | 'depth';
 export type PoseReferenceCanvasKind = PoseReferenceKind | 'original' | 'neutral-outfit';
+/** Bound to an immutable image reference; replacing the image invalidates the tag. */
+export interface PoseReferenceSource {
+  kind: PoseReferenceCanvasKind;
+  image: string;
+}
+export function validPoseReferenceSource(value: unknown, image: unknown): value is PoseReferenceSource {
+  if (!value || typeof value !== 'object') return false;
+  const source = value as Partial<PoseReferenceSource>;
+  return typeof image === 'string' && source.image === image &&
+    ['original', 'neutral-outfit', 'skeleton', 'depth'].includes(source.kind ?? '');
+}
 export interface PoseReferenceRecord {
   id: string;
   kind: PoseReferenceKind;

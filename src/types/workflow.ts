@@ -163,6 +163,7 @@ export interface ImageInputNodeData extends BaseNodeData {
   kind: "image-input";
   /** Enables pose comparison before a user manually connects a reference. */
   poseReference?: boolean;
+  poseReferenceSource?: import('./poseReference').PoseReferenceSource;
   /** dataURL 或 /api/files/xxx 路径 */
   imageUrl?: string;
   imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";

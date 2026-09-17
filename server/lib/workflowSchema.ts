@@ -673,6 +673,12 @@ function validateData(
       if (raw.poseReference !== undefined && typeof raw.poseReference !== "boolean")
         fail(`${path}.poseReference`, "must be a boolean");
       optionalImageReference(raw.imageUrl, `${path}.imageUrl`);
+      if (raw.poseReferenceSource !== undefined) {
+        const source = record(raw.poseReferenceSource, `${path}.poseReferenceSource`);
+        oneOf(source.kind, ['original', 'neutral-outfit', 'skeleton', 'depth'] as const, `${path}.poseReferenceSource.kind`);
+        imageReference(source.image, `${path}.poseReferenceSource.image`);
+        if (source.image !== raw.imageUrl) delete raw.poseReferenceSource;
+      }
       if (raw.autoConnectTargets !== undefined) {
         if (
           !Array.isArray(raw.autoConnectTargets) ||

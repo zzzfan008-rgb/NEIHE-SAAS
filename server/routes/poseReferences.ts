@@ -62,6 +62,7 @@ async function findPoseOutfitRows(
   owner: string,
   input: {projectId: string; nodeId: string; source: string},
   client: PoolClient,
+  legacy = false,
 ): Promise<PoseOutfitRow[]> {
   return query<PoseOutfitRow>(`
     SELECT r.id, r.status, r.model, r.error,
@@ -78,9 +79,10 @@ async function findPoseOutfitRows(
     WHERE r.owner_id = $1 AND r.project_id = $2 AND r.node_id = $3
       AND r.kind = $4 AND r.reference_images_json = $5
       AND r.deleted_at IS NULL
+      AND COALESCE(r.parameters_json::jsonb->>'poseOutfitVersion', '') = $6
     ORDER BY r.started_at DESC, r.id DESC
     LIMIT 16
-  `, [owner, input.projectId, input.nodeId, POSE_OUTFIT_REFERENCE_KIND, JSON.stringify([input.source])], client);
+  `, [owner, input.projectId, input.nodeId, POSE_OUTFIT_REFERENCE_KIND, JSON.stringify([input.source]), legacy ? '' : 'leggings-v1'], client);
 }
 
 function poseOutfitRecord(
@@ -111,7 +113,7 @@ function configuration(kind: PoseReferenceKind): string {
   return createHash('sha256').update(JSON.stringify(values)).digest('hex');
 }
 
-async function authorize(owner: string, input: {projectId: string; nodeId: string; source: string}, client: PoolClient): Promise<{name: string}> {
+async function authorize(owner: string, input: {projectId: string; nodeId: string; source: string; analysisSource?: string}, client: PoolClient): Promise<{name: string}> {
   const project = await queryOne<{flow_json:string; name:string}>(`SELECT p.flow_json,p.name FROM projects p JOIN users u ON u.id=p.owner_id
     WHERE p.id=$1 AND p.owner_id=$2 AND p.deleted_at IS NULL AND p.lifecycle='saved'
       AND u.active=1 AND u.deleted_at IS NULL FOR SHARE OF p,u`,[input.projectId,owner],client);
@@ -122,6 +124,15 @@ async function authorize(owner: string, input: {projectId: string; nodeId: strin
     throw new RequestError(409,'姿势参考图已变化，请保存当前项目后重试');
   }
   await assertImageReferencesAccessible([input.source],owner,client);
+  if (input.analysisSource && input.analysisSource !== input.source) {
+    const derived = await queryOne(`SELECT o.id FROM generation_outputs o JOIN generation_runs r ON r.id=o.run_id
+      WHERE r.owner_id=$1 AND r.project_id=$2 AND r.node_id=$3 AND r.kind=$4
+        AND r.reference_images_json=$5 AND r.deleted_at IS NULL AND o.status='success' AND o.image=$6
+        AND r.parameters_json::jsonb->>'poseOutfitVersion'='leggings-v1' LIMIT 1`,
+      [owner,input.projectId,input.nodeId,POSE_OUTFIT_REFERENCE_KIND,JSON.stringify([input.source]),input.analysisSource],client);
+    if (!derived) throw new RequestError(404,'姿势派生图片不存在');
+    await assertImageReferencesAccessible([input.analysisSource],owner,client);
+  }
   return {name:project.name};
 }
 
@@ -130,7 +141,8 @@ function parseInput(body: Record<string,unknown>) {
       typeof body.nodeId !== 'string' || !/^[\w-]{1,128}$/.test(body.nodeId) || !isLocalImageReference(body.source)) {
     throw new RequestError(400,'请提供已保存项目中的本地姿势参考图');
   }
-  return {projectId:body.projectId,nodeId:body.nodeId,source:body.source};
+  if (body.analysisSource !== undefined && !isLocalImageReference(body.analysisSource)) throw new RequestError(400,'姿势分析来源无效');
+  return {projectId:body.projectId,nodeId:body.nodeId,source:body.source,analysisSource:typeof body.analysisSource==='string'?body.analysisSource:body.source};
 }
 
 async function expire(owner: string, client: PoolClient) {
@@ -171,6 +183,7 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
       const records = await transaction(async(client)=>{
         const owner = requestUser(req).id;
         await authorize(owner,input,client);
+        input.source = input.analysisSource;
         await expire(owner,client);
         const rows = await query<Row>(`SELECT DISTINCT ON (kind) current.*,
           COALESCE(current.result, (SELECT previous.result FROM pose_references previous
@@ -197,6 +210,7 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
       const row = await transaction(async(client)=>{
         const owner = requestUser(req).id;
         await authorize(owner,input,client);
+        input.source = input.analysisSource;
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`pose:${owner}`]);
         await expire(owner,client);
         const key = configuration(kind);
@@ -227,10 +241,14 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
         await authorize(owner,input,client);
         const rows = await findPoseOutfitRows(owner,input,client);
         const latest = rows[0];
-        return latest ? poseOutfitRecord(latest,input.source,rows.find((row)=>Boolean(row.output_image))) : null;
+        const legacy = (await findPoseOutfitRows(owner,input,client,true)).find(row=>Boolean(row.output_image));
+        return {
+          record: latest ? poseOutfitRecord(latest,input.source,rows.find((row)=>Boolean(row.output_image))) : null,
+          legacyRecord: legacy ? poseOutfitRecord(legacy,input.source) : null,
+        };
       });
       res.setHeader('Cache-Control','no-store');
-      res.json({record:outfit});
+      res.json(outfit);
     } catch(error) { handleError(error,res); }
   }));
   router.post('/outfit',asyncHandler(async(req,res)=>{
@@ -247,6 +265,8 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`pose-outfit:${owner}:${input.projectId}:${input.nodeId}`]);
         const rows = await findPoseOutfitRows(owner,input,client);
         const prior = rows[0];
+        const legacyPending = (await findPoseOutfitRows(owner,input,client,true)).find(row=>isPoseOutfitActive(row)||row.status==='outcome_unknown');
+        if (!prior && legacyPending) throw new RequestError(409,'旧版服饰替换任务尚未确认结束，请先核对历史记录，避免重复扣费');
         const fallback = rows.find((row)=>Boolean(row.output_image));
         if (prior?.status==='outcome_unknown' && retry===true) {
           throw new RequestError(409,'上次请求结果未知，请先核对历史记录后再重试，避免重复扣费');
@@ -267,6 +287,7 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
               modelId: DEFAULT_GENERATION_MODEL_ID,
               batchSize: 1,
               poseOutfitOnly: true,
+              poseOutfitVersion: 'leggings-v1',
             },
           }],
         };
@@ -276,7 +297,7 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
           projectId: input.projectId,
           projectName: project.name,
           nodeId: input.nodeId,
-          nodeLabel: '姿势参考·背心+短裤',
+          nodeLabel: '姿势参考·背心+紧身裤',
           kind: POSE_OUTFIT_REFERENCE_KIND,
           prompt: POSE_OUTFIT_REFERENCE_PROMPT,
           parameters: plan.steps[0].params,

@@ -456,6 +456,17 @@ async function main() {
       "/api/files/detail.png",
     ]);
     assert.doesNotThrow(() => assertPlanInputs(stageOne, stageOneEdges));
+    assert.equal(stageOne.steps[0].params.poseReferenceType, 'unspecified');
+    assert.equal(pose.data.kind, 'image-input');
+    if (pose.data.kind !== 'image-input') throw new Error('fixture');
+    for (const kind of ['original', 'neutral-outfit', 'skeleton', 'depth'] as const) {
+      pose.data.poseReferenceSource = { kind, image: pose.data.imageUrl! };
+      pose.data.label = '任意改名，不参与类型判断';
+      assert.equal(buildExecutionPlan(stageOneNodes, stageOneEdges, { onlyNodeId: stabilize.id }).steps[0].params.poseReferenceType, kind);
+    }
+    pose.data.poseReferenceSource = { kind: 'skeleton', image: '/api/files/old.png' };
+    assert.equal(buildExecutionPlan(stageOneNodes, stageOneEdges, { onlyNodeId: stabilize.id }).steps[0].params.poseReferenceType, 'unspecified');
+    delete pose.data.poseReferenceSource;
     const invalidStageOneNode: FlowNode = {
       ...stabilize,
       data: { ...stabilize.data, modelId: "gpt-image-2" },
@@ -934,7 +945,9 @@ async function main() {
     assert.match(stageOne.calls[0].request.prompt, /参考图8只控制目标戒指/);
     assert.match(stageOne.calls[0].request.prompt, /参考图9只控制目标耳环/);
     assert.match(stageOne.calls[0].request.prompt, /参考图10只控制目标手镯/);
-    assert.match(stageOne.calls[0].request.prompt, /全局权重低于人物身份、场景描述和主穿搭/);
+    assert.match(stageOne.calls[0].request.prompt, /佩戴适配姿势/);
+    assert.match(stageOne.calls[0].request.prompt, /不为展示包袋改变手臂动作/);
+    assert.doesNotMatch(stageOne.calls[0].request.prompt, /可能|结合场景文字中的手部动作/);
     assert.match(stageOne.calls[0].request.prompt, /真实存在且清晰可见的金属装饰图案与五金/);
     assert.match(stageOne.calls[0].request.prompt, /只提取戒指本体/);
     assert.match(stageOne.calls[0].request.prompt, /目标商品本体上已有的金属装饰图案与五金保持来源外观/);
@@ -952,6 +965,23 @@ async function main() {
     );
     assert.match(bagOnly.calls[0].request.prompt, /只控制目标包袋/);
     assert.doesNotMatch(bagOnly.calls[0].request.prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
+    assert.match(bagOnly.calls[0].request.prompt, /未连接的配饰只沿用主穿搭中清晰可见的同类物品，不额外添加/);
+
+    for (const [kind, expected] of [
+      ['original', /类型：原始人物照片/],
+      ['neutral-outfit', /浅白色背心与下装仅用于姿势观察/],
+      ['skeleton', /不从线条推断视线/],
+      ['depth', /不将衣物表面当作真实身体轮廓/],
+    ] as const) {
+      const typed = await runRecordedAiStep('virtual-try-on', {
+        workflowStage: 'scene-stabilize', poseReferenceType: kind,
+        modelId: 'gemini-3.1-flash-image', promptEnhancement: false,
+      }, [SCENE_DATA_URL, POSE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL],
+      undefined, ['scene', 'pose', 'person', 'outfit'], sceneAnalyzer);
+      assert.match(typed.calls[0].request.prompt, expected);
+      assert.doesNotMatch(typed.calls[0].request.prompt, /可能/);
+      assert.equal(typed.calls[0].request.referenceImages?.at(-2), POSE_DATA_URL);
+    }
 
     const bestMode = await runRecordedAiStep(
       "virtual-try-on",

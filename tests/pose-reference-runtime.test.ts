@@ -61,6 +61,7 @@ try {
   const saved=documentSnapshotToPersistedWorkflow(createDocumentSnapshot({...tab(),nodes:tab().nodes.filter(n=>n.data.kind==='image-input'),edges:[]}));
   assert.equal((saved.nodes[0].data as any).poseReference,true,'pose entry survives save/reload without requiring an edge');
   assert.equal((saved.nodes.at(-1)!.data as any).imageUrl,source);
+  assert.deepEqual((saved.nodes.at(-1)!.data as any).poseReferenceSource,{kind:'original',image:source});
   const detachedKey=poseReferenceKey(detached,'any-id',source);
   usePoseReferenceRuntime.setState(s=>({entries:{...s.entries,[detachedKey]:{records:{depth:result as any},busy:{},errors:{}}}}));
   resolve=undefined;
@@ -114,13 +115,13 @@ try {
   try {
     await generatePoseOutfitReference(outfitTarget,'any-id',source);
     await generatePoseOutfitReference(outfitTarget,'any-id',source);
-    assert.equal(outfitCalls,1,'背心+短裤任务在排队时重复点击不得重复提交');
+    assert.equal(outfitCalls,1,'背心+紧身裤任务在排队时重复点击不得重复提交');
     assert.equal(usePoseReferenceRuntime.getState().entries[outfitKey]?.neutralOutfit?.status,'queued');
     await restorePoseOutfitReference(outfitTarget,'any-id',source);
     assert.equal(usePoseReferenceRuntime.getState().entries[outfitKey]?.neutralOutfit?.result?.image,'/api/files/outfit.png');
     await addPoseReferenceToCanvas(outfitTarget,'any-id',source,'neutral-outfit');
     const outfitTab=useFlowStore.getState().tabs.find(t=>t.id===outfitTarget.tabId)!;
-    assert.equal(outfitTab.nodes.at(-1)?.data.label,'背心+短裤姿势参考');
+    assert.equal(outfitTab.nodes.at(-1)?.data.label,'背心+紧身裤姿势参考');
     assert.equal(outfitCalls,2,'已有本地生成文件时导出不得再次上传');
   } finally { globalThis.fetch=savedFetch; }
   console.log('Pose runtime: semantic port detection, duplicate click, source and document-epoch boundaries passed');
