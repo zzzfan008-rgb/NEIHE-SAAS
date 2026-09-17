@@ -480,6 +480,15 @@ export function ImageInputNode({
       className={`gc-image-node relative${cropSession ? " nodrag nopan" : ""}`}
       style={imageNodeStyle}
       data-resize-direction={resizeDirection}
+      onKeyDownCapture={(event) => {
+        // During dialog autofocus, Escape may still target the canvas trigger.
+        // Isolate it from React Flow even before focus enters the portal.
+        if (poseSession && event.key === "Escape" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          event.stopPropagation();
+          setPoseSession(null);
+        }
+      }}
     >
       {selected &&
         !readOnly &&

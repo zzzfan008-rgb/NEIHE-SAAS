@@ -25,7 +25,7 @@ for (const user of ['owner', 'other']) {
 const png = `data:image/png;base64,${(await sharp({create:{width:30,height:50,channels:3,background:'white'}}).png().toBuffer()).toString('base64')}`;
 const stored = saveDataUrl(png);
 await query("INSERT INTO files(id,owner_id,created_at) VALUES($1,'owner',$2)", [stored.id,now]);
-const flow = {nodes:[{id:'pose',type:'image-input',position:{x:0,y:0},data:{kind:'image-input',label:'人物姿势参考图（必需）',status:'idle',imageRole:'reference',imageUrl:stored.url}}, {id:'stabilize',type:'virtual-try-on',position:{x:400,y:0},data:{kind:'virtual-try-on',workflowStage:'scene-stabilize',label:'定版',status:'idle'}}],edges:[{id:'pose-edge',source:'pose',target:'stabilize',targetHandle:'pose'}]};
+const flow = {nodes:[{id:'pose',type:'image-input',position:{x:0,y:0},data:{kind:'image-input',label:'人物姿势参考图（必需）',poseReference:true,status:'idle',imageRole:'reference',imageUrl:stored.url}}, {id:'stabilize',type:'virtual-try-on',position:{x:400,y:0},data:{kind:'virtual-try-on',workflowStage:'scene-stabilize',label:'定版',status:'idle'}}],edges:[]};
 await query("INSERT INTO projects(id,owner_id,name,flow_json,created_at,updated_at,lifecycle) VALUES('project','owner','test',$1,$2,$2,'saved')",[JSON.stringify(flow),now]);
 let calls = 0;
 let release: (()=>void) | undefined;
@@ -38,6 +38,7 @@ const router = fs.existsSync('server/routes/poseReferences.ts')
       analyze: async (_image: string, kind: string) => { calls++; await delayed; if(kind==='skeleton') throw new Error('private provider detail'); return {image:png,model:'test-depth'}; },
     }) : express.Router();
 app.use('/api/pose-references',router);
+app.use('/api/pose-local',(await import('../server/routes/poseReferences')).createPoseReferencesRouter());
 const server = app.listen(0,'127.0.0.1');
 await new Promise<void>(resolve=>server.once('listening',resolve));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -74,6 +75,9 @@ try {
   assert.equal(mixed.records.find((x:any)=>x.kind==='skeleton').status,'failed');
   assert.ok(!JSON.stringify(mixed).includes('private provider detail'));
   await query("UPDATE pose_references SET status='running',updated_at=0 WHERE kind='skeleton'");
+  const localInterrupted = await (await req('GET')).json();
+  assert.equal(localInterrupted.records.find((x:any)=>x.kind==='skeleton').status,'failed');
+  await query("UPDATE pose_references SET status='running',provider_requests=1,updated_at=0 WHERE kind='skeleton'");
   const interrupted = await (await req('GET')).json();
   assert.equal(interrupted.records.find((x:any)=>x.kind==='skeleton').status,'outcome_unknown');
   await req('POST',{...body,kind:'skeleton',requestId:'new-request-no-retry'});
@@ -84,6 +88,33 @@ try {
   delete process.env.DEPTH_MODEL_REVISION;
   const reverted=await (await req('GET')).json();
   assert.equal(reverted.records.find((x:any)=>x.kind==='depth').id,record.id,'restoration must prefer the current configuration');
+  // A legacy success remains visible while a new local configuration runs/fails.
+  await query("UPDATE pose_references SET configuration='legacy-gemini',status='succeeded',result=$1::jsonb WHERE kind='skeleton'",[JSON.stringify({image:png,model:'gemini-legacy'})]);
+  process.env.POSE_SERVICE_URL='http://127.0.0.1:8767';
+  process.env.POSE_SERVICE_TOKEN='local-worker-test-token-over-32-characters';
+  const savedFetch=globalThis.fetch;
+  let finishWorker: (()=>void)|undefined;
+  const workerWait=new Promise<void>(r=>{finishWorker=r;});
+  globalThis.fetch=async(url,init)=>{
+    if(String(url)==='http://127.0.0.1:8767/pose') {
+      await workerWait;
+      return new Response(Buffer.from(png.split(',')[1],'base64'),{headers:{'content-type':'image/png','x-pose-model':'dwpose-wholebody','x-pose-checkpoint':'a'.repeat(64)}});
+    }
+    return savedFetch(url,init);
+  };
+  try {
+    const local=await (await fetch(base+'/api/pose-local',{method:'POST',headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions.owner}`},body:JSON.stringify({...body,kind:'skeleton',requestId:'local-worker-request'})})).json();
+    const during=await (await req('GET')).json();
+    assert.equal(during.records.find((r:any)=>r.kind==='skeleton').result.model,'gemini-legacy');
+    finishWorker!();
+    for(let i=0;i<100;i++) {
+      if((await queryOne<{status:string}>('SELECT status FROM pose_references WHERE id=$1',[local.id]))?.status==='succeeded') break;
+      await new Promise(r=>setTimeout(r,10));
+    }
+    const completed=await (await req('GET')).json();
+    assert.equal(completed.records.find((r:any)=>r.kind==='skeleton').result.model,'dwpose-wholebody');
+    assert.equal((await queryOne<{provider_requests:number}>('SELECT provider_requests FROM pose_references WHERE id=$1',[local.id]))?.provider_requests,0);
+  } finally {finishWorker!();globalThis.fetch=savedFetch;}
   flow.nodes[0].data.imageUrl='/api/files/replacement.png';
   await query("UPDATE projects SET flow_json=$1 WHERE id='project'",[JSON.stringify(flow)]);
   assert.equal((await req('POST')).status,409,'stale source must be rejected');

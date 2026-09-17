@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import express, { type Request, type Response } from "express";
 import sharp from "sharp";
+import { normalizeProviderImageDataUrl } from "../server/lib/uploadImageNormalization";
 import { ProviderError } from "../server/providers/base";
 import type { AuthenticatedRequest } from "../server/lib/auth";
 import type { GenerationRecordContext } from "../server/lib/generationRecords";
@@ -223,6 +224,8 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
   const personImage = await solidImage(4, 4, { r: 210, g: 60, b: 35 });
   const sceneImage = await solidImage(2, 3, { r: 40, g: 140, b: 55 });
   const poseImage = await solidImage(3, 5, { r: 180, g: 75, b: 145 });
+  const normalizedPose = await normalizeProviderImageDataUrl(poseImage);
+  const expectedPose = `data:${normalizedPose.mimeType};base64,${normalizedPose.buffer.toString('base64')}`;
   const outfitImage = await solidImage(1, 2, { r: 35, g: 70, b: 190 });
   const bagImage = await solidImage(2, 1, { r: 130, g: 45, b: 160 });
   const source = (nodeId: string, imageUrl: string): NodeExecution => ({
@@ -322,18 +325,18 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
   }
   assert.equal(fake.calls(), 1);
   assert.equal(sceneInputs.length, 1);
-  assert.equal(poseInputs.length, 1);
+  assert.equal(poseInputs.length, 0, "第一轮不再调用姿势分析 API");
   assert.equal(fake.requests()[0].referenceImages?.length, 6);
-  assert.ok(!fake.requests()[0].referenceImages?.includes(poseInputs[0]), "原始姿势图不得进入生图请求");
+  assert.equal(fake.requests()[0].referenceImages?.at(-2), expectedPose, "所选姿势图仅经过现有传输标准化，不再生成替代骨架");
   assert.equal(fake.requests()[0].referenceImages?.at(-1), sceneInputs[0]);
   assert.match(fake.requests()[0].prompt, /参考图1.*脸部锚点/);
   assert.match(fake.requests()[0].prompt, /参考图2.*完整人物身份图/);
   assert.match(fake.requests()[0].prompt, /参考图3.*服装与搭配风格的唯一来源/);
   assert.match(fake.requests()[0].prompt, /参考图4只控制目标包袋/);
-  assert.match(fake.requests()[0].prompt, /参考图5.*中性骨架引导图/);
+  assert.match(fake.requests()[0].prompt, /参考图5.*用户手动选择的姿势参考图/);
   assert.doesNotMatch(fake.requests()[0].prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
   assert.deepEqual(await runRow(run.id), {
-    status: "succeeded", error: null, provider_requests: 4, successful_count: 1,
+    status: "succeeded", error: null, provider_requests: 3, successful_count: 1,
   });
 });
 
@@ -343,6 +346,8 @@ for (const judgeAvailable of [true, false]) {
     const personImage = await solidImage(4, 4, { r: 200, g: 70, b: 50 });
     const sceneImage = await solidImage(3, 4, { r: 60, g: 130, b: 90 });
     const poseImage = await solidImage(3, 4, { r: 170, g: 65, b: 150 });
+    const normalizedPose = await normalizeProviderImageDataUrl(poseImage);
+    const expectedPose = `data:${normalizedPose.mimeType};base64,${normalizedPose.buffer.toString('base64')}`;
     const outfitImage = await solidImage(2, 3, { r: 40, g: 70, b: 180 });
     const candidates = [
       await solidImage(3, 4, { r: 220, g: 30, b: 30 }),
@@ -418,7 +423,8 @@ for (const judgeAvailable of [true, false]) {
         candidateSelector: async (input) => {
           await input.beforeProviderCall?.(1);
           assert.ok(input.referenceRoles.includes("scene"));
-          assert.equal(input.referenceImages[input.referenceRoles.indexOf("pose")], analyzedPose);
+          assert.equal(analyzedPose, "", "候选模式也不得调用姿势分析");
+          assert.equal(input.referenceImages[input.referenceRoles.indexOf("pose")], expectedPose);
           if (!judgeAvailable) throw new Error("judge unavailable");
           return {
             selectedIndex: 1,
@@ -438,7 +444,7 @@ for (const judgeAvailable of [true, false]) {
     }
     assert.equal(fake.calls(), 3);
     assert.deepEqual(await runRow(run.id), {
-      status: "succeeded", error: judgeAvailable ? null : "候选自动评审未完成，全部候选已保留，请人工核对姿势后选择基准", provider_requests: 7, successful_count: judgeAvailable ? 1 : 3,
+      status: "succeeded", error: judgeAvailable ? null : "候选自动评审未完成，全部候选已保留，请人工核对姿势后选择基准", provider_requests: 6, successful_count: judgeAvailable ? 1 : 3,
     });
     const stepRow = await database.queryOne<{ output_images_json: string; execution_meta_json: string }>(`
       SELECT output_images_json, execution_meta_json FROM generation_run_steps

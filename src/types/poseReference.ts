@@ -11,10 +11,12 @@ export interface PoseReferenceRecord {
 /** Recognize the pose port, never a mutable translated node title or a fixed node ID. */
 export function isPoseReferenceNode(
   nodeId: string,
-  nodes: ReadonlyArray<{id: string; data: {kind: string; workflowStage?: string}}>,
+  nodes: ReadonlyArray<{id: string; data: {kind: string; workflowStage?: string; poseReference?: boolean; autoConnectTargets?: Array<{targetHandle: string}>}}>,
   edges: ReadonlyArray<{source: string; target: string; targetHandle?: string | null}>,
 ): boolean {
-  return nodes.some(n => n.id === nodeId && n.data.kind === 'image-input') &&
+  const node = nodes.find(n => n.id === nodeId && n.data.kind === 'image-input');
+  return !!node && (node.data.poseReference === true ||
+    node.data.autoConnectTargets?.some(t => t.targetHandle === 'pose') === true ||
     edges.some(e => e.source === nodeId && e.targetHandle === 'pose' && nodes.some(n =>
-      n.id === e.target && n.data.kind === 'virtual-try-on' && n.data.workflowStage === 'scene-stabilize'));
+      n.id === e.target && n.data.kind === 'virtual-try-on' && n.data.workflowStage === 'scene-stabilize')));
 }

@@ -73,7 +73,7 @@ export const config = {
 
   /** AI 调用超时（中转站网关限制，可配） */
   aiTimeoutMs: (fallback = 300_000) => Number(process.env.AI_TIMEOUT_MS ?? fallback),
-  /** 第一轮环境与姿势使用独立视觉解析；姿势原图不发送给生图模型。 */
+  /** 第一轮只解析环境；姿势由用户选图，poseAnalysisModel 仅供旧版模块兼容。 */
   sceneAnalysisModel: () => process.env.SCENE_ANALYSIS_MODEL?.trim() || "gemini-3-flash-preview",
   poseAnalysisModel: () => process.env.POSE_ANALYSIS_MODEL?.trim() || config.sceneAnalysisModel(),
   /** 换装候选择优和身份框定位使用的视觉模型。 */

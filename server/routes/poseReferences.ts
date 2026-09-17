@@ -9,7 +9,7 @@ import { asyncHandler } from '../lib/asyncHandler';
 import { assertImageReferencesAccessible, ImageReferenceAccessError } from '../lib/imageReferenceAccess';
 import { isLocalImageReference, validateImageDataUrl } from '../lib/imageValidation';
 import { resolveToDataUrl } from '../lib/fileStore';
-import { analyzePoseReference } from '../lib/poseAnalysis';
+import { analyzeDWPoseReference } from '../lib/dwposeAnalysis';
 import { analyzeDepthReference } from '../lib/depthAnalysis';
 import { config } from '../config';
 import { ProviderError } from '../providers/base';
@@ -25,7 +25,7 @@ class RequestError extends Error { constructor(public status: number, message: s
 const record = (row: Row): PoseReferenceRecord => ({id:row.id,kind:row.kind,source:row.source,status:row.status,...(row.result?{result:row.result}:{}),...(row.error?{error:row.error}:{})});
 
 function configuration(kind: PoseReferenceKind): string {
-  const values = kind === 'skeleton' ? ['skeleton-v1',config.poseAnalysisModel()] :
+  const values = kind === 'skeleton' ? ['dwpose-v1',process.env.POSE_SERVICE_URL ?? '',process.env.POSE_MODEL_REVISION ?? '1a7144101628d69ee7a3768d1ee3a094070dc388'] :
     ['depth-v1', process.env.DEPTH_SERVICE_URL ?? '', process.env.DEPTH_INPUT_SIZE ?? '518', process.env.DEPTH_MODEL_REVISION ?? 'vitl-official-v1'];
   return createHash('sha256').update(JSON.stringify(values)).digest('hex');
 }
@@ -53,15 +53,14 @@ function parseInput(body: Record<string,unknown>) {
 
 async function expire(owner: string, client: PoolClient) {
   const timeout = Math.max(180_000,config.aiTimeoutMs(120_000)) + 60_000;
-  await client.query(`UPDATE pose_references SET status=CASE WHEN kind='skeleton' THEN 'outcome_unknown' ELSE 'failed' END,
+  await client.query(`UPDATE pose_references SET status=CASE WHEN provider_requests>0 THEN 'outcome_unknown' ELSE 'failed' END,
     error='任务中断或超时，请核对结果后手动重试',updated_at=$2
     WHERE owner_id=$1 AND status='running' AND updated_at<$3`,[owner,Date.now(),Date.now()-timeout]);
 }
 
-const defaultAnalyze: Analyzer = async (image,kind,mark) => {
+const defaultAnalyze: Analyzer = async (image,kind) => {
   if (kind==='depth') return analyzeDepthReference(image);
-  const result = await analyzePoseReference(image,{beforeProviderCall:mark});
-  return {image:result.guideImage,model:result.model};
+  return analyzeDWPoseReference(image);
 };
 
 async function perform(row: Row, image: string, analyze: Analyzer) {
@@ -78,7 +77,7 @@ async function perform(row: Row, image: string, analyze: Analyzer) {
   } catch (error) {
     const unknown = error instanceof ProviderError && error.category==='outcome_unknown';
     await query(`UPDATE pose_references SET status=$3,error=$4,updated_at=$5 WHERE id=$1 AND attempt=$2 AND status='running'`,
-      [row.id,row.attempt,unknown?'outcome_unknown':'failed', row.kind==='depth'?'深度生成失败，请检查本地服务后重试':'骨骼分析未成功，请核对调用记录后重试',Date.now()]).catch(()=>undefined);
+      [row.id,row.attempt,unknown?'outcome_unknown':'failed', row.kind==='depth'?'深度生成失败，请检查本地服务后重试':'骨骼生成失败，请确认图片中有人物，并检查本地 DWPose 服务后重试',Date.now()]).catch(()=>undefined);
   }
 }
 
@@ -91,7 +90,13 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
         const owner = requestUser(req).id;
         await authorize(owner,input,client);
         await expire(owner,client);
-        const rows = await query<Row>(`SELECT DISTINCT ON (kind) * FROM pose_references
+        const rows = await query<Row>(`SELECT DISTINCT ON (kind) current.*,
+          COALESCE(current.result, (SELECT previous.result FROM pose_references previous
+            WHERE previous.owner_id=current.owner_id AND previous.project_id=current.project_id
+              AND previous.node_id=current.node_id AND previous.source=current.source
+              AND previous.kind=current.kind AND previous.status='succeeded'
+            ORDER BY previous.created_at DESC LIMIT 1)) AS result
+          FROM pose_references current
           WHERE owner_id=$1 AND project_id=$2 AND node_id=$3 AND source=$4
           ORDER BY kind,(configuration=CASE WHEN kind='skeleton' THEN $5 ELSE $6 END) DESC,created_at DESC`,
           [owner,input.projectId,input.nodeId,input.source,configuration('skeleton'),configuration('depth')],client);

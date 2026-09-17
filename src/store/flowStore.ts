@@ -257,6 +257,7 @@ export interface FlowState {
   ) => string | null;
   /** 复制/粘贴等调用方已有完整节点时，仍通过此入口维护 revision/dirty。 */
   addExistingNode: (node: FlowNode) => void;
+  addPoseReferenceImageNode: (target: DocumentTarget, nodeId: string, source: string, image: string, label: string) => string | null;
   /** 画板会话完成时只提交一次项目历史；异步结果必须仍匹配原 DocumentTarget。 */
   commitDrawingBoard: (
     target: DocumentTarget,
@@ -5564,6 +5565,21 @@ export const useFlowStore = create<FlowState>()(
           });
         },
 
+        addPoseReferenceImageNode: (target, nodeId, source, image, label) => {
+          const tab = documentForTarget(get(), target);
+          if (!tab || tab.readOnly) return null;
+          const origin = tab.nodes.find(n => n.id === nodeId && n.data.kind === "image-input" && n.data.imageUrl === source);
+          if (!origin || !/^\/api\/files\/[\w.-]+$/.test(image)) return null;
+          const id = nanoid(8);
+          const position = { x: origin.position.x + 380, y: origin.position.y };
+          while (tab.nodes.some(n => Math.abs(n.position.x - position.x) < 320 && Math.abs(n.position.y - position.y) < 320)) position.y += 340;
+          const node: FlowNode = { id, type: "image-input", position,
+            data: { ...defaultNodeData("image-input"), label, imageRole: "reference", imageUrl: image, status: "success" } as ImageInputNodeData };
+          // Keep comparison open and preserve selection; never create an edge.
+          const changed = commitDocumentMutationForTarget(set, target, current => ({ nodes: [...current.nodes, node] }));
+          return changed ? id : null;
+        },
+
         exportDrawingBoardImageNode: (target, nodeId) => {
           const state = get();
           const tab = documentForTarget(state, target);
@@ -5751,6 +5767,8 @@ export const useFlowStore = create<FlowState>()(
               : new Set<string>();
 
             for (const declaredTarget of source.data.autoConnectTargets ?? []) {
+              // Pose input is always an explicit user choice, including legacy templates.
+              if (declaredTarget.targetHandle === "pose") continue;
               const connection: Connection = {
                 source: id,
                 sourceHandle: "image",

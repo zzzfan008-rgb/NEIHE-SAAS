@@ -982,7 +982,8 @@ async function main() {
     assert.deepEqual(targetsFor("identity-secondary-1"), [{ targetNodeId: "stabilize", targetHandle: "person" }]);
     assert.deepEqual(targetsFor("identity-secondary-2"), [{ targetNodeId: "stabilize", targetHandle: "person" }]);
     assert.deepEqual(targetsFor("scene"), [{ targetNodeId: "stabilize", targetHandle: "scene" }]);
-    assert.deepEqual(targetsFor("pose"), [{ targetNodeId: "stabilize", targetHandle: "pose" }]);
+    assert.equal(targetsFor("pose"), undefined);
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "pose")?.data.poseReference, true);
     assert.deepEqual(targetsFor("outfit"), [
       { targetNodeId: "stabilize", targetHandle: "outfit" },
       { targetNodeId: "refine", targetHandle: "outfit" },

@@ -670,6 +670,8 @@ function validateData(
     }
     case "image-input":
       oneOf(raw.imageRole, IMAGE_ROLES, `${path}.imageRole`);
+      if (raw.poseReference !== undefined && typeof raw.poseReference !== "boolean")
+        fail(`${path}.poseReference`, "must be a boolean");
       optionalImageReference(raw.imageUrl, `${path}.imageUrl`);
       if (raw.autoConnectTargets !== undefined) {
         if (

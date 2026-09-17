@@ -217,16 +217,7 @@ async function runRecordedAiStep(
   }, {
     referenceRoles,
     sceneAnalyzer,
-    poseAnalyzer: (async (_image, options) => {
-      await options?.beforeProviderCall?.(1);
-      return {
-        guideImage: SEED_DATA_URL,
-        prompt: "身体姿势：重心落在画面左腿；手部姿势：右腕向外；头部姿势：轻微右倾；视线方向：画面右侧",
-        model: "pose-analysis-stub",
-        providerRequests: 1,
-        cacheHit: false,
-      };
-    }) satisfies PoseAnalyzer,
+    poseAnalyzer: (async () => { throw new Error("Legacy pose API must never run"); }) satisfies PoseAnalyzer,
     identityAnchorer: async (_image, options) => {
       await options?.beforeProviderCall?.(1);
       return {
@@ -922,18 +913,18 @@ async function main() {
       ["scene", "pose", "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet"],
       sceneAnalyzer,
     );
-    assert.equal(stageOne.result.providerRequests, 4);
+    assert.equal(stageOne.result.providerRequests, 3);
     assert.equal(stageOne.calls[0].request.referenceImages?.length, 12);
     assert.equal(stageOne.calls[0].request.referenceImages?.[0], SEED_DATA_URL);
     assert.equal(stageOne.calls[0].request.referenceImages?.[1], PERSON_GRID_DATA_URL);
     assert.equal(stageOne.calls[0].request.referenceImages?.[2], SECOND_DATA_URL);
-    assert.ok(!stageOne.calls[0].request.referenceImages?.includes(POSE_DATA_URL), "原始姿势图不得进入生图请求");
+    assert.equal(stageOne.calls[0].request.referenceImages?.at(-2), POSE_DATA_URL, "手动选择的姿势图必须原样传入");
     assert.equal(stageOne.calls[0].request.referenceImages?.at(-1), SCENE_DATA_URL);
     assert.deepEqual(stageOne.calls[0].request.modelOptions, { aspectRatio: "2:3", imageSize: "2K" });
     assert.match(stageOne.calls[0].request.prompt, /视觉定位后从主要人物脸部裁切的身份锚点/);
     assert.match(stageOne.calls[0].request.prompt, /主要完整人物身份图/);
     assert.match(stageOne.calls[0].request.prompt, /参考图3是服装与搭配风格的唯一来源/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图11是从独立人物姿势参考图提取的中性骨架引导图/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图11是用户手动选择的姿势参考图/);
     assert.match(stageOne.calls[0].request.prompt, /参考图12是纯场景环境参考/);
     assert.match(stageOne.calls[0].request.prompt, /暖灰色无缝背景/);
     assert.match(stageOne.calls[0].request.prompt, /参考图4只控制目标包袋/);
@@ -991,7 +982,7 @@ async function main() {
     assert.equal(bestMode.calls.length, 3, "最佳档位必须发出三次独立单图请求");
     assert.ok(bestMode.calls.every((call) => call.request.batchSize === 1));
     assert.equal(bestMode.result.candidateSelection?.selectedIndex, 2);
-    assert.equal(bestMode.result.providerRequests, 7);
+    assert.equal(bestMode.result.providerRequests, 6);
 
     const unavailableJudge = await runRecordedAiStep(
       "virtual-try-on",
@@ -1049,7 +1040,7 @@ async function main() {
     );
     assert.match(enhancedMode.calls[0].request.prompt, /用户原始要求（必须逐项保留）：保留象牙白阔腿裤的双褶线/);
     assert.match(enhancedMode.calls[0].request.prompt, /结构化增强要求：主体自然站立/);
-    assert.equal(enhancedMode.result.providerRequests, 5);
+    assert.equal(enhancedMode.result.providerRequests, 4);
 
     const stageTwo = await runRecordedAiStep(
       "virtual-try-on",

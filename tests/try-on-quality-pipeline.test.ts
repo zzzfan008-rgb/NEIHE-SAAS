@@ -68,6 +68,8 @@ try {
       .map((part: { text?: string }) => part.text ?? "")
       .join("\n");
     assert.match(reviewInstructions, /pose 参考图是第一轮姿势判断的唯一标准/);
+    assert.match(reviewInstructions, /用户手动选择的原图、骨骼图或深度图/);
+    assert.match(reviewInstructions, /不因骨骼或深度图缺少外观而扣分/);
     assert.match(reviewInstructions, /不得偏好站姿、坐姿或任何所谓“标准姿势”/);
     const images = parts.filter((part: { type: string }) => part.type === "image_url");
     assert.equal(images.length, 4);

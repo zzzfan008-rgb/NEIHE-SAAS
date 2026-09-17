@@ -7,6 +7,9 @@ export interface PoseReferenceState {
   records: Partial<Record<PoseReferenceKind,PoseReferenceRecord>>;
   busy: Partial<Record<PoseReferenceKind,boolean>>;
   errors: Partial<Record<PoseReferenceKind,string>>;
+  adding?: Partial<Record<PoseReferenceKind|'original',boolean>>;
+  added?: Partial<Record<PoseReferenceKind|'original',string>>;
+  addErrors?: Partial<Record<PoseReferenceKind|'original',string>>;
   error?: string;
 }
 export const EMPTY_POSE_STATE: PoseReferenceState = {records:{},busy:{},errors:{}};
@@ -61,8 +64,31 @@ export async function generatePoseReference(target:DocumentTarget,nodeId:string,
     if(!current(target,nodeId,source,true)) return;
     const record=validate(await response(await fetch('/api/pose-references',{method:'POST',headers:{'Content-Type':'application/json'},
       signal:AbortSignal.timeout(30_000),body:JSON.stringify({projectId:target.projectId,nodeId,source,kind,retry,requestId:nanoid(16)})})),source);
-    if(current(target,nodeId,source)) patch(key,s=>({...s,records:{...s.records,[kind]:record}}));
+    if(current(target,nodeId,source)) patch(key,s=>({...s,records:{...s.records,[kind]:{...record,result:record.result??s.records[kind]?.result}}}));
   } catch(error) {
     if(current(target,nodeId,source)) patch(key,s=>({...s,errors:{...s.errors,[kind]:error instanceof Error?error.message:'提交失败，请先刷新结果，避免重复调用'}}));
   } finally { patch(key,s=>({...s,busy:{...s.busy,[kind]:false}})); }
+}
+
+/** Persist generated images before atomically exporting into the initiating document. */
+export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:string,source:string,kind:PoseReferenceKind|'original') {
+  const key=poseReferenceKey(target,nodeId,source);
+  const state=usePoseReferenceRuntime.getState().entries[key];
+  if(!current(target,nodeId,source,true)||state?.adding?.[kind]) return;
+  const image=kind==='original'?source:state?.records[kind]?.result?.image;
+  if(!image) return;
+  patch(key,s=>({...s,adding:{...s.adding,[kind]:true},addErrors:{...s.addErrors,[kind]:undefined},added:{...s.added,[kind]:undefined}}));
+  try {
+    const url=kind==='original'?source:(await response(await fetch('/api/files',{
+      method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(30_000),body:JSON.stringify({dataUrl:image}),
+    }))).url;
+    if(!current(target,nodeId,source,true)) return;
+    if(typeof url!=='string'||!/^\/api\/files\/[\w.-]+$/.test(url)) throw new Error('图片保存结果无效');
+    const label=kind==='original'?'姿势原图':kind==='skeleton'?(state?.records.skeleton?.result?.model==='dwpose-wholebody'?'DWPose 骨骼图':'旧版骨骼图'):'人物深度图';
+    const id=useFlowStore.getState().addPoseReferenceImageNode(target,nodeId,source,url,label);
+    if(!id) throw new Error('文档已变化，未添加图片');
+    patch(key,s=>({...s,added:{...s.added,[kind]:id}}));
+  } catch(error) {
+    if(current(target,nodeId,source)) patch(key,s=>({...s,addErrors:{...s.addErrors,[kind]:error instanceof Error?error.message:'添加失败，请重试'}}));
+  } finally { patch(key,s=>({...s,adding:{...s.adding,[kind]:false}})); }
 }

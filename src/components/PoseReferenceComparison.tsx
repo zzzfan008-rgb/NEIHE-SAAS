@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type RefObject } from 'react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription } from './ui/dialog';
-import { EMPTY_POSE_STATE,generatePoseReference,poseReferenceKey,restorePoseReferences,usePoseReferenceRuntime } from '../store/poseReferenceRuntime';
+import { EMPTY_POSE_STATE,addPoseReferenceToCanvas,generatePoseReference,poseReferenceKey,restorePoseReferences,usePoseReferenceRuntime } from '../store/poseReferenceRuntime';
 import type { DocumentTarget } from '../store/flowStore';
 import type { PoseReferenceKind } from '../types/poseReference';
 
@@ -20,20 +20,21 @@ export default function PoseReferenceComparison({target,nodeId,source,readOnly,o
     return ()=>clearInterval(timer);
   },[key,running,stableTarget,nodeId,source]);
   const generate=(kind:PoseReferenceKind,retry=false)=>void generatePoseReference(stableTarget,nodeId,source,kind,retry);
-  const panels=[{id:'original',label:'原图',image:source},...(['skeleton','depth'] as const).map(kind=>({id:kind,label:kind==='skeleton'?'骨骼图':'深度图',image:state.records[kind]?.result?.image}))];
+  const panels=[{id:'original' as const,label:'原图',image:source},...(['skeleton','depth'] as const).map(kind=>({id:kind,label:kind==='skeleton'?'骨骼图':'深度图',image:state.records[kind]?.result?.image}))];
   return <Dialog open onOpenChange={open=>{if(!open)onClose();}}>
     <DialogContent aria-describedby="pose-comparison-description" finalFocus={triggerRef}
+      onKeyDown={event=>event.stopPropagation()}
       style={{width:'min(1200px, calc(100vw - 48px))',maxWidth:'none',maxHeight:'calc(100vh - 48px)',overflowY:'auto'}}
       className="nodrag nopan bg-[var(--gc-panel)] text-[var(--gc-text)]">
       <DialogHeader>
         <DialogTitle>姿势参考对比</DialogTitle>
-        <DialogDescription id="pose-comparison-description">深度图亮近暗远，仅辅助观察可见表面的前后关系。此处结果暂不改变换装输入。</DialogDescription>
+        <DialogDescription id="pose-comparison-description">对比后将所需图片添加到画布，再手动连线至「第一轮 · Gemini 场景化定版」的姿势输入。不会自动替换或连线。深度图亮近暗远，仅表示可见表面前后关系。</DialogDescription>
       </DialogHeader>
       <div className="my-3 flex flex-wrap items-center gap-3">
         {!readOnly&&<Button size="sm" disabled={running||Object.values(state.busy).some(Boolean)} onClick={()=>{generate('skeleton');generate('depth');}}>生成两种参考</Button>}
         <Button size="sm" variant="outline" onClick={()=>void restorePoseReferences(stableTarget,nodeId,source)}>刷新结果</Button>
         {zoom&&<Button size="sm" variant="outline" onClick={()=>setZoom(null)}>返回三图对比</Button>}
-        <p className="text-xs text-[var(--gc-text-muted)]">骨骼分析可能计费；深度在本地运行。Large 仅限许可允许的非商业用途。</p>
+        <p className="text-xs text-[var(--gc-text-muted)]">DWPose 骨骼与深度均在本地运行，不调用图像模型 API。深度 Large 仅限许可允许的非商业用途。</p>
       </div>
       {state.error&&<p role="alert" className="mb-3 text-sm text-red-600">{state.error}</p>}
       <div style={{display:'grid',gridTemplateColumns:zoom?'minmax(0, 1fr)':'repeat(3, minmax(0, 1fr))',gap:12}}>
@@ -53,9 +54,13 @@ export default function PoseReferenceComparison({target,nodeId,source,readOnly,o
               {panel.image&&<>
                 <Button size="xs" variant="outline" onClick={()=>setZoom(panel.id)}>放大{panel.label}</Button>
                 <Button size="xs" variant="outline" render={<a href={panel.image} download={panel.id==='original'?(source.split('/').pop()||'original.png'):`${panel.id}.png`}/>}>下载{panel.label}</Button>
+                {!readOnly&&<Button size="xs" disabled={state.adding?.[panel.id]} aria-label={`添加${panel.label}到画布`} onClick={()=>void addPoseReferenceToCanvas(stableTarget,nodeId,source,panel.id)}>{state.adding?.[panel.id]?'添加中…':'添加到画布'}</Button>}
               </>}
-              {panel.id!=='original'&&!readOnly&&!panel.image&&<Button size="xs" disabled={pending} onClick={()=>generate(kind,retry)}>{pending?'生成中…':`${retry?'重试':'生成'}${panel.label}${kind==='skeleton'?'（可能计费）':'（本地）'}`}</Button>}
+              {panel.id!=='original'&&!readOnly&&(retry||!panel.image||(kind==='skeleton'&&record?.result?.model!=='dwpose-wholebody'))&&<Button size="xs" disabled={pending} onClick={()=>generate(kind,retry)}>{pending?'生成中…':`${retry?'重试':'生成'}${panel.label}（本地）`}</Button>}
             </div>
+            {state.addErrors?.[panel.id]&&<p role="alert" className="mt-2 text-xs text-red-600">{state.addErrors[panel.id]}</p>}
+            {state.added?.[panel.id]&&<p role="status" className="mt-2 text-xs">已添加到画布，请手动连线。</p>}
+            {kind==='skeleton'&&record?.result&&record.result.model!=='dwpose-wholebody'&&<p className="mt-2 text-xs">旧版结果仍可查看；可生成本地 DWPose 骨骼图进行替换。</p>}
             {record?.result?.model&&<p className="mt-2 break-all text-xs text-[var(--gc-text-muted)]">{record.result.model}</p>}
           </Card>;
         })}

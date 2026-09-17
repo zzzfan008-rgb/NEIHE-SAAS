@@ -58,6 +58,7 @@ export type DocumentNodeData =
   | {
       kind: "image-input";
       label: string;
+      poseReference?: boolean;
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
       imageUrl?: string;
       autoConnectTargets?: Array<{
@@ -398,6 +399,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         kind: data.kind,
         label: data.label,
         imageRole: data.imageRole,
+        ...(data.poseReference === true ? { poseReference: true } : {}),
         ...optionalString("imageUrl", data.imageUrl),
         ...(data.autoConnectTargets
           ? {
