@@ -11,7 +11,6 @@ import type { AuthenticatedRequest } from "../server/lib/auth";
 import type { GenerationRecordContext } from "../server/lib/generationRecords";
 import type { ProviderResolver } from "../server/engine/runner";
 import type { SceneAnalyzer } from "../server/lib/sceneAnalysis";
-import type { IdentityAnchorer } from "../server/lib/identityAnchor";
 import type { AIProvider, ExecutionPlan, ImageGenRequest, ImageGenResult, NodeExecution } from "../src/types/workflow";
 import { resetPostgresTestDatabase } from "./postgresTestDatabase";
 import { normalizeProviderImageDataUrl } from "../server/lib/uploadImageNormalization";
@@ -271,16 +270,6 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
       cacheHit: false,
     };
   };
-  const identityAnchorer: IdentityAnchorer = async (_image, options) => {
-    await options?.beforeProviderCall?.(1);
-    return {
-      image: PNG_DATA_URL,
-      providerRequests: 1,
-      model: "identity-stub",
-      cacheHit: false,
-      fallback: false,
-    };
-  };
   const run = await queue.enqueueGenerationRun(
     {
       steps: [
@@ -305,26 +294,25 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
     assert.equal(await queue.processNextGenerationJob(`worker-roles-${testId}`, {
       resolveProvider: fake.resolveProvider,
       sceneAnalyzer,
-      identityAnchorer,
       now: () => tick(),
       random: () => 0,
     }), true);
   }
   assert.equal(fake.calls(), 1);
   assert.equal(sceneInputs.length, 1);
-  assert.equal(fake.requests()[0].referenceImages?.length, 6);
+  assert.equal(fake.requests()[0].referenceImages?.length, 5);
   assert.equal(fake.requests()[0].referenceImages?.[0], expectedPose, "原始深度图必须直接进入生图请求");
   assert.doesNotMatch(fake.requests()[0].prompt, /姿势分析对原图的几何复核|身体姿势：/);
   assert.equal(fake.requests()[0].referenceImages?.at(-1), sceneInputs[0]);
-  assert.match(fake.requests()[0].prompt, /【身份】参考图2是由视觉定位后从主要人物脸部裁切的身份锚点/);
+  assert.match(fake.requests()[0].prompt, /【身份】参考图2是主要完整人物身份图/);
   assert.match(fake.requests()[0].prompt, /类型：深度图，亮近暗远/);
-  assert.match(fake.requests()[0].prompt, /参考图3.*完整人物身份图/);
-  assert.match(fake.requests()[0].prompt, /参考图4.*服装与搭配风格的唯一来源/);
-  assert.match(fake.requests()[0].prompt, /参考图5只控制目标包袋/);
+  assert.match(fake.requests()[0].prompt, /参考图2.*完整人物身份图/);
+  assert.match(fake.requests()[0].prompt, /参考图3.*服装与搭配风格的唯一来源/);
+  assert.match(fake.requests()[0].prompt, /参考图4只控制目标包袋/);
   assert.match(fake.requests()[0].prompt, /参考图1.*用户手动选择的原始姿势参考图/);
   assert.doesNotMatch(fake.requests()[0].prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
   assert.deepEqual(await runRow(run.id), {
-    status: "succeeded", error: null, provider_requests: 3, successful_count: 1,
+    status: "succeeded", error: null, provider_requests: 2, successful_count: 1,
   });
 });
 
@@ -398,10 +386,6 @@ for (const judgeAvailable of [true, false]) {
           await options?.beforeProviderCall?.(1);
           return { prompt: "环境：摄影棚；光线：左侧柔光；镜头：平视；构图：纵深居中", providerRequests: 1, model: "scene-stub", cacheHit: false };
         },
-        identityAnchorer: async (_image, options) => {
-          await options?.beforeProviderCall?.(1);
-          return { image: PNG_DATA_URL, providerRequests: 1, model: "identity-stub", cacheHit: false, fallback: false };
-        },
         candidateSelector: async (input) => {
           await input.beforeProviderCall?.(1);
           assert.ok(input.referenceRoles.includes("scene"));
@@ -426,7 +410,7 @@ for (const judgeAvailable of [true, false]) {
     }
     assert.equal(fake.calls(), 3);
     assert.deepEqual(await runRow(run.id), {
-      status: "succeeded", error: judgeAvailable ? null : "候选自动评审未完成，全部候选已保留，请人工核对姿势后选择基准", provider_requests: 6, successful_count: judgeAvailable ? 1 : 3,
+      status: "succeeded", error: judgeAvailable ? null : "候选自动评审未完成，全部候选已保留，请人工核对姿势后选择基准", provider_requests: 5, successful_count: judgeAvailable ? 1 : 3,
     });
     const stepRow = await database.queryOne<{ output_images_json: string; execution_meta_json: string }>(`
       SELECT output_images_json, execution_meta_json FROM generation_run_steps

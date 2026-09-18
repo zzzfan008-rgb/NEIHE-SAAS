@@ -615,9 +615,6 @@ export function buildExecutionPlan(
       params.poseReferenceType = source?.kind === 'image-input' &&
         validPoseReferenceSource(source.poseReferenceSource, source.imageUrl)
         ? source.poseReferenceSource.kind : 'unspecified';
-      if (source?.kind === 'image-input' && validPoseReferenceSource(source.poseReferenceSource, source.imageUrl) && source.poseReferenceSource.neutralSource) {
-        params.poseNeutralSource = source.poseReferenceSource.neutralSource;
-      }
     }
     if (data.kind === "mask-redraw") {
       params.referenceLabels = upstream.map(

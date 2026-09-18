@@ -13,7 +13,6 @@ import {
   type PersistedImageReceipt,
 } from "../lib/fileStore";
 import type { GenerationRecordContext } from "../lib/generationRecords";
-import type { IdentityAnchorer } from "../lib/identityAnchor";
 import type { SceneAnalyzer } from "../lib/sceneAnalysis";
 import type { TryOnCandidateSelector } from "../lib/tryOnCandidateSelection";
 import { ACTIVE_RUN_LIMIT } from "../lib/generationLimits";
@@ -138,7 +137,6 @@ interface JobLockRow {
 export interface ProcessGenerationJobOptions {
   resolveProvider?: ProviderResolver;
   sceneAnalyzer?: SceneAnalyzer;
-  identityAnchorer?: IdentityAnchorer;
   promptEnhancer?: ExecuteStepOptions["promptEnhancer"];
   candidateSelector?: TryOnCandidateSelector;
   now?: () => number;
@@ -1090,7 +1088,6 @@ export async function processNextGenerationJob(
         onStylingCheckpoint: job.step.kind==='ai-styling'?(ordinal,image,prompt,model)=>checkpointStyling(job,workerId,ordinal,image,prompt,model):undefined,
         referenceRoles: input.referenceRoles,
         sceneAnalyzer: options.sceneAnalyzer,
-        identityAnchorer: options.identityAnchorer,
         promptEnhancer: options.promptEnhancer,
         candidateSelector: options.candidateSelector,
         videoTask: job.videoTask,

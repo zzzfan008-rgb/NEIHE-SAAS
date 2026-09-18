@@ -3,7 +3,8 @@ import { NodeHandle as Handle } from "./NodeHandle";
 import { SceneStabilizeControls } from "./SceneStabilizeControls";
 import { GptQualityControls } from "./GptQualityControls";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
-import { selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
+import { nodeOutputImages, selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
+import { orderSceneReferences } from "@/lib/sceneReferenceOrder";
 import { inputPortSpecs } from "@/lib/workflowPorts";
 import { isNodeRunActive, type VirtualTryOnNodeData } from "@/types/workflow";
 import { ImageGrid } from "./ImageGrid";
@@ -53,12 +54,24 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
     { multiline: true },
   );
   const running = isNodeRunActive(data.status);
+  const numberedReferences = data.workflowStage === "scene-stabilize"
+    ? orderSceneReferences(edges.filter(edge => edge.target === id).flatMap(edge => {
+      const source = nodes.find(node => node.id === edge.source);
+      return source ? nodeOutputImages(source.data, edge.sourceHandle).map(image => ({
+        image, role: edge.targetHandle ?? "", sourceId: source.id,
+      })) : [];
+    })).map((reference, index) => ({ ...reference, number: index + 1 })) : [];
   const roleRows = data.workflowStage === "standard" ? [] : inputPortSpecs(data).map((port) => {
     const connected = edges.filter((edge) => edge.target === id && edge.targetHandle === port.id);
     const sourceLabel = connected
       .map((edge) => nodes.find((node) => node.id === edge.source)?.data.label)
       .filter((label): label is string => Boolean(label));
-    return { port, connectedSource: sourceLabel };
+    const numbers = numberedReferences.filter(reference => reference.role === port.id).map(reference => reference.number);
+    const pending = connected.some(edge => {
+      const source = nodes.find(node => node.id === edge.source);
+      return !source || nodeOutputImages(source.data, edge.sourceHandle).length === 0;
+    });
+    return { port, connectedSource: sourceLabel, numbers, pending };
   });
   const missingRequiredRole = roleRows.some(({ port, connectedSource }) => (
     port.required && connectedSource.length === 0
@@ -98,7 +111,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
 
         {roleRows.length > 0 && (
           <div role="group" className="grid grid-cols-2 gap-1" aria-label="输入角色">
-            {roleRows.map(({ port, connectedSource }) => (
+            {roleRows.map(({ port, connectedSource, numbers, pending }) => (
               <div
                 key={port.id}
                 data-port-row={port.id}
@@ -118,7 +131,13 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
                     ? `${port.label}（已连接）`
                     : `${port.label}${port.required ? "（必填，未连接）" : "（可选，未连接）"}`}
                 />
-                <span className="min-w-0 flex-1 truncate text-[8px] text-[var(--gc-node-muted)]">{port.label}</span>
+                <span className="min-w-0 flex-1 text-[8px] text-[var(--gc-node-muted)]">
+                  <span className="block truncate">{port.label}</span>
+                  {data.workflowStage === "scene-stabilize" && <span className="block break-words" data-reference-numbers={port.id}>
+                    {numbers.map(number => `(参考图 ${number})`).join(" ")}
+                    {pending ? " 待提供图片" : ""}
+                  </span>}
+                </span>
                 {port.required && <span className="text-[7px] text-amber-600">必填</span>}
               </div>
             ))}

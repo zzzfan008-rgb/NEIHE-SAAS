@@ -13,6 +13,7 @@ assert.equal(fs.existsSync(approvalNodePath), true, "必须提供独立的第一
 const roleDialog = fs.readFileSync(roleDialogPath, "utf8");
 const approvalNode = fs.readFileSync(approvalNodePath, "utf8");
 const stagedNode = read("src/components/nodes/VirtualTryOnNode.tsx");
+assert.match(stagedNode, /\(参考图 /, "角色框必须显示模型实际编号");
 const workflowPorts = read("src/lib/workflowPorts.ts");
 const inspector = read("src/components/panels/InspectorPanel.tsx");
 

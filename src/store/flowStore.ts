@@ -1442,7 +1442,7 @@ function defaultNodeDataWithPreset(
 }
 
 /** 从节点 data 中取它对外输出的图片 */
-function nodeOutputImages(
+export function nodeOutputImages(
   data: WorkflowNodeData,
   sourceHandle?: string | null,
 ): string[] {

@@ -216,16 +216,6 @@ async function runRecordedAiStep(
   }, {
     referenceRoles,
     sceneAnalyzer,
-    identityAnchorer: async (_image, options) => {
-      await options?.beforeProviderCall?.(1);
-      return {
-        image: SEED_DATA_URL,
-        model: "identity-anchor-stub",
-        providerRequests: 1,
-        cacheHit: false,
-        fallback: false,
-      };
-    },
     ...executeOptions,
   });
   return { calls, providerIds, result };
@@ -465,7 +455,7 @@ async function main() {
     pose.data.poseReferenceSource = { kind: 'skeleton', image: '/api/files/old.png' };
     assert.equal(buildExecutionPlan(stageOneNodes, stageOneEdges, { onlyNodeId: stabilize.id }).steps[0].params.poseReferenceType, 'unspecified');
     pose.data.poseReferenceSource = { kind: 'depth', image: pose.data.imageUrl!, neutralSource: '/api/files/neutral.png' };
-    assert.equal(buildExecutionPlan(stageOneNodes, stageOneEdges, { onlyNodeId: stabilize.id }).steps[0].params.poseNeutralSource, '/api/files/neutral.png');
+    assert.equal(buildExecutionPlan(stageOneNodes, stageOneEdges, { onlyNodeId: stabilize.id }).steps[0].params.poseNeutralSource, undefined);
     delete pose.data.poseReferenceSource;
     const invalidStageOneNode: FlowNode = {
       ...stabilize,
@@ -924,27 +914,26 @@ async function main() {
       ["scene", "pose", "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet"],
       sceneAnalyzer,
     );
-    assert.equal(stageOne.result.providerRequests, 3);
-    assert.equal(stageOne.calls[0].request.referenceImages?.length, 12);
+    assert.equal(stageOne.result.providerRequests, 2);
+    assert.equal(stageOne.calls[0].request.referenceImages?.length, 11);
     assert.equal(stageOne.calls[0].request.referenceImages?.[0], POSE_DATA_URL, "原始姿势图必须直接位于生图参考首位");
-    assert.equal(stageOne.calls[0].request.referenceImages?.[1], SEED_DATA_URL);
-    assert.equal(stageOne.calls[0].request.referenceImages?.[2], PERSON_GRID_DATA_URL);
-    assert.equal(stageOne.calls[0].request.referenceImages?.[3], SECOND_DATA_URL);
+    assert.equal(stageOne.calls[0].request.referenceImages?.[1], PERSON_GRID_DATA_URL);
+    assert.equal(stageOne.calls[0].request.referenceImages?.[2], SECOND_DATA_URL);
     assert.equal(stageOne.calls[0].request.referenceImages?.at(-1), SCENE_DATA_URL);
     assert.deepEqual(stageOne.calls[0].request.modelOptions, { aspectRatio: "2:3", imageSize: "2K" });
-    assert.match(stageOne.calls[0].request.prompt, /视觉定位后从主要人物脸部裁切的身份锚点/);
+    assert.doesNotMatch(stageOne.calls[0].request.prompt, /身份锚点|中性源/);
     assert.match(stageOne.calls[0].request.prompt, /主要完整人物身份图/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图4是服装与搭配风格的唯一来源/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图3是服装与搭配风格的唯一来源/);
     assert.match(stageOne.calls[0].request.prompt, /参考图1是用户手动选择的原始姿势参考图/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图12是纯场景环境参考/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图11是纯场景环境参考/);
     assert.match(stageOne.calls[0].request.prompt, /暖灰色无缝背景/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图5只控制目标包袋/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图6只控制目标鞋履/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图7只控制目标袜子/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图8只控制目标帽子/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图9只控制目标戒指/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图10只控制目标耳环/);
-    assert.match(stageOne.calls[0].request.prompt, /参考图11只控制目标手镯/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图4只控制目标包袋/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图5只控制目标鞋履/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图6只控制目标袜子/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图7只控制目标帽子/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图8只控制目标戒指/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图9只控制目标耳环/);
+    assert.match(stageOne.calls[0].request.prompt, /参考图10只控制目标手镯/);
     assert.match(stageOne.calls[0].request.prompt, /佩戴适配姿势/);
     assert.match(stageOne.calls[0].request.prompt, /不为展示包袋改变手臂动作/);
     assert.doesNotMatch(stageOne.calls[0].request.prompt, /可能|结合场景文字中的手部动作/);
@@ -1029,8 +1018,8 @@ async function main() {
         candidateSelector: async (input) => {
           assert.equal(input.referenceRoles[0], "pose");
           assert.match(input.prompt, /参考图1是用户手动选择的原始姿势参考图/);
-          assert.deepEqual(input.referenceRoles, ["pose", "face-anchor", "person", "outfit", "scene"]);
-          assert.deepEqual(input.referenceImages, [POSE_DATA_URL, SEED_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL, SCENE_DATA_URL]);
+          assert.deepEqual(input.referenceRoles, ["pose", "person", "outfit", "scene"]);
+          assert.deepEqual(input.referenceImages, [POSE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL, SCENE_DATA_URL]);
           assert.equal(input.referenceImages[input.referenceRoles.indexOf("scene")], SCENE_DATA_URL);
           assert.equal(input.referenceImages[input.referenceRoles.indexOf("pose")], POSE_DATA_URL);
           await input.beforeProviderCall?.(1);
@@ -1047,23 +1036,21 @@ async function main() {
     assert.equal(bestMode.calls.length, 3, "最佳档位必须发出三次独立单图请求");
     assert.ok(bestMode.calls.every((call) => call.request.batchSize === 1));
     assert.equal(bestMode.result.candidateSelection?.selectedIndex, 2);
-    assert.equal(bestMode.result.providerRequests, 6);
-    const { resolveImageRefs } = await import("../server/engine/runner");
-    const [neutralData] = await resolveImageRefs(["/api/files/seed.png"]);
+    assert.equal(bestMode.result.providerRequests, 5);
     const neutralMode = await runRecordedAiStep("virtual-try-on", {
       workflowStage: "scene-stabilize", modelId: "gemini-3.1-flash-image", imageSize: "2K",
       qualityMode: "best", poseReferenceType: "depth", poseNeutralSource: "/api/files/seed.png",
     }, [SCENE_DATA_URL, POSE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL], undefined,
     ["scene", "pose", "person", "outfit"], sceneAnalyzer, {
       candidateSelector: async input => {
-        assert.deepEqual(input.referenceRoles, ["pose", "pose-neutral", "face-anchor", "person", "outfit", "scene"]);
-        assert.deepEqual(input.referenceImages, [POSE_DATA_URL, neutralData, SEED_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL, SCENE_DATA_URL]);
-        assert.match(input.prompt, /参考图2是生成该姿势图时实际使用的背心＋紧身裤中性源/);
-        assert.match(input.prompt, /参考图5是服装与搭配风格的唯一来源/);
+        assert.deepEqual(input.referenceRoles, ["pose", "person", "outfit", "scene"]);
+        assert.deepEqual(input.referenceImages, [POSE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL, SCENE_DATA_URL]);
+        assert.doesNotMatch(input.prompt, /中性源|身份锚点/);
+        assert.match(input.prompt, /参考图3是服装与搭配风格的唯一来源/);
         return { selectedIndex: 0, scores: [], model: "stub", providerRequests: 0, allHardFail: false };
       },
     });
-    assert.deepEqual(neutralMode.calls[0].request.referenceImages?.slice(0, 2), [POSE_DATA_URL, neutralData]);
+    assert.deepEqual(neutralMode.calls[0].request.referenceImages?.slice(0, 2), [POSE_DATA_URL, PERSON_GRID_DATA_URL]);
 
     const unavailableJudge = await runRecordedAiStep(
       "virtual-try-on",
@@ -1087,13 +1074,13 @@ async function main() {
     assert.equal(failedJudge.result.images.length, 3, "全部未通过时仍保留付费结果");
     assert.equal(failedJudge.result.candidateSelection, undefined);
     assert.match(failedJudge.result.warning!, /均未通过/);
-    const fullRoles = ["scene", "pose", "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail", "detail", "detail"];
+    const fullRoles = ["scene", "pose", "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail", "detail", "detail", "detail"];
     await assert.rejects(runRecordedAiStep(
       "virtual-try-on",
       { workflowStage: "scene-stabilize", modelId: "gemini-3.1-flash-image" },
       fullRoles.map(() => SCENE_DATA_URL), undefined, fullRoles,
       async () => { assert.fail("超限时不得发起场景分析调用"); },
-    ), /预留名额/);
+    ), /at most/);
 
     const enhancedMode = await runRecordedAiStep(
       "virtual-try-on",
@@ -1121,7 +1108,7 @@ async function main() {
     );
     assert.match(enhancedMode.calls[0].request.prompt, /用户原始要求（必须逐项保留）：保留象牙白阔腿裤的双褶线/);
     assert.match(enhancedMode.calls[0].request.prompt, /结构化增强要求：主体自然站立/);
-    assert.equal(enhancedMode.result.providerRequests, 4);
+    assert.equal(enhancedMode.result.providerRequests, 3);
 
     const stageTwo = await runRecordedAiStep(
       "virtual-try-on",

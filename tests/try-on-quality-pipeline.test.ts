@@ -136,7 +136,8 @@ try {
         generationCalls++;
         assertNoPoseProse(request.prompt);
         assert.equal(request.referenceImages?.[0], smallImage);
-        assert.equal(request.referenceImages?.length, withNeutral ? 6 : 5);
+        assert.equal(request.referenceImages?.length, 4, "只发送用户连接的四张图片，不附加人脸或中性源");
+        assert.doesNotMatch(request.prompt, /脸部锚点|身份锚点|背心＋紧身裤中性源/);
         return { images: [smallImage], model: "stub" };
       };
       // An extra legacy option deliberately remains in the fixture: it must
@@ -144,7 +145,7 @@ try {
       const options = {
         referenceRoles: ["scene", "pose", "person", "outfit"],
         sceneAnalyzer: async () => ({ prompt: "环境：摄影棚", providerRequests: 0, model: "stub", cacheHit: true }),
-        identityAnchorer: async () => ({ image: smallImage, providerRequests: 0, model: "stub", cacheHit: true, fallback: false }),
+        identityAnchorer: async () => { assert.fail("不得调用人脸定位或裁切"); },
         poseAnalyzer: async () => {
           poseCalls++;
           return { guideImage: smallImage, prompt: inventedPose, providerRequests: 1, model: "stub", cacheHit: false };
@@ -153,8 +154,8 @@ try {
           judgeCalls++;
           assertNoPoseProse(input.prompt);
           assert.equal(input.referenceRoles[0], "pose");
-          assert.equal(input.referenceRoles.includes("pose-neutral"), withNeutral);
-          assert.equal(input.referenceImages.length, withNeutral ? 6 : 5);
+          assert.deepEqual(input.referenceRoles, ["pose", "person", "outfit", "scene"]);
+          assert.equal(input.referenceImages.length, 4);
           return { selectedIndex: 0, scores: [], model: "stub", providerRequests: 0, allHardFail: false };
         },
       };
@@ -168,6 +169,39 @@ try {
       assert.equal(judgeCalls, 1);
       assert.equal(result.providerRequests, 3);
     }
+  }
+  const optionalRoles = ["bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail"];
+  const roles = ["pose", "person", "outfit", ...optionalRoles, "scene"];
+  const roleImages = await Promise.all(roles.map(async (_role, index) => `data:image/png;base64,${(await sharp({ create: {
+    width: 16, height: 24, channels: 3, background: { r: 10 + index * 19, g: 20, b: 90 },
+  } }).png().toBuffer()).toString("base64")}`));
+  // Every optional-role combination, reversed edge order, plus multiple identity
+  // images. Compare actual request bytes and prompt numbers, not only counts.
+  for (let mask = 0; mask < 256; mask++) {
+    const expectedRoles = roles.filter(role => !optionalRoles.includes(role) || (mask & (1 << optionalRoles.indexOf(role))));
+    const expected = expectedRoles.map(role => ({ role, image: roleImages[roles.indexOf(role)] }));
+    if (mask === 0) expected.splice(2, 0, { role: "person", image: smallImage });
+    const incoming = [...expected].reverse();
+    const images = incoming.map(item => item.image);
+    const generate = async (request: ImageGenRequest) => {
+      // Stable same-role order follows the incoming edges.
+      const ordered = roles.flatMap(role => incoming.filter(item => item.role === role));
+      assert.deepEqual(request.referenceImages, ordered.map(item => item.image));
+      for (const [index, item] of ordered.entries()) {
+        assert.ok(request.prompt.includes(`参考图${index + 1}`), `${item.role} 的编号缺失`);
+      }
+      const numbers = [...request.prompt.matchAll(/参考图(\d+)/g)].map(match => Number(match[1]));
+      assert.ok(numbers.every(number => number >= 1 && number <= ordered.length));
+      assert.doesNotMatch(request.prompt, /身份锚点|脸部锚点|pose-neutral|参考图undefined/);
+      return { images: [smallImage], model: "stub" };
+    };
+    await executeStep({ nodeId: "reference-order", kind: "virtual-try-on", inputImages: images,
+      params: { workflowStage: "scene-stabilize", modelId: "gemini-3.1-flash-image", imageSize: "2K",
+        qualityMode: "fast", poseNeutralSource: "/api/files/removed-neutral.png", styleReferenceImage: "/api/files/unused-style.png" } }, images,
+    () => ({ id: "stub", generate, edit: generate }), {
+      referenceRoles: incoming.map(item => item.role),
+      sceneAnalyzer: async () => ({ prompt: "摄影棚", providerRequests: 0, model: "stub", cacheHit: true }),
+    });
   }
 } finally {
   globalThis.fetch = originalFetch;
