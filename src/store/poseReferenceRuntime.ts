@@ -22,8 +22,10 @@ const reads = new Set<string>();
 const versions = new Map<string,number>();
 const outfitReads = new Set<string>();
 const outfitVersions = new Map<string,number>();
-export function poseReferenceKey(target: DocumentTarget,nodeId:string,source:string) {
-  return JSON.stringify([target.tabId,target.projectId,target.documentEpoch,nodeId,source]);
+export function poseReferenceKey(target: DocumentTarget,nodeId:string,source:string,analysisSourceRecordId?:string) {
+  return JSON.stringify(analysisSourceRecordId
+    ? [target.tabId,target.projectId,target.documentEpoch,nodeId,source,`depth:${analysisSourceRecordId}`]
+    : [target.tabId,target.projectId,target.documentEpoch,nodeId,source]);
 }
 function current(target:DocumentTarget,nodeId:string,source:string,write=false) {
   const tab=useFlowStore.getState().tabs.find(t=>t.id===target.tabId&&t.projectId===target.projectId&&t.documentEpoch===target.documentEpoch);
@@ -52,13 +54,17 @@ function validateOutfit(value:PoseOutfitReferenceRecord|undefined|null,source:st
   if(value.status==='succeeded'&&(!value.result||!isLocalImageReference(value.result.image)||typeof value.result.model!=='string')) throw new Error('服饰替换图片格式无效');
   return value;
 }
-export async function restorePoseReferences(target:DocumentTarget,nodeId:string,source:string,analysisSource=source) {
-  const key=poseReferenceKey(target,nodeId,analysisSource);
+export async function restorePoseReferences(target:DocumentTarget,nodeId:string,source:string,analysisSource=source,analysisSourceRecordId?:string) {
+  const key=poseReferenceKey(target,nodeId,analysisSource,analysisSourceRecordId);
   if(reads.has(key)||!current(target,nodeId,source)) return;
   reads.add(key);
   const version=versions.get(key)??0;
   try {
     const params=new URLSearchParams({projectId:target.projectId,nodeId,source,analysisSource});
+    if (analysisSourceRecordId) {
+      params.set('analysisSourceKind','depth');
+      params.set('analysisSourceRecordId',analysisSourceRecordId);
+    }
     const value=await response(await fetch(`/api/pose-references?${params}`,{cache:'no-store',signal:AbortSignal.timeout(30_000)}));
     if(!Array.isArray(value.records)) throw new Error('姿势参考结果格式无效');
     const records=value.records.map((r:PoseReferenceRecord)=>validate(r,analysisSource));
@@ -68,8 +74,8 @@ export async function restorePoseReferences(target:DocumentTarget,nodeId:string,
     if(current(target,nodeId,source)&&(versions.get(key)??0)===version) patch(key,s=>({...s,error:error instanceof Error?error.message:'结果恢复失败'}));
   } finally { reads.delete(key); }
 }
-export async function generatePoseReference(target:DocumentTarget,nodeId:string,source:string,kind:PoseReferenceKind,retry=false,analysisSource=source) {
-  const key=poseReferenceKey(target,nodeId,analysisSource);
+export async function generatePoseReference(target:DocumentTarget,nodeId:string,source:string,kind:PoseReferenceKind,retry=false,analysisSource=source,analysisSourceRecordId?:string) {
+  const key=poseReferenceKey(target,nodeId,analysisSource,analysisSourceRecordId);
   const state=usePoseReferenceRuntime.getState().entries[key];
   if(!current(target,nodeId,source,true)||state?.busy[kind]||state?.records[kind]?.status==='running') return;
   versions.set(key,(versions.get(key)??0)+1);
@@ -78,7 +84,7 @@ export async function generatePoseReference(target:DocumentTarget,nodeId:string,
     if(!await useFlowStore.getState().saveProjectInTab(target)) throw new Error('项目保存失败，请先保存后重试');
     if(!current(target,nodeId,source,true)) return;
     const record=validate(await response(await fetch('/api/pose-references',{method:'POST',headers:{'Content-Type':'application/json'},
-      signal:AbortSignal.timeout(30_000),body:JSON.stringify({projectId:target.projectId,nodeId,source,analysisSource,kind,retry,requestId:nanoid(16)})})),analysisSource);
+      signal:AbortSignal.timeout(30_000),body:JSON.stringify({projectId:target.projectId,nodeId,source,analysisSource,kind,retry,requestId:nanoid(16),...(analysisSourceRecordId?{analysisSourceKind:'depth',analysisSourceRecordId}: {})})})),analysisSource);
     if(current(target,nodeId,source)) patch(key,s=>({...s,records:{...s.records,[kind]:{...record,result:record.result??s.records[kind]?.result}}}));
   } catch(error) {
     if(current(target,nodeId,source)) patch(key,s=>({...s,errors:{...s.errors,[kind]:error instanceof Error?error.message:'提交失败，请先刷新结果，避免重复调用'}}));
@@ -127,8 +133,11 @@ export async function generatePoseOutfitReference(target:DocumentTarget,nodeId:s
 }
 
 /** Persist generated images before atomically exporting into the initiating document. */
-export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:string,source:string,kind:PoseReferenceCanvasKind,analysisSource=source) {
-  const key=poseReferenceKey(target,nodeId,kind==='skeleton'||kind==='depth'?analysisSource:source);
+export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:string,source:string,kind:PoseReferenceCanvasKind,analysisSource=source,analysisSourceRecordId?:string) {
+  const derivedKey = kind==='skeleton'||kind==='depth'
+    ? poseReferenceKey(target,nodeId,analysisSource,analysisSourceRecordId)
+    : poseReferenceKey(target,nodeId,source);
+  const key=derivedKey;
   const state=usePoseReferenceRuntime.getState().entries[key];
   if(!current(target,nodeId,source,true)||state?.adding?.[kind]) return;
   const image=kind==='original'?source:kind==='neutral-outfit'?state?.neutralOutfit?.result?.image:state?.records[kind]?.result?.image;
@@ -143,9 +152,13 @@ export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:stri
     if(!current(target,nodeId,source,true)) return;
     if(typeof url!=='string'||!/^\/api\/files\/[\w.-]+$/.test(url)) throw new Error('图片保存结果无效');
     const baseLabel=kind==='original'?'姿势原图':kind==='neutral-outfit'?'背心+紧身裤姿势参考':kind==='skeleton'?(state?.records.skeleton?.result?.model==='dwpose-wholebody'?'DWPose 骨骼图':'旧版骨骼图'):'人物深度图';
-    const label=(kind==='skeleton'||kind==='depth')&&analysisSource!==source?`${baseLabel}（背心+紧身裤）`:baseLabel;
+    const label=(kind==='skeleton'||kind==='depth')&&analysisSourceRecordId
+      ? `${baseLabel}（深度图）`
+      : (kind==='skeleton'||kind==='depth')&&analysisSource!==source
+        ? `${baseLabel}（背心+紧身裤）`
+        : baseLabel;
     const neutral = usePoseReferenceRuntime.getState().entries[poseReferenceKey(target,nodeId,source)]?.neutralOutfit;
-    const neutralSource = (kind==='depth'||kind==='skeleton') && analysisSource!==source &&
+    const neutralSource = (kind==='depth'||kind==='skeleton') && !analysisSourceRecordId && analysisSource!==source &&
       state?.records[kind]?.source===analysisSource && neutral?.source===source &&
       neutral.status==='succeeded' && neutral.result?.image===analysisSource
       ? analysisSource : undefined;

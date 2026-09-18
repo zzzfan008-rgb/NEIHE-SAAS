@@ -33,6 +33,7 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
   const state = usePoseReferenceRuntime((s) => s.entries[key] ?? EMPTY_POSE_STATE);
   const [zoom, setZoom] = useState<PoseReferenceCanvasKind | null>(null);
   const [sourceChoice, setSourceChoice] = useState<'auto' | 'original' | 'outfit'>('auto');
+  const [skeletonSourceChoice, setSkeletonSourceChoice] = useState<'current' | 'depth'>('current');
   const stableTarget = useMemo(
     () => target,
     [target.tabId, target.projectId, target.documentEpoch],
@@ -46,28 +47,54 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
   const analysisSource = sourceChoice !== 'original' && neutralOutfitImage ? neutralOutfitImage : source;
   const referenceKey = poseReferenceKey(target, nodeId, analysisSource);
   const referenceState = usePoseReferenceRuntime(s => s.entries[referenceKey] ?? EMPTY_POSE_STATE);
-  const running = neutralOutfitPending || Object.values(referenceState.records).some(record => record?.status === 'running');
+  const depthRecord = referenceState.records.depth;
+  const depthReady = depthRecord?.status === 'succeeded' && Boolean(depthRecord.result?.image) && Boolean(depthRecord.id);
+  const useDepthForSkeleton = skeletonSourceChoice === 'depth' && depthReady;
+  const skeletonAnalysisSource = useDepthForSkeleton ? depthRecord!.source : analysisSource;
+  const skeletonAnalysisSourceRecordId = useDepthForSkeleton ? depthRecord!.id : undefined;
+  const skeletonReferenceKey = poseReferenceKey(target, nodeId, skeletonAnalysisSource, skeletonAnalysisSourceRecordId);
+  const skeletonState = usePoseReferenceRuntime(s => s.entries[skeletonReferenceKey] ?? EMPTY_POSE_STATE);
+  const running = neutralOutfitPending ||
+    Object.values(referenceState.records).some(record => record?.status === 'running') ||
+    Object.values(referenceState.busy).some(Boolean) ||
+    (skeletonReferenceKey !== referenceKey && Object.values(skeletonState.records).some(record => record?.status === 'running')) ||
+    (skeletonReferenceKey !== referenceKey && Object.values(skeletonState.busy).some(Boolean));
   const sourceLabel = analysisSource === source ? '原图' : '背心+紧身裤图';
+  const skeletonSourceLabel = useDepthForSkeleton ? '深度图' : sourceLabel;
   const neutralOutfitError = state.neutralOutfitError || state.neutralOutfit?.error;
   const neutralOutfitRetry = neutralOutfitStatus === 'failed' ||
     neutralOutfitStatus === 'outcome_unknown' ||
     neutralOutfitStatus === 'cancelled';
 
   useEffect(() => {
-    void restorePoseReferences(stableTarget, nodeId, source, analysisSource);
+    const restore = () => {
+      void restorePoseReferences(stableTarget, nodeId, source, analysisSource);
+      if (skeletonAnalysisSourceRecordId) {
+        void restorePoseReferences(stableTarget, nodeId, source, skeletonAnalysisSource, skeletonAnalysisSourceRecordId);
+      }
+    };
+    restore();
     void restorePoseOutfitReference(stableTarget, nodeId, source);
     const timer = setInterval(() => {
-      void restorePoseReferences(stableTarget, nodeId, source, analysisSource);
+      restore();
       void restorePoseOutfitReference(stableTarget, nodeId, source);
     }, running ? 1500 : 15000);
     return () => clearInterval(timer);
-  }, [key, running, stableTarget, nodeId, source, analysisSource]);
+  }, [key, running, stableTarget, nodeId, source, analysisSource, skeletonAnalysisSource, skeletonAnalysisSourceRecordId]);
 
   const generate = (kind: PoseReferenceKind, retry = false) =>
-    void generatePoseReference(stableTarget, nodeId, source, kind, retry, analysisSource);
+    void generatePoseReference(
+      stableTarget,
+      nodeId,
+      source,
+      kind,
+      retry,
+      kind === 'skeleton' ? skeletonAnalysisSource : analysisSource,
+      kind === 'skeleton' ? skeletonAnalysisSourceRecordId : undefined,
+    );
   const panels: ComparisonPanel[] = [
     { id: 'original', label: '原图', image: source },
-    { id: 'skeleton', label: '骨骼图', image: referenceState.records.skeleton?.result?.image },
+    { id: 'skeleton', label: '骨骼图', image: skeletonState.records.skeleton?.result?.image },
     { id: 'depth', label: '深度图', image: referenceState.records.depth?.result?.image },
   ];
   const neutralOutfitPanel: ComparisonPanel = {
@@ -103,13 +130,35 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
         <div className="my-3 flex flex-wrap items-center gap-3">
           <div role="group" aria-label="骨骼与深度生成来源" className="flex flex-wrap items-center gap-2">
             <span className="text-xs">生成来源</span>
-            <Button size="sm" variant={analysisSource===source?'default':'outline'} aria-pressed={analysisSource===source} onClick={()=>setSourceChoice('original')}>原图</Button>
-            <Button size="sm" variant={analysisSource!==source?'default':'outline'} aria-pressed={analysisSource!==source} disabled={!neutralOutfitImage} onClick={()=>setSourceChoice('outfit')}>背心+紧身裤图</Button>
+            <Button size="sm" variant={analysisSource===source?'default':'outline'} aria-pressed={analysisSource===source} onClick={()=>{ setSourceChoice('original'); setSkeletonSourceChoice('current'); }}>原图</Button>
+            <Button size="sm" variant={analysisSource!==source?'default':'outline'} aria-pressed={analysisSource!==source} disabled={!neutralOutfitImage} onClick={()=>{ setSourceChoice('outfit'); setSkeletonSourceChoice('current'); }}>背心+紧身裤图</Button>
+          </div>
+          <div role="group" aria-label="DWPose 骨骼图生成来源" className="flex flex-wrap items-center gap-2">
+            <span className="text-xs">DWPose 骨骼图来源</span>
+            <Button
+              size="sm"
+              variant={skeletonSourceChoice === 'current' ? 'default' : 'outline'}
+              aria-label="DWPose 跟随当前来源"
+              aria-pressed={skeletonSourceChoice === 'current'}
+              onClick={() => setSkeletonSourceChoice('current')}
+            >
+              跟随当前来源
+            </Button>
+            <Button
+              size="sm"
+              variant={skeletonSourceChoice === 'depth' ? 'default' : 'outline'}
+              aria-label="DWPose 使用深度图"
+              aria-pressed={skeletonSourceChoice === 'depth'}
+              disabled={!depthReady}
+              onClick={() => setSkeletonSourceChoice('depth')}
+            >
+              深度图
+            </Button>
           </div>
           {!readOnly && (
             <Button
               size="sm"
-              disabled={running || Object.values(referenceState.busy).some(Boolean)}
+              disabled={running || (skeletonSourceChoice === 'depth' && !depthReady)}
               onClick={() => { generate('skeleton'); generate('depth'); }}
             >
               生成两种参考
@@ -120,6 +169,9 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
             variant="outline"
             onClick={() => {
               void restorePoseReferences(stableTarget, nodeId, source, analysisSource);
+              if (skeletonAnalysisSourceRecordId) {
+                void restorePoseReferences(stableTarget, nodeId, source, skeletonAnalysisSource, skeletonAnalysisSourceRecordId);
+              }
               void restorePoseOutfitReference(stableTarget, nodeId, source);
             }}
           >
@@ -137,6 +189,7 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
 
         {state.error && <p role="alert" className="mb-3 text-sm text-red-600">{state.error}</p>}
         {referenceState !== state && referenceState.error && <p role="alert" className="mb-3 text-sm text-red-600">{referenceState.error}</p>}
+        {skeletonReferenceKey !== referenceKey && skeletonState.error && <p role="alert" className="mb-3 text-sm text-red-600">{skeletonState.error}</p>}
 
         <div
           style={{
@@ -149,21 +202,21 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
             const kind = panel.id === 'original' || panel.id === 'neutral-outfit'
               ? undefined
               : panel.id as PoseReferenceKind;
-            const panelState = kind ? referenceState : state;
+            const panelState = panel.id === 'skeleton' ? skeletonState : kind ? referenceState : state;
             const record = panel.id === 'neutral-outfit'
               ? state.neutralOutfit
               : kind
-                ? referenceState.records[kind]
+                ? (panel.id === 'skeleton' ? skeletonState.records[kind] : referenceState.records[kind])
                 : undefined;
             const pending = panel.id === 'neutral-outfit'
               ? neutralOutfitPending
               : kind
-                ? referenceState.busy[kind] || record?.status === 'running'
+                ? panelState.busy[kind] || record?.status === 'running'
                 : false;
             const error = panel.id === 'neutral-outfit'
               ? neutralOutfitError
               : kind
-                ? referenceState.errors[kind] || record?.error
+                ? panelState.errors[kind] || record?.error
                 : undefined;
             const retry = panel.id === 'neutral-outfit'
               ? neutralOutfitRetry
@@ -194,7 +247,7 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
                 <h3 className="mb-2 text-sm font-medium">
                   {panel.label}{panel.id === 'depth' ? ' · 亮近暗远' : ''}
                 </h3>
-                {kind && <p className="mb-2 text-xs text-[var(--gc-text-muted)]">来源：{sourceLabel}</p>}
+                {kind && <p className="mb-2 text-xs text-[var(--gc-text-muted)]">来源：{panel.id === 'skeleton' ? skeletonSourceLabel : sourceLabel}</p>}
                 <div
                   className="flex items-center justify-center overflow-hidden rounded-md bg-[var(--gc-canvas)]"
                   style={{ height: zoom ? 'min(65vh, 700px)' : 'min(48vh, 500px)' }}
@@ -223,7 +276,14 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
                           size="xs"
                           disabled={panelState.adding?.[panel.id]}
                           aria-label={`添加${panel.label}到画布`}
-                          onClick={() => void addPoseReferenceToCanvas(stableTarget, nodeId, source, panel.id, analysisSource)}
+                          onClick={() => void addPoseReferenceToCanvas(
+                            stableTarget,
+                            nodeId,
+                            source,
+                            panel.id,
+                            panel.id === 'skeleton' ? skeletonAnalysisSource : analysisSource,
+                            panel.id === 'skeleton' ? skeletonAnalysisSourceRecordId : undefined,
+                          )}
                         >
                           {panelState.adding?.[panel.id] ? '添加中…' : '添加到画布'}
                         </Button>

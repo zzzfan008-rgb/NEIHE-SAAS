@@ -23,6 +23,7 @@ for (const user of ['owner', 'other']) {
   sessions[user] = (await createSession(user)).token;
 }
 const png = `data:image/png;base64,${(await sharp({create:{width:30,height:50,channels:3,background:'white'}}).png().toBuffer()).toString('base64')}`;
+const depthPng = `data:image/png;base64,${(await sharp({create:{width:30,height:50,channels:3,background:'#777777'}}).png().toBuffer()).toString('base64')}`;
 const stored = saveDataUrl(png);
 await query("INSERT INTO files(id,owner_id,created_at) VALUES($1,'owner',$2)", [stored.id,now]);
 const flow = {nodes:[{id:'pose',type:'image-input',position:{x:0,y:0},data:{kind:'image-input',label:'人物姿势参考图（必需）',poseReference:true,status:'idle',imageRole:'reference',imageUrl:stored.url}}, {id:'stabilize',type:'virtual-try-on',position:{x:400,y:0},data:{kind:'virtual-try-on',workflowStage:'scene-stabilize',label:'定版',status:'idle'}}],edges:[]};
@@ -35,7 +36,12 @@ app.use(express.json());
 app.use('/api',requireAuth,requirePasswordChanged);
 const router = fs.existsSync('server/routes/poseReferences.ts')
   ? (await import('../server/routes/poseReferences')).createPoseReferencesRouter({
-      analyze: async (_image: string, kind: string) => { calls++; await delayed; if(kind==='skeleton') throw new Error('private provider detail'); return {image:png,model:'test-depth'}; },
+      analyze: async (image: string, kind: string) => {
+        calls++;
+        await delayed;
+        if (kind === 'skeleton' && image === png) throw new Error('private provider detail');
+        return {image: kind === 'depth' ? depthPng : png, model: kind === 'skeleton' ? 'test-skeleton' : 'test-depth'};
+      },
     }) : express.Router();
 app.use('/api/pose-references',router);
 app.use('/api/pose-local',(await import('../server/routes/poseReferences')).createPoseReferencesRouter());
@@ -60,12 +66,39 @@ try {
     await new Promise(resolve=>setTimeout(resolve,10));
   }
   const results = await (await req('GET')).json();
-  assert.equal(results.records[0].result.image,png);
+  assert.equal(results.records[0].result.image,depthPng);
   assert.equal(calls,1);
   await req('POST');
   assert.equal(calls,1,'cache hit must not generate again');
   assert.equal((await req('GET',undefined,'other')).status,404);
   assert.equal((await req('POST',{...body,source:'https://example.com/private.png'})).status,400);
+  const depthSkeletonBody = {
+    ...body,
+    kind: 'skeleton',
+    requestId: 'depth-skeleton-request',
+    analysisSourceKind: 'depth',
+    analysisSourceRecordId: record.id,
+  };
+  const depthSkeleton = await req('POST',depthSkeletonBody);
+  assert.equal(depthSkeleton.status,202,'深度图应能作为 DWPose 骨骼图来源提交');
+  const depthSkeletonRecord = await depthSkeleton.json();
+  for(let i=0;i<100;i++) {
+    if((await queryOne<{status:string}>('SELECT status FROM pose_references WHERE id=$1',[depthSkeletonRecord.id]))?.status==='succeeded') break;
+    await new Promise(resolve=>setTimeout(resolve,10));
+  }
+  const depthSkeletonRow = await queryOne<{source:string;kind:string;result:unknown}>('SELECT source,kind,result FROM pose_references WHERE id=$1',[depthSkeletonRecord.id]);
+  assert.equal(depthSkeletonRow?.source,stored.url);
+  assert.equal(depthSkeletonRow?.kind,'skeleton');
+  assert.equal((depthSkeletonRow?.result as {model?:string} | undefined)?.model,'test-skeleton');
+  assert.equal(calls,2);
+  const depthRecordsResponse = await fetch(base+'/api/pose-references?'+new URLSearchParams({
+    projectId:'project',nodeId:'pose',source:stored.url,analysisSource:stored.url,
+    analysisSourceKind:'depth',analysisSourceRecordId:record.id,
+  }),{headers:{cookie:`${SESSION_COOKIE}=${sessions.owner}`} });
+  assert.equal(depthRecordsResponse.status,200);
+  const depthRecords = await depthRecordsResponse.json();
+  assert.equal(depthRecords.records.find((item:any)=>item.kind==='skeleton').id,depthSkeletonRecord.id);
+  assert.equal((await req('POST',{...depthSkeletonBody,analysisSourceRecordId:'missing-depth-record'})).status,404);
   const skeleton = await req('POST',{...body,kind:'skeleton',requestId:'skeleton-request'});
   assert.equal(skeleton.status,202);
   for(let i=0;i<100;i++) {
@@ -83,7 +116,7 @@ try {
   const interrupted = await (await req('GET')).json();
   assert.equal(interrupted.records.find((x:any)=>x.kind==='skeleton').status,'outcome_unknown');
   await req('POST',{...body,kind:'skeleton',requestId:'new-request-no-retry'});
-  assert.equal(calls,2,'unknown result must not automatically repeat a paid call');
+  assert.equal(calls,3,'unknown result must not automatically repeat a paid call');
   process.env.DEPTH_MODEL_REVISION='different-checkpoint';
   const revised=await (await req('POST',{...body,requestId:'revised-depth-request'})).json();
   assert.notEqual(revised.id,record.id,'changed model configuration must not reuse previous results');
@@ -139,7 +172,7 @@ try {
   assert.notEqual(fresh.runId,outfit.runId,'旧短裤成功记录不能挡住新版紧身裤任务');
   await query("DELETE FROM generation_runs WHERE id=$1",[outfit.runId]);
   // A legacy success remains visible while a new local configuration runs/fails.
-  await query("UPDATE pose_references SET configuration='legacy-gemini',status='succeeded',result=$1::jsonb WHERE kind='skeleton'",[JSON.stringify({image:png,model:'gemini-legacy'})]);
+  await query("UPDATE pose_references SET configuration='legacy-gemini',status='succeeded',result=$1::jsonb WHERE kind='skeleton' AND result IS NULL",[JSON.stringify({image:png,model:'gemini-legacy'})]);
   process.env.POSE_SERVICE_URL='http://127.0.0.1:8767';
   process.env.POSE_SERVICE_TOKEN='local-worker-test-token-over-32-characters';
   const savedFetch=globalThis.fetch;

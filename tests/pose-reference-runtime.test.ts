@@ -133,6 +133,20 @@ try {
     usePoseReferenceRuntime.setState(s=>({entries:{...s.entries,[outfitKey]:{...s.entries[outfitKey],neutralOutfit:undefined}}}));
     await addPoseReferenceToCanvas(outfitTarget,'any-id',source,'depth',neutralSource);
     assert.equal((useFlowStore.getState().tabs.find(t=>t.id===outfitTarget.tabId)!.nodes.at(-1)!.data as any).poseReferenceSource.neutralSource,undefined,'无法核验的旧来源不能冒充中性源');
+    const depthSkeletonKey=poseReferenceKey(outfitTarget,'any-id',source,'depth-record-123');
+    assert.notEqual(depthSkeletonKey,outfitKey,'深度来源骨骼结果必须与当前图片来源隔离');
+    const poseFetch=globalThis.fetch;
+    let depthSkeletonRequest:any;
+    globalThis.fetch=async(_url,init)=>{
+      depthSkeletonRequest=JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({id:'depth-skeleton',kind:'skeleton',source,status:'succeeded',result:{image:'data:image/png;base64,AAAA',model:'dwpose-wholebody'}}));
+    };
+    try {
+      await generatePoseReference(outfitTarget,'any-id',source,'skeleton',false,source,'depth-record-123');
+      assert.equal(depthSkeletonRequest.analysisSourceKind,'depth');
+      assert.equal(depthSkeletonRequest.analysisSourceRecordId,'depth-record-123');
+      assert.equal(usePoseReferenceRuntime.getState().entries[depthSkeletonKey]?.records.skeleton?.result?.model,'dwpose-wholebody');
+    } finally { globalThis.fetch=poseFetch; }
   } finally { globalThis.fetch=savedFetch; }
   console.log('Pose runtime: semantic port detection, duplicate click, source and document-epoch boundaries passed');
 } finally {

@@ -31,6 +31,19 @@ interface Row {
   kind: PoseReferenceKind; configuration: string; attempt: string;
   status: PoseReferenceRecord['status']; result: PoseReferenceRecord['result'] | null; error: string | null;
 }
+interface PoseReferenceInput {
+  projectId: string;
+  nodeId: string;
+  source: string;
+  analysisSource: string;
+  analysisSourceKind: 'image' | 'depth';
+  analysisSourceRecordId?: string;
+}
+interface ResolvedAnalysisSource {
+  source: string;
+  image: string;
+  configuration: string;
+}
 interface PoseOutfitRow {
   id: string;
   status: string;
@@ -107,13 +120,16 @@ function poseOutfitRecord(
   };
 }
 
-function configuration(kind: PoseReferenceKind): string {
-  const values = kind === 'skeleton' ? ['dwpose-v1',process.env.POSE_SERVICE_URL ?? '',process.env.POSE_MODEL_REVISION ?? '1a7144101628d69ee7a3768d1ee3a094070dc388'] :
+function configuration(kind: PoseReferenceKind, depthFingerprint?: string): string {
+  const values: string[] = kind === 'skeleton' ? ['dwpose-v1',process.env.POSE_SERVICE_URL ?? '',process.env.POSE_MODEL_REVISION ?? '1a7144101628d69ee7a3768d1ee3a094070dc388'] :
     ['depth-v1', process.env.DEPTH_SERVICE_URL ?? '', process.env.DEPTH_INPUT_SIZE ?? '518', process.env.DEPTH_MODEL_REVISION ?? 'vitl-official-v1'];
-  return createHash('sha256').update(JSON.stringify(values)).digest('hex');
+  const fingerprinted = Boolean(depthFingerprint);
+  if (depthFingerprint) values.push('analysis-source-depth-v1', depthFingerprint);
+  const hash = createHash('sha256').update(JSON.stringify(values)).digest('hex');
+  return fingerprinted ? `depth-source-v1:${hash}` : hash;
 }
 
-async function authorize(owner: string, input: {projectId: string; nodeId: string; source: string; analysisSource?: string}, client: PoolClient): Promise<{name: string}> {
+async function authorizeProjectAndSource(owner: string, input: PoseReferenceInput, client: PoolClient): Promise<{name: string}> {
   const project = await queryOne<{flow_json:string; name:string}>(`SELECT p.flow_json,p.name FROM projects p JOIN users u ON u.id=p.owner_id
     WHERE p.id=$1 AND p.owner_id=$2 AND p.deleted_at IS NULL AND p.lifecycle='saved'
       AND u.active=1 AND u.deleted_at IS NULL FOR SHARE OF p,u`,[input.projectId,owner],client);
@@ -124,16 +140,36 @@ async function authorize(owner: string, input: {projectId: string; nodeId: strin
     throw new RequestError(409,'姿势参考图已变化，请保存当前项目后重试');
   }
   await assertImageReferencesAccessible([input.source],owner,client);
-  if (input.analysisSource && input.analysisSource !== input.source) {
+  return {name:project.name};
+}
+
+async function resolveAnalysisSource(owner: string, input: PoseReferenceInput, kind: PoseReferenceKind, client: PoolClient): Promise<ResolvedAnalysisSource> {
+  if (input.analysisSourceKind === 'depth') {
+    if (kind !== 'skeleton' || !input.analysisSourceRecordId) throw new RequestError(400,'深度图只能作为 DWPose 骨骼图的来源');
+    const depth = await queryOne<{source:string; result:unknown}>(`SELECT source,result FROM pose_references
+      WHERE id=$1 AND owner_id=$2 AND project_id=$3 AND node_id=$4 AND kind='depth'
+        AND source=$5 AND configuration=$6 AND status='succeeded'`,
+      [input.analysisSourceRecordId,owner,input.projectId,input.nodeId,input.analysisSource,configuration('depth')],client);
+    if (!depth || !depth.result || typeof depth.result !== 'object' || typeof (depth.result as {image?:unknown}).image !== 'string') {
+      throw new RequestError(404,'姿势深度图不存在或已失效');
+    }
+    await assertImageReferencesAccessible([depth.source],owner,client);
+    const image = (depth.result as {image:string}).image;
+    validateImageDataUrl(image);
+    const fingerprint = createHash('sha256').update(image).digest('hex');
+    return {source:depth.source,image,configuration:configuration(kind,fingerprint)};
+  }
+  if (input.analysisSourceRecordId) throw new RequestError(400,'姿势分析来源参数无效');
+  await assertImageReferencesAccessible([input.analysisSource],owner,client);
+  if (input.analysisSource !== input.source) {
     const derived = await queryOne(`SELECT o.id FROM generation_outputs o JOIN generation_runs r ON r.id=o.run_id
       WHERE r.owner_id=$1 AND r.project_id=$2 AND r.node_id=$3 AND r.kind=$4
-        AND r.reference_images_json=$5 AND r.deleted_at IS NULL AND o.status='success' AND o.image=$6
-        AND r.parameters_json::jsonb->>'poseOutfitVersion'='leggings-v1' LIMIT 1`,
+      AND r.reference_images_json=$5 AND r.deleted_at IS NULL AND o.status='success' AND o.image=$6
+      AND r.parameters_json::jsonb->>'poseOutfitVersion'='leggings-v1' LIMIT 1`,
       [owner,input.projectId,input.nodeId,POSE_OUTFIT_REFERENCE_KIND,JSON.stringify([input.source]),input.analysisSource],client);
     if (!derived) throw new RequestError(404,'姿势派生图片不存在');
-    await assertImageReferencesAccessible([input.analysisSource],owner,client);
   }
-  return {name:project.name};
+  return {source:input.analysisSource,image:resolveToDataUrl(input.analysisSource),configuration:configuration(kind)};
 }
 
 function parseInput(body: Record<string,unknown>) {
@@ -142,7 +178,19 @@ function parseInput(body: Record<string,unknown>) {
     throw new RequestError(400,'请提供已保存项目中的本地姿势参考图');
   }
   if (body.analysisSource !== undefined && !isLocalImageReference(body.analysisSource)) throw new RequestError(400,'姿势分析来源无效');
-  return {projectId:body.projectId,nodeId:body.nodeId,source:body.source,analysisSource:typeof body.analysisSource==='string'?body.analysisSource:body.source};
+  const analysisSourceKind = body.analysisSourceKind === undefined ? 'image' : body.analysisSourceKind;
+  if (analysisSourceKind !== 'image' && analysisSourceKind !== 'depth') throw new RequestError(400,'姿势分析来源类型无效');
+  const analysisSourceRecordId = body.analysisSourceRecordId;
+  if (analysisSourceKind === 'depth' && (typeof analysisSourceRecordId !== 'string' || !/^[\w-]{8,128}$/.test(analysisSourceRecordId))) throw new RequestError(400,'深度图来源记录无效');
+  if (analysisSourceKind === 'image' && analysisSourceRecordId !== undefined) throw new RequestError(400,'姿势分析来源参数无效');
+  return {
+    projectId:body.projectId,
+    nodeId:body.nodeId,
+    source:body.source,
+    analysisSource:typeof body.analysisSource==='string'?body.analysisSource:body.source,
+    analysisSourceKind,
+    ...(typeof analysisSourceRecordId==='string'?{analysisSourceRecordId}:{}),
+  } satisfies PoseReferenceInput;
 }
 
 async function expire(owner: string, client: PoolClient) {
@@ -182,19 +230,25 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
       const input = parseInput(req.query as Record<string,unknown>);
       const records = await transaction(async(client)=>{
         const owner = requestUser(req).id;
-        await authorize(owner,input,client);
-        input.source = input.analysisSource;
+        await authorizeProjectAndSource(owner,input,client);
+        const resolved = await resolveAnalysisSource(owner,input,'skeleton',client);
         await expire(owner,client);
         const rows = await query<Row>(`SELECT DISTINCT ON (kind) current.*,
           COALESCE(current.result, (SELECT previous.result FROM pose_references previous
             WHERE previous.owner_id=current.owner_id AND previous.project_id=current.project_id
               AND previous.node_id=current.node_id AND previous.source=current.source
-              AND previous.kind=current.kind AND previous.status='succeeded'
+              AND previous.kind=current.kind
+              AND (($7::boolean AND previous.configuration=current.configuration)
+                OR (NOT $7::boolean AND previous.configuration NOT LIKE 'depth-source-v1:%'))
+              AND previous.status='succeeded'
             ORDER BY previous.created_at DESC LIMIT 1)) AS result
           FROM pose_references current
           WHERE owner_id=$1 AND project_id=$2 AND node_id=$3 AND source=$4
+            AND ((kind='depth' AND (NOT $7::boolean OR configuration=$6))
+              OR (kind='skeleton' AND (($7::boolean AND configuration=$5)
+                OR (NOT $7::boolean AND configuration NOT LIKE 'depth-source-v1:%'))))
           ORDER BY kind,(configuration=CASE WHEN kind='skeleton' THEN $5 ELSE $6 END) DESC,created_at DESC`,
-          [owner,input.projectId,input.nodeId,input.source,configuration('skeleton'),configuration('depth')],client);
+          [owner,input.projectId,input.nodeId,resolved.source,resolved.configuration,configuration('depth'),input.analysisSourceKind==='depth'],client);
         return rows.map(record);
       });
       res.setHeader('Cache-Control','no-store');
@@ -209,12 +263,12 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
       let pending: {row:Row;image:string} | undefined;
       const row = await transaction(async(client)=>{
         const owner = requestUser(req).id;
-        await authorize(owner,input,client);
-        input.source = input.analysisSource;
+        await authorizeProjectAndSource(owner,input,client);
+        const resolved = await resolveAnalysisSource(owner,input,kind,client);
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`pose:${owner}`]);
         await expire(owner,client);
-        const key = configuration(kind);
-        const prior = await queryOne<Row>('SELECT * FROM pose_references WHERE owner_id=$1 AND project_id=$2 AND node_id=$3 AND source=$4 AND kind=$5 AND configuration=$6', [owner,input.projectId,input.nodeId,input.source,kind,key],client);
+        const key = resolved.configuration;
+        const prior = await queryOne<Row>('SELECT * FROM pose_references WHERE owner_id=$1 AND project_id=$2 AND node_id=$3 AND source=$4 AND kind=$5 AND configuration=$6', [owner,input.projectId,input.nodeId,resolved.source,kind,key],client);
         if (prior && (prior.status==='running' || prior.status==='succeeded' || !retry || prior.attempt===requestId)) return prior;
         const active = await queryOne<{count:number}>("SELECT COUNT(*)::int AS count FROM pose_references WHERE owner_id=$1 AND status='running'",[owner],client);
         if ((active?.count??0)>=2) throw new RequestError(429,'已有姿势任务运行中，请稍后重试');
@@ -222,10 +276,10 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
           const count = await queryOne<{count:number}>('SELECT COUNT(*)::int AS count FROM pose_references WHERE owner_id=$1',[owner],client);
           if ((count?.count??0)>=128) throw new RequestError(429,'姿势参考记录已达上限，请联系管理员');
         }
-        const image = resolveToDataUrl(input.source);
+        const image = resolved.image;
         validateImageDataUrl(image);
         const updated = prior ? await queryOne<Row>(`UPDATE pose_references SET attempt=$2,status='running',error=NULL,updated_at=$3 WHERE id=$1 RETURNING *`,[prior.id,requestId,Date.now()],client)
-          : await queryOne<Row>(`INSERT INTO pose_references(id,owner_id,project_id,node_id,source,kind,configuration,attempt,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'running',$9,$9) RETURNING *`,[nanoid(16),owner,input.projectId,input.nodeId,input.source,kind,key,requestId,Date.now()],client);
+          : await queryOne<Row>(`INSERT INTO pose_references(id,owner_id,project_id,node_id,source,kind,configuration,attempt,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'running',$9,$9) RETURNING *`,[nanoid(16),owner,input.projectId,input.nodeId,resolved.source,kind,key,requestId,Date.now()],client);
         pending={row:updated!,image};
         return updated!;
       });
@@ -236,9 +290,10 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
   router.get('/outfit',asyncHandler(async(req,res)=>{
     try {
       const input = parseInput(req.query as Record<string,unknown>);
+      if (input.analysisSourceKind !== 'image') throw new RequestError(400,'服饰参考只支持图片来源');
       const outfit = await transaction(async(client)=>{
         const owner = requestUser(req).id;
-        await authorize(owner,input,client);
+        await authorizeProjectAndSource(owner,input,client);
         const rows = await findPoseOutfitRows(owner,input,client);
         const latest = rows[0];
         const legacy = (await findPoseOutfitRows(owner,input,client,true)).find(row=>Boolean(row.output_image));
@@ -254,6 +309,7 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
   router.post('/outfit',asyncHandler(async(req,res)=>{
     try {
       const input = parseInput(req.body ?? {});
+      if (input.analysisSourceKind !== 'image') throw new RequestError(400,'服饰参考只支持图片来源');
       const {requestId,retry} = req.body as {requestId?: unknown; retry?: unknown};
       if (typeof requestId!=='string' || !CLIENT_REQUEST_ID_PATTERN.test(requestId) || (retry!==undefined && typeof retry!=='boolean')) {
         throw new RequestError(400,'生成参数无效');
@@ -261,7 +317,7 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
       const outcome = await transaction(async(client)=>{
         const owner = requestUser(req).id;
         await assertGenerationOwnerActive(client,owner);
-        const project = await authorize(owner,input,client);
+        const project = await authorizeProjectAndSource(owner,input,client);
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`pose-outfit:${owner}:${input.projectId}:${input.nodeId}`]);
         const rows = await findPoseOutfitRows(owner,input,client);
         const prior = rows[0];
