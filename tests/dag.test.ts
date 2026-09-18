@@ -13,7 +13,6 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { assertPlanInputs, buildExecutionPlan, DagError, type FlowEdge, type FlowNode } from "../server/engine/dag";
-import type { PoseAnalyzer } from "../server/lib/poseAnalysis";
 import type { SceneAnalyzer } from "../server/lib/sceneAnalysis";
 import type { ExecuteStepOptions, RunEvent } from "../server/engine/runner";
 import type {
@@ -217,16 +216,6 @@ async function runRecordedAiStep(
   }, {
     referenceRoles,
     sceneAnalyzer,
-    poseAnalyzer: (async (_image, options) => {
-      await options?.beforeProviderCall?.(1);
-      return {
-        guideImage: SEED_DATA_URL,
-        prompt: "身体姿势：重心落在画面左腿；手部姿势：右腕向外；头部姿势：轻微右倾；视线方向：画面右侧",
-        model: "pose-analysis-stub",
-        providerRequests: 1,
-        cacheHit: false,
-      };
-    }) satisfies PoseAnalyzer,
     identityAnchorer: async (_image, options) => {
       await options?.beforeProviderCall?.(1);
       return {
@@ -935,7 +924,7 @@ async function main() {
       ["scene", "pose", "person", "outfit", "bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet"],
       sceneAnalyzer,
     );
-    assert.equal(stageOne.result.providerRequests, 4);
+    assert.equal(stageOne.result.providerRequests, 3);
     assert.equal(stageOne.calls[0].request.referenceImages?.length, 12);
     assert.equal(stageOne.calls[0].request.referenceImages?.[0], POSE_DATA_URL, "原始姿势图必须直接位于生图参考首位");
     assert.equal(stageOne.calls[0].request.referenceImages?.[1], SEED_DATA_URL);
@@ -1007,7 +996,7 @@ async function main() {
       }, [SCENE_DATA_URL, POSE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL],
       undefined, ['scene', 'pose', 'person', 'outfit'], sceneAnalyzer);
       assert.match(typed.calls[0].request.prompt, expected);
-      assert.match(typed.calls[0].request.prompt, /姿势分析对原图的几何复核：身体姿势：重心落在画面左腿/);
+      assert.doesNotMatch(typed.calls[0].request.prompt, /姿势分析对原图的几何复核|身体姿势：/);
       assert.doesNotMatch(typed.calls[0].request.prompt, /可能/);
       const prompt = typed.calls[0].request.prompt;
       assert.deepEqual(Array.from(prompt.matchAll(/^【([^】]+)】/gm), ([, section]) => section),
@@ -1058,7 +1047,7 @@ async function main() {
     assert.equal(bestMode.calls.length, 3, "最佳档位必须发出三次独立单图请求");
     assert.ok(bestMode.calls.every((call) => call.request.batchSize === 1));
     assert.equal(bestMode.result.candidateSelection?.selectedIndex, 2);
-    assert.equal(bestMode.result.providerRequests, 7);
+    assert.equal(bestMode.result.providerRequests, 6);
     const { resolveImageRefs } = await import("../server/engine/runner");
     const [neutralData] = await resolveImageRefs(["/api/files/seed.png"]);
     const neutralMode = await runRecordedAiStep("virtual-try-on", {
@@ -1066,10 +1055,6 @@ async function main() {
       qualityMode: "best", poseReferenceType: "depth", poseNeutralSource: "/api/files/seed.png",
     }, [SCENE_DATA_URL, POSE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL], undefined,
     ["scene", "pose", "person", "outfit"], sceneAnalyzer, {
-      poseAnalyzer: async image => {
-        assert.equal(image, neutralData, "文字分析应读取中性源，而不是对深度灰度猜测视线");
-        return { guideImage: image, prompt: "可见动作", providerRequests: 0, model: "stub", cacheHit: true };
-      },
       candidateSelector: async input => {
         assert.deepEqual(input.referenceRoles, ["pose", "pose-neutral", "face-anchor", "person", "outfit", "scene"]);
         assert.deepEqual(input.referenceImages, [POSE_DATA_URL, neutralData, SEED_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL, SCENE_DATA_URL]);
@@ -1136,7 +1121,7 @@ async function main() {
     );
     assert.match(enhancedMode.calls[0].request.prompt, /用户原始要求（必须逐项保留）：保留象牙白阔腿裤的双褶线/);
     assert.match(enhancedMode.calls[0].request.prompt, /结构化增强要求：主体自然站立/);
-    assert.equal(enhancedMode.result.providerRequests, 5);
+    assert.equal(enhancedMode.result.providerRequests, 4);
 
     const stageTwo = await runRecordedAiStep(
       "virtual-try-on",

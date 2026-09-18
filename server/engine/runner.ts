@@ -67,7 +67,6 @@ import {
   analyzeSceneReference,
   type SceneAnalyzer,
 } from "../lib/sceneAnalysis";
-import { analyzePoseReference, type PoseAnalyzer } from "../lib/poseAnalysis";
 import {
   createIdentityAnchor,
   type IdentityAnchorer,
@@ -276,7 +275,6 @@ function stagedVirtualTryOnPrompt(
   extra: string,
   params: Record<string, unknown>,
   sceneDescription?: string,
-  poseDescription?: string,
 ): string {
   if (overridesVirtualTryOnReferenceRoles(extra)) {
     throw new Error("换装补充要求不能重新定义参考图编号；请只描述最终效果");
@@ -356,7 +354,7 @@ function stagedVirtualTryOnPrompt(
       `【身份】${one("face-anchor")}是由视觉定位后从主要人物脸部裁切的身份锚点，是脸部恢复最高优先级来源，锁定五官结构、脸型和可识别身份。${one("person")}是主要完整人物身份图，只控制同一人物的肤色、发型、体型和身体特征；其中原服装、姿势及非身份物体全部忽略，不得进入结果。${optionalIdentity}`,
       `【服装】${one("outfit")}是服装与搭配风格的唯一来源，严格还原服装类别、整体版型、上下装比例、衣长、袖长、裤长或裙长、腰线位置、裤腿宽度、层叠关系、穿着方式、颜色与风格。长裤不得改成短裤，短裤不得延长为长裤；服装长短按其相对腰、髋、膝、踝的位置还原，不照搬参考人物的像素尺寸；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度属于必须还原的结构，不得替换为近似设计；图内人物身份与背景全部忽略。独立配饰参考只覆盖对应类别；未连接的配饰只沿用主穿搭中清晰可见的同类物品，不额外添加。`,
       `【场景】${one("scene")}是纯场景环境参考，只控制背景空间、镜头视点、取景、构图与光线；其中任何人物、身体、姿势、身份、服装及配饰都属于待移除内容，禁止继承或融合。场景分析仅作环境辅助：${sceneDescription ?? "场景分析不可用"}。`,
-      `【姿势】${one("pose-guide")}是用户手动选择的原始姿势参考图。${poseInstruction}它是本轮动作的最高优先级来源：严格还原其中可见的头部俯仰与侧倾、视线、肩线、髋线、躯干倾斜、重心腿、膝踝、手臂和手部几何。姿势分析对原图的几何复核：${poseDescription ?? "姿势分析不可用"}；若文字复核与原图可见轮廓、朝向或前后关系存在冲突，以原图为准。只采用可见的动作几何，不复制人物身份、体型、服装、配饰、背景、颜色或材质。最终动作仅由姿势参考图中可见的动作几何决定。人物身份图、主穿搭图、场景图及配饰图均不提供动作依据。忽略姿势参考中的服装、身份和背景，不忽略其动作；不得擅自摆正躯干、拉直四肢、改变手部位置或调整为左右对称站姿。`,
+      `【姿势】${one("pose-guide")}是用户手动选择的原始姿势参考图。${poseInstruction}它是本轮动作的最高优先级来源：严格还原其中可见的头部俯仰与侧倾、视线、肩线、髋线、躯干倾斜、重心腿、膝踝、手臂和手部几何。直接对照姿势参考图片，不使用文字推测替代图片中的动作。只采用可见的动作几何，不复制人物身份、体型、服装、配饰、背景、颜色或材质。最终动作仅由姿势参考图中可见的动作几何决定。人物身份图、主穿搭图、场景图及配饰图均不提供动作依据。忽略姿势参考中的服装、身份和背景，不忽略其动作；不得擅自摆正躯干、拉直四肢、改变手部位置或调整为左右对称站姿。`,
       `【配饰与结构】${accessory}${detail}`,
       `【风格】${styleReference}${stylePrompt ? `风格要求仅用于色调与成像质感，服从场景镜头和主光：${stylePrompt}。` : ""}按维度分别锁定：身份由脸部锚点与人物图决定，环境由场景图决定，动作由姿势参考图决定，服装由主穿搭决定，配饰由对应类别参考决定；任何角色都不得越权覆盖其它维度。`,
       `【输出】本轮优先还原人物身份、可见动作、肢体、场景构图、服装大轮廓及已提供目标物，不强求针目、蕾丝组织或缝线等微观细节。不得融合参考图中的无关人物、背景、陈列台、包装文字、水印、标记框或错误肢体；目标商品本体上已有的金属装饰图案与五金保持来源外观，禁止虚构或改写。输出一张完整写实的第一轮基准图${extra ? `。补充要求仅在以上职责边界内生效：${extra}` : ""}`,
@@ -410,7 +408,6 @@ interface SceneStabilizePreparation {
   referenceImages: string[];
   referenceRoles: string[];
   sceneDescription: string;
-  poseDescription: string;
   judgeReferenceImages: string[];
   judgeReferenceRoles: string[];
   aspectReference: string;
@@ -421,7 +418,6 @@ async function prepareSceneStabilizeReferences(
   referenceImages: string[],
   referenceRoles: string[],
   sceneAnalyzer: SceneAnalyzer,
-  poseAnalyzer: PoseAnalyzer,
   identityAnchorer: IdentityAnchorer,
   beforeProviderCall?: ExecuteStepOptions["beforeProviderCall"],
   neutralSource?: string,
@@ -432,9 +428,6 @@ async function prepareSceneStabilizeReferences(
   const poseReference = imageFor("pose");
   const personReference = imageFor("person");
   const sceneAnalysis = await sceneAnalyzer(sceneReference, {
-    beforeProviderCall,
-  });
-  const poseAnalysis = await poseAnalyzer(neutralSource ?? poseReference, {
     beforeProviderCall,
   });
   const anchor = await identityAnchorer(personReference, {
@@ -455,13 +448,11 @@ async function prepareSceneStabilizeReferences(
     referenceImages: images,
     referenceRoles: roles,
     sceneDescription: sceneAnalysis.prompt,
-    poseDescription: poseAnalysis.prompt,
     judgeReferenceImages: [...images],
     judgeReferenceRoles: roles.map(role => role === "pose-guide" ? "pose" : role),
     aspectReference: sceneReference,
     providerRequests:
       sceneAnalysis.providerRequests +
-      poseAnalysis.providerRequests +
       anchor.providerRequests,
   };
 }
@@ -1085,7 +1076,6 @@ export interface ExecuteStepOptions {
   beforeProviderCall?: (providerRequest: number) => void | Promise<void>;
   referenceRoles?: string[];
   sceneAnalyzer?: SceneAnalyzer;
-  poseAnalyzer?: PoseAnalyzer;
   identityAnchorer?: IdentityAnchorer;
   promptEnhancer?: typeof enhanceTryOnPrompt;
   candidateSelector?: TryOnCandidateSelector;
@@ -1537,7 +1527,6 @@ export async function executeStep(
       let judgeReferenceImages = [...referenceImages];
       let judgeReferenceRoles = [...referenceRoles];
       let sceneDescription: string | undefined;
-      let poseDescription: string | undefined;
       let virtualTryOnAspectReference = referenceImages[0];
       let preliminaryProviderRequests = 0;
       let providerCallOrdinal = 0;
@@ -1601,7 +1590,6 @@ export async function executeStep(
           referenceImages,
           referenceRoles,
           options.sceneAnalyzer ?? analyzeSceneReference,
-          options.poseAnalyzer ?? analyzePoseReference,
           options.identityAnchorer ?? createIdentityAnchor,
           beforeTryOnProviderCall,
           typeof step.params.poseNeutralSource === "string"
@@ -1613,7 +1601,6 @@ export async function executeStep(
         judgeReferenceImages = prepared.judgeReferenceImages;
         judgeReferenceRoles = prepared.judgeReferenceRoles;
         sceneDescription = prepared.sceneDescription;
-        poseDescription = prepared.poseDescription;
         virtualTryOnAspectReference = prepared.aspectReference;
         preliminaryProviderRequests = prepared.providerRequests;
       }
@@ -1850,7 +1837,6 @@ export async function executeStep(
                           enhancedExtra,
                           promptParams,
                           sceneDescription,
-                          poseDescription,
                         )
                       : virtualTryOnPrompt(referenceImages.length, extra)
                     : step.kind === "mask-redraw"
@@ -1987,7 +1973,6 @@ export async function executeStep(
           safeExtra,
           promptParams,
           sceneDescription,
-          poseDescription,
         );
         usedPrompt = safePrompt;
         result = await generateIndependentTryOnCandidates(

@@ -6,6 +6,8 @@ import {
 import { parseTryOnCandidateSelection, selectBestTryOnCandidate } from "../server/lib/tryOnCandidateSelection";
 import sharp from "sharp";
 import { tryOnCandidateCount } from "../src/lib/tryOnStylePresets";
+import { executeStep } from "../server/engine/runner";
+import type { ImageGenRequest } from "../src/types/workflow";
 
 console.log("一键换装质量流水线契约测试");
 
@@ -114,6 +116,59 @@ try {
   globalThis.fetch = async () => { calls += 1; return new Response(JSON.stringify({ error: { message: "Unauthorized" } }), { status: 401 }); };
   await assert.rejects(selectBestTryOnCandidate(input));
   assert.equal(calls, 1, "鉴权错误不得重试");
+
+  // Reproduce E3ceUhXiqN's erroneous prose at the real runner → generator →
+  // selector seam. Old analysis text must reach neither paid request.
+  globalThis.fetch = async () => { throw new Error("unexpected real network request"); };
+  const inventedPose = "Both elbows bent; both hands tucked into front pockets; right leg positioned forward.";
+  const smallImage = `data:image/png;base64,${(await sharp({ create: { width: 32, height: 48, channels: 3, background: "white" } }).png().toBuffer()).toString("base64")}`;
+  for (const poseReferenceType of ["depth", "skeleton", "neutral-outfit", "original"]) {
+    for (const withNeutral of [false, true]) {
+      let poseCalls = 0;
+      let generationCalls = 0;
+      let judgeCalls = 0;
+      const assertNoPoseProse = (prompt: string) => {
+        assert.ok(!prompt.includes(inventedPose), "不得让模型臆测动作进入生图或评审");
+        assert.doesNotMatch(prompt, /姿势分析对原图的几何复核|姿势分析不可用|身体姿势：|手部姿势：/);
+        assert.match(prompt, /参考图1是用户手动选择的原始姿势参考图/);
+      };
+      const generate = async (request: ImageGenRequest) => {
+        generationCalls++;
+        assertNoPoseProse(request.prompt);
+        assert.equal(request.referenceImages?.[0], smallImage);
+        assert.equal(request.referenceImages?.length, withNeutral ? 6 : 5);
+        return { images: [smallImage], model: "stub" };
+      };
+      // An extra legacy option deliberately remains in the fixture: it must
+      // never be invoked, even by a caller still passing the former hook.
+      const options = {
+        referenceRoles: ["scene", "pose", "person", "outfit"],
+        sceneAnalyzer: async () => ({ prompt: "环境：摄影棚", providerRequests: 0, model: "stub", cacheHit: true }),
+        identityAnchorer: async () => ({ image: smallImage, providerRequests: 0, model: "stub", cacheHit: true, fallback: false }),
+        poseAnalyzer: async () => {
+          poseCalls++;
+          return { guideImage: smallImage, prompt: inventedPose, providerRequests: 1, model: "stub", cacheHit: false };
+        },
+        candidateSelector: async (input: { prompt: string; referenceRoles: string[]; referenceImages: string[] }) => {
+          judgeCalls++;
+          assertNoPoseProse(input.prompt);
+          assert.equal(input.referenceRoles[0], "pose");
+          assert.equal(input.referenceRoles.includes("pose-neutral"), withNeutral);
+          assert.equal(input.referenceImages.length, withNeutral ? 6 : 5);
+          return { selectedIndex: 0, scores: [], model: "stub", providerRequests: 0, allHardFail: false };
+        },
+      };
+      const refs = Array.from({ length: 4 }, () => smallImage);
+      const result = await executeStep({ nodeId: "pose-prose-regression", kind: "virtual-try-on", inputImages: refs,
+        params: { workflowStage: "scene-stabilize", modelId: "gemini-3.1-flash-image", imageSize: "2K", qualityMode: "best", poseReferenceType,
+          ...(withNeutral ? { poseNeutralSource: smallImage } : {}) } }, refs,
+      () => ({ id: "stub", generate, edit: generate }), options);
+      assert.equal(poseCalls, 0, "不再调用或计费姿势文字分析");
+      assert.equal(generationCalls, 3);
+      assert.equal(judgeCalls, 1);
+      assert.equal(result.providerRequests, 3);
+    }
+  }
 } finally {
   globalThis.fetch = originalFetch;
   if (originalKey === undefined) delete process.env.APIYI_API_KEY;
