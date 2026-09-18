@@ -11,6 +11,7 @@ import { isLocalImageReference, validateImageDataUrl } from '../lib/imageValidat
 import { resolveToDataUrl } from '../lib/fileStore';
 import { analyzeDWPoseReference } from '../lib/dwposeAnalysis';
 import { analyzeDepthReference } from '../lib/depthAnalysis';
+import { analyzePoseReference, type PoseAnalysisResult } from '../lib/poseAnalysis';
 import { config } from '../config';
 import { ProviderError } from '../providers/base';
 import { isPoseReferenceNode, type PoseOutfitReferenceRecord, type PoseOutfitReferenceStatus, type PoseReferenceKind, type PoseReferenceRecord } from '../../src/types/poseReference';
@@ -53,6 +54,7 @@ interface PoseOutfitRow {
   provider_output_size: string | null;
 }
 type Analyzer = (image: string, kind: PoseReferenceKind, markProvider: () => Promise<void>) => Promise<NonNullable<PoseReferenceRecord['result']>>;
+type PosePromptAnalyzer = (image: string) => Promise<Pick<PoseAnalysisResult,'prompt'|'providerRequests'|'model'|'cacheHit'>>;
 class RequestError extends Error { constructor(public status: number, message: string) { super(message); } }
 const record = (row: Row): PoseReferenceRecord => ({id:row.id,kind:row.kind,source:row.source,status:row.status,...(row.result?{result:row.result}:{}),...(row.error?{error:row.error}:{})});
 const POSE_OUTFIT_REFERENCE_KIND = 'pose-reference-outfit';
@@ -193,6 +195,25 @@ function parseInput(body: Record<string,unknown>) {
   } satisfies PoseReferenceInput;
 }
 
+function parsePosePromptInput(body: Record<string,unknown>): PoseReferenceInput {
+  const input=parseInput(body);
+  if (input.analysisSourceKind!=='image' || input.analysisSource!==input.source || input.analysisSourceRecordId) {
+    throw new RequestError(400,'姿势反推只支持当前人物姿势参考图');
+  }
+  return input;
+}
+
+function posePromptResult(value:unknown): Pick<PoseAnalysisResult,'prompt'|'providerRequests'|'model'|'cacheHit'> {
+  if (!value || typeof value!=='object') throw new RequestError(502,'姿势反推结果格式无效');
+  const result=value as Partial<PoseAnalysisResult>;
+  if (typeof result.prompt!=='string' || !result.prompt.trim() || result.prompt.length>4000 ||
+      typeof result.providerRequests!=='number' || !Number.isInteger(result.providerRequests) || result.providerRequests<0 ||
+      typeof result.model!=='string' || !result.model.trim() || typeof result.cacheHit!=='boolean') {
+    throw new RequestError(502,'姿势反推结果格式无效');
+  }
+  return {prompt:result.prompt,providerRequests:result.providerRequests,model:result.model,cacheHit:result.cacheHit};
+}
+
 async function expire(owner: string, client: PoolClient) {
   const timeout = Math.max(180_000,config.aiTimeoutMs(120_000)) + 60_000;
   await client.query(`UPDATE pose_references SET status=CASE WHEN provider_requests>0 THEN 'outcome_unknown' ELSE 'failed' END,
@@ -223,7 +244,7 @@ async function perform(row: Row, image: string, analyze: Analyzer) {
   }
 }
 
-export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
+export function createPoseReferencesRouter(options: {analyze?: Analyzer; analyzePosePrompt?: PosePromptAnalyzer} = {}) {
   const router = Router();
   router.get('/',asyncHandler(async(req,res)=>{
     try {
@@ -253,6 +274,21 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer} = {}) {
       });
       res.setHeader('Cache-Control','no-store');
       res.json({records});
+    } catch(error) { handleError(error,res); }
+  }));
+  router.post('/analyze',asyncHandler(async(req,res)=>{
+    try {
+      const input=parsePosePromptInput(req.body ?? {});
+      const image=await transaction(async(client)=>{
+        const owner=requestUser(req).id;
+        await authorizeProjectAndSource(owner,input,client);
+        const dataUrl=resolveToDataUrl(input.source);
+        validateImageDataUrl(dataUrl);
+        return dataUrl;
+      });
+      const result=posePromptResult(await (options.analyzePosePrompt??(async(dataUrl)=>analyzePoseReference(dataUrl)))(image));
+      res.setHeader('Cache-Control','no-store');
+      res.json(result);
     } catch(error) { handleError(error,res); }
   }));
   router.post('/',asyncHandler(async(req,res)=>{

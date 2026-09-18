@@ -108,6 +108,7 @@ app.use("/api/run-plan", runPlanRouter);
 app.post("/api/outfit-analysis", aiRateLimit);
 app.use("/api/outfit-analysis", outfitAnalysisRouter);
 app.post("/api/pose-references", aiRateLimit);
+app.post("/api/pose-references/analyze", aiRateLimit);
 app.post("/api/pose-references/outfit", aiRateLimit);
 app.use("/api/pose-references", createPoseReferencesRouter());
 app.use("/api/files", filesRouter);

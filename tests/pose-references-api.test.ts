@@ -29,6 +29,7 @@ await query("INSERT INTO files(id,owner_id,created_at) VALUES($1,'owner',$2)", [
 const flow = {nodes:[{id:'pose',type:'image-input',position:{x:0,y:0},data:{kind:'image-input',label:'人物姿势参考图（必需）',poseReference:true,status:'idle',imageRole:'reference',imageUrl:stored.url}}, {id:'stabilize',type:'virtual-try-on',position:{x:400,y:0},data:{kind:'virtual-try-on',workflowStage:'scene-stabilize',label:'定版',status:'idle'}}],edges:[]};
 await query("INSERT INTO projects(id,owner_id,name,flow_json,created_at,updated_at,lifecycle) VALUES('project','owner','test',$1,$2,$2,'saved')",[JSON.stringify(flow),now]);
 let calls = 0;
+let promptCalls = 0;
 let release: (()=>void) | undefined;
 let delayed = new Promise<void>(resolve=>{release=resolve;});
 const app = express();
@@ -42,6 +43,11 @@ const router = fs.existsSync('server/routes/poseReferences.ts')
         if (kind === 'skeleton' && image === png) throw new Error('private provider detail');
         return {image: kind === 'depth' ? depthPng : png, model: kind === 'skeleton' ? 'test-skeleton' : 'test-depth'};
       },
+      analyzePosePrompt: async (image: string) => {
+        promptCalls++;
+        assert.equal(image,png);
+        return {prompt:'身体姿势：肩线左高右低；手部姿势：右手靠近髋部；头部姿势：头部向画面右侧旋转；视线方向：朝向画面右上方。',providerRequests:1,model:'test-pose-analysis',cacheHit:false};
+      },
     }) : express.Router();
 app.use('/api/pose-references',router);
 app.use('/api/pose-local',(await import('../server/routes/poseReferences')).createPoseReferencesRouter());
@@ -50,9 +56,22 @@ await new Promise<void>(resolve=>server.once('listening',resolve));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 const body = {projectId:'project',nodeId:'pose',source:stored.url,kind:'depth',requestId:'request-depth-123'};
 const req = (method: string, data: unknown = body, user='owner') => fetch(base+'/api/pose-references'+(method==='GET'?'?'+new URLSearchParams({projectId:'project',nodeId:'pose',source:stored.url}):''),{method,headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},...(method==='POST'?{body:JSON.stringify(data)}:{})});
+const analyzeBody = {projectId:'project',nodeId:'pose',source:stored.url};
+const analyzeReq = (data: unknown = analyzeBody, user='owner') => fetch(base+'/api/pose-references/analyze',{method:'POST',headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},body:JSON.stringify(data)});
 const outfitBody = {projectId:'project',nodeId:'pose',source:stored.url,requestId:'outfit-request-123'};
 const outfitReq = (method: string, data: unknown = outfitBody, user='owner') => fetch(base+'/api/pose-references/outfit'+(method==='GET'?'?'+new URLSearchParams({projectId:'project',nodeId:'pose',source:stored.url}):''),{method,headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},...(method==='POST'?{body:JSON.stringify(data)}:{})});
 try {
+  assert.equal((await analyzeReq(analyzeBody,'none')).status,401);
+  const promptResponse=await analyzeReq();
+  assert.equal(promptResponse.status,200,'姿势反推接口必须接受当前已保存的姿势参考图');
+  const prompt=await promptResponse.json();
+  assert.equal(prompt.prompt,'身体姿势：肩线左高右低；手部姿势：右手靠近髋部；头部姿势：头部向画面右侧旋转；视线方向：朝向画面右上方。');
+  assert.equal(prompt.model,'test-pose-analysis');
+  assert.equal(prompt.providerRequests,1);
+  assert.equal(prompt.cacheHit,false);
+  assert.equal(promptCalls,1);
+  assert.equal((await analyzeReq(analyzeBody,'other')).status,404);
+  assert.equal((await analyzeReq({...analyzeBody,analysisSource:'https://example.com/pose.png'})).status,400);
   assert.equal((await req('POST',body,'none')).status,401);
   assert.equal((await req('POST',body,'other')).status,404);
   const first = await req('POST');

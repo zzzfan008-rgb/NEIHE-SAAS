@@ -7,6 +7,7 @@ export interface PoseReferenceState {
   records: Partial<Record<PoseReferenceKind,PoseReferenceRecord>>;
   busy: Partial<Record<PoseReferenceKind,boolean>>;
   errors: Partial<Record<PoseReferenceKind,string>>;
+  posePrompt?: PosePromptInferenceState;
   neutralOutfit?: PoseOutfitReferenceRecord;
   legacyOutfit?: PoseOutfitReferenceRecord;
   neutralOutfitBusy?: boolean;
@@ -16,12 +17,24 @@ export interface PoseReferenceState {
   addErrors?: Partial<Record<PoseReferenceCanvasKind,string>>;
   error?: string;
 }
+export interface PosePromptInferenceResult {
+  prompt: string;
+  model: string;
+  providerRequests: number;
+  cacheHit: boolean;
+}
+export interface PosePromptInferenceState {
+  status: 'running' | 'succeeded' | 'failed';
+  result?: PosePromptInferenceResult;
+  error?: string;
+}
 export const EMPTY_POSE_STATE: PoseReferenceState = {records:{},busy:{},errors:{}};
 export const usePoseReferenceRuntime = create<{entries:Record<string,PoseReferenceState>}>(()=>({entries:{}}));
 const reads = new Set<string>();
 const versions = new Map<string,number>();
 const outfitReads = new Set<string>();
 const outfitVersions = new Map<string,number>();
+const promptVersions = new Map<string,number>();
 export function poseReferenceKey(target: DocumentTarget,nodeId:string,source:string,analysisSourceRecordId?:string) {
   return JSON.stringify(analysisSourceRecordId
     ? [target.tabId,target.projectId,target.documentEpoch,nodeId,source,`depth:${analysisSourceRecordId}`]
@@ -53,6 +66,15 @@ function validateOutfit(value:PoseOutfitReferenceRecord|undefined|null,source:st
   if(typeof value.id!=='string'||typeof value.runId!=='string'||value.source!==source||!['queued','running','retry_wait','succeeded','failed','outcome_unknown','cancelled'].includes(value.status)) throw new Error('服饰替换结果格式无效');
   if(value.status==='succeeded'&&(!value.result||!isLocalImageReference(value.result.image)||typeof value.result.model!=='string')) throw new Error('服饰替换图片格式无效');
   return value;
+}
+function validatePosePrompt(value:unknown):PosePromptInferenceResult {
+  if (!value || typeof value !== 'object') throw new Error('姿势反推结果格式无效');
+  const result=value as Partial<PosePromptInferenceResult>;
+  if (typeof result.prompt!=='string' || !result.prompt.trim() || result.prompt.length>4000 ||
+      typeof result.model!=='string' || !result.model.trim() ||
+      typeof result.providerRequests!=='number' || !Number.isInteger(result.providerRequests) || result.providerRequests<0 ||
+      typeof result.cacheHit!=='boolean') throw new Error('姿势反推结果格式无效');
+  return {prompt:result.prompt,model:result.model,providerRequests:result.providerRequests,cacheHit:result.cacheHit};
 }
 export async function restorePoseReferences(target:DocumentTarget,nodeId:string,source:string,analysisSource=source,analysisSourceRecordId?:string) {
   const key=poseReferenceKey(target,nodeId,analysisSource,analysisSourceRecordId);
@@ -89,6 +111,26 @@ export async function generatePoseReference(target:DocumentTarget,nodeId:string,
   } catch(error) {
     if(current(target,nodeId,source)) patch(key,s=>({...s,errors:{...s.errors,[kind]:error instanceof Error?error.message:'提交失败，请先刷新结果，避免重复调用'}}));
   } finally { patch(key,s=>({...s,busy:{...s.busy,[kind]:false}})); }
+}
+
+export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,source:string,retry=false) {
+  const key=poseReferenceKey(target,nodeId,source);
+  const state=usePoseReferenceRuntime.getState().entries[key];
+  if (!current(target,nodeId,source) || state?.posePrompt?.status==='running' || (!retry && state?.posePrompt?.status==='succeeded')) return;
+  const version=(promptVersions.get(key)??0)+1;
+  promptVersions.set(key,version);
+  patch(key,s=>({...s,posePrompt:{status:'running',error:undefined}}));
+  try {
+    const tab=useFlowStore.getState().tabs.find(t=>t.id===target.tabId&&t.projectId===target.projectId&&t.documentEpoch===target.documentEpoch);
+    if (tab?.readOnly===false && !await useFlowStore.getState().saveProjectInTab(target)) throw new Error('项目保存失败，请先保存后重试');
+    if (!current(target,nodeId,source)) return;
+    const value=await response(await fetch('/api/pose-references/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+      signal:AbortSignal.timeout(30_000),body:JSON.stringify({projectId:target.projectId,nodeId,source})}));
+    const result=validatePosePrompt(value);
+    if (current(target,nodeId,source)&&(promptVersions.get(key)??0)===version) patch(key,s=>({...s,posePrompt:{status:'succeeded',result}}));
+  } catch(error) {
+    if (current(target,nodeId,source)&&(promptVersions.get(key)??0)===version) patch(key,s=>({...s,posePrompt:{status:'failed',error:error instanceof Error?error.message:'反推失败，请重试'}}));
+  }
 }
 
 export async function restorePoseOutfitReference(target:DocumentTarget,nodeId:string,source:string) {
