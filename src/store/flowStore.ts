@@ -4192,6 +4192,19 @@ export function applyRunEventToRecentResults(
     (Boolean(current.runId) && record.runId === current.runId);
   if (isNodeRunActive(event.status)) {
     const status = event.status;
+    const sceneRequest = recordObject(event.executionMeta?.sceneRequest);
+    const references = Array.isArray(sceneRequest?.references) ? sceneRequest.references : undefined;
+    const requestPatch = typeof sceneRequest?.prompt === "string" && references?.length &&
+      references.every((ref: unknown, index: number) => {
+        const item = recordObject(ref);
+        return item?.number === index + 1 && typeof item.role === "string" && typeof item.image === "string";
+      })
+      ? {
+          prompt: sceneRequest.prompt,
+          referenceImages: references.map((ref: { image: string }) => ref.image),
+          parameters: { ...current.parameters, referenceManifest: references },
+        }
+      : {};
     if (current.kind === "ai-styling" && event.images?.length) {
       const images = event.images;
       const total = Math.max(images.length, current.requestedCount ?? 1);
@@ -4231,6 +4244,7 @@ export function applyRunEventToRecentResults(
       isBatchSibling(record)
         ? {
             ...record,
+            ...requestPatch,
             status:
               current.kind === "ai-styling" &&
               record.image &&

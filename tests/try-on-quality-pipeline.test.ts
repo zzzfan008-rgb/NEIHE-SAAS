@@ -8,6 +8,8 @@ import sharp from "sharp";
 import { tryOnCandidateCount } from "../src/lib/tryOnStylePresets";
 import { executeStep } from "../server/engine/runner";
 import type { ImageGenRequest } from "../src/types/workflow";
+import type { GenerationRequestSnapshot } from "../server/lib/generationRecords";
+import { ProviderError } from "../server/providers/base";
 
 console.log("一键换装质量流水线契约测试");
 
@@ -122,6 +124,29 @@ try {
   globalThis.fetch = async () => { throw new Error("unexpected real network request"); };
   const inventedPose = "Both elbows bent; both hands tucked into front pockets; right leg positioned forward.";
   const smallImage = `data:image/png;base64,${(await sharp({ create: { width: 32, height: 48, channels: 3, background: "white" } }).png().toBuffer()).toString("base64")}`;
+  {
+    const snapshots: GenerationRequestSnapshot[] = [];
+    let calls = 0;
+    const generate = async (request: ImageGenRequest) => {
+      assert.equal(snapshots.at(-1)?.prompt, request.prompt, "增强及安全回退均必须先记录实际提示词");
+      if (++calls === 1) throw new ProviderError("refused", 400, "stub", "content_refused");
+      return { images: [smallImage], model: "stub" };
+    };
+    const images = Array(4).fill(smallImage);
+    const result = await executeStep({ nodeId: "fallback-record", kind: "virtual-try-on", inputImages: images,
+      params: { workflowStage: "scene-stabilize", modelId: "gpt-image-2.5-flare", imageSize: "2K",
+        prompt: "自然质感", promptEnhancement: true, safetyFallback: true, qualityMode: "fast" } }, images,
+    () => ({ id: "stub", generate, edit: generate }), {
+      referenceRoles: ["scene", "pose", "outfit", "person"],
+      onSceneRequestPrepared: async request => { snapshots.push(request); },
+      sceneAnalyzer: async () => ({ prompt: "摄影棚", providerRequests: 0, model: "stub", cacheHit: true }),
+      promptEnhancer: async () => ({ enhancedPrompt: "自然质感，柔和光线", safePrompt: "保留自然穿搭", providerRequests: 0, model: "stub", cacheHit: true }),
+    });
+    assert.equal(snapshots.length, 2);
+    assert.notEqual(snapshots[0].prompt, snapshots[1].prompt);
+    assert.deepEqual(snapshots[0].references, snapshots[1].references);
+    assert.equal(result.prompts?.[0], snapshots[1].prompt);
+  }
   for (const poseReferenceType of ["depth", "skeleton", "neutral-outfit", "original"]) {
     for (const withNeutral of [false, true]) {
       let poseCalls = 0;
@@ -183,12 +208,31 @@ try {
     if (mask === 0) expected.splice(2, 0, { role: "person", image: smallImage });
     const incoming = [...expected].reverse();
     const images = incoming.map(item => item.image);
+    let snapshot: GenerationRequestSnapshot | undefined;
+    const rolePhrases: Record<string, string> = {
+      pose: "是用户手动选择的原始姿势参考图", person: "是主要完整人物身份图",
+      outfit: "是服装与搭配风格的唯一来源", scene: "是纯场景环境参考",
+      bag: "只控制目标包袋", shoes: "只控制目标鞋履", socks: "只控制目标袜子",
+      hat: "只控制目标帽子", ring: "只控制目标戒指", earrings: "只控制目标耳环",
+      bracelet: "只控制目标手镯", detail: "仅低权重补充主穿搭图",
+    };
     const generate = async (request: ImageGenRequest) => {
       // Stable same-role order follows the incoming edges.
       const ordered = roles.flatMap(role => incoming.filter(item => item.role === role));
       assert.deepEqual(request.referenceImages, ordered.map(item => item.image));
+      assert.ok(snapshot, "生图调用前必须已经记录最终请求");
+      assert.equal(snapshot.prompt, request.prompt);
+      assert.deepEqual(snapshot.references, ordered.map((item, index) => ({
+        number: index + 1, role: item.role, image: item.image,
+      })));
       for (const [index, item] of ordered.entries()) {
         assert.ok(request.prompt.includes(`参考图${index + 1}`), `${item.role} 的编号缺失`);
+        if (item.role !== "person" || ordered.findIndex(ref => ref.role === "person") === index) {
+          assert.ok(request.prompt.includes(`参考图${index + 1}${rolePhrases[item.role]}`), `${item.role} 的职责编号不匹配`);
+        }
+      }
+      for (const role of optionalRoles.filter(role => !expectedRoles.includes(role))) {
+        assert.ok(!request.prompt.includes(rolePhrases[role]), `未连接的 ${role} 不应进入提示词`);
       }
       const numbers = [...request.prompt.matchAll(/参考图(\d+)/g)].map(match => Number(match[1]));
       assert.ok(numbers.every(number => number >= 1 && number <= ordered.length));
@@ -196,10 +240,11 @@ try {
       return { images: [smallImage], model: "stub" };
     };
     await executeStep({ nodeId: "reference-order", kind: "virtual-try-on", inputImages: images,
-      params: { workflowStage: "scene-stabilize", modelId: "gemini-3.1-flash-image", imageSize: "2K",
+      params: { workflowStage: "scene-stabilize", modelId: ["gemini-3.1-flash-image", "gemini-3-pro-image-preview", "gpt-image-2", "gpt-image-2.5-flare"][mask % 4], imageSize: "2K",
         qualityMode: "fast", poseNeutralSource: "/api/files/removed-neutral.png", styleReferenceImage: "/api/files/unused-style.png" } }, images,
     () => ({ id: "stub", generate, edit: generate }), {
       referenceRoles: incoming.map(item => item.role),
+      onSceneRequestPrepared: async request => { snapshot = request; },
       sceneAnalyzer: async () => ({ prompt: "摄影棚", providerRequests: 0, model: "stub", cacheHit: true }),
     });
   }

@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import path from "node:path";
+import type { PoolClient } from "pg";
 import { query, queryOne, transaction } from "./database";
 import { deleteStoredImage } from "./fileStore";
 
@@ -16,6 +17,26 @@ export interface GenerationRecordContext {
   parameters?: Record<string, unknown>;
   referenceImages?: string[];
   requestedCount: number;
+}
+
+export interface GenerationRequestSnapshot {
+  prompt: string;
+  references: Array<{ number: number; role: string; image: string }>;
+}
+
+/** Save the prepared request, not the pre-execution canvas input order. */
+export async function recordGenerationRequest(
+  runId: string,
+  nodeId: string,
+  request: GenerationRequestSnapshot,
+  client?: PoolClient,
+): Promise<void> {
+  await query(`
+    UPDATE generation_runs SET prompt = $3, reference_images_json = $4,
+      parameters_json = (parameters_json::jsonb || jsonb_build_object('referenceManifest', $5::jsonb))::text
+    WHERE id = $1 AND node_id = $2
+  `, [runId, nodeId, request.prompt, JSON.stringify(request.references.map(ref => ref.image)),
+    JSON.stringify(request.references)], client);
 }
 
 export async function createGenerationRecord(runId: string, context: GenerationRecordContext, startedAt: number): Promise<void> {

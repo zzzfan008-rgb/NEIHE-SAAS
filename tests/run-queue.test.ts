@@ -314,6 +314,52 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
   assert.deepEqual(await runRow(run.id), {
     status: "succeeded", error: null, provider_requests: 2, successful_count: 1,
   });
+  const recorded = await database.queryOne<{ prompt: string; reference_images_json: string; parameters_json: string }>(
+    "SELECT prompt, reference_images_json, parameters_json FROM generation_runs WHERE id = $1", [run.id],
+  );
+  assert.ok(recorded);
+  assert.equal(recorded.prompt, fake.requests()[0].prompt);
+  const manifest = JSON.parse(recorded.parameters_json).referenceManifest;
+  assert.deepEqual(manifest.map((ref: { number: number; role: string }) => [ref.number, ref.role]),
+    [[1, "pose"], [2, "person"], [3, "outfit"], [4, "bag"], [5, "scene"]]);
+  const sourceRows = await database.query<{ node_id: string; output_images_json: string }>(
+    "SELECT node_id, output_images_json FROM generation_run_steps WHERE run_id = $1", [run.id],
+  );
+  const sources = new Map(sourceRows.map(row => [row.node_id, JSON.parse(row.output_images_json)[0]]));
+  const expectedReferences = [poseId, personId, outfitId, bagId, sceneId].map(id => sources.get(id));
+  assert.deepEqual(JSON.parse(recorded.reference_images_json), expectedReferences);
+  assert.deepEqual(manifest.map((ref: { image: string }) => ref.image), expectedReferences,
+    "记录必须使用运行时解析到的文件 ID，不得保存入队前顺序或归一化后的 base64");
+  const events = await queue.readDurableRunEvents(run.id, owner.id, 0);
+  const prepared = events?.find(event => event.type === "node-status" && event.executionMeta?.sceneRequest);
+  assert.ok(prepared?.type === "node-status");
+  assert.deepEqual(prepared.executionMeta?.sceneRequest, { prompt: recorded.prompt, references: manifest });
+});
+
+await test("第一轮请求失败仍保留实际参考清单和最终提示词", async () => {
+  const nodeId = `failed-scene-request-${++sequence}`;
+  const roles = ["scene", "outfit", "person", "pose"];
+  const images = await Promise.all(roles.map((_role, index) => solidImage(3, 4, { r: 30 + index * 40, g: 80, b: 90 })));
+  const stage: NodeExecution = {
+    nodeId, kind: "virtual-try-on", inputImages: [],
+    upstream: roles.map((role, index) => ({ nodeId: `source-${role}`, targetHandle: role, images: [images[index]] })),
+    params: { workflowStage: "scene-stabilize", modelId: "gemini-3.1-flash-image", imageSize: "2K", qualityMode: "fast" },
+  };
+  const fake = resolver(() => { throw new ProviderError("invalid request", 400, "stub", "invalid_request"); });
+  const run = await queue.enqueueGenerationRun({ steps: [stage] }, owner.id, {
+    ...context(nodeId), kind: "virtual-try-on", referenceImages: images,
+  });
+  await queue.processNextGenerationJob(`failed-scene-worker-${sequence}`, {
+    resolveProvider: fake.resolveProvider,
+    sceneAnalyzer: async () => ({ prompt: "摄影棚", providerRequests: 0, model: "stub", cacheHit: true }),
+    now: () => tick(),
+  });
+  const row = await database.queryOne<{ status: string; prompt: string; reference_images_json: string }>(
+    "SELECT status, prompt, reference_images_json FROM generation_runs WHERE id = $1", [run.id],
+  );
+  assert.equal(row?.status, "failed");
+  assert.equal(row?.prompt, fake.requests()[0].prompt);
+  assert.deepEqual(JSON.parse(row!.reference_images_json), [images[3], images[2], images[1], images[0]]);
 });
 
 for (const judgeAvailable of [true, false]) {

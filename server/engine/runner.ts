@@ -61,7 +61,9 @@ import {
   failGenerationRecord,
   markGenerationRunning,
   registerGeneratedFiles,
+  recordGenerationRequest,
   type GenerationRecordContext,
+  type GenerationRequestSnapshot,
 } from "../lib/generationRecords";
 import {
   analyzeSceneReference,
@@ -402,6 +404,7 @@ const SCENE_STABILIZE_REFERENCE_ORDER = [
 ] as const;
 
 interface SceneStabilizePreparation {
+  referenceManifest: GenerationRequestSnapshot["references"];
   referenceImages: string[];
   referenceRoles: string[];
   sceneDescription: string;
@@ -414,6 +417,7 @@ interface SceneStabilizePreparation {
 async function prepareSceneStabilizeReferences(
   referenceImages: string[],
   referenceRoles: string[],
+  sourceReferences: string[],
   sceneAnalyzer: SceneAnalyzer,
   beforeProviderCall?: ExecuteStepOptions["beforeProviderCall"],
 ): Promise<SceneStabilizePreparation> {
@@ -423,10 +427,15 @@ async function prepareSceneStabilizeReferences(
   const sceneAnalysis = await sceneAnalyzer(sceneReference, {
     beforeProviderCall,
   });
-  const ordered = orderSceneReferences(referenceImages.map((image, index) => ({ image, role: referenceRoles[index] })));
+  const ordered = orderSceneReferences(referenceImages.map((image, index) => ({
+    image, role: referenceRoles[index], source: sourceReferences[index],
+  })));
   const images = ordered.map(reference => reference.image);
   const roles = ordered.map(reference => reference.role === "pose" ? "pose-guide" : reference.role);
   return {
+    referenceManifest: ordered.map((reference, index) => ({
+      number: index + 1, role: reference.role, image: reference.source,
+    })),
     referenceImages: images,
     referenceRoles: roles,
     sceneDescription: sceneAnalysis.prompt,
@@ -905,6 +914,15 @@ async function executeRun(run: Run): Promise<void> {
       const result = await executeStep(step, inputImages, getProvider, {
         runId: run.id,
         referenceRoles,
+        onSceneRequestPrepared: run.recordContext
+          ? async request => {
+              await recordGenerationRequest(run.id, step.nodeId, request);
+              emit(run, {
+                type: "node-status", nodeId: step.nodeId, status: "running",
+                executionMeta: { sceneRequest: request },
+              });
+            }
+          : undefined,
       });
       // 产出统一落盘为 /api/files/:id，避免 base64 大图驻留事件与内存
       const persisted = await persistOutputImages(result.images);
@@ -1041,6 +1059,7 @@ export async function postProcessGeneratedOutputImages(
 export type ProviderResolver = (id: string) => AIProvider;
 
 export interface ExecuteStepOptions {
+  onSceneRequestPrepared?: (request: GenerationRequestSnapshot) => Promise<void>;
   stylingCompleted?: Array<{
     image: string;
     prompt: string;
@@ -1506,6 +1525,7 @@ export async function executeStep(
       let judgeReferenceImages = [...referenceImages];
       let judgeReferenceRoles = [...referenceRoles];
       let sceneDescription: string | undefined;
+      let sceneReferenceManifest: GenerationRequestSnapshot["references"] | undefined;
       let virtualTryOnAspectReference = referenceImages[0];
       let preliminaryProviderRequests = 0;
       let providerCallOrdinal = 0;
@@ -1552,10 +1572,12 @@ export async function executeStep(
         const prepared = await prepareSceneStabilizeReferences(
           referenceImages,
           referenceRoles,
+          inputImages,
           options.sceneAnalyzer ?? analyzeSceneReference,
           beforeTryOnProviderCall,
         );
         referenceImages = prepared.referenceImages;
+        sceneReferenceManifest = prepared.referenceManifest;
         referenceRoles = prepared.referenceRoles;
         judgeReferenceImages = prepared.judgeReferenceImages;
         judgeReferenceRoles = prepared.judgeReferenceRoles;
@@ -1891,6 +1913,9 @@ export async function executeStep(
           )
         : requestedCount;
       let result: Awaited<ReturnType<typeof generateExactImages>>;
+      if (sceneReferenceManifest) {
+        await options.onSceneRequestPrepared?.({ prompt: request.prompt, references: sceneReferenceManifest });
+      }
       try {
         result = isStagedTryOn
           ? await generateIndependentTryOnCandidates(
@@ -1925,6 +1950,9 @@ export async function executeStep(
           sceneDescription,
         );
         usedPrompt = safePrompt;
+        if (sceneReferenceManifest) {
+          await options.onSceneRequestPrepared?.({ prompt: safePrompt, references: sceneReferenceManifest });
+        }
         result = await generateIndependentTryOnCandidates(
           provider,
           { ...request, prompt: safePrompt },
