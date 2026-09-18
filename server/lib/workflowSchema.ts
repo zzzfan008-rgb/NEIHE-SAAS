@@ -678,6 +678,12 @@ function validateData(
         const source = record(raw.poseReferenceSource, `${path}.poseReferenceSource`);
         oneOf(source.kind, ['original', 'neutral-outfit', 'skeleton', 'depth'] as const, `${path}.poseReferenceSource.kind`);
         imageReference(source.image, `${path}.poseReferenceSource.image`);
+        if (source.neutralSource !== undefined) {
+          oneOf(source.kind, ['skeleton', 'depth'] as const, `${path}.poseReferenceSource.kind`);
+          imageReference(source.neutralSource, `${path}.poseReferenceSource.neutralSource`);
+          if (typeof source.neutralSource !== 'string' || !/^\/api\/files\/[\w.-]+$/.test(source.neutralSource))
+            fail(`${path}.poseReferenceSource.neutralSource`, 'must be a local image reference');
+        }
         if (source.image !== raw.imageUrl) delete raw.poseReferenceSource;
       }
       if (raw.autoConnectTargets !== undefined) {

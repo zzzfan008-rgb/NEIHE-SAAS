@@ -260,7 +260,7 @@ export interface FlowState {
   ) => string | null;
   /** 复制/粘贴等调用方已有完整节点时，仍通过此入口维护 revision/dirty。 */
   addExistingNode: (node: FlowNode) => void;
-  addPoseReferenceImageNode: (target: DocumentTarget, nodeId: string, source: string, image: string, label: string, kind?: import('../types/poseReference').PoseReferenceCanvasKind) => string | null;
+  addPoseReferenceImageNode: (target: DocumentTarget, nodeId: string, source: string, image: string, label: string, kind?: import('../types/poseReference').PoseReferenceCanvasKind, neutralSource?: string) => string | null;
   /** 画板会话完成时只提交一次项目历史；异步结果必须仍匹配原 DocumentTarget。 */
   commitDrawingBoard: (
     target: DocumentTarget,
@@ -5609,15 +5609,17 @@ export const useFlowStore = create<FlowState>()(
           });
         },
 
-        addPoseReferenceImageNode: (target, nodeId, source, image, label, kind) => {
+        addPoseReferenceImageNode: (target, nodeId, source, image, label, kind, neutralSource) => {
           const tab = documentForTarget(get(), target);
           if (!tab || tab.readOnly) return null;
           const origin = tab.nodes.find(n => n.id === nodeId && n.data.kind === "image-input" && n.data.imageUrl === source);
           if (!origin || !/^\/api\/files\/[\w.-]+$/.test(image)) return null;
+          const provenance = kind ? { kind, image, ...(neutralSource ? { neutralSource } : {}) } : undefined;
+          if (provenance && !validPoseReferenceSource(provenance, image)) return null;
           const id = nanoid(8);
           const position = poseReferenceImagePosition(tab.nodes, origin);
           const node: FlowNode = { id, type: "image-input", position,
-            data: { ...defaultNodeData("image-input"), label, imageRole: "reference", imageUrl: image, status: "success", ...(kind ? { poseReferenceSource: { kind, image } } : {}) } as ImageInputNodeData };
+            data: { ...defaultNodeData("image-input"), label, imageRole: "reference", imageUrl: image, status: "success", ...(provenance ? { poseReferenceSource: provenance } : {}) } as ImageInputNodeData };
           // Keep comparison open and preserve selection; never create an edge.
           const changed = commitDocumentMutationForTarget(set, target, current => ({ nodes: [...current.nodes, node] }));
           return changed ? id : null;

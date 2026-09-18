@@ -144,7 +144,12 @@ export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:stri
     if(typeof url!=='string'||!/^\/api\/files\/[\w.-]+$/.test(url)) throw new Error('图片保存结果无效');
     const baseLabel=kind==='original'?'姿势原图':kind==='neutral-outfit'?'背心+紧身裤姿势参考':kind==='skeleton'?(state?.records.skeleton?.result?.model==='dwpose-wholebody'?'DWPose 骨骼图':'旧版骨骼图'):'人物深度图';
     const label=(kind==='skeleton'||kind==='depth')&&analysisSource!==source?`${baseLabel}（背心+紧身裤）`:baseLabel;
-    const id=useFlowStore.getState().addPoseReferenceImageNode(target,nodeId,source,url,label,kind);
+    const neutral = usePoseReferenceRuntime.getState().entries[poseReferenceKey(target,nodeId,source)]?.neutralOutfit;
+    const neutralSource = (kind==='depth'||kind==='skeleton') && analysisSource!==source &&
+      state?.records[kind]?.source===analysisSource && neutral?.source===source &&
+      neutral.status==='succeeded' && neutral.result?.image===analysisSource
+      ? analysisSource : undefined;
+    const id=useFlowStore.getState().addPoseReferenceImageNode(target,nodeId,source,url,label,kind,neutralSource);
     if(!id) throw new Error('文档已变化，未添加图片');
     patch(key,s=>({...s,added:{...s.added,[kind]:id}}));
   } catch(error) {

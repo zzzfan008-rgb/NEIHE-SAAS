@@ -123,6 +123,16 @@ try {
     const outfitTab=useFlowStore.getState().tabs.find(t=>t.id===outfitTarget.tabId)!;
     assert.equal(outfitTab.nodes.at(-1)?.data.label,'背心+紧身裤姿势参考');
     assert.equal(outfitCalls,2,'已有本地生成文件时导出不得再次上传');
+    const neutralSource = outfitResult.result.image;
+    const depthKey = poseReferenceKey(outfitTarget,'any-id',neutralSource);
+    usePoseReferenceRuntime.setState(s=>({entries:{...s.entries,[depthKey]:{records:{depth:{...result,source:neutralSource,result:{image:'/api/files/derived-depth.png',model:'depth'}} as any},busy:{},errors:{}}}}));
+    await addPoseReferenceToCanvas(outfitTarget,'any-id',source,'depth',neutralSource);
+    const exported = useFlowStore.getState().tabs.find(t=>t.id===outfitTarget.tabId)!.nodes.at(-1)!;
+    assert.deepEqual((exported.data as any).poseReferenceSource,{kind:'depth',image:'/api/files/derived-depth.png',neutralSource});
+    assert.notEqual((exported.data as any).poseReferenceSource.neutralSource,source,'不能误带原人物姿势照片');
+    usePoseReferenceRuntime.setState(s=>({entries:{...s.entries,[outfitKey]:{...s.entries[outfitKey],neutralOutfit:undefined}}}));
+    await addPoseReferenceToCanvas(outfitTarget,'any-id',source,'depth',neutralSource);
+    assert.equal((useFlowStore.getState().tabs.find(t=>t.id===outfitTarget.tabId)!.nodes.at(-1)!.data as any).poseReferenceSource.neutralSource,undefined,'无法核验的旧来源不能冒充中性源');
   } finally { globalThis.fetch=savedFetch; }
   console.log('Pose runtime: semantic port detection, duplicate click, source and document-epoch boundaries passed');
 } finally {

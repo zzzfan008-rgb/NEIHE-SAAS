@@ -6,7 +6,17 @@ export interface TryOnPoseChecks {
   headAndTorso: boolean;
   armsAndHands: boolean;
   legsAndWeight: boolean;
+  screenLeftArm?: boolean;
+  screenRightArm?: boolean;
+  screenLeftHand?: boolean;
+  screenRightHand?: boolean;
+  screenLeftLeg?: boolean;
+  screenRightLeg?: boolean;
+  weightAndCrossing?: boolean;
+  notMirrored?: boolean;
 }
+
+const POSE_CHECK_FIELDS = ["headAndTorso", "armsAndHands", "legsAndWeight", "screenLeftArm", "screenRightArm", "screenLeftHand", "screenRightHand", "screenLeftLeg", "screenRightLeg", "weightAndCrossing", "notMirrored"] as const;
 
 export interface TryOnCandidateScore {
   index: number;
@@ -60,7 +70,7 @@ function parsePoseChecks(
     throw new ProviderError("候选评审缺少有效的姿势分项判定", 502, "try-on-judge", "invalid_response");
   }
   const checks = value as Record<string, unknown>;
-  const fields = ["headAndTorso", "armsAndHands", "legsAndWeight"] as const;
+  const fields = required ? POSE_CHECK_FIELDS : POSE_CHECK_FIELDS.slice(0, 3);
   for (const field of fields) {
     if (typeof checks[field] !== "boolean") {
       throw new ProviderError("候选评审缺少有效的姿势分项判定", 502, "try-on-judge", "invalid_response");
@@ -70,6 +80,7 @@ function parsePoseChecks(
     headAndTorso: checks.headAndTorso as boolean,
     armsAndHands: checks.armsAndHands as boolean,
     legsAndWeight: checks.legsAndWeight as boolean,
+    ...Object.fromEntries(POSE_CHECK_FIELDS.slice(3).filter(field => typeof checks[field] === "boolean").map(field => [field, checks[field]])),
   };
 }
 
@@ -127,11 +138,7 @@ export function parseTryOnCandidateSelection(
     const reasons = Array.isArray(row.reasons)
       ? row.reasons.filter((reason): reason is string => typeof reason === "string").slice(0, 8)
       : [];
-    const poseCheckFailed = requirePoseChecks && (
-      !poseChecks?.headAndTorso ||
-      !poseChecks.armsAndHands ||
-      !poseChecks.legsAndWeight
-    );
+    const poseCheckFailed = requirePoseChecks && POSE_CHECK_FIELDS.some(field => poseChecks?.[field] !== true);
     return {
       index, identity, anatomy, garment, material, accessories, scene,
       total: identity + anatomy + garment + material + accessories + scene,
@@ -172,12 +179,16 @@ export const selectBestTryOnCandidate: TryOnCandidateSelector = async (input) =>
     throw new ProviderError("候选评审缺少原始人物姿势参考图", 400, model, "invalid_request");
   }
   const poseChecksSchema = input.stage === "scene-stabilize"
-    ? ',"poseChecks":{"headAndTorso":true,"armsAndHands":true,"legsAndWeight":true}'
+    ? `,"poseChecks":${JSON.stringify(Object.fromEntries(POSE_CHECK_FIELDS.map(field => [field, false])))}`
     : "";
   const content: Array<Record<string, unknown>> = [{
     type: "text",
     text: `你是写实服装换装候选评审器。阶段=${input.stage}。${roleText}。下面先给参考图，再给候选图。严格按指令符合度、身份20、肢体结构15、服装版型20、材质纹理20、配饰与文字准确性15、构图与场景10评分。身份替换、明显多肢缺肢、严重手脚错误、场景服装污染、核心穿搭错误、虚构或改写 Logo/文字、核心包鞋缺失必须 hardFail=true。只返回 JSON：{\"scores\":[{\"index\":0,\"identity\":0,\"anatomy\":0,\"garment\":0,\"material\":0,\"accessories\":0,\"scene\":0,\"hardFail\":false,\"poseMatches\":true${poseChecksSchema},\"reasons\":[\"具体问题\"]}]}。index 从0开始且每张候选恰好一项。目标提示词：${input.prompt}`,
   }];
+  if (input.stage === "scene-stabilize") content.push({
+    type: "text",
+    text: "逐项以画面左/右（不是人物解剖学左右）比较：screenLeftArm、screenRightArm 分别核对肩肘腕弯曲方向与手臂是否外张；screenLeftHand、screenRightHand 分别核对手在腰/髋/口袋的位置及接触，不能把单手入袋判成双手叉腰；screenLeftLeg、screenRightLeg 分别核对膝踝位置和弯曲方向；weightAndCrossing 核对承重腿及哪条腿交叉在前；notMirrored 核对是否左右镜像。headAndTorso 核对头部侧倾、旋转方向和肩髋倾斜。以上分项和三项汇总都必须返回布尔值；任一不符或无法判断应为 false，不得用汇总 true 覆盖分项 false。reasons 必须说明不符分项在参考与候选中各自的可见状态。pose-neutral 若提供，是该姿势图的中性源，只辅助判断肢体；服装和身份不从它继承。深度/骨骼不含眼睛视线，不能据此臆测或扣视线分。提示词中的 pose-guide 与这里的 pose 是同一编号同一张图。",
+  });
   content.push({
     type: "text",
     text: input.stage === "scene-stabilize"

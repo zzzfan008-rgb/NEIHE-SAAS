@@ -42,10 +42,11 @@ const rejected = parseTryOnCandidateSelection({
 assert.equal(rejected.selectedIndex, null);
 assert.equal(rejected.allHardFail, true);
 
+const detailedChecks = { screenLeftArm: true, screenRightArm: true, screenLeftHand: true, screenRightHand: true, screenLeftLeg: true, screenRightLeg: true, weightAndCrossing: true, notMirrored: true };
 const scores = [
   { index: 0, identity: 20, anatomy: 15, garment: 20, material: 20, accessories: 15, scene: 10, hardFail: false, poseMatches: false, poseChecks: { headAndTorso: false, armsAndHands: false, legsAndWeight: true }, reasons: ["头部与肩线不符"] },
   { index: 1, identity: 18, anatomy: 14, garment: 19, material: 18, accessories: 14, scene: 9, hardFail: false, poseMatches: true, poseChecks: { headAndTorso: true, armsAndHands: true, legsAndWeight: true }, reasons: [] },
-];
+].map(score => ({ ...score, poseChecks: { ...score.poseChecks, ...detailedChecks } }));
 const responsePayload = { choices: [{ message: { content: JSON.stringify({ scores }) } }] };
 assert.equal(parseTryOnCandidateSelection(responsePayload, 2, "judge", true).selectedIndex, 1);
 assert.throws(() => parseTryOnCandidateSelection({ choices: [{ message: { content: JSON.stringify({ scores: scores.map(({ poseMatches: _pose, ...score }) => score) }) } }] }, 2, "judge", true), /姿势/);
@@ -53,10 +54,21 @@ const strictPoseSelection = parseTryOnCandidateSelection({
   choices: [{ message: { content: JSON.stringify({ scores: [
     { index: 0, identity: 20, anatomy: 15, garment: 20, material: 20, accessories: 15, scene: 10, hardFail: false, poseMatches: true, poseChecks: { headAndTorso: true, armsAndHands: false, legsAndWeight: true }, reasons: ["双臂与手部不符"] },
     { index: 1, identity: 18, anatomy: 14, garment: 19, material: 18, accessories: 14, scene: 9, hardFail: false, poseMatches: true, poseChecks: { headAndTorso: true, armsAndHands: true, legsAndWeight: true }, reasons: [] },
-  ] }) } }],
+  ].map(score => ({ ...score, poseChecks: { ...score.poseChecks, ...detailedChecks } })) }) } }],
 }, 2, "judge", true, true);
 assert.equal(strictPoseSelection.selectedIndex, 1, "手臂或手部不符的第一轮候选不得自动胜出");
 assert.equal(strictPoseSelection.scores[0].hardFail, true);
+// Regression for oUkhm663Q9: high score and positive aggregate checks must not
+// override wrong arm/hand, crossing or mirrored geometry. No paid provider here.
+for (const field of Object.keys(detailedChecks)) {
+  const failing = { ...scores[1], index: 0, poseChecks: { ...scores[1].poseChecks, [field]: false } };
+  const parsed = parseTryOnCandidateSelection({ choices: [{ message: { content: JSON.stringify({ scores: [failing] }) } }] }, 1, "judge", true, true);
+  assert.equal(parsed.allHardFail, true, field);
+  assert.equal(parsed.selectedIndex, null, field);
+  for (const unknown of [undefined, null, "unknown"]) {
+    assert.throws(() => parseTryOnCandidateSelection({ choices: [{ message: { content: JSON.stringify({ scores: [{ ...failing, poseChecks: { ...failing.poseChecks, [field]: unknown } }] }) } }] }, 1, "judge", true, true), /姿势分项/);
+  }
+}
 assert.throws(
   () => parseTryOnCandidateSelection({ choices: [{ message: { content: JSON.stringify({ scores: scores.map(({ poseChecks: _poseChecks, ...score }) => score) }) } }] }, 2, "judge", true, true),
   /姿势分项/,

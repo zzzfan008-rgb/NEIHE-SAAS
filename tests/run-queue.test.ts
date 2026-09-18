@@ -325,14 +325,14 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
   assert.equal(sceneInputs.length, 1);
   assert.equal(poseInputs.length, 1);
   assert.equal(fake.requests()[0].referenceImages?.length, 6);
-  assert.equal(fake.requests()[0].referenceImages?.at(-2), poseInputs[0], "原始深度图必须直接进入生图请求");
+  assert.equal(fake.requests()[0].referenceImages?.[0], poseInputs[0], "原始深度图必须直接进入生图请求");
   assert.equal(fake.requests()[0].referenceImages?.at(-1), sceneInputs[0]);
-  assert.match(fake.requests()[0].prompt, /【身份】参考图1是由视觉定位后从主要人物脸部裁切的身份锚点/);
+  assert.match(fake.requests()[0].prompt, /【身份】参考图2是由视觉定位后从主要人物脸部裁切的身份锚点/);
   assert.match(fake.requests()[0].prompt, /类型：深度图，亮近暗远/);
-  assert.match(fake.requests()[0].prompt, /参考图2.*完整人物身份图/);
-  assert.match(fake.requests()[0].prompt, /参考图3.*服装与搭配风格的唯一来源/);
-  assert.match(fake.requests()[0].prompt, /参考图4只控制目标包袋/);
-  assert.match(fake.requests()[0].prompt, /参考图5.*用户手动选择的原始姿势参考图/);
+  assert.match(fake.requests()[0].prompt, /参考图3.*完整人物身份图/);
+  assert.match(fake.requests()[0].prompt, /参考图4.*服装与搭配风格的唯一来源/);
+  assert.match(fake.requests()[0].prompt, /参考图5只控制目标包袋/);
+  assert.match(fake.requests()[0].prompt, /参考图1.*用户手动选择的原始姿势参考图/);
   assert.doesNotMatch(fake.requests()[0].prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
   assert.deepEqual(await runRow(run.id), {
     status: "succeeded", error: null, provider_requests: 4, successful_count: 1,

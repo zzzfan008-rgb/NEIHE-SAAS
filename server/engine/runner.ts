@@ -352,6 +352,7 @@ function stagedVirtualTryOnPrompt(
         : "";
     const sections = [
       `建立第一轮人物场景基准。`,
+      `【动作坐标约定】左右始终按观看图片的画面左/右，不按人物解剖学左右。先按${one("pose-guide")}固定头部、肩髋、画面左/右肘腕、膝踝与承重关系，再替换身份和穿搭。禁止水平镜像，禁止用主穿搭中人物的动作覆盖姿势。${indexes("pose-neutral").length ? `${one("pose-neutral")}是生成该姿势图时实际使用的背心＋紧身裤中性源，仅辅助辨认可见肢体、手部接触、头部朝向与遮挡；不提供身份、衣物或背景，与姿势图冲突时以姿势图可见几何为准。` : "没有中性源时不得从其它角色猜测或补造姿势依据。"}深度图和骨骼图无法表达的视线不作动作约束，不把推测关节当作测量结果。`,
       `【身份】${one("face-anchor")}是由视觉定位后从主要人物脸部裁切的身份锚点，是脸部恢复最高优先级来源，锁定五官结构、脸型和可识别身份。${one("person")}是主要完整人物身份图，只控制同一人物的肤色、发型、体型和身体特征；其中原服装、姿势及非身份物体全部忽略，不得进入结果。${optionalIdentity}`,
       `【服装】${one("outfit")}是服装与搭配风格的唯一来源，严格还原服装类别、整体版型、上下装比例、衣长、袖长、裤长或裙长、腰线位置、裤腿宽度、层叠关系、穿着方式、颜色与风格。长裤不得改成短裤，短裤不得延长为长裤；服装长短按其相对腰、髋、膝、踝的位置还原，不照搬参考人物的像素尺寸；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度属于必须还原的结构，不得替换为近似设计；图内人物身份与背景全部忽略。独立配饰参考只覆盖对应类别；未连接的配饰只沿用主穿搭中清晰可见的同类物品，不额外添加。`,
       `【场景】${one("scene")}是纯场景环境参考，只控制背景空间、镜头视点、取景、构图与光线；其中任何人物、身体、姿势、身份、服装及配饰都属于待移除内容，禁止继承或融合。场景分析仅作环境辅助：${sceneDescription ?? "场景分析不可用"}。`,
@@ -367,7 +368,7 @@ function stagedVirtualTryOnPrompt(
       return [...sections, "【场景融合】将各角色参考融合为同一张照片；人物尺度、接触阴影与透视服从场景空间，保持目标动作与服装结构。脸部裁切锚点只用于身份，不决定成图裁切。", userIdeas, output].filter(Boolean).join("\n");
     }
     if (params.modelId === "gpt-image-2") {
-      return ["执行多参考图融合编辑，生成完整人物场景照片，不是修改或放大第一张脸部裁切图。", ...sections.slice(1),
+      return ["执行多参考图融合编辑，生成完整人物场景照片，不是修改或放大某张参考图。", ...sections.slice(1),
         "【必须保持】逐图按指定职责取用信息；以场景为完整画面环境，人物身份、动作、服装各从对应来源还原。不得把参考图并排拼贴，不得沿用身份锚点的小画幅。", userIdeas, output].filter(Boolean).join("\n");
     }
     const compactSections = sections.slice(1).map((section) => section.split("按维度分别锁定：")[0]);
@@ -423,6 +424,7 @@ async function prepareSceneStabilizeReferences(
   poseAnalyzer: PoseAnalyzer,
   identityAnchorer: IdentityAnchorer,
   beforeProviderCall?: ExecuteStepOptions["beforeProviderCall"],
+  neutralSource?: string,
 ): Promise<SceneStabilizePreparation> {
   const imageFor = (role: string) =>
     referenceImages[referenceRoles.indexOf(role)];
@@ -432,14 +434,14 @@ async function prepareSceneStabilizeReferences(
   const sceneAnalysis = await sceneAnalyzer(sceneReference, {
     beforeProviderCall,
   });
-  const poseAnalysis = await poseAnalyzer(poseReference, {
+  const poseAnalysis = await poseAnalyzer(neutralSource ?? poseReference, {
     beforeProviderCall,
   });
   const anchor = await identityAnchorer(personReference, {
     beforeProviderCall,
   });
-  const images = [anchor.image];
-  const roles = ["face-anchor"];
+  const images = [poseReference, ...(neutralSource ? [neutralSource] : []), anchor.image];
+  const roles = ["pose-guide", ...(neutralSource ? ["pose-neutral"] : []), "face-anchor"];
   for (const role of SCENE_STABILIZE_REFERENCE_ORDER) {
     for (const [index, candidate] of referenceRoles.entries()) {
       if (candidate !== role) continue;
@@ -447,8 +449,6 @@ async function prepareSceneStabilizeReferences(
       roles.push(role);
     }
   }
-  images.push(poseReference);
-  roles.push("pose-guide");
   images.push(sceneReference);
   roles.push("scene");
   return {
@@ -456,8 +456,8 @@ async function prepareSceneStabilizeReferences(
     referenceRoles: roles,
     sceneDescription: sceneAnalysis.prompt,
     poseDescription: poseAnalysis.prompt,
-    judgeReferenceImages: [...referenceImages],
-    judgeReferenceRoles: [...referenceRoles],
+    judgeReferenceImages: [...images],
+    judgeReferenceRoles: roles.map(role => role === "pose-guide" ? "pose" : role),
     aspectReference: sceneReference,
     providerRequests:
       sceneAnalysis.providerRequests +
@@ -1577,12 +1577,13 @@ export async function executeStep(
       ) {
         const reservedReferences =
           1 +
+          (step.params.poseNeutralSource ? 1 : 0) +
           (step.params.stylePresetId && step.params.stylePresetId !== "faithful"
             ? 1
             : 0);
         if (referenceImages.length + reservedReferences > maxReferences) {
           throw new Error(
-            "第一轮参考图超出模型上限，请为内部人脸锚点和风格参考预留名额",
+            "第一轮参考图超出模型上限，请为姿势辅助源、人脸锚点和风格参考预留名额",
           );
         }
       }
@@ -1603,6 +1604,9 @@ export async function executeStep(
           options.poseAnalyzer ?? analyzePoseReference,
           options.identityAnchorer ?? createIdentityAnchor,
           beforeTryOnProviderCall,
+          typeof step.params.poseNeutralSource === "string"
+            ? (await resolveImageRefs([step.params.poseNeutralSource]))[0]
+            : undefined,
         );
         referenceImages = prepared.referenceImages;
         referenceRoles = prepared.referenceRoles;

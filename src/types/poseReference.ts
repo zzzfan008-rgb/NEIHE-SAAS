@@ -4,12 +4,18 @@ export type PoseReferenceCanvasKind = PoseReferenceKind | 'original' | 'neutral-
 export interface PoseReferenceSource {
   kind: PoseReferenceCanvasKind;
   image: string;
+  /** Neutral outfit image actually used to derive this depth/skeleton image. */
+  neutralSource?: string;
 }
 export function validPoseReferenceSource(value: unknown, image: unknown): value is PoseReferenceSource {
   if (!value || typeof value !== 'object') return false;
   const source = value as Partial<PoseReferenceSource>;
   return typeof image === 'string' && source.image === image &&
-    ['original', 'neutral-outfit', 'skeleton', 'depth'].includes(source.kind ?? '');
+    ['original', 'neutral-outfit', 'skeleton', 'depth'].includes(source.kind ?? '') &&
+    (source.neutralSource === undefined ||
+      (['depth', 'skeleton'].includes(source.kind ?? '') &&
+        typeof source.neutralSource === 'string' &&
+        /^\/api\/files\/[\w.-]+$/.test(source.neutralSource)));
 }
 export interface PoseReferenceRecord {
   id: string;

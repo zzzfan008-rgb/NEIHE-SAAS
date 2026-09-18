@@ -560,6 +560,14 @@ for (const kind of ['original', 'neutral-outfit', 'skeleton', 'depth'] as const)
   assert.equal(restored.kind, 'image-input');
   if (restored.kind !== 'image-input') throw new Error('fixture');
   assert.deepEqual(restored.poseReferenceSource, { kind, image });
+  if (kind === 'depth' || kind === 'skeleton') {
+    data.poseReferenceSource!.neutralSource = '/api/files/neutral.png';
+    const roundtrip = validateAndMigrateFlow(snapshot()).nodes[0].data;
+    assert.equal((roundtrip as any).poseReferenceSource.neutralSource, '/api/files/neutral.png');
+    const unsafe = snapshot();
+    (unsafe.nodes[0].data as any).poseReferenceSource.neutralSource = 'https://example.com/pose.png';
+    assert.throws(() => validateAndMigrateFlow(unsafe), /neutralSource/);
+  }
   const invalid = structuredClone(saved);
   (invalid.nodes[0].data as any).poseReferenceSource.kind = 'wrong';
   assert.throws(() => validateAndMigrateFlow(invalid), /poseReferenceSource.kind/);

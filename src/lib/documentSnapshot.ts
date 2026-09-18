@@ -409,7 +409,8 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         imageRole: data.imageRole,
         ...(data.poseReference === true ? { poseReference: true } : {}),
         ...(validPoseReferenceSource(data.poseReferenceSource, data.imageUrl)
-          ? { poseReferenceSource: { kind: data.poseReferenceSource.kind, image: data.poseReferenceSource.image } }
+          ? { poseReferenceSource: { kind: data.poseReferenceSource.kind, image: data.poseReferenceSource.image,
+              ...optionalString("neutralSource", data.poseReferenceSource.neutralSource) } }
           : {}),
         ...optionalString("imageUrl", data.imageUrl),
         ...(data.autoConnectTargets
