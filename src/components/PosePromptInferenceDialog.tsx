@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type RefObject } from 'react';
 import { analyzePosePrompt, EMPTY_POSE_STATE, poseReferenceKey, usePoseReferenceRuntime } from '../store/poseReferenceRuntime';
-import { type DocumentTarget } from '../store/flowStore';
+import { useFlowStore, type DocumentTarget } from '../store/flowStore';
+import { posePromptForImage } from '../types/poseReference';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
@@ -18,6 +19,10 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
   );
   const key = poseReferenceKey(stableTarget, nodeId, source);
   const state = usePoseReferenceRuntime((runtime) => runtime.entries[key] ?? EMPTY_POSE_STATE);
+  const savedPrompt = useFlowStore(s => {
+    const data = s.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch)?.nodes.find(n => n.id === nodeId)?.data;
+    return data?.kind === 'image-input' && data.imageUrl === source ? posePromptForImage(data) : undefined;
+  });
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
@@ -41,7 +46,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         <DialogHeader>
           <DialogTitle>反推人物姿势</DialogTitle>
           <DialogDescription id="pose-prompt-inference-description">
-            使用当前人物姿势参考图调用视觉模型，展示模型对动作的理解；不会改写第一轮生图提示词、图片或项目内容。首次分析可能产生一次模型调用，相同图片再次打开会优先读取缓存。
+            使用当前人物姿势参考图反推动作描述，默认用于第一轮生图；可在姿势节点下方检查和修改。已有手动编辑不会被覆盖。首次分析可能产生一次模型调用，相同图片优先读取缓存。
           </DialogDescription>
         </DialogHeader>
 
@@ -62,25 +67,25 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
           </div>
         )}
 
-        {result && (
+        {(result || savedPrompt !== undefined) && (
           <div className="space-y-3">
             <Card className="gap-0 border border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
-              <h3 className="mb-2 text-sm font-medium">模型反推的姿势提示词</h3>
+              <h3 className="mb-2 text-sm font-medium">{savedPrompt !== undefined ? '当前用于生图的姿势提示词' : '模型反推的姿势提示词'}</h3>
               <pre
                 data-pose-prompt="result"
                 className="whitespace-pre-wrap break-words text-sm leading-6"
               >
-                {result.prompt}
+                {savedPrompt ?? result?.prompt}
               </pre>
             </Card>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-[var(--gc-text-muted)]">
+            {result && <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-[var(--gc-text-muted)]">
               <dt>视觉模型</dt>
               <dd className="break-all">{result.model}</dd>
               <dt>缓存状态</dt>
               <dd>{result.cacheHit ? '命中缓存，未重复调用' : '本次新分析'}</dd>
               <dt>本次模型调用</dt>
               <dd>{result.providerRequests} 次</dd>
-            </dl>
+            </dl>}
           </div>
         )}
       </DialogContent>

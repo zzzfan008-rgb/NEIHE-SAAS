@@ -615,6 +615,10 @@ export function buildExecutionPlan(
       params.poseReferenceType = source?.kind === 'image-input' &&
         validPoseReferenceSource(source.poseReferenceSource, source.imageUrl)
         ? source.poseReferenceSource.kind : 'unspecified';
+      // The actual pose edge owns this text; never use a stale image's description.
+      if (source?.kind === 'image-input' && source.imageUrl && source.posePromptImage === source.imageUrl && typeof source.posePrompt === 'string') {
+        params.posePrompt = source.posePrompt.trim();
+      }
     }
     if (data.kind === "mask-redraw") {
       params.referenceLabels = upstream.map(

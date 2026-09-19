@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { invalidateStylingRequest } from "./stylingRequestVersions";
 import { temporal } from "zundo";
-import { validPoseReferenceSource } from '../types/poseReference';
+import { posePromptForImage, validPoseReferenceSource } from '../types/poseReference';
 import {
   applyNodeChanges,
   applyEdgeChanges,
@@ -176,7 +176,7 @@ export type CoalescedTextEditDescriptor =
   | {
       kind: "node-data";
       nodeId: string;
-      field: "label" | "prompt" | "note" | "materialSpec" | "constructionSpec";
+      field: "label" | "prompt" | "posePrompt" | "note" | "materialSpec" | "constructionSpec";
     };
 
 export interface CoalescedTextEditToken {
@@ -1493,6 +1493,9 @@ function virtualTryOnRunBlockReason(
   if (node.data.workflowStage === "scene-stabilize") {
     if (!isSceneStabilizeModelId(node.data.modelId))
       return "第一轮所选模型不受支持";
+    const poseSource = document.nodes.find(candidate => candidate.id === edgesFor('pose')[0]?.source);
+    if (poseSource?.data.kind === 'image-input' && poseSource.data.imageUrl && !posePromptForImage(poseSource.data)?.trim())
+      return '请先在人物姿势参考图中完成反推或填写姿势提示词，再生成第一轮';
     const personEdges = edgesFor("person");
     if (personEdges.length < 1 || personEdges.length > 3)
       return "人物身份图必须连接 1 至 3 张";
@@ -2106,9 +2109,13 @@ function textEditPatch(
     const data = { ...node.data } as WorkflowNodeData & Record<string, unknown>;
     if (fieldExisted) data[descriptor.field] = value;
     else delete data[descriptor.field];
+    if (descriptor.field === 'posePrompt' && data.kind === 'image-input') {
+      data.posePromptImage = fieldExisted ? data.imageUrl : undefined;
+    }
     return { ...node, data };
   });
-  return matched ? { nodes } : {};
+  return matched ? { nodes: descriptor.field === 'posePrompt'
+    ? incrementSceneBasis(nodes, sceneBasisTargetsForSource(tab, descriptor.nodeId)) : nodes } : {};
 }
 
 function clearTextEditTimer(edit: ActiveTextEdit): void {
@@ -5698,6 +5705,8 @@ export const useFlowStore = create<FlowState>()(
           ]);
           const sourceOutputKeys = new Set([
             "imageUrl",
+            "posePrompt",
+            "posePromptImage",
             "outputImages",
             "previewImageRef",
             "exportImageRef",
@@ -5778,7 +5787,7 @@ export const useFlowStore = create<FlowState>()(
               );
               for (const dependentId of dependentIds)
                 invalidateStylingRequest(target, dependentId);
-              return nodes.map((node) =>
+              const patchedNodes = nodes.map((node) =>
                 node.id === id
                   ? {
                       ...node,
@@ -5796,6 +5805,9 @@ export const useFlowStore = create<FlowState>()(
                       }
                     : node,
               );
+              const poseChanged = source?.data.kind === 'image-input' &&
+                ['posePrompt', 'posePromptImage'].some(key => Object.hasOwn(patch, key) && !Object.is(source.data[key], patch[key]));
+              return poseChanged ? incrementSceneBasis(patchedNodes, sceneBasisTargetsForSource(tab, id)) : patchedNodes;
             },
             { markDirty: true },
           );

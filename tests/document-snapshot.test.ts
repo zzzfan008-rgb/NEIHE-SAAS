@@ -551,6 +551,7 @@ for (const kind of ['original', 'neutral-outfit', 'skeleton', 'depth'] as const)
   const data: WorkflowNodeData = {
     kind: 'image-input', label: '任意标题', status: 'success', imageRole: 'reference', imageUrl: image,
     poseReferenceSource: { kind, image },
+    posePrompt: '画面左腿交叉，肩线倾斜', posePromptImage: image,
   };
   const snapshot = () => documentSnapshotToPersistedWorkflow(createDocumentSnapshot({
     projectName: 'pose types', nodes: [{ id: 'pose', type: 'image-input', position: { x: 0, y: 0 }, data }], edges: [],
@@ -560,6 +561,11 @@ for (const kind of ['original', 'neutral-outfit', 'skeleton', 'depth'] as const)
   assert.equal(restored.kind, 'image-input');
   if (restored.kind !== 'image-input') throw new Error('fixture');
   assert.deepEqual(restored.poseReferenceSource, { kind, image });
+  assert.equal(restored.posePrompt, data.posePrompt);
+  assert.equal(restored.posePromptImage, image);
+  const badPrompt = structuredClone(saved);
+  (badPrompt.nodes[0].data as any).posePrompt = 'x'.repeat(4001);
+  assert.throws(() => validateAndMigrateFlow(badPrompt), /posePrompt/);
   if (kind === 'depth' || kind === 'skeleton') {
     data.poseReferenceSource!.neutralSource = '/api/files/neutral.png';
     const roundtrip = validateAndMigrateFlow(snapshot()).nodes[0].data;
@@ -573,8 +579,10 @@ for (const kind of ['original', 'neutral-outfit', 'skeleton', 'depth'] as const)
   assert.throws(() => validateAndMigrateFlow(invalid), /poseReferenceSource.kind/);
   data.imageUrl = '/api/files/replacement.png';
   assert.equal((snapshot().nodes[0].data as any).poseReferenceSource, undefined);
+  assert.equal((snapshot().nodes[0].data as any).posePrompt, undefined);
   (saved.nodes[0].data as any).imageUrl = data.imageUrl;
   assert.equal((validateAndMigrateFlow(saved).nodes[0].data as any).poseReferenceSource, undefined);
+  assert.equal((validateAndMigrateFlow(saved).nodes[0].data as any).posePrompt, undefined);
 }
 
 console.log("通过纯文档快照边界与多模态端口往返测试");

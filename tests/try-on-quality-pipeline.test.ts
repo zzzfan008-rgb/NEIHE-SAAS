@@ -312,7 +312,8 @@ try {
       const assertNoPoseProse = (prompt: string) => {
         assert.ok(!prompt.includes(inventedPose), "不得让模型臆测动作进入生图或评审");
         assert.doesNotMatch(prompt, /姿势分析对原图的几何复核|姿势分析不可用|身体姿势：|手部姿势：/);
-        assert.match(prompt, /参考图1是用户手动选择的原始姿势参考图/);
+        const label = { depth: '深度图', skeleton: 'DWPose 骨骼图', 'neutral-outfit': '服饰简化人物照片', original: '原始人物照片' }[poseReferenceType];
+        assert.ok(prompt.includes(`参考图1是${label}。`));
       };
       const generate = async (request: ImageGenRequest) => {
         generationCalls++;

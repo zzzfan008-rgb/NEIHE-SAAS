@@ -674,6 +674,15 @@ function validateData(
       if (raw.poseReference !== undefined && typeof raw.poseReference !== "boolean")
         fail(`${path}.poseReference`, "must be a boolean");
       optionalImageReference(raw.imageUrl, `${path}.imageUrl`);
+      if (raw.posePrompt !== undefined) {
+        stringValue(raw.posePrompt, `${path}.posePrompt`);
+        if ((raw.posePrompt as string).length > 4000) fail(`${path}.posePrompt`, 'must be at most 4000 characters');
+      }
+      optionalImageReference(raw.posePromptImage, `${path}.posePromptImage`);
+      if (!raw.imageUrl || raw.posePromptImage !== raw.imageUrl || raw.posePrompt === undefined) {
+        delete raw.posePrompt;
+        delete raw.posePromptImage;
+      }
       if (raw.poseReferenceSource !== undefined) {
         const source = record(raw.poseReferenceSource, `${path}.poseReferenceSource`);
         oneOf(source.kind, ['original', 'neutral-outfit', 'skeleton', 'depth'] as const, `${path}.poseReferenceSource.kind`);

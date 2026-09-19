@@ -253,6 +253,7 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
     params: {
       workflowStage: "scene-stabilize",
       poseReferenceType: "depth",
+      posePrompt: "用户修订：画面左腿交叉，画面右手贴近髋部。",
       prompt: "",
       imageSize: "2K",
       modelId: "gemini-3.1-flash-image",
@@ -313,11 +314,12 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
   assert.doesNotMatch(fake.requests()[0].prompt, /姿势分析对原图的几何复核|身体姿势：/);
   assert.equal(fake.requests()[0].referenceImages?.at(-1), sceneInputs[0]);
   assert.match(fake.requests()[0].prompt, /【身份】参考图2是主要完整人物身份图/);
-  assert.match(fake.requests()[0].prompt, /类型：深度图，亮近暗远/);
+  assert.match(fake.requests()[0].prompt, /黑白灰阶表示相对前后关系：亮处较近，暗处较远/);
   assert.match(fake.requests()[0].prompt, /参考图2.*完整人物身份图/);
   assert.match(fake.requests()[0].prompt, /参考图3.*服装与搭配风格的唯一来源/);
   assert.match(fake.requests()[0].prompt, /参考图4只控制目标包袋/);
-  assert.match(fake.requests()[0].prompt, /参考图1.*用户手动选择的原始姿势参考图/);
+  assert.match(fake.requests()[0].prompt, /【姿势】参考图1是深度图。/);
+  assert.match(fake.requests()[0].prompt, /【姿势】参考图1是深度图。用户修订：画面左腿交叉，画面右手贴近髋部。黑白灰阶/);
   assert.doesNotMatch(fake.requests()[0].prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
   assert.deepEqual(await runRow(run.id), {
     status: "succeeded", error: null, provider_requests: 4, successful_count: 1,

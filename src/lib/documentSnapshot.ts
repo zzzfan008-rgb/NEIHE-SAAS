@@ -1,4 +1,4 @@
-import { validPoseReferenceSource } from '../types/poseReference';
+import { posePromptForImage, validPoseReferenceSource } from '../types/poseReference';
 import {
   isSceneStabilizeModelId,
   MASK_REDRAW_MODEL_ID,
@@ -61,6 +61,8 @@ export type DocumentNodeData =
       kind: "image-input";
       label: string;
       poseReference?: boolean;
+      posePrompt?: string;
+      posePromptImage?: string;
       poseReferenceSource?: import('../types/poseReference').PoseReferenceSource;
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
       imageUrl?: string;
@@ -408,6 +410,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         label: data.label,
         imageRole: data.imageRole,
         ...(data.poseReference === true ? { poseReference: true } : {}),
+        ...(posePromptForImage(data) !== undefined ? { posePrompt: data.posePrompt, posePromptImage: data.imageUrl } : {}),
         ...(validPoseReferenceSource(data.poseReferenceSource, data.imageUrl)
           ? { poseReferenceSource: { kind: data.poseReferenceSource.kind, image: data.poseReferenceSource.image,
               ...optionalString("neutralSource", data.poseReferenceSource.neutralSource) } }

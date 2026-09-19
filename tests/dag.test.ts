@@ -448,6 +448,13 @@ async function main() {
     assert.equal(stageOne.steps[0].params.poseReferenceType, 'unspecified');
     assert.equal(pose.data.kind, 'image-input');
     if (pose.data.kind !== 'image-input') throw new Error('fixture');
+    pose.data.posePrompt = '画面左腿交叉，肩线倾斜';
+    pose.data.posePromptImage = pose.data.imageUrl;
+    assert.equal(buildExecutionPlan(stageOneNodes, stageOneEdges, { onlyNodeId: stabilize.id }).steps[0].params.posePrompt, pose.data.posePrompt);
+    pose.data.posePromptImage = '/api/files/old.png';
+    assert.equal(buildExecutionPlan(stageOneNodes, stageOneEdges, { onlyNodeId: stabilize.id }).steps[0].params.posePrompt, undefined);
+    delete pose.data.posePrompt;
+    delete pose.data.posePromptImage;
     for (const kind of ['original', 'neutral-outfit', 'skeleton', 'depth'] as const) {
       pose.data.poseReferenceSource = { kind, image: pose.data.imageUrl! };
       pose.data.label = '任意改名，不参与类型判断';
@@ -1002,6 +1009,16 @@ async function main() {
       assert.match(outfitSection, /长裤不得改成短裤，短裤不得延长为长裤/);
       assert.match(outfitSection, /相对腰、髋、膝、踝的位置还原，不照搬参考人物的像素尺寸/);
       assert.equal(typed.calls[0].request.referenceImages?.[0], POSE_DATA_URL);
+    }
+
+    for (const modelId of ['gemini-3.1-flash-image', 'gemini-3-pro-image-preview', 'gpt-image-2', 'gpt-image-2.5-flare']) {
+      const withPose = await runRecordedAiStep('virtual-try-on', {
+        workflowStage: 'scene-stabilize', poseReferenceType: 'depth',
+        posePrompt: '画面左腿交叉，肩线倾斜。', modelId, promptEnhancement: false,
+      }, [SCENE_DATA_URL, POSE_DATA_URL, PERSON_GRID_DATA_URL, SECOND_DATA_URL],
+      undefined, ['scene', 'pose', 'person', 'outfit'], sceneAnalyzer);
+      assert.match(withPose.calls[0].request.prompt, /【姿势】参考图1是深度图。画面左腿交叉，肩线倾斜。黑白灰阶表示相对前后关系：亮处较近，暗处较远/);
+      assert.doesNotMatch(withPose.calls[0].request.prompt, /【姿势动作描述】/);
     }
 
     const bestMode = await runRecordedAiStep(

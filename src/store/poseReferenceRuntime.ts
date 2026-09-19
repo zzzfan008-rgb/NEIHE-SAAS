@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { nanoid } from 'nanoid';
 import { useFlowStore, type DocumentTarget } from './flowStore';
-import { isPoseReferenceNode, type PoseOutfitReferenceRecord, type PoseReferenceCanvasKind, type PoseReferenceKind, type PoseReferenceRecord } from '../types/poseReference';
+import { isPoseReferenceNode, posePromptForImage, type PoseOutfitReferenceRecord, type PoseReferenceCanvasKind, type PoseReferenceKind, type PoseReferenceRecord } from '../types/poseReference';
 
 export interface PoseReferenceState {
   records: Partial<Record<PoseReferenceKind,PoseReferenceRecord>>;
@@ -116,7 +116,23 @@ export async function generatePoseReference(target:DocumentTarget,nodeId:string,
 export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,source:string,retry=false) {
   const key=poseReferenceKey(target,nodeId,source);
   const state=usePoseReferenceRuntime.getState().entries[key];
-  if (!current(target,nodeId,source) || state?.posePrompt?.status==='running' || (!retry && state?.posePrompt?.status==='succeeded')) return;
+  if (!current(target,nodeId,source) || state?.posePrompt?.status==='running') return;
+  const sourceData = useFlowStore.getState().tabs.find(t=>t.id===target.tabId)?.nodes.find(n=>n.id===nodeId)?.data;
+  if (!sourceData || sourceData.kind !== 'image-input') return;
+  // Saved user text (including an intentionally empty draft) wins over analysis/cache.
+  if (posePromptForImage(sourceData) !== undefined && !retry) return;
+  const adopt = (result: PosePromptInferenceResult) => {
+    const latest = useFlowStore.getState().tabs.find(t=>t.id===target.tabId)?.nodes.find(n=>n.id===nodeId)?.data;
+    if (current(target,nodeId,source,true) && latest?.kind === 'image-input' &&
+        posePromptForImage(latest) === undefined && posePromptForImage(sourceData) === undefined) {
+      useFlowStore.getState().updateNodeDataInTab(target,nodeId,{posePrompt:result.prompt,posePromptImage:source});
+    }
+  };
+  if (!retry && state?.posePrompt?.status==='succeeded' && state.posePrompt.result) {
+    adopt(state.posePrompt.result);
+    return;
+  }
+  if (!retry && state?.posePrompt?.status==='failed') return;
   const version=(promptVersions.get(key)??0)+1;
   promptVersions.set(key,version);
   patch(key,s=>({...s,posePrompt:{status:'running',error:undefined}}));
@@ -127,9 +143,17 @@ export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,sour
     const value=await response(await fetch('/api/pose-references/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
       signal:AbortSignal.timeout(30_000),body:JSON.stringify({projectId:target.projectId,nodeId,source})}));
     const result=validatePosePrompt(value);
-    if (current(target,nodeId,source)&&(promptVersions.get(key)??0)===version) patch(key,s=>({...s,posePrompt:{status:'succeeded',result}}));
+    if (current(target,nodeId,source)&&(promptVersions.get(key)??0)===version) {
+      adopt(result);
+      patch(key,s=>({...s,posePrompt:{status:'succeeded',result}}));
+    }
   } catch(error) {
     if (current(target,nodeId,source)&&(promptVersions.get(key)??0)===version) patch(key,s=>({...s,posePrompt:{status:'failed',error:error instanceof Error?error.message:'反推失败，请重试'}}));
+  } finally {
+    // A stale response cannot populate the document, but must release its runtime lock.
+    if ((promptVersions.get(key)??0)===version && usePoseReferenceRuntime.getState().entries[key]?.posePrompt?.status==='running') {
+      patch(key,s=>({...s,posePrompt:undefined}));
+    }
   }
 }
 

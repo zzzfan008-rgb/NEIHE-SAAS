@@ -1,4 +1,8 @@
 export type PoseReferenceKind = 'skeleton' | 'depth';
+export function posePromptForImage(data: { imageUrl?: string; posePrompt?: string; posePromptImage?: string }): string | undefined {
+  return data.imageUrl && data.posePromptImage === data.imageUrl && typeof data.posePrompt === 'string'
+    ? data.posePrompt : undefined;
+}
 export type PoseReferenceCanvasKind = PoseReferenceKind | 'original' | 'neutral-outfit';
 /** Bound to an immutable image reference; replacing the image invalidates the tag. */
 export interface PoseReferenceSource {
