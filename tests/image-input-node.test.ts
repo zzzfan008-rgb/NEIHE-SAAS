@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ReactFlowProvider } from "@xyflow/react";
 import {
   boundedImageNodeScale,
+  canInferPosePrompt,
   aspectLockedImageDimensions,
   fitImageNodeDimensions,
   ImageFileInput,
@@ -85,6 +86,16 @@ test("已有图片被选中时在窗口外提供重新上传与素材库入口",
   assert.match(html, />重新上传</);
   assert.match(html, />素材库</);
   assert.match(html, /gc-image-input-media/);
+});
+
+test("姿势参考图节点提供独立的姿势提示词反推入口", () => {
+  assert.equal(canInferPosePrompt(true, "/api/files/source.png"), true);
+  assert.equal(canInferPosePrompt(true, "asset://existing-image"), false);
+  assert.equal(canInferPosePrompt(false, "/api/files/source.png"), false);
+  const source = readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
+  assert.match(source, /PosePromptInferenceDialog/);
+  assert.match(source, /反推人物姿势/);
+  assert.match(source, /不会修改生图请求/);
 });
 
 test("已上传图片区域只负责节点选择与拖动，不再打开查看器", () => {

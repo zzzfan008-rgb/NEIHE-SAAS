@@ -139,7 +139,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           id: "pose",
           type: "image-input",
           position: { x: 0, y: -40 },
-          data: { kind: "image-input", label: "人物姿势参考图（必需）", status: "idle", imageRole: "reference", autoConnectTargets: [{ targetNodeId: "stabilize", targetHandle: "pose" }] },
+          data: { kind: "image-input", label: "人物姿势参考图（必需）", status: "idle", imageRole: "reference", poseReference: true },
         },
         {
           id: "outfit",
@@ -219,11 +219,12 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           position: { x: 650, y: -120 },
           data: {
             kind: "virtual-try-on",
-            label: "第一轮 · Gemini 场景化定版",
+            label: "第一轮 · 场景化定版",
             status: "idle",
             workflowStage: "scene-stabilize",
             prompt: "",
-            modelId: "gemini-3.1-flash-image",
+            sceneFraming: "scene",
+            modelId: "gemini-3-pro-image-preview",
             modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
             imageSize: "2K",
             aspectRatio: "3:4",
@@ -300,7 +301,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
             kind: "text-input",
             label: "使用步骤",
             status: "idle",
-            text: "① 上传人物身份、无人场景、人物姿势和主穿搭，按需补充身份、面料和配饰参考。② 姿势图只提取动作结构，原图不会传入生图模型；场景图只控制环境、镜头与光线。③ 运行第一轮并确认人物与场景基准。④ 填写材料与结构工艺后运行第二轮服装精修。⑤ 若结果仍需调整，在局部重绘节点基于第二轮结果绘制蒙版；不运行即不产生调用或费用。",
+            text: "① 上传人物身份、无人场景、人物姿势和主穿搭，按需补充身份、面料和配饰参考。② 打开姿势参考对比，本地生成 DWPose 骨骼图和深度图。对比后将所需图片添加到画布，手动连接至第一轮的姿势输入（原图也可直接连线）；系统原样传递所选图片，仅用于动作几何。场景图只控制环境、镜头与光线。③ 运行第一轮并确认人物与场景基准。④ 填写材料与结构工艺后运行第二轮服装精修。⑤ 若结果仍需调整，在局部重绘节点基于第二轮结果绘制蒙版；不运行即不产生调用或费用。",
           },
         },
       ],
@@ -789,7 +790,7 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
       schemaVersion?: unknown;
       name?: unknown;
       flow?: {
-        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown; label?: unknown; modelId?: unknown } }>;
+        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown; label?: unknown; modelId?: unknown; poseReference?: unknown; autoConnectTargets?: unknown } }>;
         edges?: Array<{ id?: unknown; targetHandle?: unknown }>;
       };
     };
@@ -805,6 +806,8 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
       const nodeById = new Map(raw.flow?.nodes?.map((node) => [node.id, node]) ?? []);
       return raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION
         || named.name !== "一键换装"
+        || nodeById.get("stabilize")?.data?.modelId !== "gemini-3-pro-image-preview"
+        || nodeById.get("stabilize")?.data?.label !== "第一轮 · 场景化定版"
         || nodeById.get("garment-detail")?.type !== "mask-redraw"
         || nodeById.get("garment-detail")?.data?.executionMode !== "repair"
         || nodeById.get("socks")?.type !== "image-input"
@@ -812,6 +815,8 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
         || nodeById.get("scene")?.data?.label !== "场景参考图（必需）"
         || nodeById.get("pose")?.type !== "image-input"
         || nodeById.get("pose")?.data?.label !== "人物姿势参考图（必需）"
+        || nodeById.get("pose")?.data?.poseReference !== true
+        || nodeById.get("pose")?.data?.autoConnectTargets !== undefined
         || ["upper-repair", "pants-repair", "accessory-repair", "logo-correct"].some((id) => nodeById.has(id));
     }
     if (templateId === "builtin-tool-fabric-replace") {

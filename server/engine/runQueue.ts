@@ -12,9 +12,7 @@ import {
   persistMediaRefWithReceipt,
   type PersistedImageReceipt,
 } from "../lib/fileStore";
-import type { GenerationRecordContext } from "../lib/generationRecords";
-import type { IdentityAnchorer } from "../lib/identityAnchor";
-import type { PoseAnalyzer } from "../lib/poseAnalysis";
+import { recordGenerationRequest, type GenerationRecordContext } from "../lib/generationRecords";
 import type { SceneAnalyzer } from "../lib/sceneAnalysis";
 import type { TryOnCandidateSelector } from "../lib/tryOnCandidateSelection";
 import { ACTIVE_RUN_LIMIT } from "../lib/generationLimits";
@@ -139,8 +137,6 @@ interface JobLockRow {
 export interface ProcessGenerationJobOptions {
   resolveProvider?: ProviderResolver;
   sceneAnalyzer?: SceneAnalyzer;
-  poseAnalyzer?: PoseAnalyzer;
-  identityAnchorer?: IdentityAnchorer;
   promptEnhancer?: ExecuteStepOptions["promptEnhancer"];
   candidateSelector?: TryOnCandidateSelector;
   now?: () => number;
@@ -1091,9 +1087,21 @@ export async function processNextGenerationJob(
         stylingCompleted: job.step.kind==='ai-styling'?await query<{image:string;prompt:string;model:string|null}>('SELECT image,prompt,model FROM styling_checkpoints WHERE step_id=$1 ORDER BY ordinal',[job.stepId]):undefined,
         onStylingCheckpoint: job.step.kind==='ai-styling'?(ordinal,image,prompt,model)=>checkpointStyling(job,workerId,ordinal,image,prompt,model):undefined,
         referenceRoles: input.referenceRoles,
+        onSceneRequestPrepared: async request => {
+          await transaction(async client => {
+            const owned = (await client.query(`
+              SELECT id FROM generation_jobs WHERE id = $1 AND worker_id = $2
+                AND status = 'running' FOR UPDATE
+            `, [job.id, workerId])).rows[0];
+            if (!owned) throw new Error("generation job lease was lost before request recording");
+            await recordGenerationRequest(job.runId, job.nodeId, request, client);
+            await appendRunEvent(client, job.runId, {
+              type: "node-status", nodeId: job.nodeId, status: "running",
+              executionMeta: { sceneRequest: request },
+            }, options.now?.() ?? Date.now());
+          });
+        },
         sceneAnalyzer: options.sceneAnalyzer,
-        poseAnalyzer: options.poseAnalyzer,
-        identityAnchorer: options.identityAnchorer,
         promptEnhancer: options.promptEnhancer,
         candidateSelector: options.candidateSelector,
         videoTask: job.videoTask,

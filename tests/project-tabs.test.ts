@@ -2334,7 +2334,7 @@ await test("分步换装错误模型在客户端付费请求前被拒绝", async
     position: { x: 0, y: 0 },
     data: {
       kind: "virtual-try-on", label: "第一轮", status: "idle", workflowStage: "scene-stabilize",
-      prompt: "", imageSize: "2K", aspectRatio: "3:4", modelId: "gpt-image-2",
+      prompt: "", imageSize: "2K", aspectRatio: "3:4", modelId: "gpt-image-2.5-sunburst",
       modelOptions: { quality: "medium" }, basisRevision: 0, outputImages: [],
     },
   };
@@ -2363,7 +2363,7 @@ await test("分步换装错误模型在客户端付费请求前被拒绝", async
     });
     await useFlowStore.getState().runNode(firstStage.id);
     assert.equal(networkCalls, 0);
-    assert.match(activeDocument().nodes[0].data.error ?? "", /第一轮必须使用 Gemini 3\.1 Flash/);
+    assert.match(activeDocument().nodes[0].data.error ?? "", /第一轮所选模型不受支持/);
 
     useFlowStore.getState().loadFlow({
       projectId: "invalid-model-second-project",

@@ -72,6 +72,33 @@ function apply(event: RunEvent): RecentResult[] {
 
 console.log("生成记录生命周期测试");
 
+{
+  const references = [
+    { number: 1, role: "pose", image: "/api/files/depth.png" },
+    { number: 2, role: "person", image: "/api/files/person.png" },
+    { number: 3, role: "outfit", image: "/api/files/outfit.png" },
+    { number: 4, role: "scene", image: "/api/files/scene.png" },
+  ];
+  const original = { ...queued, referenceImages: [...references].reverse().map(ref => ref.image), parameters: { imageSize: "2K" } };
+  const prepared = normalizeRunEvent({ type: "node-status", nodeId: queued.nodeId, status: "running",
+    executionMeta: { sceneRequest: { prompt: "参考图1锁定姿势；参考图4提供场景", references } } });
+  const running = applyRunEventToRecentResults([original], queued.id, prepared);
+  assert.deepEqual(running[0].referenceImages, references.map(ref => ref.image));
+  assert.deepEqual(running[0].parameters, { imageSize: "2K", referenceManifest: references });
+  assert.equal(running[0].prompt, "参考图1锁定姿势；参考图4提供场景");
+  const failed = applyRunEventToRecentResults(running, queued.id,
+    { type: "node-status", nodeId: queued.nodeId, status: "error", error: "生成失败" });
+  assert.deepEqual(failed[0].referenceImages, running[0].referenceImages);
+  assert.equal(failed[0].prompt, running[0].prompt);
+  assert.deepEqual(original.referenceImages, [...references].reverse().map(ref => ref.image), "不得修改提交时的记录对象");
+  const malformed = applyRunEventToRecentResults([original], queued.id, normalizeRunEvent({
+    type: "node-status", nodeId: queued.nodeId, status: "running",
+    executionMeta: { sceneRequest: { prompt: "bad", references: [null] } },
+  }));
+  assert.deepEqual(malformed[0].referenceImages, original.referenceImages);
+  console.log("  ✓ 最终请求事件即时同步编号与提示词，失败后保留且拒绝无效清单");
+}
+
 const testRoot = path.dirname(fileURLToPath(import.meta.url));
 const contextPanelSource = fs.readFileSync(
   path.resolve(testRoot, "../src/components/panels/ContextPanel.tsx"),

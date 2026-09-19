@@ -43,6 +43,7 @@ assert.deepEqual(versions, [
   { version: 20, name: "brand_color_management" },
   { version: 21, name: "ai_styling" },
   { version: 22, name: "material_analysis_and_assets" },
+  { version: 23, name: "pose_reference_comparison" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
 

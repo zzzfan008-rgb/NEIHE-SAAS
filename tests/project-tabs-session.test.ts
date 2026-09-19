@@ -671,6 +671,29 @@ for (const [index, pair] of generalModelPairs.entries()) {
 }
 console.log("  ✓ 五个通用模型的合法 modelId/modelOptions 会话恢复保真");
 
+for (const modelId of ['gemini-3-pro-image-preview', 'gpt-image-2', 'gpt-image-2.5-flare', 'gemini-3.1-flash-image']) {
+  const gemini = modelId.startsWith('gemini');
+  const restored = normalizeTabSessionValue({
+    activeTabId: 'scene-model', tabs: [{ id: 'scene-model', projectId: 'scene-model-project', projectName: '第一轮会话', edges: [], nodes: [{
+      id: 'scene-model-node', type: 'virtual-try-on', position: { x: 12, y: 24 }, data: {
+        kind: 'virtual-try-on', workflowStage: 'scene-stabilize', label: '我的第一轮', prompt: '自然画册质感',
+        modelId, modelOptions: gemini ? { aspectRatio: '4:5', imageSize: '1K' } : { quality: 'medium' },
+        imageSize: gemini ? '1K' : '4K', aspectRatio: '4:5', sceneFraming: 'custom', basisRevision: 3,
+        outputImages: ['/api/files/preserved-scene.png'],
+      },
+    }] }],
+  });
+  const data = restored?.tabs[0].nodes[0].data;
+  assert.equal(data?.modelId, modelId);
+  assert.equal(data?.label, '我的第一轮');
+  assert.equal(data?.prompt, '自然画册质感');
+  assert.equal(data?.sceneFraming, 'custom');
+  assert.equal(data?.imageSize, gemini ? '1K' : '4K');
+  assert.equal(data?.modelOptions.quality, gemini ? undefined : 'medium');
+  assert.deepEqual(data?.outputImages, ['/api/files/preserved-scene.png']);
+}
+console.log('  ✓ 第一轮四种模型、参数、想法与既有结果会话恢复保真');
+
 assert.deepEqual(state.recentResults, [], "登录后的历史必须以服务器为准，不能泄露上一账号的 localStorage");
 const writesBeforeHistory = sessionWrites;
 useFlowStore.setState({ recentResults: storedRecentResults as never });

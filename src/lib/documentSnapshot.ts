@@ -1,4 +1,6 @@
+import { validPoseReferenceSource } from '../types/poseReference';
 import {
+  isSceneStabilizeModelId,
   MASK_REDRAW_MODEL_ID,
   SKETCH_OPTIMIZATION_MODEL_ID,
   isImageModelId,
@@ -58,6 +60,8 @@ export type DocumentNodeData =
   | {
       kind: "image-input";
       label: string;
+      poseReference?: boolean;
+      poseReferenceSource?: import('../types/poseReference').PoseReferenceSource;
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
       imageUrl?: string;
       autoConnectTargets?: Array<{
@@ -178,7 +182,8 @@ export type DocumentNodeData =
       label: string;
       workflowStage: "standard" | "scene-stabilize" | "garment-refine";
       prompt: string;
-      imageSize: "2K" | "4K";
+      imageSize: "1K" | "2K" | "4K";
+      sceneFraming?: "scene" | "custom";
       aspectRatio: "1:1" | "4:5" | "3:4" | "2:3" | "9:16" | "16:9";
       garmentCategory?: "knit" | "woven" | "other";
       materialSpec?: string;
@@ -326,8 +331,12 @@ function gptDocumentQuality(
 function virtualTryOnModelFields(
   modelIdValue: unknown,
   modelOptionsValue: unknown,
-  imageSize: "2K" | "4K",
+  imageSize: "1K" | "2K" | "4K",
+  stage?: string,
 ): { modelId: VirtualTryOnModelId; modelOptions: ImageModelOptions } {
+  if (stage === "scene-stabilize" && isSceneStabilizeModelId(modelIdValue)) {
+    return { modelId: modelIdValue, modelOptions: normalizeImageModelOptions(modelIdValue, modelOptionsValue) };
+  }
   const modelId: VirtualTryOnModelId =
     modelIdValue === "gemini-3.1-flash-image" ||
     modelIdValue === "gemini-3.1-flash-image-preview"
@@ -398,6 +407,11 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         kind: data.kind,
         label: data.label,
         imageRole: data.imageRole,
+        ...(data.poseReference === true ? { poseReference: true } : {}),
+        ...(validPoseReferenceSource(data.poseReferenceSource, data.imageUrl)
+          ? { poseReferenceSource: { kind: data.poseReferenceSource.kind, image: data.poseReferenceSource.image,
+              ...optionalString("neutralSource", data.poseReferenceSource.neutralSource) } }
+          : {}),
         ...optionalString("imageUrl", data.imageUrl),
         ...(data.autoConnectTargets
           ? {
@@ -551,6 +565,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         kind: data.kind,
         label: data.label,
         workflowStage: data.workflowStage,
+        ...(data.sceneFraming ? { sceneFraming: data.sceneFraming } : {}),
         prompt: data.prompt,
         imageSize: data.imageSize,
         aspectRatio: data.aspectRatio,
@@ -572,6 +587,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
           data.modelId,
           data.modelOptions,
           data.imageSize,
+          data.workflowStage,
         ),
       };
     case "mask-redraw":

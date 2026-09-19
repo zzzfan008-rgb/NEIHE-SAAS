@@ -1,6 +1,7 @@
 import contracts from "../../docs/ai/apiyi/model-contracts.json";
 
 export const IMAGE_MODEL_IDS = [
+  "gemini-3-pro-image-preview",
   "gpt-image-2.5-flare",
   "gpt-image-2.5-sunburst",
   "gpt-image-2",
@@ -12,7 +13,7 @@ export const IMAGE_MODEL_IDS = [
 ] as const;
 
 export type ImageModelId = (typeof IMAGE_MODEL_IDS)[number];
-export type GenerationImageModelId = Exclude<ImageModelId, "gpt-image-2">;
+export type GenerationImageModelId = Exclude<ImageModelId, "gpt-image-2" | "gemini-3-pro-image-preview">;
 
 export interface ImageModelOptions {
   size?: string;
@@ -81,7 +82,14 @@ if (contractMap.size !== IMAGE_MODEL_IDS.length) {
 export const DEFAULT_GENERATION_MODEL_ID: GenerationImageModelId = "gpt-image-2.5-flare";
 export const SKETCH_OPTIMIZATION_MODEL_ID = "gpt-image-2.5-sunburst" as const;
 export const MASK_REDRAW_MODEL_ID = SKETCH_OPTIMIZATION_MODEL_ID;
+export const SCENE_STABILIZE_MODEL_IDS = ["gemini-3-pro-image-preview", "gpt-image-2", "gpt-image-2.5-flare", "gemini-3.1-flash-image"] as const;
+export function isSceneStabilizeModelId(value: unknown): value is (typeof SCENE_STABILIZE_MODEL_IDS)[number] {
+  return typeof value === "string" && (SCENE_STABILIZE_MODEL_IDS as readonly string[]).includes(value);
+}
+
 export const VIRTUAL_TRY_ON_MODEL_IDS = [
+  "gemini-3-pro-image-preview",
+  "gpt-image-2.5-flare",
   "gpt-image-2.5-sunburst",
   "gpt-image-2",
   "gemini-3.1-flash-image",
@@ -90,7 +98,7 @@ export type VirtualTryOnModelId = (typeof VIRTUAL_TRY_ON_MODEL_IDS)[number];
 
 export const GENERATION_IMAGE_MODEL_IDS = IMAGE_MODEL_IDS.filter(
   (id): id is GenerationImageModelId => (
-    id !== "gpt-image-2"
+    id !== "gpt-image-2" && id !== "gemini-3-pro-image-preview"
   ),
 );
 
@@ -111,7 +119,7 @@ export function isModelAllowedForNode(modelId: ImageModelId, nodeKind: string): 
   if (nodeKind === "virtual-try-on") {
     return (VIRTUAL_TRY_ON_MODEL_IDS as readonly string[]).includes(modelId);
   }
-  return modelId !== "gpt-image-2";
+  return modelId !== "gpt-image-2" && modelId !== "gemini-3-pro-image-preview";
 }
 
 const VIP_SIZE_BY_RATIO: Record<string, string> = {
@@ -152,6 +160,7 @@ export function defaultImageModelOptions(
       return {};
     case "gpt-image-2-vip":
       return { size: VIP_SIZE_BY_RATIO[preferredAspectRatio] ?? VIP_SIZE_BY_RATIO["1:1"] };
+    case "gemini-3-pro-image-preview":
     case "gemini-3.1-flash-image": {
       const allowed = getImageModelContract(modelId).aspectRatios ?? [];
       return {
@@ -219,6 +228,7 @@ export function normalizeImageModelOptions(
       const sizes = getImageModelContract(modelId).sizes ?? [];
       return { size: typeof raw.size === "string" && sizes.includes(raw.size) ? raw.size : defaults.size };
     }
+    case "gemini-3-pro-image-preview":
     case "gemini-3.1-flash-image": {
       const contract = getImageModelContract(modelId);
       return {
@@ -276,6 +286,7 @@ export function imageModelOptionsForAspectRatio(
       return normalized;
     case "gpt-image-2-vip":
       return { ...normalized, size: VIP_SIZE_BY_RATIO[aspectRatio] ?? normalized.size };
+    case "gemini-3-pro-image-preview":
     case "gemini-3.1-flash-image": {
       const allowed = getImageModelContract(modelId).aspectRatios ?? [];
       return allowed.includes(aspectRatio) ? { ...normalized, aspectRatio } : normalized;
@@ -312,6 +323,7 @@ export function imageModelOptionsError(modelId: ImageModelId, value: unknown): s
     "gpt-image-2.5-sunburst": ["size", "quality"],
     "gpt-image-2": ["size", "quality"],
     "gpt-image-2-vip": ["size"],
+    "gemini-3-pro-image-preview": ["aspectRatio", "imageSize"],
     "gemini-3.1-flash-image": ["aspectRatio", "imageSize"],
     "flux-2-pro": ["width", "height", "outputFormat"],
     "seedream-5-0-260128": ["size"],

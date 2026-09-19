@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invalidateStylingRequest } from "./stylingRequestVersions";
 import { temporal } from "zundo";
+import { validPoseReferenceSource } from '../types/poseReference';
 import {
   applyNodeChanges,
   applyEdgeChanges,
@@ -22,6 +23,7 @@ import {
   type Asset,
   type NodeKind,
   type WorkflowNodeData,
+  type VirtualTryOnNodeData,
   type NodeRunStatus,
   type ImageInputNodeData,
   type VideoGenerateNodeData,
@@ -42,6 +44,7 @@ import {
 } from "@/lib/workflowPorts";
 import {
   DEFAULT_GENERATION_MODEL_ID,
+  isSceneStabilizeModelId,
   MASK_REDRAW_MODEL_ID,
   SKETCH_OPTIMIZATION_MODEL_ID,
   defaultImageModelOptions,
@@ -257,6 +260,7 @@ export interface FlowState {
   ) => string | null;
   /** 复制/粘贴等调用方已有完整节点时，仍通过此入口维护 revision/dirty。 */
   addExistingNode: (node: FlowNode) => void;
+  addPoseReferenceImageNode: (target: DocumentTarget, nodeId: string, source: string, image: string, label: string, kind?: import('../types/poseReference').PoseReferenceCanvasKind, neutralSource?: string) => string | null;
   /** 画板会话完成时只提交一次项目历史；异步结果必须仍匹配原 DocumentTarget。 */
   commitDrawingBoard: (
     target: DocumentTarget,
@@ -1438,7 +1442,7 @@ function defaultNodeDataWithPreset(
 }
 
 /** 从节点 data 中取它对外输出的图片 */
-function nodeOutputImages(
+export function nodeOutputImages(
   data: WorkflowNodeData,
   sourceHandle?: string | null,
 ): string[] {
@@ -1487,8 +1491,8 @@ function virtualTryOnRunBlockReason(
   };
 
   if (node.data.workflowStage === "scene-stabilize") {
-    if (node.data.modelId !== "gemini-3.1-flash-image")
-      return "第一轮必须使用 Gemini 3.1 Flash";
+    if (!isSceneStabilizeModelId(node.data.modelId))
+      return "第一轮所选模型不受支持";
     const personEdges = edgesFor("person");
     if (personEdges.length < 1 || personEdges.length > 3)
       return "人物身份图必须连接 1 至 3 张";
@@ -1630,6 +1634,41 @@ function makeStarterNode(): FlowNode {
     position: { x: 0, y: 0 },
     data: defaultNodeData("image-input"),
   };
+}
+
+const POSE_REFERENCE_PRIMARY_OFFSETS = [
+  { x: 380, y: 0 },
+  { x: 380, y: 340 },
+  { x: -380, y: 0 },
+  { x: -380, y: 340 },
+] as const;
+const POSE_REFERENCE_PRIMARY_OFFSET_KEYS = new Set(
+  POSE_REFERENCE_PRIMARY_OFFSETS.map(({ x, y }) => `${x}:${y}`),
+);
+const POSE_REFERENCE_PLACEMENT_OFFSETS = [
+  ...POSE_REFERENCE_PRIMARY_OFFSETS,
+  ...Array.from({ length: 12 }, (_, index) => index + 1)
+    .flatMap((column) => Array.from({ length: 25 }, (_, index) => index - 12)
+      .flatMap((row) => [
+        { x: column * 380, y: row * 340 },
+        { x: -column * 380, y: row * 340 },
+      ]))
+    .filter(({ x, y }) => !POSE_REFERENCE_PRIMARY_OFFSET_KEYS.has(`${x}:${y}`))
+    .sort((left, right) => {
+      const distance = left.x ** 2 + left.y ** 2 - (right.x ** 2 + right.y ** 2);
+      if (distance !== 0) return distance;
+      if ((left.x > 0) !== (right.x > 0)) return left.x > 0 ? -1 : 1;
+      return Math.abs(left.y) - Math.abs(right.y) || left.y - right.y;
+    }),
+];
+
+function poseReferenceImagePosition(nodes: readonly FlowNode[], origin: FlowNode) {
+  const freeOffset = POSE_REFERENCE_PLACEMENT_OFFSETS.find((offset) => !nodes.some((node) =>
+    Math.abs(node.position.x - (origin.position.x + offset.x)) < 320
+    && Math.abs(node.position.y - (origin.position.y + offset.y)) < 320));
+  return freeOffset
+    ? { x: origin.position.x + freeOffset.x, y: origin.position.y + freeOffset.y }
+    : { x: origin.position.x + 380, y: origin.position.y + 13 * 340 };
 }
 
 /**
@@ -2326,6 +2365,7 @@ export function updateCoalescedTextEdit(
 }
 
 function migrateLegacyGptNode(node: FlowNode): FlowNode {
+  if (node.data.kind === "virtual-try-on" && node.data.workflowStage === "scene-stabilize") return node;
   if (!("modelId" in node.data) || node.data.modelId !== "gpt-image-2")
     return node;
   const oldQuality = (node.data.modelOptions as ImageModelOptions | undefined)
@@ -2604,7 +2644,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     const migratedModelId =
       input.modelId === "gemini-3.1-flash-image-preview"
         ? "gemini-3.1-flash-image"
-        : input.modelId === "gpt-image-2"
+        : input.modelId === "gpt-image-2" && !(kind === "virtual-try-on" && input.workflowStage === "scene-stabilize")
           ? MASK_REDRAW_MODEL_ID
           : input.modelId;
     const modelId =
@@ -2624,7 +2664,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       input.modelOptions,
       preferredAspectRatio,
     );
-    if (input.modelId === "gpt-image-2") {
+    if (input.modelId === "gpt-image-2" && !(kind === "virtual-try-on" && input.workflowStage === "scene-stabilize")) {
       const oldQuality = (input.modelOptions as ImageModelOptions | undefined)
         ?.quality;
       data.modelOptions = {
@@ -2679,6 +2719,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
           ? input.imageRole
           : "default";
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
+      if (!validPoseReferenceSource(input.poseReferenceSource, input.imageUrl)) delete data.poseReferenceSource;
       break;
     case "background-extract":
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
@@ -2913,7 +2954,9 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
           ? input.workflowStage
           : "standard";
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
-      data.imageSize = input.imageSize === "4K" ? "4K" : "2K";
+      data.imageSize = input.imageSize === "4K" ? "4K" : input.imageSize === "1K" && data.workflowStage === "scene-stabilize" && String(data.modelId).startsWith("gemini-") ? "1K" : "2K";
+      if (input.sceneFraming === "scene" || input.sceneFraming === "custom") data.sceneFraming = input.sceneFraming;
+      else delete data.sceneFraming;
       data.aspectRatio =
         typeof input.aspectRatio === "string" &&
         ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"].includes(input.aspectRatio)
@@ -2966,7 +3009,9 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
         data.styleReferenceImage = input.styleReferenceImage;
       else delete data.styleReferenceImage;
       if (data.workflowStage === "scene-stabilize") {
-        data.modelId = "gemini-3.1-flash-image";
+        data.modelId = isSceneStabilizeModelId(data.modelId) ? data.modelId : "gemini-3.1-flash-image";
+        data.modelOptions = normalizeImageModelOptions(data.modelId as VirtualTryOnNodeData["modelId"], data.modelOptions, data.aspectRatio as string);
+        break;
       }
       if (data.workflowStage === "garment-refine")
         data.modelId = MASK_REDRAW_MODEL_ID;
@@ -4147,6 +4192,19 @@ export function applyRunEventToRecentResults(
     (Boolean(current.runId) && record.runId === current.runId);
   if (isNodeRunActive(event.status)) {
     const status = event.status;
+    const sceneRequest = recordObject(event.executionMeta?.sceneRequest);
+    const references = Array.isArray(sceneRequest?.references) ? sceneRequest.references : undefined;
+    const requestPatch = typeof sceneRequest?.prompt === "string" && references?.length &&
+      references.every((ref: unknown, index: number) => {
+        const item = recordObject(ref);
+        return item?.number === index + 1 && typeof item.role === "string" && typeof item.image === "string";
+      })
+      ? {
+          prompt: sceneRequest.prompt,
+          referenceImages: references.map((ref: { image: string }) => ref.image),
+          parameters: { ...current.parameters, referenceManifest: references },
+        }
+      : {};
     if (current.kind === "ai-styling" && event.images?.length) {
       const images = event.images;
       const total = Math.max(images.length, current.requestedCount ?? 1);
@@ -4186,6 +4244,7 @@ export function applyRunEventToRecentResults(
       isBatchSibling(record)
         ? {
             ...record,
+            ...requestPatch,
             status:
               current.kind === "ai-styling" &&
               record.image &&
@@ -5564,6 +5623,22 @@ export const useFlowStore = create<FlowState>()(
           });
         },
 
+        addPoseReferenceImageNode: (target, nodeId, source, image, label, kind, neutralSource) => {
+          const tab = documentForTarget(get(), target);
+          if (!tab || tab.readOnly) return null;
+          const origin = tab.nodes.find(n => n.id === nodeId && n.data.kind === "image-input" && n.data.imageUrl === source);
+          if (!origin || !/^\/api\/files\/[\w.-]+$/.test(image)) return null;
+          const provenance = kind ? { kind, image, ...(neutralSource ? { neutralSource } : {}) } : undefined;
+          if (provenance && !validPoseReferenceSource(provenance, image)) return null;
+          const id = nanoid(8);
+          const position = poseReferenceImagePosition(tab.nodes, origin);
+          const node: FlowNode = { id, type: "image-input", position,
+            data: { ...defaultNodeData("image-input"), label, imageRole: "reference", imageUrl: image, status: "success", ...(provenance ? { poseReferenceSource: provenance } : {}) } as ImageInputNodeData };
+          // Keep comparison open and preserve selection; never create an edge.
+          const changed = commitDocumentMutationForTarget(set, target, current => ({ nodes: [...current.nodes, node] }));
+          return changed ? id : null;
+        },
+
         exportDrawingBoardImageNode: (target, nodeId) => {
           const state = get();
           const tab = documentForTarget(state, target);
@@ -5613,6 +5688,8 @@ export const useFlowStore = create<FlowState>()(
           if (!tab.nodes.some((n) => n.id === id)) return;
           const edited = tab.nodes.find((node) => node.id === id)!;
           const basisKeys = new Set([
+            "sceneFraming",
+            "aspectRatio",
             "prompt",
             "imageSize",
             "modelId",
@@ -5751,6 +5828,8 @@ export const useFlowStore = create<FlowState>()(
               : new Set<string>();
 
             for (const declaredTarget of source.data.autoConnectTargets ?? []) {
+              // Pose input is always an explicit user choice, including legacy templates.
+              if (declaredTarget.targetHandle === "pose") continue;
               const connection: Connection = {
                 source: id,
                 sourceHandle: "image",

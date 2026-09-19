@@ -18,6 +18,7 @@ import {
 import { isLocalImageReference, validateImageDataUrl } from "./imageValidation";
 import { isLocalMediaReference } from "./fileStore";
 import {
+  isSceneStabilizeModelId,
   MASK_REDRAW_MODEL_ID,
   SKETCH_OPTIMIZATION_MODEL_ID,
   defaultImageModelOptions,
@@ -670,7 +671,21 @@ function validateData(
     }
     case "image-input":
       oneOf(raw.imageRole, IMAGE_ROLES, `${path}.imageRole`);
+      if (raw.poseReference !== undefined && typeof raw.poseReference !== "boolean")
+        fail(`${path}.poseReference`, "must be a boolean");
       optionalImageReference(raw.imageUrl, `${path}.imageUrl`);
+      if (raw.poseReferenceSource !== undefined) {
+        const source = record(raw.poseReferenceSource, `${path}.poseReferenceSource`);
+        oneOf(source.kind, ['original', 'neutral-outfit', 'skeleton', 'depth'] as const, `${path}.poseReferenceSource.kind`);
+        imageReference(source.image, `${path}.poseReferenceSource.image`);
+        if (source.neutralSource !== undefined) {
+          oneOf(source.kind, ['skeleton', 'depth'] as const, `${path}.poseReferenceSource.kind`);
+          imageReference(source.neutralSource, `${path}.poseReferenceSource.neutralSource`);
+          if (typeof source.neutralSource !== 'string' || !/^\/api\/files\/[\w.-]+$/.test(source.neutralSource))
+            fail(`${path}.poseReferenceSource.neutralSource`, 'must be a local image reference');
+        }
+        if (source.image !== raw.imageUrl) delete raw.poseReferenceSource;
+      }
       if (raw.autoConnectTargets !== undefined) {
         if (
           !Array.isArray(raw.autoConnectTargets) ||
@@ -942,7 +957,8 @@ function validateData(
     case "virtual-try-on":
       oneOf(raw.workflowStage, VIRTUAL_TRY_ON_STAGES, `${path}.workflowStage`);
       stringValue(raw.prompt, `${path}.prompt`);
-      oneOf(raw.imageSize, IMAGE_SIZES, `${path}.imageSize`);
+      oneOf(raw.imageSize, raw.workflowStage === "scene-stabilize" && String(raw.modelId).startsWith("gemini-") ? ["1K", "2K", "4K"] : IMAGE_SIZES, `${path}.imageSize`);
+      if (raw.sceneFraming !== undefined) oneOf(raw.sceneFraming, ["scene", "custom"] as const, `${path}.sceneFraming`);
       oneOf(
         raw.aspectRatio,
         ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"] as const,
@@ -978,11 +994,11 @@ function validateData(
       }
       if (
         raw.workflowStage === "scene-stabilize" &&
-        raw.modelId !== "gemini-3.1-flash-image"
+        !isSceneStabilizeModelId(raw.modelId)
       ) {
         fail(
           `${path}.modelId`,
-          "scene-stabilize must use gemini-3.1-flash-image",
+          "scene-stabilize model is not supported",
         );
       }
       if (

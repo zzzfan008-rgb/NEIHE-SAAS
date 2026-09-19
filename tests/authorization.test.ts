@@ -1383,6 +1383,18 @@ await test("项目保存与运行都拒绝引用他人的私有文件", async ()
   assert.equal(deniedRun.status, 403, await deniedRun.text());
 });
 
+await test("深度图的嵌套中性源必须经过保存和计划文件授权", async () => {
+  const uploaded = await request("/files", "owner", { method: "POST", body: JSON.stringify({ dataUrl: PNG_DATA_URL }) });
+  assert.equal(uploaded.status, 200);
+  const { url } = await uploaded.json() as { url: string };
+  const nested = flow([url]);
+  Object.assign(nested.nodes[0].data, { poseReferenceSource: { kind: "depth", image: url, neutralSource: "/api/files/other-secret.png" } });
+  const denied = await request("/projects", "owner", { method: "POST", body: JSON.stringify({ id: "unsafe-neutral-source", name: "深度来源", flow: nested }) });
+  assert.equal(denied.status, 403, await denied.text());
+  const { assertImageReferencesAccessible } = await import("../server/lib/imageReferenceAccess");
+  await assert.rejects(assertImageReferencesAccessible({ steps: [{ params: { poseNeutralSource: "/api/files/other-secret.png" } }] }, users.owner.id), /无权/);
+});
+
 await test("不存在或已软删除的本地文件不能进入项目或运行队列", async () => {
   const missingFlow = editFlow("/api/files/missing-image.png");
   const missingSave = await request("/projects", "owner", {

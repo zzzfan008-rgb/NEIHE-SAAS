@@ -645,6 +645,7 @@ async function generate(modelId: ImageModelId, req: ImageGenRequest): Promise<Im
         body: JSON.stringify({ model: upstreamModelId(modelId), prompt: req.prompt, size: options.size }),
       }));
       return { images: await parseOpenAiImages(await readJson(response, modelId), modelId, { maxImages: 1 }), model: modelId };
+    case "gemini-3-pro-image-preview":
     case "gemini-3.1-flash-image":
       response = await fetchApiyi(modelId, contract.generation.path, () => ({
         method: "POST",
@@ -732,6 +733,7 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
       });
       return { images: await parseOpenAiImages(await readJson(response, modelId), modelId, { maxImages: 1 }), model: modelId };
     }
+    case "gemini-3-pro-image-preview":
     case "gemini-3.1-flash-image": {
       const parts = [{ text: req.prompt }, ...await geminiReferenceParts(refs, modelId)];
       response = await fetchApiyi(modelId, contract.edit.path, () => ({
@@ -788,7 +790,7 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
 }
 
 async function gptImage25Result(modelId: ImageModelId, req: ImageGenRequest, mode: "generate" | "edit"): Promise<ImageGenResult> {
-  const { response, model } = await requestGptImage25(req, mode);
+  const { response, model } = await requestGptImage25(req, mode, req.modelSelection === "explicit" ? upstreamModelId(modelId) : undefined);
   const payload = await readJson(response, modelId);
   const usage = record(record(payload)?.usage);
   const input = record(usage?.input_tokens_details);
@@ -816,7 +818,7 @@ export function createApiyiProvider(modelId: ImageModelId): AIProvider {
 export const apiyiProviders = Object.fromEntries(
   ([
     "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
-    "gpt-image-2", "gpt-image-2-vip", "gemini-3.1-flash-image",
+    "gpt-image-2", "gpt-image-2-vip", "gemini-3-pro-image-preview", "gemini-3.1-flash-image",
     "flux-2-pro", "seedream-5-0-260128", "grok-imagine-image",
   ] as const).map((modelId) => [modelId, createApiyiProvider(modelId)]),
 ) as Record<ImageModelId, AIProvider>;

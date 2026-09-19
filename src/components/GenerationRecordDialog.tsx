@@ -10,6 +10,7 @@ import {
 import { STATUS_TEXT } from "@/components/nodes/NodeFrame";
 import { thumbnailImageUrl } from "@/lib/images";
 import { useFlowStore } from "@/store/flowStore";
+import { TryOnPoseReviewSummary } from '@/components/TryOnPoseReviewSummary';
 
 function isVideoReference(ref: string): boolean {
   return /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(ref) || ref.startsWith("data:video/");
@@ -116,6 +117,8 @@ export function GenerationRecordDialog({
               </div>
             )}
           </dl>
+
+          <TryOnPoseReviewSummary executionMeta={record.executionMeta} stage={record.parameters?.workflowStage} />
 
           {record.prompt && (
             <section className="mt-4">

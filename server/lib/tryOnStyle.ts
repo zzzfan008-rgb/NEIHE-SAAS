@@ -20,7 +20,7 @@ async function builtInReference(asset: string): Promise<string> {
   return toDataUrl(buffer.toString("base64"), "image/webp");
 }
 
-export async function resolveTryOnStyle(params: Record<string, unknown>): Promise<ResolvedTryOnStyle> {
+export async function resolveTryOnStyle(params: Record<string, unknown>, includeReference = true): Promise<ResolvedTryOnStyle> {
   const requestedId = typeof params.stylePresetId === "string" && params.stylePresetId.trim()
     ? params.stylePresetId.trim()
     : DEFAULT_TRY_ON_STYLE_PRESET_ID;
@@ -31,6 +31,7 @@ export async function resolveTryOnStyle(params: Record<string, unknown>): Promis
   const name = typeof params.stylePresetName === "string" && params.stylePresetName.trim()
     ? params.stylePresetName.trim()
     : builtIn?.name ?? "自定义风格";
+  if (!includeReference) return { id: requestedId, name, prompt };
   const customReference = typeof params.styleReferenceImage === "string" && params.styleReferenceImage
     ? await normalizeImageRef(params.styleReferenceImage)
     : undefined;
