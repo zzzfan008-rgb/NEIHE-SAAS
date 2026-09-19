@@ -25,9 +25,12 @@ const ANALYSIS = {
     leftAnkle: point(0.4, 0.93), rightAnkle: point(0.72, 0.9),
   },
   bodyPose: "肩线向画面右侧略低，躯干微向画面左侧倾斜，重心落在画面左腿",
+  torsoPose: "躯干略向画面左侧倾斜",
+  legPose: "画面左侧腿支撑，另一侧膝部弯曲",
   handPose: "画面左肘弯曲且腕部靠近腰侧，画面右腕向外",
   headPose: "头部轻微向画面右侧倾斜并保持平视",
   gazeDirection: "视线朝画面右侧",
+  facialExpression: "眼睑微收，嘴唇闭合，嘴角轻微上扬",
 };
 
 let calls = 0;
@@ -58,6 +61,8 @@ try {
   assert.equal(second.cacheHit, true);
   assert.match(first.prompt, /重心落在画面左腿/);
   assert.match(first.prompt, /视线朝画面右侧/);
+  assert.deepEqual(first.prompt.split('\n').map(line => line.split('：')[0]), ['整体姿态', '躯干姿态', '下肢姿态', '上肢与手部', '头部姿态', '视线方向', '面部神态']);
+  assert.match(first.prompt, /面部神态：眼睑微收/);
   assert.ok(first.guideImage.startsWith("data:image/png;base64,"));
   const guide = await sharp(Buffer.from(first.guideImage.split(",")[1], "base64")).metadata();
   assert.equal(guide.width, 300);
@@ -81,6 +86,28 @@ try {
     /包含禁止传入生图模型的人物、服装或场景内容/,
   );
   assert.equal(calls, 2);
+  // Old cached analyses must not satisfy the new schema even for the same image.
+  const cachePath = path.join(temp, 'pose-analysis-cache', cacheFiles[0]);
+  fs.writeFileSync(cachePath, JSON.stringify({ schemaVersion: 1, model: first.model, analysis: ANALYSIS }));
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+      ...ANALYSIS,
+      points: Object.fromEntries(Object.keys(ANALYSIS.points).map(key => [key, null])),
+      gazeDirection: '无法判断：眼部不可辨认',
+      facialExpression: '无法判断：面部不可辨认',
+    }) }] } }] }), { status: 200 });
+  };
+  const unknown = await analyzePoseReference(IMAGE);
+  assert.equal(calls, 3);
+  assert.equal(unknown.cacheHit, false);
+  assert.match(unknown.prompt, /面部神态：无法判断/);
+  assert.ok(unknown.guideImage.startsWith('data:image/png;base64,'));
+  assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).schemaVersion, 2);
+  globalThis.fetch = async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{
+    text: JSON.stringify({ ...ANALYSIS, facialExpression: undefined }),
+  }] } }] }), { status: 200 });
+  await assert.rejects(analyzePoseReference('data:image/png;base64,AQ=='), /facialExpression 无效/);
   console.log("姿势分析测试通过：原图隔离、中性引导图、结构过滤与缓存均有效");
 } finally {
   globalThis.fetch = originalFetch;

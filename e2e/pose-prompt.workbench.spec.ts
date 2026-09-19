@@ -57,10 +57,20 @@ test('connected pose text is editable, source-bound and preserved through save/l
   await inference.click();
   const dialog = page.getByRole('dialog', { name: '反推人物姿势', exact: true });
   await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText('用户修订：画面右手贴近髋部。');
+  await dialog.getByRole('button', { name: '按新版规则重新反推', exact: true }).click();
+  await expect(dialog.locator('[data-pose-prompt="candidate"]')).toHaveText('画面左腿交叉，肩线倾斜。');
+  await expect(page.locator('#pose-prompt-pose')).toHaveValue('用户修订：画面右手贴近髋部。');
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await dialog.getByRole('button', { name: '使用新版结果替换当前提示词', exact: true }).click();
+  await expect(page.locator('#pose-prompt-pose')).toHaveValue('画面左腿交叉，肩线倾斜。');
+  await expect(dialog.locator('[data-pose-prompt="candidate"]')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   await expect(inference).toBeFocused();
-  expect(calls).toBe(1);
+  expect(calls).toBe(2);
   await text.focus();
   await page.screenshot({ path: testInfo.outputPath('pose-prompt-editor.png') });
   await text.fill('');
@@ -83,5 +93,5 @@ test('connected pose text is editable, source-bound and preserved through save/l
     useFlowStore.getState().assignImageInputInTab(selectActiveDocumentTarget(useFlowStore.getState()), 'pose', '/api/files/pose-new.png');
   });
   await expect(text).toHaveValue('画面左腿交叉，肩线倾斜。');
-  expect(calls).toBe(2);
+  expect(calls).toBe(3);
 });

@@ -297,6 +297,9 @@ function stagedVirtualTryOnPrompt(
     const poseLabels: Record<string, string> = { original: '原始人物照片', 'neutral-outfit': '服饰简化人物照片', skeleton: 'DWPose 骨骼图', depth: '深度图' };
     const poseLabel = poseLabels[String(params.poseReferenceType)] ?? '用户手动选择的原始姿势参考图';
     const poseDescription = poseText ? `${poseText}${/[。！？.!?]$/.test(poseText) ? '' : '。'}` : '';
+    const expressionInstruction = poseText
+      ? '姿态文字按整体到局部解释动作。视线与面部神态仅采用文字中明确可辨认或用户明确指定的描述；“无法判断”表示没有该项约束，不要求生成模糊或遮挡效果。深度图和骨骼图只约束动作几何，不能从灰阶或关键点猜测视线与表情。神态只改变可见表情，不改变身份参考的五官结构。'
+      : '';
     const poseInstructions: Record<string, string> = {
       original:
         "类型：原始人物照片。读取可见的头部朝向、视线、肩髋倾斜、躯干、四肢和手部动作；遮挡处不作为精确关节约束。",
@@ -359,7 +362,7 @@ function stagedVirtualTryOnPrompt(
     const sections = [
       `建立第一轮人物场景基准。`,
       `【动作坐标约定】左右始终按观看图片的画面左/右，不按人物解剖学左右；禁止水平镜像。动作描述也使用这一约定，只解释姿势图中可见的关系，不替换或补造动作。`,
-      `【姿势】${one("pose-guide")}是${poseLabel}。${poseDescription}${poseInstruction}最终动作仅由姿势参考图中可见的动作几何决定。人物身份图、主穿搭图、场景图及配饰图均不提供动作依据。忽略姿势参考中的服装、身份和背景，不忽略其动作；不得擅自摆正躯干、拉直四肢、改变手部位置或调整为左右对称站姿。`,
+      `【姿势】${one("pose-guide")}是${poseLabel}。${poseDescription}${poseInstruction}${expressionInstruction}最终动作仅由姿势参考图中可见的动作几何决定。人物身份图、主穿搭图、场景图及配饰图均不提供动作依据。忽略姿势参考中的服装、身份和背景，不忽略其动作；不得擅自摆正躯干、拉直四肢、改变手部位置或调整为左右对称站姿。`,
       `【身份】${one("person")}是主要完整人物身份图，锁定同一人物的五官结构、脸型、肤色、发型、身材比例和身体特征；其中原服装、姿势及非身份物体全部忽略，不得进入结果。${optionalIdentity}`,
       `【服装】${one("outfit")}是服装与搭配风格的唯一来源，严格还原服装类别、整体版型、上下装比例、衣长、袖长、裤长或裙长、腰线位置、裤腿宽度、层叠关系、穿着方式、颜色与风格。长裤不得改成短裤，短裤不得延长为长裤；服装长短按其相对腰、髋、膝、踝的位置还原，不照搬参考人物的像素尺寸；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度属于必须还原的结构，不得替换为近似设计；图内人物身份与背景全部忽略。独立配饰参考只覆盖对应类别；未连接的配饰只沿用主穿搭中清晰可见的同类物品，不额外添加。`,
       `【场景】${one("scene")}是纯场景环境参考，只控制背景空间、镜头视点、取景、构图与光线；其中任何人物、身体、姿势、身份、服装及配饰都属于待移除内容，禁止继承或融合。场景分析仅作环境辅助：${sceneDescription ?? "场景分析不可用"}。`,

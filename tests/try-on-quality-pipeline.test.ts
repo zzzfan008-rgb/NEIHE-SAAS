@@ -353,6 +353,26 @@ try {
       assert.equal(result.providerRequests, 3);
     }
   }
+  {
+    const refs = Array.from({ length: 4 }, () => smallImage);
+    const posePrompt = '整体姿态：侧身站立\n面部神态：嘴唇闭合，嘴角轻微上扬\n视线方向：无法判断';
+    const generate = async (request: ImageGenRequest) => {
+      assert.ok(request.prompt.includes(posePrompt), '用户确认的姿态与神态原文进入最终请求');
+      assert.match(request.prompt, /“无法判断”表示没有该项约束/);
+      assert.match(request.prompt, /不能从灰阶或关键点猜测视线与表情/);
+      assert.match(request.prompt, /神态只改变可见表情，不改变身份参考的五官结构/);
+      assert.equal(request.referenceImages?.[0], smallImage);
+      return { images: [smallImage], model: 'stub' };
+    };
+    const result = await executeStep({ nodeId: 'pose-expression', kind: 'virtual-try-on', inputImages: refs,
+      params: { workflowStage: 'scene-stabilize', modelId: 'gemini-3-pro-image-preview', imageSize: '2K', qualityMode: 'fast', poseReferenceType: 'depth', posePrompt } }, refs,
+    () => ({ id: 'stub', generate, edit: generate }), {
+      referenceRoles: ['pose', 'person', 'outfit', 'scene'],
+      sceneAnalyzer: async () => ({ prompt: '环境：摄影棚', providerRequests: 0, model: 'stub', cacheHit: true }),
+      candidateSelector: async () => ({ selectedIndex: 0, scores: [], model: 'stub', providerRequests: 0, allHardFail: false }),
+    });
+    assert.equal(result.providerRequests, 1);
+  }
   const optionalRoles = ["bag", "shoes", "socks", "hat", "ring", "earrings", "bracelet", "detail"];
   const roles = ["pose", "person", "outfit", ...optionalRoles, "scene"];
   const roleImages = await Promise.all(roles.map(async (_role, index) => `data:image/png;base64,${(await sharp({ create: {

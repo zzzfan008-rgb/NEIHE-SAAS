@@ -33,6 +33,17 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
   const result = promptState?.result;
   const running = promptState?.status === 'running';
   const failed = promptState?.status === 'failed';
+  const writable = useFlowStore(s => {
+    const tab = s.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch);
+    return Boolean(tab && !tab.readOnly && tab.nodes.some(n => n.id === nodeId && n.data.kind === 'image-input' && n.data.imageUrl === source));
+  });
+
+  const applyResult = () => {
+    const store = useFlowStore.getState();
+    const tab = store.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch);
+    if (!result || !tab || tab.readOnly || !tab.nodes.some(n => n.id === nodeId && n.data.kind === 'image-input' && n.data.imageUrl === source)) return;
+    store.updateNodeDataInTab(target, nodeId, { posePrompt: result.prompt, posePromptImage: source });
+  };
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -41,14 +52,18 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         finalFocus={triggerRef}
         onKeyDown={(event) => event.stopPropagation()}
         data-pose-prompt-dialog="true"
-        className="nodrag nopan bg-[var(--gc-panel)] text-[var(--gc-text)] sm:max-w-2xl"
+        className="nodrag nopan max-h-[85vh] overflow-y-auto bg-[var(--gc-panel)] text-[var(--gc-text)] sm:max-w-2xl"
       >
         <DialogHeader>
           <DialogTitle>反推人物姿势</DialogTitle>
           <DialogDescription id="pose-prompt-inference-description">
-            使用当前人物姿势参考图反推动作描述，默认用于第一轮生图；可在姿势节点下方检查和修改。已有手动编辑不会被覆盖。首次分析可能产生一次模型调用，相同图片优先读取缓存。
+            从整体到局部反推姿态与可见神态；深度图或骨骼图无法判断视线与神态。已有文本保留，可检查新版结果后选择替换。首次按新版规则分析可能产生模型费用，同版本相同图片优先读取缓存。
           </DialogDescription>
         </DialogHeader>
+
+        <Button type="button" size="sm" variant="outline" disabled={!writable || running} onClick={() => setRetry(value => value + 1)}>
+          按新版规则重新反推
+        </Button>
 
         {running && (
           <p role="status" className="rounded-md border border-[var(--gc-border)] bg-[var(--gc-canvas)] px-3 py-4 text-sm text-[var(--gc-text-muted)]">
@@ -61,7 +76,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
             <p role="alert" className="rounded-md border border-red-300 bg-red-50 px-3 py-3 text-sm text-red-700">
               {promptState.error ?? '姿势反推失败，请重试'}
             </p>
-            <Button type="button" size="sm" onClick={() => setRetry((value) => value + 1)}>
+            <Button type="button" size="sm" disabled={!writable || running} onClick={() => setRetry((value) => value + 1)}>
               重试反推
             </Button>
           </div>
@@ -78,6 +93,13 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
                 {savedPrompt ?? result?.prompt}
               </pre>
             </Card>
+            {retry > 0 && result && savedPrompt !== undefined && result.prompt !== savedPrompt && !running && !failed && (
+              <Card className="gap-3 border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
+                <h3 className="text-sm font-medium">新版反推结果</h3>
+                <pre data-pose-prompt="candidate" className="whitespace-pre-wrap break-words text-sm leading-6">{result.prompt}</pre>
+                <Button type="button" size="sm" disabled={!writable} onClick={applyResult}>使用新版结果替换当前提示词</Button>
+              </Card>
+            )}
             {result && <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-[var(--gc-text-muted)]">
               <dt>视觉模型</dt>
               <dd className="break-all">{result.model}</dd>
