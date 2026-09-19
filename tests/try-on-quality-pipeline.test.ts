@@ -191,6 +191,13 @@ try {
   assert.equal(calls, 1, '第二轮不新增独立裁判');
   await selectBestTryOnCandidate({ ...input, stage: 'garment-refine', candidates: [image] });
   assert.equal(calls, 1, '第二轮单候选兼容路径保留');
+  calls = 0;
+  const noPose = await selectBestTryOnCandidate({ ...input, referenceImages: [image], referenceRoles: ['scene'] });
+  assert.equal(noPose.selectedIndex, 0, '未提供姿势参考时按质量分选择，不受姿势分项影响');
+  assert.equal(noPose.providerRequests, 1, '没有姿势参考时仅评审质量');
+  assert.equal(calls, 1);
+  assert.equal(noPose.poseReview, undefined);
+  assert.ok(noPose.scores.every(score => score.poseMatches === undefined));
 
   const isolatedImages = await Promise.all(['red', 'green', 'blue', 'yellow'].map(async background =>
     `data:image/png;base64,${(await sharp({ create: { width: 16, height: 24, channels: 3, background } }).png().toBuffer()).toString('base64')}`));
@@ -226,6 +233,26 @@ try {
   globalThis.fetch = async () => { throw new Error("unexpected real network request"); };
   const inventedPose = "Both elbows bent; both hands tucked into front pockets; right leg positioned forward.";
   const smallImage = `data:image/png;base64,${(await sharp({ create: { width: 32, height: 48, channels: 3, background: "white" } }).png().toBuffer()).toString("base64")}`;
+  {
+    const images = Array(3).fill(smallImage);
+    const generate = async (request: ImageGenRequest) => {
+      assert.match(request.prompt, /未提供独立姿势参考图/);
+      assert.match(request.prompt, /自然安排人物动作/);
+      assert.doesNotMatch(request.prompt, /undefined|最终动作仅由姿势参考图/);
+      return { images: [smallImage], model: 'gemini-3-pro-image-preview' };
+    };
+    const noPoseResult = await executeStep({ nodeId: 'no-pose', kind: 'virtual-try-on', inputImages: images,
+      params: { workflowStage: 'scene-stabilize', modelId: 'gemini-3-pro-image-preview', imageSize: '2K', qualityMode: 'fast' } }, images,
+    () => ({ id: 'stub', generate, edit: generate }), {
+      referenceRoles: ['scene', 'person', 'outfit'],
+      sceneAnalyzer: async () => ({ prompt: '摄影棚', providerRequests: 0, model: 'stub', cacheHit: true }),
+      candidateSelector: async input => {
+        assert.deepEqual(input.referenceRoles, ['person', 'outfit', 'scene']);
+        return { selectedIndex: 0, scores: [], model: 'stub', providerRequests: 0, allHardFail: false };
+      },
+    });
+    assert.equal(noPoseResult.images.length, 1);
+  }
   for (const modelId of ['gemini-3.1-flash-image', 'gemini-3-pro-image-preview', 'gpt-image-2', 'gpt-image-2.5-flare']) {
     for (const prompt of ['画面左腿较直，画面右膝弯曲。', ' \n ']) {
       let enhancerCalls = 0;

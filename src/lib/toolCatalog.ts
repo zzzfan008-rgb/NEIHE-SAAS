@@ -52,6 +52,13 @@ export const TOOL_GROUPS: readonly ToolGroup[] = [
         { type: "node", kind: "image-input" },
       ),
       available(
+        "pose-reference",
+        "人物姿势参考图",
+        "user-round",
+        "上传姿势图片并分析动作，可连接第一轮的通用图片入口作为姿势参考。",
+        { type: "node", kind: "image-input", preset: { poseReference: true } },
+      ),
+      available(
         "background-extract",
         "背景板生成",
         "scan",

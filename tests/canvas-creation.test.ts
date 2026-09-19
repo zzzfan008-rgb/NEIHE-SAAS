@@ -49,6 +49,20 @@ useFlowStore.getState().undo();
 assert.equal(selectActiveDocument(useFlowStore.getState()).nodes.length, 0, "一次撤销必须完整移除一次节点创建");
 
 useFlowStore.getState().openFlowTab({
+  projectId: "pose-creation", projectName: "姿势节点", nodes: [], edges: [],
+});
+const poseId = useFlowStore.getState().addNode("image-input", exactDrop, { poseReference: true });
+assert.ok(poseId);
+const poseNode = selectActiveDocument(useFlowStore.getState()).nodes.find(node => node.id === poseId)!;
+assert.equal(poseNode.data.label, "人物姿势参考图");
+assert.equal(poseNode.data.kind, "image-input");
+if (poseNode.data.kind !== "image-input") throw new Error("Expected image input");
+assert.equal(poseNode.data.poseReference, true);
+assert.equal(poseNode.data.imageRole, "reference");
+useFlowStore.getState().loadFlow({ projectName: "重新打开姿势节点", nodes: [poseNode], edges: [] });
+assert.equal((selectActiveDocument(useFlowStore.getState()).nodes[0].data as typeof poseNode.data).poseReference, true);
+
+useFlowStore.getState().openFlowTab({
   projectId: "creation-read-only", projectName: "只读", nodes: [], edges: [], readOnly: true,
 });
 assert.equal(useFlowStore.getState().addNode("text-input", { x: 10, y: 20 }), null);

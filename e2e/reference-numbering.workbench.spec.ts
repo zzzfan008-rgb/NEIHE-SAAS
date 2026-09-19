@@ -24,7 +24,8 @@ test("第一轮参考编号随连线和实际图片更新且不溢出角色框",
   }, image);
   const node = page.locator('.react-flow__node[data-id="stabilize"]');
   const labels = (role: string) => node.locator(`[data-reference-numbers="${role}"]`);
-  for (const [role, number] of Object.entries({ pose: 1, person: 2, outfit: 3, shoes: 4, socks: 5, hat: 6, scene: 7 })) {
+  await expect(labels("pose")).toHaveCount(0);
+  for (const [role, number] of Object.entries({ person: 2, outfit: 3, shoes: 4, socks: 5, hat: 6, scene: 7 })) {
     await expect(labels(role)).toHaveText(`(参考图 ${number})`);
   }
   await expect(labels("bag")).toBeEmpty();
@@ -56,7 +57,7 @@ test("第一轮参考编号随连线和实际图片更新且不溢出角色框",
     return { width: box.width, inside: label.left >= box.left && label.right <= box.right + 1 && label.bottom <= box.bottom + 1,
       overflow: number.scrollWidth > number.clientWidth + 1 };
   }));
-  expect(geometry).toHaveLength(12);
+  expect(geometry).toHaveLength(11);
   expect(geometry.every(row => row.width > 0 && row.inside && !row.overflow)).toBe(true);
   // Two additional identity references must receive their own model indices.
   await page.evaluate(async image => {
@@ -78,7 +79,7 @@ test("第一轮参考编号随连线和实际图片更新且不溢出角色框",
   await page.screenshot({ path: testInfo.outputPath("reference-numbering.png") });
 });
 
-test('第一轮明确姿势来源与原文策略，第二轮保留增强开关', async ({ page }, testInfo) => {
+test('第一轮不再展示姿势行与来源，第二轮保留增强开关', async ({ page }, testInfo) => {
   const image = `data:image/png;base64,${(await sharp({ create: { width: 24, height: 32, channels: 3, background: '#aaa' } }).png().toBuffer()).toString('base64')}`;
   await page.goto('/');
   await expect(page.getByRole('button', { name: '打开项目中心' })).toBeVisible();
@@ -110,8 +111,8 @@ test('第一轮明确姿势来源与原文策略，第二轮保留增强开关',
   const node = page.locator('.react-flow__node[data-id="first"]');
   const settings = node.getByLabel('第一轮生成设置', { exact: true });
   const pose = settings.getByRole('group', { name: '当前姿势参考' });
-  await expect(pose).toContainText('名为原图的深度来源');
-  await expect(pose).toContainText('深度图');
+  await expect(pose).toHaveCount(0);
+  await expect(node.locator('[data-port-row="pose"]')).toHaveCount(0);
   await page.evaluate(async () => {
     const path = '/src/store/flowStore.ts';
     const { useFlowStore, selectActiveNodes } = await import(path);
@@ -124,9 +125,8 @@ test('第一轮明确姿势来源与原文策略，第二轮保留增强开关',
     ] });
     useFlowStore.getState().setSelectedNodeIds(['first']);
   });
-  await expect(pose).toContainText('名为原图的深度来源');
-  await expect(pose).toContainText('深度图');
-  await expect(settings).toContainText('左右按画面方向');
+  await expect(pose).toHaveCount(0);
+  await expect(settings).toContainText('未连接时依据创作想法自然安排动作');
   await expect(settings).toContainText('第一轮不执行通用提示词增强');
   await expect(page.getByRole('switch', { name: /提示词增强/ })).toHaveCount(0);
   await expect(page.getByRole('switch', { name: '审核失败安全降级一次' })).toHaveCount(0);
@@ -151,19 +151,19 @@ test('第一轮明确姿势来源与原文策略，第二轮保留增强开关',
     const { useFlowStore } = await import(path);
     useFlowStore.getState().updateNodeData('pose', { imageUrl: undefined });
   });
-  await expect(pose).toContainText('待提供图片');
+  await expect(pose).toHaveCount(0);
   await page.evaluate(async image => {
     const path = '/src/store/flowStore.ts';
     const { useFlowStore } = await import(path);
     useFlowStore.getState().updateNodeData('pose', { imageUrl: image, poseReferenceSource: { kind: 'depth', image: '/api/files/stale.png' } });
   }, image);
-  await expect(pose).toContainText('类型未标注');
+  await expect(pose).toHaveCount(0);
   await page.evaluate(async () => {
     const path = '/src/store/flowStore.ts';
     const { useFlowStore } = await import(path);
     useFlowStore.getState().onEdgesChange([{ id: 'pose-first', type: 'remove' }]);
   });
-  await expect(pose).toContainText('未连接');
+  await expect(pose).toHaveCount(0);
   await page.evaluate(async () => {
     const path = '/src/store/flowStore.ts';
     const { useFlowStore } = await import(path);

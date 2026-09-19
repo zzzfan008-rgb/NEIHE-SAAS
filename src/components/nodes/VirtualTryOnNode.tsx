@@ -34,6 +34,13 @@ function StageHandles({ data }: { data: VirtualTryOnNodeData }) {
     return <Handle id="references" type="target" position={Position.Left} title="参考图" />;
   }
   return (
+    <>
+    {data.workflowStage === "scene-stabilize" && (
+      // Preserve typed edges at the general input after removing the pose row.
+      <Handle id="pose" type="target" position={Position.Left}
+        className="gc-global-image-input-handle" isConnectable={false}
+        style={{ opacity: 0, pointerEvents: "none" }} aria-hidden="true" />
+    )}
     <Handle
       className="gc-global-image-input-handle"
       type="target"
@@ -41,6 +48,7 @@ function StageHandles({ data }: { data: VirtualTryOnNodeData }) {
       aria-label="通用图片输入，连接后选择用途"
       title="通用图片输入（连接后选择用途）"
     />
+    </>
   );
 }
 
@@ -61,7 +69,8 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         image, role: edge.targetHandle ?? "", sourceId: source.id,
       })) : [];
     })).map((reference, index) => ({ ...reference, number: index + 1 })) : [];
-  const roleRows = data.workflowStage === "standard" ? [] : inputPortSpecs(data).map((port) => {
+  const roleRows = data.workflowStage === "standard" ? [] : inputPortSpecs(data)
+    .filter(port => data.workflowStage !== "scene-stabilize" || port.id !== "pose").map((port) => {
     const connected = edges.filter((edge) => edge.target === id && edge.targetHandle === port.id);
     const sourceLabel = connected
       .map((edge) => nodes.find((node) => node.id === edge.source)?.data.label)
@@ -95,7 +104,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         summary={staged ? (
           <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">
             {data.workflowStage === "scene-stabilize"
-              ? "人物锁身份 · 场景锁环境 · 姿势引导图锁动作 · 穿搭锁服装"
+              ? "人物锁身份 · 场景锁环境 · 穿搭锁服装"
               : "锁定已确认基准，只精修服装结构、面料与工艺"}
           </p>
         ) : undefined}

@@ -356,7 +356,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
           );
         }
         requireOne("scene", "scene");
-        requireOne("pose", "pose");
+        if (roleSources("pose").length) requireOne("pose", "pose");
         requireOne("outfit", "outfit");
         for (const [role, label] of [
           ["bag", "包袋"],

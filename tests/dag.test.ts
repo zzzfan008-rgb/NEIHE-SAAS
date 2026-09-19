@@ -445,6 +445,11 @@ async function main() {
       "/api/files/detail.png",
     ]);
     assert.doesNotThrow(() => assertPlanInputs(stageOne, stageOneEdges));
+    const noPoseEdges = stageOneEdges.filter(edge => edge.targetHandle !== "pose");
+    const noPosePlan = buildExecutionPlan(stageOneNodes, noPoseEdges, { onlyNodeId: stabilize.id });
+    assert.doesNotThrow(() => assertPlanInputs(noPosePlan, noPoseEdges), "未连接姿势允许第一轮生成");
+    const duplicatePoseEdges = [...stageOneEdges, { source: person.id, target: stabilize.id, targetHandle: "pose" }];
+    assert.throws(() => assertPlanInputs(buildExecutionPlan(stageOneNodes, duplicatePoseEdges, { onlyNodeId: stabilize.id }), duplicatePoseEdges), /pose/, "姿势仍然最多一张");
     assert.equal(stageOne.steps[0].params.poseReferenceType, 'unspecified');
     assert.equal(pose.data.kind, 'image-input');
     if (pose.data.kind !== 'image-input') throw new Error('fixture');

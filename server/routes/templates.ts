@@ -139,7 +139,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           id: "pose",
           type: "image-input",
           position: { x: 0, y: -40 },
-          data: { kind: "image-input", label: "人物姿势参考图（必需）", status: "idle", imageRole: "reference", poseReference: true },
+          data: { kind: "image-input", label: "人物姿势参考图（可选）", status: "idle", imageRole: "reference", poseReference: true },
         },
         {
           id: "outfit",
@@ -301,7 +301,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
             kind: "text-input",
             label: "使用步骤",
             status: "idle",
-            text: "① 上传人物身份、无人场景、人物姿势和主穿搭，按需补充身份、面料和配饰参考。② 打开姿势参考对比，本地生成 DWPose 骨骼图和深度图。对比后将所需图片添加到画布，手动连接至第一轮的姿势输入（原图也可直接连线）；系统原样传递所选图片，仅用于动作几何。场景图只控制环境、镜头与光线。③ 运行第一轮并确认人物与场景基准。④ 填写材料与结构工艺后运行第二轮服装精修。⑤ 若结果仍需调整，在局部重绘节点基于第二轮结果绘制蒙版；不运行即不产生调用或费用。",
+            text: "① 上传人物身份、无人场景和主穿搭，按需补充身份、面料和配饰参考。② 姿势参考为可选，也可从左侧“添加节点”添加“人物姿势参考图”。需要指定动作时，打开姿势参考对比，选择原图、DWPose 骨骼图或深度图并添加到画布，连接第一轮的通用图片入口并选择“人物姿势参考图”用途；系统原样传递所选图片，仅用于动作几何。未连接姿势时依据创作想法与场景自然安排动作。场景图只控制环境、镜头与光线。③ 运行第一轮并确认人物与场景基准。④ 填写材料与结构工艺后运行第二轮服装精修。⑤ 若结果仍需调整，在局部重绘节点基于第二轮结果绘制蒙版；不运行即不产生调用或费用。",
           },
         },
       ],
@@ -814,7 +814,7 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
         || nodeById.get("socks")?.data?.label !== "袜子参考图（可选）"
         || nodeById.get("scene")?.data?.label !== "场景参考图（必需）"
         || nodeById.get("pose")?.type !== "image-input"
-        || nodeById.get("pose")?.data?.label !== "人物姿势参考图（必需）"
+        || nodeById.get("pose")?.data?.label !== "人物姿势参考图（可选）"
         || nodeById.get("pose")?.data?.poseReference !== true
         || nodeById.get("pose")?.data?.autoConnectTargets !== undefined
         || ["upper-repair", "pants-repair", "accessory-repair", "logo-correct"].some((id) => nodeById.has(id));

@@ -964,7 +964,7 @@ async function main() {
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
     assert.equal(stagedTryOn.flow.nodes.length, 23);
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "scene")?.data.label, "场景参考图（必需）");
-    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "pose")?.data.label, "人物姿势参考图（必需）");
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "pose")?.data.label, "人物姿势参考图（可选）");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "socks")?.data.label, "袜子参考图（可选）");
     assert.equal(stagedTryOn.flow.edges.length, 3, "图片连接必须在赋值后创建，第二轮结果固定连接局部重绘");
     assert.equal(stagedTryOn.flow.edges.some((edge) => edge.target === "stabilize" && edge.source !== "approval"), false);

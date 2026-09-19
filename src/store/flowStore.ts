@@ -1366,6 +1366,9 @@ function defaultNodeDataWithPreset(
 ): WorkflowNodeData {
   const data = defaultNodeData(kind);
   if (!preset) return data;
+  if (data.kind === "image-input" && preset.poseReference === true) {
+    return { ...data, label: "人物姿势参考图", imageRole: "reference", poseReference: true };
+  }
   if (
     data.kind === "fabric-recolor" &&
     (preset.operationMode === "fabric" || preset.operationMode === "color")
@@ -1510,7 +1513,7 @@ function virtualTryOnRunBlockReason(
       return "人物身份图尚未全部提供可用图片";
     return (
       requireSingle("scene", "场景参考图") ??
-      requireSingle("pose", "人物姿势参考图") ??
+      (edgesFor("pose").length ? requireSingle("pose", "人物姿势参考图") : undefined) ??
       requireSingle("outfit", "主穿搭图")
     );
   }

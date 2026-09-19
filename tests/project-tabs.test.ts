@@ -2379,4 +2379,38 @@ await test("分步换装错误模型在客户端付费请求前被拒绝", async
   }
 });
 
+await test("第一轮未连接姿势也能通过客户端校验并提交，空姿势连线仍被拒绝", async () => {
+  const stage = stagedConnectionNode('optional-pose-stage');
+  const references = ['person', 'scene', 'outfit'].map(role => {
+    const node = imageNode(role, role);
+    if (node.data.kind === 'image-input') node.data.imageUrl = `/api/files/${role}.png`;
+    return node;
+  });
+  const edges = references.map(node => ({ id: node.id, source: node.id, target: stage.id, targetHandle: node.id }));
+  useFlowStore.getState().loadFlow({ projectId: 'optional-pose-run', projectName: '可选姿势', nodes: [...references, stage], edges });
+  const originalFetch = globalThis.fetch;
+  let submissions = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url) === '/api/run-plan') {
+      submissions++;
+      return Response.json({ error: '测试请求已拦截' }, { status: 400 });
+    }
+    return Response.json({ ok: true });
+  };
+  try {
+    await useFlowStore.getState().runNode(stage.id);
+    assert.equal(submissions, 1, '无姿势图仍应到达提交阶段，测试不调用真实服务');
+    assert.match(activeDocument().nodes.find(node => node.id === stage.id)?.data.error ?? '', /测试请求已拦截/);
+    useFlowStore.getState().loadFlow({ projectId: 'empty-pose-run', projectName: '空姿势连线',
+      nodes: [...references, stage, imageNode('pose', '人物姿势参考图')],
+      edges: [...edges, { id: 'pose', source: 'pose', target: stage.id, targetHandle: 'pose' }],
+    });
+    await useFlowStore.getState().runNode(stage.id);
+    assert.equal(submissions, 1);
+    assert.match(activeDocument().nodes.find(node => node.id === stage.id)?.data.error ?? '', /人物姿势参考图尚未提供可用图片/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 console.log(`\n通过 ${passed} 项`);

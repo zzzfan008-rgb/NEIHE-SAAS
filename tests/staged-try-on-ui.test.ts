@@ -37,7 +37,7 @@ for (const roleLabel of [
 ]) {
   assert.match(stagedNode + workflowPorts, new RegExp(roleLabel), `第一轮紧凑角色行缺少“${roleLabel}”`);
 }
-assert.match(stagedNode, /场景锁环境 · 姿势引导图锁动作/, "第一轮摘要必须明确场景与姿势职责分离");
+assert.match(stagedNode, /场景锁环境 · 穿搭锁服装/, "第一轮摘要应仅列出必需参考职责");
 assert.match(stagedNode, /已连接来源|sourceLabel|connectedSource/, "角色行必须显示已连接来源名称");
 assert.match(stagedNode, /必填|可选/, "角色行必须区分必填与可选");
 assert.match(stagedNode, /data-port-row=\{port\.id\}/, "分步换装输入端口必须挂载在对应角色行内");

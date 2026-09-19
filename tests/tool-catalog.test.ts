@@ -21,6 +21,7 @@ assert.deepEqual(
     [
       "文本节点",
       "本地上传图片",
+      "人物姿势参考图",
       "背景板生成",
       "人物板生成",
       "本地上传视频",
@@ -39,7 +40,7 @@ assert.deepEqual(
     ["绘画工具", "色彩工具"],
   ],
 );
-assert.equal(TOOL_GROUPS.flatMap((group) => group.items).length, 23);
+assert.equal(TOOL_GROUPS.flatMap((group) => group.items).length, 24);
 
 const ids = TOOL_GROUPS.flatMap((group) => group.items.map((item) => item.id));
 assert.equal(new Set(ids).size, ids.length, "工具项目 id 必须全局稳定且唯一");
@@ -102,4 +103,7 @@ for (const name of [
   assert.equal(item(name)?.creationIntent?.type, "workflow-template");
 }
 
-console.log("通过 1 项工具目录测试（5 组、23 项）");
+assert.deepEqual(item("人物姿势参考图")?.creationIntent, {
+  type: "node", kind: "image-input", preset: { poseReference: true },
+});
+console.log("通过 1 项工具目录测试（5 组、24 项）");

@@ -218,17 +218,18 @@ export const selectBestTryOnCandidate: TryOnCandidateSelector = async (input) =>
   if (!/^[A-Za-z0-9._-]+$/.test(model)) throw new Error('换装评审模型配置无效');
   const poseIndexes = input.referenceRoles.flatMap((role, index) => role === 'pose' ? [index] : []);
   if (input.referenceImages.length !== input.referenceRoles.length ||
-      (sceneStage && (!input.referenceRoles.includes('scene') || poseIndexes.length !== 1))) {
-    throw new ProviderError('候选评审缺少有效的场景或唯一姿势参考图', 400, model, 'invalid_request');
+      (sceneStage && (!input.referenceRoles.includes('scene') || poseIndexes.length > 1))) {
+    throw new ProviderError('候选评审参考图无效：需要场景参考，姿势参考最多一张', 400, model, 'invalid_request');
   }
   input.referenceImages.forEach(parseDataUrl);
   input.candidates.forEach(parseDataUrl);
   const references = input.referenceImages.map((image, index) => ({ image, index, role: input.referenceRoles[index] }))
     .filter(ref => !sceneStage || (ref.role !== 'pose' && ref.role !== 'pose-neutral'));
   const roleText = references.map(ref => `参考${ref.index + 1}=${ref.role}`).join('，');
+  const posePolicy = poseIndexes.length ? '姿势由另一独立请求核对。' : '未提供姿势参考，无需核对动作一致性。';
   const content: Array<Record<string, unknown>> = [{
     type: 'text',
-    text: `你是写实服装换装质量评审器。阶段=${input.stage}。${roleText}。下面先给参考图，再给候选图。参考编号沿用原始上传编号，缺号并非漏图。按身份20、肢体结构15、服装版型20、材质纹理20、配饰与文字准确性15、构图与场景10评分。身份替换、明显多肢缺肢、严重手脚错误、场景服装污染、核心穿搭错误、虚构或改写 Logo/文字、核心包鞋缺失必须 hardFail=true。只返回 JSON：{"scores":[{"index":0,"identity":0,"anatomy":0,"garment":0,"material":0,"accessories":0,"scene":0,"hardFail":false${sceneStage ? '' : ',"poseMatches":true'},"reasons":["具体问题"]}]}。index 从0开始且每张候选恰好一项。${sceneStage ? '本请求不评动作一致性，不返回姿势通过结论，也不因动作差异或无法判断动作而 hardFail；姿势由另一独立请求核对。肢体结构只评畸形、多肢等解剖错误。' : '第二轮对照 baseline 保持姿势，明显姿势偏差必须 poseMatches=false 且 hardFail=true，并说明具体差异。'}scene 只核对空间、镜头、构图与光线，不继承其中的人物服装。目标提示词（仅在本次评审职责内生效）：${input.prompt}`,
+    text: `你是写实服装换装质量评审器。阶段=${input.stage}。${roleText}。下面先给参考图，再给候选图。参考编号沿用原始上传编号，缺号并非漏图。按身份20、肢体结构15、服装版型20、材质纹理20、配饰与文字准确性15、构图与场景10评分。身份替换、明显多肢缺肢、严重手脚错误、场景服装污染、核心穿搭错误、虚构或改写 Logo/文字、核心包鞋缺失必须 hardFail=true。只返回 JSON：{"scores":[{"index":0,"identity":0,"anatomy":0,"garment":0,"material":0,"accessories":0,"scene":0,"hardFail":false${sceneStage ? '' : ',"poseMatches":true'},"reasons":["具体问题"]}]}。index 从0开始且每张候选恰好一项。${sceneStage ? `本请求不评动作一致性，不返回姿势通过结论，也不因动作差异或无法判断动作而 hardFail；${posePolicy}肢体结构只评畸形、多肢等解剖错误。` : '第二轮对照 baseline 保持姿势，明显姿势偏差必须 poseMatches=false 且 hardFail=true，并说明具体差异。'}scene 只核对空间、镜头、构图与光线，不继承其中的人物服装。目标提示词（仅在本次评审职责内生效）：${input.prompt}`,
   }];
   for (const ref of references) {
     content.push({ type: 'text', text: `参考图 ${ref.index + 1}，角色：${ref.role}` });
@@ -245,6 +246,7 @@ export const selectBestTryOnCandidate: TryOnCandidateSelector = async (input) =>
   ));
   if (!sceneStage) return { ...quality, providerRequests };
   quality.scores = quality.scores.map(({ poseMatches: _pose, poseChecks: _checks, ...score }) => score);
+  if (poseIndexes.length === 0) return { ...quality, providerRequests };
 
   // This builder cannot receive the generation prompt or non-pose references.
   const referenceType = poseReviewReferenceType(input.poseReferenceType);
