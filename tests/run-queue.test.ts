@@ -14,6 +14,7 @@ import type { SceneAnalyzer } from "../server/lib/sceneAnalysis";
 import type { AIProvider, ExecutionPlan, ImageGenRequest, ImageGenResult, NodeExecution } from "../src/types/workflow";
 import { resetPostgresTestDatabase } from "./postgresTestDatabase";
 import { normalizeProviderImageDataUrl } from "../server/lib/uploadImageNormalization";
+import { POSE_REVIEW_LABELS, parsePoseReviewCandidates } from '../src/lib/tryOnPoseReview';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "garment-canvas-run-queue-"));
 process.env.DATA_DIR = temp;
@@ -294,6 +295,13 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
     assert.equal(await queue.processNextGenerationJob(`worker-roles-${testId}`, {
       resolveProvider: fake.resolveProvider,
       sceneAnalyzer,
+      candidateSelector: async input => {
+        assert.equal(input.poseReferenceType, 'depth');
+        assert.equal(input.referenceImages[input.referenceRoles.indexOf('pose')], expectedPose);
+        await input.beforeProviderCall?.(1);
+        await input.beforeProviderCall?.(2);
+        return { selectedIndex: 0, scores: [], model: 'judge-stub', providerRequests: 2, allHardFail: false };
+      },
       now: () => tick(),
       random: () => 0,
     }), true);
@@ -312,7 +320,7 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
   assert.match(fake.requests()[0].prompt, /参考图1.*用户手动选择的原始姿势参考图/);
   assert.doesNotMatch(fake.requests()[0].prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
   assert.deepEqual(await runRow(run.id), {
-    status: "succeeded", error: null, provider_requests: 2, successful_count: 1,
+    status: "succeeded", error: null, provider_requests: 4, successful_count: 1,
   });
   const recorded = await database.queryOne<{ prompt: string; reference_images_json: string; parameters_json: string }>(
     "SELECT prompt, reference_images_json, parameters_json FROM generation_runs WHERE id = $1", [run.id],
@@ -362,9 +370,15 @@ await test("第一轮请求失败仍保留实际参考清单和最终提示词",
   assert.deepEqual(JSON.parse(row!.reference_images_json), [images[3], images[2], images[1], images[0]]);
 });
 
-for (const judgeAvailable of [true, false]) {
-  await test(`最佳档位持久化三张候选，评审${judgeAvailable ? "成功时发布赢家" : "失败时保留全部结果和警告"}`, async () => {
+for (const judgeMode of ['selected', 'error', 'indeterminate']) {
+  const judgeAvailable = judgeMode !== 'error';
+  const hasWinner = judgeMode === 'selected';
+  await test(`最佳档位三张候选：${judgeMode}，独立评审重试计数与元数据完整保留`, async () => {
     const testId = ++sequence;
+    const poseReview = { version: 1 as const, referenceType: 'depth' as const,
+      candidates: parsePoseReviewCandidates([0, 1, 2].map(index => ({ index, checks: Object.fromEntries(
+        Object.keys(POSE_REVIEW_LABELS).map(field => [field, { status: hasWinner ? 'match' : 'indeterminate', reference: '参考可见位置', candidate: '候选可见位置' }]),
+      ) })), 3, 'depth') };
     const personImage = await solidImage(4, 4, { r: 200, g: 70, b: 50 });
     const sceneImage = await solidImage(3, 4, { r: 60, g: 130, b: 90 });
     const poseImage = await solidImage(3, 4, { r: 170, g: 65, b: 150 });
@@ -433,20 +447,21 @@ for (const judgeAvailable of [true, false]) {
           return { prompt: "环境：摄影棚；光线：左侧柔光；镜头：平视；构图：纵深居中", providerRequests: 1, model: "scene-stub", cacheHit: false };
         },
         candidateSelector: async (input) => {
-          await input.beforeProviderCall?.(1);
+          for (let request = 1; request <= 3; request++) await input.beforeProviderCall?.(request);
           assert.ok(input.referenceRoles.includes("scene"));
           assert.equal(input.referenceImages[input.referenceRoles.indexOf("pose")], expectedPose);
           assert.doesNotMatch(input.prompt, /姿势分析对原图的几何复核|身体姿势：/);
           if (!judgeAvailable) throw new Error("judge unavailable");
           return {
-            selectedIndex: 1,
+            selectedIndex: hasWinner ? 1 : null,
+            poseReview,
             scores: [
               { index: 0, identity: 15, anatomy: 12, garment: 17, material: 15, accessories: 10, scene: 8, total: 77, hardFail: false, reasons: [] },
               { index: 1, identity: 19, anatomy: 14, garment: 19, material: 18, accessories: 14, scene: 9, total: 93, hardFail: false, reasons: [] },
               { index: 2, identity: 16, anatomy: 10, garment: 15, material: 15, accessories: 10, scene: 8, total: 74, hardFail: false, reasons: [] },
             ],
             model: "judge-stub",
-            providerRequests: 1,
+            providerRequests: 3,
             allHardFail: false,
           };
         },
@@ -456,20 +471,26 @@ for (const judgeAvailable of [true, false]) {
     }
     assert.equal(fake.calls(), 3);
     assert.deepEqual(await runRow(run.id), {
-      status: "succeeded", error: judgeAvailable ? null : "候选自动评审未完成，全部候选已保留，请人工核对姿势后选择基准", provider_requests: 5, successful_count: judgeAvailable ? 1 : 3,
+      status: 'succeeded', error: hasWinner ? null : judgeAvailable ? '所有候选均未通过自动评审，请核对姿势与穿搭；已保留全部结果' : '候选自动评审未完成，全部候选已保留，请人工核对姿势后选择基准', provider_requests: 7, successful_count: hasWinner ? 1 : 3,
     });
     const stepRow = await database.queryOne<{ output_images_json: string; execution_meta_json: string }>(`
       SELECT output_images_json, execution_meta_json FROM generation_run_steps
       WHERE run_id = $1 AND node_id = $2
     `, [run.id, stageId]);
-    assert.equal(JSON.parse(stepRow?.output_images_json ?? "[]").length, judgeAvailable ? 1 : 3);
-    assert.equal(JSON.parse(stepRow?.execution_meta_json ?? "{}").tryOn.candidateSelection?.selectedIndex, judgeAvailable ? 1 : undefined);
+    assert.equal(JSON.parse(stepRow?.output_images_json ?? '[]').length, hasWinner ? 1 : 3);
+    const selection = JSON.parse(stepRow?.execution_meta_json ?? '{}').tryOn.candidateSelection;
+    assert.equal(selection?.selectedIndex, hasWinner ? 1 : judgeAvailable ? null : undefined);
+    assert.deepEqual(selection?.poseReview, judgeAvailable ? poseReview : undefined);
+    assert.equal((await database.queryOne<{ provider_requests: number }>('SELECT provider_requests FROM usage_events WHERE run_id = $1', [run.id]))?.provider_requests, 7);
+    const events = await queue.readDurableRunEvents(run.id, owner.id, 0);
+    assert.ok(events?.some(event => event.type === 'node-status' && event.nodeId === stageId && event.status === 'success' &&
+      JSON.stringify(event.executionMeta?.tryOn) === JSON.stringify(JSON.parse(stepRow!.execution_meta_json).tryOn)));
     assert.equal((await database.queryOne<{ count: number }>(`
       SELECT COUNT(*)::int AS count FROM files WHERE run_id = $1 AND node_id = $2
     `, [run.id, stageId]))?.count, 3);
     assert.equal((await database.queryOne<{ count: number }>(`
       SELECT COUNT(*)::int AS count FROM generation_outputs WHERE run_id = $1 AND status = 'success'
-    `, [run.id]))?.count, judgeAvailable ? 1 : 3);
+    `, [run.id]))?.count, hasWinner ? 1 : 3);
   });
 }
 

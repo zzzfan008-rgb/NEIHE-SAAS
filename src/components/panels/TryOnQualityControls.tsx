@@ -232,14 +232,18 @@ export function TryOnQualityControls({
         </div>
       </fieldset>
 
-      <label className="flex items-center justify-between gap-3 text-[10px] text-[var(--gc-text)]">
-        <span>提示词增强</span>
-        <Switch checked={data.promptEnhancement} disabled={disabled} onCheckedChange={(checked) => onChange({ promptEnhancement: checked, error: undefined })} aria-label="提示词增强" />
-      </label>
-      <label className="flex items-center justify-between gap-3 text-[10px] text-[var(--gc-text)]">
-        <span>审核失败安全降级一次</span>
-        <Switch checked={data.safetyFallback} disabled={disabled} onCheckedChange={(checked) => onChange({ safetyFallback: checked, error: undefined })} aria-label="审核失败安全降级一次" />
-      </label>
+      {data.workflowStage !== "scene-stabilize" && (
+        <>
+          <label className="flex items-center justify-between gap-3 text-[10px] text-[var(--gc-text)]">
+            <span>提示词增强</span>
+            <Switch checked={data.promptEnhancement} disabled={disabled} onCheckedChange={(checked) => onChange({ promptEnhancement: checked, error: undefined })} aria-label="提示词增强" />
+          </label>
+          <label className="flex items-center justify-between gap-3 text-[10px] text-[var(--gc-text)]">
+            <span>审核失败安全降级一次</span>
+            <Switch checked={data.safetyFallback} disabled={disabled} onCheckedChange={(checked) => onChange({ safetyFallback: checked, error: undefined })} aria-label="审核失败安全降级一次" />
+          </label>
+        </>
+      )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent showCloseButton={false} className="w-[min(520px,calc(100vw-3rem))] max-w-none rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] p-0 text-[var(--gc-text)] ring-0">

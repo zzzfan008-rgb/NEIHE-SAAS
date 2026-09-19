@@ -1,16 +1,30 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useCoalescedTextEdit } from '@/hooks/useCoalescedTextEdit';
-import { selectActiveNodes, selectActiveReadOnly, useFlowStore } from '@/store/flowStore';
+import { effectiveIncomingSources } from '@/lib/maskRepair';
+import { nodeOutputImages, selectActiveEdges, selectActiveNodes, selectActiveReadOnly, useFlowStore } from '@/store/flowStore';
 import { SCENE_STABILIZE_MODEL_IDS, getImageModelContract, imageModelLabel, isSceneStabilizeModelId, type ImageModelOptions } from '@/types/imageModels';
+import { validPoseReferenceSource, type PoseReferenceCanvasKind } from '@/types/poseReference';
 import { isNodeRunActive, type VirtualTryOnNodeData } from '@/types/workflow';
 
 const RATIOS = ['1:1', '4:5', '3:4', '2:3', '9:16', '16:9'] as const;
+const POSE_TYPE_LABELS: Record<PoseReferenceCanvasKind, string> = {
+  original: '原始人物照片', 'neutral-outfit': '服饰简化人物照片', skeleton: '骨架图', depth: '深度图',
+};
 
 /** One document-backed editor shared by the canvas node and Inspector. */
 export function SceneStabilizeControls({ nodeId, data }: { nodeId: string; data: VirtualTryOnNodeData }) {
   const update = useFlowStore(s => s.updateNodeData);
   const readOnly = useFlowStore(selectActiveReadOnly);
+  const nodes = useFlowStore(selectActiveNodes);
+  const edges = useFlowStore(selectActiveEdges);
+  const poseEdge = edges.find(edge => edge.target === nodeId && edge.targetHandle === 'pose');
+  const poseSource = effectiveIncomingSources(nodes, edges, nodeId).find(source => source.targetHandle === 'pose');
+  const poseNode = nodes.find(node => node.id === poseSource?.node.id);
+  const poseImages = poseNode ? nodeOutputImages(poseNode.data, poseSource?.sourceHandle) : [];
+  const poseType = poseNode?.data.kind === 'image-input' &&
+    validPoseReferenceSource(poseNode.data.poseReferenceSource, poseNode.data.imageUrl)
+    ? POSE_TYPE_LABELS[poseNode.data.poseReferenceSource.kind] : '类型未标注';
   const edit = useCoalescedTextEdit({ kind: 'node-data', nodeId, field: 'prompt' }, { multiline: true });
   const disabled = readOnly || isNodeRunActive(data.status);
   const gemini = data.modelId.startsWith('gemini-');
@@ -29,13 +43,18 @@ export function SceneStabilizeControls({ nodeId, data }: { nodeId: string; data:
   );
 
   return <div className="nodrag nopan nowheel min-w-0 space-y-2" aria-label="第一轮生成设置">
+    <div role="group" aria-label="当前姿势参考" className="min-w-0 space-y-0.5 text-[10px] leading-relaxed text-[var(--gc-text-muted)]">
+      <p className="break-words">姿势来源：{poseNode?.data.label ?? (poseEdge ? '来源不可用' : '未连接')}</p>
+      {poseNode && <p>{poseImages.length === 0 ? '待提供图片' : poseImages.length === 1 ? poseType : '图片数量异常，请保留 1 张姿势参考'}</p>}
+    </div>
     <label className="block space-y-1">
       <span className="text-[10px] text-[var(--gc-text-muted)]">创作想法（可选）</span>
       <Textarea aria-label="创作想法" value={data.prompt} {...edit.bind} disabled={disabled} rows={4}
         placeholder="例如：整体呈现简洁的时装画册质感，减少过度磨皮。"
         className="min-h-20 resize-none text-xs [field-sizing:fixed]" />
     </label>
-    <p className="text-[9px] leading-relaxed text-[var(--gc-text-muted)]">补充最终效果；身份、动作、服装与场景仍由对应参考图决定。</p>
+    <p className="text-[9px] leading-relaxed text-[var(--gc-text-muted)]">左右按画面方向；动作描述应与姿势参考一致，不猜测不可见的关节或视线。身份、服装与场景由对应参考图决定。</p>
+    <p className="text-[9px] leading-relaxed text-[var(--gc-text-muted)]">第一轮不执行通用提示词增强，保留原始要求；审核拒绝时不自动改写重试。</p>
     <Option label="图像模型" value={data.modelId} disabled={disabled}
       items={SCENE_STABILIZE_MODEL_IDS.map(id => [id, imageModelLabel(id) + (id === 'gemini-3.1-flash-image' ? '（旧配置兼容）' : '')])}
       onChange={value => {

@@ -77,3 +77,102 @@ test("第一轮参考编号随连线和实际图片更新且不溢出角色框",
   expect(await labels("person").evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("reference-numbering.png") });
 });
+
+test('第一轮明确姿势来源与原文策略，第二轮保留增强开关', async ({ page }, testInfo) => {
+  const image = `data:image/png;base64,${(await sharp({ create: { width: 24, height: 32, channels: 3, background: '#aaa' } }).png().toBuffer()).toString('base64')}`;
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: '打开项目中心' })).toBeVisible();
+  await page.evaluate(async image => {
+    const storePath = '/src/store/flowStore.ts';
+    const landingPath = '/src/lib/canvasLanding.ts';
+    const { useFlowStore } = await import(storePath);
+    const { requestCanvasLanding } = await import(landingPath);
+    useFlowStore.getState().createBlankTab();
+    useFlowStore.getState().loadFlow({ projectName: '姿势来源说明', nodes: [
+      { id: 'first', type: 'virtual-try-on', position: { x: 0, y: 0 }, data: {
+        kind: 'virtual-try-on', label: '第一轮', workflowStage: 'scene-stabilize', status: 'idle',
+        modelId: 'gemini-3.1-flash-image', prompt: '画面左腿较直', promptEnhancement: true, safetyFallback: true,
+      } },
+      { id: 'pose', type: 'image-input', position: { x: -400, y: 0 }, data: {
+        kind: 'image-input', label: '名为原图的深度来源', status: 'success', imageUrl: image,
+        poseReferenceSource: { kind: 'depth', image },
+      } },
+      { id: 'second', type: 'virtual-try-on', position: { x: 500, y: 0 }, data: {
+        kind: 'virtual-try-on', label: '第二轮', workflowStage: 'garment-refine', status: 'idle',
+        modelId: 'gpt-image-2', promptEnhancement: true, safetyFallback: true,
+      } },
+    ], edges: [{ id: 'pose-first', source: 'pose', sourceHandle: 'image', target: 'first', targetHandle: 'pose' }] });
+    useFlowStore.getState().setSelectedNodeIds(['first']);
+    requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, nodeId: 'first', fitView: true });
+  }, image);
+  await page.getByRole('button', { name: '属性', exact: true }).click();
+  await expect(page.getByLabel('第一轮生成设置', { exact: true })).toHaveCount(2);
+  const node = page.locator('.react-flow__node[data-id="first"]');
+  const settings = node.getByLabel('第一轮生成设置', { exact: true });
+  const pose = settings.getByRole('group', { name: '当前姿势参考' });
+  await expect(pose).toContainText('名为原图的深度来源');
+  await expect(pose).toContainText('深度图');
+  await page.evaluate(async () => {
+    const path = '/src/store/flowStore.ts';
+    const { useFlowStore, selectActiveNodes } = await import(path);
+    const bypassId = useFlowStore.getState().addNode('mask-redraw', { x: -300, y: 300 });
+    useFlowStore.getState().updateNodeData(bypassId, { label: '旁路修复', executionMode: 'bypass', outputImages: [] });
+    const state = useFlowStore.getState();
+    state.loadFlow({ projectName: '旁路姿势来源', nodes: selectActiveNodes(state), edges: [
+      { id: 'pose-bypass', source: 'pose', sourceHandle: 'image', target: bypassId, targetHandle: 'repair-source' },
+      { id: 'pose-first', source: bypassId, sourceHandle: 'image', target: 'first', targetHandle: 'pose' },
+    ] });
+    useFlowStore.getState().setSelectedNodeIds(['first']);
+  });
+  await expect(pose).toContainText('名为原图的深度来源');
+  await expect(pose).toContainText('深度图');
+  await expect(settings).toContainText('左右按画面方向');
+  await expect(settings).toContainText('第一轮不执行通用提示词增强');
+  await expect(page.getByRole('switch', { name: /提示词增强/ })).toHaveCount(0);
+  await expect(page.getByRole('switch', { name: '审核失败安全降级一次' })).toHaveCount(0);
+  await settings.getByRole('textbox', { name: '创作想法' }).fill('画面右膝弯曲，不改左右');
+  await page.keyboard.press('Tab');
+  const data = await page.evaluate(async () => {
+    const path = '/src/store/flowStore.ts';
+    const { useFlowStore, selectActiveNodes } = await import(path);
+    return selectActiveNodes(useFlowStore.getState()).find((n: { id: string; data: unknown }) => n.id === 'first')!.data;
+  });
+  expect(data).toMatchObject({ prompt: '画面右膝弯曲，不改左右', promptEnhancement: true, safetyFallback: true });
+  expect(await settings.evaluate(el => {
+    const parent = el.getBoundingClientRect();
+    return [...el.querySelectorAll('p, textarea, [role="group"]')].every(child => {
+      const box = child.getBoundingClientRect();
+      return box.width > 0 && box.left >= parent.left - 1 && box.right <= parent.right + 1 && child.scrollWidth <= child.clientWidth + 1;
+    });
+  })).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('scene-original-prompt-policy.png') });
+  await page.evaluate(async () => {
+    const path = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(path);
+    useFlowStore.getState().updateNodeData('pose', { imageUrl: undefined });
+  });
+  await expect(pose).toContainText('待提供图片');
+  await page.evaluate(async image => {
+    const path = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(path);
+    useFlowStore.getState().updateNodeData('pose', { imageUrl: image, poseReferenceSource: { kind: 'depth', image: '/api/files/stale.png' } });
+  }, image);
+  await expect(pose).toContainText('类型未标注');
+  await page.evaluate(async () => {
+    const path = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(path);
+    useFlowStore.getState().onEdgesChange([{ id: 'pose-first', type: 'remove' }]);
+  });
+  await expect(pose).toContainText('未连接');
+  await page.evaluate(async () => {
+    const path = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(path);
+    useFlowStore.getState().setSelectedNodeIds(['second']);
+  });
+  const enhancement = page.getByRole('switch', { name: /提示词增强/ });
+  await expect(enhancement).toBeChecked();
+  await enhancement.focus();
+  await page.keyboard.press('Space');
+  await expect(enhancement).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: '审核失败安全降级一次' })).toBeChecked();
+});
