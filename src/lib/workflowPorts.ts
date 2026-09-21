@@ -9,6 +9,7 @@ import {
   type WorkflowNodeData,
 } from "../types/workflow";
 import { SEEDANCE_MODEL_CAPABILITIES } from "./seedance";
+import { isMultiImageTryOn, MULTI_IMAGE_TRY_ON_MAX_SOURCES, MULTI_IMAGE_TRY_ON_ROLES, MULTI_IMAGE_ROLE_LABELS } from "./multiImageTryOn";
 
 export type WorkflowPortPayload =
   | { valueKind: "image"; images: string[] }
@@ -52,6 +53,12 @@ const GARMENT_REFINE_PORTS: readonly NodePortSpec[] = [
 const MASK_REPAIR_PORTS: readonly NodePortSpec[] = [
   input("repair-source", "待修改底图", "image", true, 1),
   input("references", "细节参考图", "image", false, MAX_MASK_USER_REFERENCE_IMAGES - 1),
+];
+
+const MULTI_IMAGE_TRY_ON_PORTS: readonly NodePortSpec[] = [
+  ...MULTI_IMAGE_TRY_ON_ROLES.map(role => input(role, MULTI_IMAGE_ROLE_LABELS[role], "image",
+    ["pose", "person", "scene", "outfit"].includes(role), role === "detail" ? 5 : 1)),
+  input("angle-direction", "3D 视角文本", "text", false, 1),
 ];
 
 export const STAGED_ROLE_LABELS: Readonly<Partial<Record<WorkflowInputRole, string>>> = {
@@ -144,6 +151,7 @@ export function inputPortSpecs(data: WorkflowNodeData): readonly NodePortSpec[] 
     return [input("source-video", data.mode === "video-edit" ? "待编辑视频" : "待延长视频", "video", true, 1), prompt];
   }
   if (data.kind === "virtual-try-on") {
+    if (isMultiImageTryOn(data)) return MULTI_IMAGE_TRY_ON_PORTS;
     if (data.workflowStage === "scene-stabilize") return data.sceneInputMode === "composed-person"
       ? [input("person", "人物基准图", "image", true, 1), ...SCENE_STABILIZE_PORTS.filter(port => !["person", "scene", "pose"].includes(port.id))]
       : SCENE_STABILIZE_PORTS;
@@ -235,12 +243,14 @@ export function connectionCompatibilityError(options: {
   if (!portKindsCompatible(sourcePort, targetPort)) {
     return `${sourcePort.label}不能连接到${targetPort.label}：数据类型不兼容`;
   }
+  const imageInputLimit = target.data.kind === "virtual-try-on" && isMultiImageTryOn(target.data)
+    ? MULTI_IMAGE_TRY_ON_MAX_SOURCES : MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES;
   if (
     isStagedTryOnData(target.data)
     && targetPort.valueKind === "image"
-    && existingEdges.filter((edge) => edge.target === target.id && edge.targetHandle !== "angle-direction").length >= MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES
+    && existingEdges.filter((edge) => edge.target === target.id && edge.targetHandle !== "angle-direction").length >= imageInputLimit
   ) {
-    return `分步换装最多 ${MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES} 张参考图`;
+    return `分步换装最多 ${imageInputLimit} 张参考图`;
   }
   const sameRole = existingEdges.filter((edge) => (
     edge.target === target.id && (edge.targetHandle ?? null) === (targetHandle ?? null)

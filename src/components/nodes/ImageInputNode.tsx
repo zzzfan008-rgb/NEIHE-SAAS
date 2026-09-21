@@ -35,6 +35,7 @@ import {
 import { NodeFrame } from "./NodeFrame";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
 import { isPoseReferenceNode } from "@/types/poseReference";
+import { isDirectMultiImagePoseNode } from "@/lib/multiImageTryOn";
 
 const ImageCropEditor = lazy(() => import("./ImageCropEditor"));
 const PoseReferenceComparison = lazy(() => import("../PoseReferenceComparison"));
@@ -257,6 +258,7 @@ export function ImageInputNode({
   );
   const readOnly = useFlowStore(selectActiveReadOnly);
   const isPose = useFlowStore(s => isPoseReferenceNode(id, selectActiveNodes(s), selectActiveEdges(s)));
+  const directPose = useFlowStore(s => isDirectMultiImagePoseNode(id, selectActiveNodes(s), selectActiveEdges(s)));
   const poseConnected = useFlowStore(s => selectActiveEdges(s).some(edge => edge.source === id && edge.targetHandle === 'pose' && selectActiveNodes(s).some(node => node.id === edge.target && node.data.kind === 'virtual-try-on' && node.data.workflowStage === 'scene-stabilize')));
   const [poseSession, setPoseSession] = useState<CropSession | null>(null);
   const poseTriggerRef = useRef<HTMLButtonElement>(null);
@@ -738,7 +740,7 @@ export function ImageInputNode({
       {posePromptSession && <Suspense fallback={<span role="status">正在加载姿势反推…</span>}>
         <PosePromptInferenceDialog target={posePromptSession.target} nodeId={id} source={posePromptSession.source} triggerRef={posePromptTriggerRef} onClose={() => setPosePromptSession(null)} />
       </Suspense>}
-      {isPose && data.imageUrl && !cropSession && <Suspense fallback={<span role="status">正在加载姿势提示词…</span>}>
+      {isPose && !directPose && data.imageUrl && !cropSession && <Suspense fallback={<span role="status">正在加载姿势提示词…</span>}>
         <PosePromptEditor key={`${activeDocumentKey}:${id}:${data.imageUrl}`} target={selectActiveDocumentTarget(useFlowStore.getState())} nodeId={id} source={data.imageUrl} connected={poseConnected} readOnly={readOnly} />
       </Suspense>}
     </div>

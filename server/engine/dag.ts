@@ -10,6 +10,7 @@ import type {
   TiAngleConfig,
   WorkflowNodeData,
 } from "../../src/types/workflow";
+import { isMultiImageTryOn, multiImageReferenceError, MULTI_IMAGE_TRY_ON_MAX_SOURCES } from "../../src/lib/multiImageTryOn";
 import {
   MASK_PIPELINE_VERSION,
   MAX_MASK_USER_REFERENCE_IMAGES,
@@ -254,7 +255,8 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     if (step.kind === "background-extract" && usableImages.length !== 1) {
       throw new DagError("背景板生成节点需要上传或连接一张图片");
     }
-    const maxReferences = Math.min(
+    const multiImageEdit = step.kind === "virtual-try-on" && isMultiImageTryOn(step.params);
+    const maxReferences = multiImageEdit && modelId === "gemini-3-pro-image-preview" ? MULTI_IMAGE_TRY_ON_MAX_SOURCES : Math.min(
       step.kind === "virtual-try-on"
         ? MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES
         : MAX_REFERENCE_IMAGES,
@@ -299,6 +301,14 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
       continue;
     }
     if (step.kind === "virtual-try-on") {
+      if (multiImageEdit) {
+        if (!isSceneStabilizeModelId(modelId)) throw new DagError("多图编辑换装所选模型不受支持");
+        const error = multiImageReferenceError((step.upstream ?? []).flatMap(upstream =>
+          (executingNodeIds.has(upstream.nodeId) ? ["__runtime_output__"] : upstream.images)
+            .map(() => upstream.targetHandle ?? "")));
+        if (error) throw new DagError(error);
+        continue;
+      }
       const stage = step.params.workflowStage;
       const allowedRoles =
         stage === "scene-stabilize"

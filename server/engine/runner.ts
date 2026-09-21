@@ -5,6 +5,8 @@
 import { EventEmitter } from "node:events";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
+import { isMultiImageTryOn, multiImageReferenceError, MULTI_IMAGE_TRY_ON_MAX_SOURCES } from "../../src/lib/multiImageTryOn";
+import { prepareMultiImageTryOn, multiImageTryOnPrompt } from "../lib/multiImageTryOn";
 import {
   NODE_SPECS,
   MAX_MASK_USER_REFERENCE_IMAGES,
@@ -770,6 +772,7 @@ function stagedVirtualTryOnRuntimeError(
       imageModelOptionsError(step.params.modelId, step.params.modelOptions)
     )
       return "第一轮模型参数无效";
+    if (isMultiImageTryOn(step.params)) return multiImageReferenceError(referenceRoles);
     const allowedRoles = new Set([
       "person",
       "scene",
@@ -994,7 +997,7 @@ async function executeRun(run: Run): Promise<void> {
       step.kind === "mask-redraw"
         ? MAX_MASK_USER_REFERENCE_IMAGES
         : step.kind === "virtual-try-on"
-          ? MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES
+          ? isMultiImageTryOn(step.params) ? MULTI_IMAGE_TRY_ON_MAX_SOURCES : MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES
           : step.kind === "video-generate"
             ? 50
             : MAX_REFERENCE_IMAGES;
@@ -1670,6 +1673,8 @@ export async function executeStep(
       let judgeReferenceImages = [...referenceImages];
       let judgeReferenceRoles = [...referenceRoles];
       let sceneDescription: string | undefined;
+      const multiImageEdit = step.kind === "virtual-try-on" && isMultiImageTryOn(step.params);
+      let multiImageReferenceMap = "";
       let sceneReferenceManifest:
         | GenerationRequestSnapshot["references"]
         | undefined;
@@ -1693,7 +1698,7 @@ export async function executeStep(
       if (step.kind === "fabric-recolor" && fabricImageUrl) {
         referenceImages.push(...(await resolveImageRefs([fabricImageUrl])));
       }
-      const maxReferences = Math.min(
+      const maxReferences = multiImageEdit && modelId === "gemini-3-pro-image-preview" ? 6 : Math.min(
         step.kind === "virtual-try-on"
           ? MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES
           : MAX_REFERENCE_IMAGES,
@@ -1705,14 +1710,21 @@ export async function executeStep(
               MAX_MASK_USER_REFERENCE_IMAGES,
               Math.max(0, maxReferences - 1),
             )
-          : maxReferences;
+          : multiImageEdit && modelId === "gemini-3-pro-image-preview" ? MULTI_IMAGE_TRY_ON_MAX_SOURCES : maxReferences;
       if (referenceImages.length > maxUserReferences) {
         throw new Error(
           `Node ${step.nodeId} accepts at most ${maxUserReferences} user reference images for ${modelId}`,
         );
       }
 
-      if (
+      if (multiImageEdit) {
+        const prepared = await prepareMultiImageTryOn(referenceImages, referenceRoles, inputImages, modelId);
+        referenceImages = prepared.referenceImages;
+        referenceRoles = prepared.referenceRoles;
+        sceneReferenceManifest = prepared.references;
+        multiImageReferenceMap = prepared.instructions;
+        virtualTryOnAspectReference = prepared.aspectReference;
+      } else if (
         step.kind === "virtual-try-on" &&
         step.params.workflowStage === "scene-stabilize"
       ) {
@@ -1951,8 +1963,9 @@ export async function executeStep(
         step.params.workflowStage === "scene-stabilize"
           ? frozenAngleControlPrompt(step.params, modelId)
           : undefined;
-      const basePrompt =
-        step.kind === "sketch-optimize"
+      const basePrompt = multiImageEdit
+        ? multiImageTryOnPrompt(multiImageReferenceMap, extra, Boolean(angleControlText))
+        : step.kind === "sketch-optimize"
           ? sketchOptimizationPrompt(extra)
           : step.kind === "background-extract"
             ? "移除原图中的人物、主体和所有物品，仅保留与原图一致的干净背景；保持原始画布尺寸、构图、透视、光线、色彩和纹理连续，不添加任何人物、物体、文字或新元素，输出仅含背景的完整图片。" +

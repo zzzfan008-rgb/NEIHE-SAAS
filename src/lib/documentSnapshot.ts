@@ -193,7 +193,7 @@ export type DocumentNodeData =
       prompt: string;
       imageSize: "1K" | "2K" | "4K";
       sceneFraming?: "scene" | "custom";
-      sceneInputMode?: "composed-person";
+      sceneInputMode?: "composed-person" | "multi-reference-edit";
       aspectRatio: "1:1" | "4:5" | "3:4" | "2:3" | "9:16" | "16:9";
       garmentCategory?: "knit" | "woven" | "other";
       materialSpec?: string;
@@ -603,7 +603,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         label: data.label,
         workflowStage: data.workflowStage,
         ...(data.sceneFraming ? { sceneFraming: data.sceneFraming } : {}),
-        ...(data.sceneInputMode === "composed-person" ? { sceneInputMode: data.sceneInputMode } : {}),
+        ...(data.sceneInputMode === "composed-person" || data.sceneInputMode === "multi-reference-edit" ? { sceneInputMode: data.sceneInputMode } : {}),
         prompt: data.prompt,
         imageSize: data.imageSize,
         aspectRatio: data.aspectRatio,

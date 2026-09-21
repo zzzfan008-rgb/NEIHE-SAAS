@@ -1,0 +1,526 @@
+{
+  "name": "多图编辑换装+修改",
+  "description": "从一键换装副本独立复制：原始多图一次编辑换装 → 用户选择成片后按需蒙版修改；Gemini Pro 超过6张时自动分组拼接。",
+  "flow": {
+    "schemaVersion": 18,
+    "nodes": [
+      {
+        "id": "pose",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "图 1 · 姿势（必需）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "pose"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "person",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": 360
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "图 2 · 人物（必需）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "person"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "scene",
+        "type": "image-input",
+        "position": {
+          "x": 0,
+          "y": 720
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "图 3 · 场景（必需）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "scene"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "outfit",
+        "type": "image-input",
+        "position": {
+          "x": 330,
+          "y": 0
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "主穿搭（必需）",
+          "imageRole": "garment",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "outfit"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "material",
+        "type": "image-input",
+        "position": {
+          "x": 330,
+          "y": 360
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "面料 / 纱线（可选）",
+          "imageRole": "fabric",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "detail"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "detail",
+        "type": "image-input",
+        "position": {
+          "x": 330,
+          "y": 720
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "服装细节 / 面料（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "detail"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "shoes",
+        "type": "image-input",
+        "position": {
+          "x": 660,
+          "y": 0
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "鞋子（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "shoes"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "socks",
+        "type": "image-input",
+        "position": {
+          "x": 660,
+          "y": 360
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "袜子（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "socks"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "bag",
+        "type": "image-input",
+        "position": {
+          "x": 660,
+          "y": 720
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "包袋（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "bag"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "hat",
+        "type": "image-input",
+        "position": {
+          "x": 990,
+          "y": 0
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "帽子（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "hat"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "eyewear",
+        "type": "image-input",
+        "position": {
+          "x": 990,
+          "y": 360
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "眼镜 / 墨镜（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "eyewear"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "neckwear",
+        "type": "image-input",
+        "position": {
+          "x": 990,
+          "y": 720
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "项链 / 围巾（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "neckwear"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "earrings",
+        "type": "image-input",
+        "position": {
+          "x": 1320,
+          "y": 0
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "耳环（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "earrings"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "ring",
+        "type": "image-input",
+        "position": {
+          "x": 1320,
+          "y": 360
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "戒指（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "ring"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "bracelet",
+        "type": "image-input",
+        "position": {
+          "x": 1320,
+          "y": 720
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "手镯 / 手环（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "bracelet"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "belt",
+        "type": "image-input",
+        "position": {
+          "x": 1650,
+          "y": 0
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "腰带（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "belt"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "watch",
+        "type": "image-input",
+        "position": {
+          "x": 1650,
+          "y": 360
+        },
+        "data": {
+          "kind": "image-input",
+          "label": "手表（可选）",
+          "imageRole": "reference",
+          "autoConnectTargets": [
+            {
+              "targetNodeId": "stabilize",
+              "targetHandle": "watch"
+            }
+          ],
+          "status": "idle"
+        }
+      },
+      {
+        "id": "stabilize",
+        "type": "virtual-try-on",
+        "position": {
+          "x": 2060,
+          "y": 0
+        },
+        "data": {
+          "kind": "virtual-try-on",
+          "label": "第一阶段 · 多图编辑换装",
+          "workflowStage": "scene-stabilize",
+          "sceneFraming": "scene",
+          "sceneInputMode": "multi-reference-edit",
+          "prompt": "",
+          "imageSize": "2K",
+          "aspectRatio": "3:4",
+          "basisRevision": 0,
+          "promptEnhancement": false,
+          "qualityMode": "fast",
+          "safetyFallback": false,
+          "stylePresetId": "faithful",
+          "outputImages": [],
+          "modelId": "gemini-3-pro-image-preview",
+          "modelOptions": {
+            "aspectRatio": "3:4",
+            "imageSize": "2K"
+          },
+          "status": "idle"
+        }
+      },
+      {
+        "id": "85b2f4u6",
+        "type": "ti-angle",
+        "position": {
+          "x": 2060,
+          "y": 1120
+        },
+        "data": {
+          "kind": "ti-angle",
+          "label": "3D 视角",
+          "angle": {
+            "version": 1,
+            "enabled": true,
+            "azimuthDeg": -24,
+            "elevationDeg": -22,
+            "rollDeg": 0,
+            "camera": {
+              "cameraModel": "fujifilm-gfx100-ii",
+              "focalLengthMm": 35
+            }
+          },
+          "status": "idle"
+        }
+      },
+      {
+        "id": "try-on-result",
+        "type": "result",
+        "position": {
+          "x": 2470,
+          "y": 0
+        },
+        "data": {
+          "kind": "result",
+          "label": "换装成片 · 选择后按需修改",
+          "images": [],
+          "note": "",
+          "status": "idle"
+        }
+      },
+      {
+        "id": "garment-detail",
+        "type": "mask-redraw",
+        "position": {
+          "x": 2900,
+          "y": 0
+        },
+        "data": {
+          "kind": "mask-redraw",
+          "label": "第二阶段 · 按需局部修改",
+          "repairFocus": "custom",
+          "executionMode": "repair",
+          "prompt": "仅修改蒙版覆盖的目标区域；依据主穿搭和面料参考恢复服装结构、材质、纹理、褶皱与自然遮挡，保持人物身份、未涂抹区域、构图、光线和背景不变。",
+          "outputImages": [],
+          "modelId": "gpt-image-2.5-sunburst",
+          "modelOptions": {
+            "quality": "high"
+          },
+          "status": "idle"
+        }
+      },
+      {
+        "id": "repair-result",
+        "type": "result",
+        "position": {
+          "x": 3320,
+          "y": 0
+        },
+        "data": {
+          "kind": "result",
+          "label": "局部修改结果",
+          "images": [],
+          "note": "",
+          "status": "idle"
+        }
+      },
+      {
+        "id": "guide",
+        "type": "text-input",
+        "position": {
+          "x": 2470,
+          "y": 700
+        },
+        "data": {
+          "kind": "text-input",
+          "label": "两阶段使用说明",
+          "text": "① 上传姿势、人物、场景、主穿搭原图；鞋袜、帽子、眼镜/墨镜、首饰等按需上传，自动连接对应用途。前三张参数固定为姿势、人物、场景。② 点击生成多图换装，Pro 不超过6张直接传入，超过时自动拼接服装细节、鞋袜、配饰；不执行前置人物合成或整图精修。③ 成片满意即可结束。需要修改时，从结果中选择具体单张图片，连接到第二阶段的待修改底图，绘制并保存蒙版、填写修改要求，再单独运行。未选择底图或未保存蒙版时不执行修改。",
+          "status": "idle"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "pose-stabilize-pose",
+        "source": "pose",
+        "target": "stabilize",
+        "sourceHandle": "image",
+        "targetHandle": "pose"
+      },
+      {
+        "id": "person-stabilize-person",
+        "source": "person",
+        "target": "stabilize",
+        "sourceHandle": "image",
+        "targetHandle": "person"
+      },
+      {
+        "id": "scene-stabilize-scene",
+        "source": "scene",
+        "target": "stabilize",
+        "sourceHandle": "image",
+        "targetHandle": "scene"
+      },
+      {
+        "id": "outfit-stabilize-outfit",
+        "source": "outfit",
+        "target": "stabilize",
+        "sourceHandle": "image",
+        "targetHandle": "outfit"
+      },
+      {
+        "id": "85b2f4u6-stabilize-angle-direction",
+        "source": "85b2f4u6",
+        "target": "stabilize",
+        "sourceHandle": "text",
+        "targetHandle": "angle-direction"
+      },
+      {
+        "id": "stabilize-try-on-result-references",
+        "source": "stabilize",
+        "target": "try-on-result",
+        "sourceHandle": "image",
+        "targetHandle": "references"
+      },
+      {
+        "id": "outfit-garment-detail-references",
+        "source": "outfit",
+        "target": "garment-detail",
+        "sourceHandle": "image",
+        "targetHandle": "references"
+      },
+      {
+        "id": "garment-detail-repair-result-references",
+        "source": "garment-detail",
+        "target": "repair-result",
+        "sourceHandle": "image",
+        "targetHandle": "references"
+      }
+    ]
+  }
+}

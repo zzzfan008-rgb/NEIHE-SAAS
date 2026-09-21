@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { invalidateStylingRequest } from "./stylingRequestVersions";
 import { temporal } from "zundo";
 import { posePromptForImage, validPoseReferenceSource } from '../types/poseReference';
+import { readMultiImageReferenceManifest } from '../lib/multiImageTryOn';
 import {
   applyNodeChanges,
   applyEdgeChanges,
@@ -1526,6 +1527,9 @@ function virtualTryOnRunBlockReason(
       return "第一轮所选模型不受支持";
     if (node.data.sceneInputMode === "composed-person")
       return requireSingle("person", "人物基准图") ?? requireSingle("outfit", "主穿搭图");
+    if (node.data.sceneInputMode === "multi-reference-edit")
+      return requireSingle("pose", "姿势") ?? requireSingle("person", "人物")
+        ?? requireSingle("scene", "场景") ?? requireSingle("outfit", "主穿搭");
     const poseSource = document.nodes.find(candidate => candidate.id === edgesFor('pose')[0]?.source);
     if (poseSource?.data.kind === 'image-input' && poseSource.data.imageUrl && !posePromptForImage(poseSource.data)?.trim())
       return '请先在人物姿势参考图中完成反推或填写姿势提示词，再生成第一轮';
@@ -3009,7 +3013,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       data.imageSize = input.imageSize === "4K" ? "4K" : input.imageSize === "1K" && data.workflowStage === "scene-stabilize" && String(data.modelId).startsWith("gemini-") ? "1K" : "2K";
       if (input.sceneFraming === "scene" || input.sceneFraming === "custom") data.sceneFraming = input.sceneFraming;
       else delete data.sceneFraming;
-      if (input.sceneInputMode === "composed-person") data.sceneInputMode = input.sceneInputMode;
+      if (input.sceneInputMode === "composed-person" || input.sceneInputMode === "multi-reference-edit") data.sceneInputMode = input.sceneInputMode;
       else delete data.sceneInputMode;
       data.aspectRatio =
         typeof input.aspectRatio === "string" &&
@@ -4249,10 +4253,12 @@ export function applyRunEventToRecentResults(
     const sceneRequest = recordObject(event.executionMeta?.sceneRequest);
     const references = Array.isArray(sceneRequest?.references) ? sceneRequest.references : undefined;
     const requestPatch = typeof sceneRequest?.prompt === "string" && references?.length &&
-      references.every((ref: unknown, index: number) => {
+      (current.kind === "virtual-try-on" && current.parameters?.sceneInputMode === "multi-reference-edit"
+        ? Boolean(readMultiImageReferenceManifest(references))
+        : references.every((ref: unknown, index: number) => {
         const item = recordObject(ref);
         return item?.number === index + 1 && typeof item.role === "string" && typeof item.image === "string";
-      })
+      }))
       ? {
           prompt: sceneRequest.prompt,
           referenceImages: references.map((ref: { image: string }) => ref.image),

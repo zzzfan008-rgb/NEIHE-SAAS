@@ -5,6 +5,7 @@ import { GptQualityControls } from "./GptQualityControls";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
 import { nodeOutputImages, selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
 import { orderSceneReferences } from "@/lib/sceneReferenceOrder";
+import { isMultiImageTryOn, planMultiImageReferences } from "@/lib/multiImageTryOn";
 import { inputPortSpecs } from "@/lib/workflowPorts";
 import { isNodeRunActive, type VirtualTryOnNodeData } from "@/types/workflow";
 import { ImageGrid } from "./ImageGrid";
@@ -35,7 +36,7 @@ function StageHandles({ data }: { data: VirtualTryOnNodeData }) {
   }
   return (
     <>
-    {data.workflowStage === "scene-stabilize" && (
+    {data.workflowStage === "scene-stabilize" && !isMultiImageTryOn(data) && (
       // Preserve typed edges at the general input after removing the pose row.
       <Handle id="pose" type="target" position={Position.Left}
         className="gc-global-image-input-handle" isConnectable={false}
@@ -62,15 +63,19 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
     { multiline: true },
   );
   const running = isNodeRunActive(data.status);
-  const numberedReferences = data.workflowStage === "scene-stabilize"
-    ? orderSceneReferences(edges.filter(edge => edge.target === id).flatMap(edge => {
+  const multiImageEdit = isMultiImageTryOn(data);
+  const rawReferences = data.workflowStage === "scene-stabilize"
+    ? edges.filter(edge => edge.target === id).flatMap(edge => {
       const source = nodes.find(node => node.id === edge.source);
       return source ? nodeOutputImages(source.data, edge.sourceHandle).map(image => ({
         image, role: edge.targetHandle ?? "", sourceId: source.id,
       })) : [];
-    })).map((reference, index) => ({ ...reference, number: index + 1 })) : [];
+    }) : [];
+  const numberedReferences = multiImageEdit
+    ? planMultiImageReferences(rawReferences, data.modelId).flatMap(group => group.members.map(reference => ({ ...reference, number: group.number })))
+    : orderSceneReferences(rawReferences).map((reference, index) => ({ ...reference, number: index + 1 }));
   const roleRows = data.workflowStage === "standard" ? [] : inputPortSpecs(data)
-    .filter(port => data.workflowStage !== "scene-stabilize" || port.id !== "pose").map((port) => {
+    .filter(port => multiImageEdit || data.workflowStage !== "scene-stabilize" || port.id !== "pose").map((port) => {
     const connected = edges.filter((edge) => edge.target === id && edge.targetHandle === port.id);
     const sourceLabel = connected
       .map((edge) => nodes.find((node) => node.id === edge.source)?.data.label)
@@ -78,7 +83,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
     const numbers = numberedReferences.filter(reference => reference.role === port.id).map(reference => reference.number);
     const pending = connected.some(edge => {
       const source = nodes.find(node => node.id === edge.source);
-      return !source || nodeOutputImages(source.data, edge.sourceHandle).length === 0;
+      return port.valueKind === "image" && (!source || nodeOutputImages(source.data, edge.sourceHandle).length === 0);
     });
     return { port, connectedSource: sourceLabel, numbers, pending };
   });
@@ -101,7 +106,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         summary={staged ? (
           <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">
             {data.workflowStage === "scene-stabilize"
-              ? data.sceneInputMode === "composed-person" ? "保留人物、姿势与场景 · 只替换穿搭" : "人物锁身份 · 场景锁环境 · 穿搭锁服装"
+              ? multiImageEdit ? "多图编辑换装 → 按需局部修改" : data.sceneInputMode === "composed-person" ? "保留人物、姿势与场景 · 只替换穿搭" : "人物锁身份 · 场景锁环境 · 穿搭锁服装"
               : "锁定所选基准，只精修服装结构、面料与工艺"}
           </p>
         ) : undefined}
@@ -151,6 +156,11 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         )}
 
         {data.workflowStage === "scene-stabilize" && <SceneStabilizeControls nodeId={id} data={data} />}
+        {multiImageEdit && <p className="text-[9px] leading-relaxed text-[var(--gc-node-muted)]" aria-label="参考图传递策略">
+          前三张：姿势、人物、场景。{data.modelId === "gemini-3-pro-image-preview"
+            ? `已连接 ${rawReferences.length} 张有效参考图 → ${new Set(numberedReferences.map(ref => ref.number)).size} 张传入；不超过 6 张直接传入，超过时按服装、鞋袜、配饰拼接。同编号表示同一张拼图。`
+            : "直接按编号传入，不执行 Pro 专用拼接；数量仍受所选模型上限约束。"}
+        </p>}
 
         {!staged && <label className="block space-y-1">
           <span className="text-[10px] text-neutral-500">补充要求（可选）</span>
@@ -202,7 +212,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         <RunButton
           status={data.status}
           onClick={() => void runNode(id)}
-          label={data.workflowStage === "scene-stabilize" ? "生成第一轮基准" : data.workflowStage === "garment-refine" ? "生成服装精修" : "生成换装效果"}
+          label={multiImageEdit ? "生成多图换装" : data.workflowStage === "scene-stabilize" ? "生成第一轮基准" : data.workflowStage === "garment-refine" ? "生成服装精修" : "生成换装效果"}
         />
         {running && <Developing />}
         <ImageGrid images={data.outputImages} />

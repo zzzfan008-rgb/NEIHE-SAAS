@@ -993,7 +993,7 @@ function validateData(
       stringValue(raw.prompt, `${path}.prompt`);
       oneOf(raw.imageSize, raw.workflowStage === "scene-stabilize" && String(raw.modelId).startsWith("gemini-") ? ["1K", "2K", "4K"] : IMAGE_SIZES, `${path}.imageSize`);
       if (raw.sceneFraming !== undefined) oneOf(raw.sceneFraming, ["scene", "custom"] as const, `${path}.sceneFraming`);
-      if (raw.sceneInputMode !== undefined) oneOf(raw.sceneInputMode, ["composed-person"] as const, `${path}.sceneInputMode`);
+      if (raw.sceneInputMode !== undefined) oneOf(raw.sceneInputMode, ["composed-person", "multi-reference-edit"] as const, `${path}.sceneInputMode`);
       oneOf(
         raw.aspectRatio,
         ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"] as const,

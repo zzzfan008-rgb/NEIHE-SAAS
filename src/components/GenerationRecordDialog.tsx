@@ -11,6 +11,7 @@ import { STATUS_TEXT } from "@/components/nodes/NodeFrame";
 import { thumbnailImageUrl } from "@/lib/images";
 import { useFlowStore } from "@/store/flowStore";
 import { TryOnPoseReviewSummary } from '@/components/TryOnPoseReviewSummary';
+import { readMultiImageReferenceManifest } from '@/lib/multiImageTryOn';
 
 function isVideoReference(ref: string): boolean {
   return /\.(?:mp4|webm|mov)(?:[?#]|$)/i.test(ref) || ref.startsWith("data:video/");
@@ -27,6 +28,9 @@ export function GenerationRecordDialog({
     resultId ? state.recentResults.find((candidate) => candidate.id === resultId) : undefined
   ));
   if (!record) return null;
+
+  const multiImageManifest = record.parameters?.sceneInputMode === "multi-reference-edit"
+    ? readMultiImageReferenceManifest(record.parameters.referenceManifest) : undefined;
 
   const finishedAt = record.finishedAt ?? Date.now();
   const duration = Math.max(0, (finishedAt - record.startedAt) / 1000).toFixed(1);
@@ -132,12 +136,16 @@ export function GenerationRecordDialog({
           {record.referenceImages && record.referenceImages.length > 0 && (
             <section className="mt-4">
               <h3 className="text-[10px] text-[var(--gc-text-muted)]">参考图 · {record.referenceImages.length} 张</h3>
+              {multiImageManifest && <p className="mt-1 text-[10px] text-[var(--gc-text-muted)]">
+                原始素材映射到 {multiImageManifest.at(-1)?.number} 张模型参考图；同编号素材拼接为一张。悬停可查看拼图位置。
+              </p>}
               <div className="mt-2 grid grid-cols-6 gap-2">
                 {record.referenceImages.map((image, index) => (
                   <img
                     key={`${image}-${index}`}
                     src={thumbnailImageUrl(image)}
-                    alt={`参考图 ${index + 1}`}
+                    alt={multiImageManifest?.[index] ? `参考图 ${multiImageManifest[index].number} · ${multiImageManifest[index].role}` : `参考图 ${index + 1}`}
+                    title={multiImageManifest?.[index] ? `参考图 ${multiImageManifest[index].number} · ${multiImageManifest[index].role}` : undefined}
                     loading="lazy"
                     decoding="async"
                     className="aspect-square w-full rounded-sm border border-[var(--gc-border)] object-cover"
