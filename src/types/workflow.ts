@@ -227,12 +227,34 @@ export interface TextInputNodeData extends BaseNodeData {
   text: string;
 }
 
+export type TiAngleCameraModel =
+  | "canon-eos-r5"
+  | "nikon-z8"
+  | "sony-a7r-v"
+  | "fujifilm-gfx100-ii"
+  | "leica-sl3"
+  | "hasselblad-x2d-100c";
+
+export type TiAngleFocalLengthMm = 24 | 35 | 50 | 85 | 105 | 135;
+export type TiAngleIso = 100 | 200 | 400 | 800 | 1600 | 3200;
+export type TiAngleShutterSpeed = "1/60" | "1/125" | "1/250" | "1/500" | "1/1000";
+export type TiAngleAperture = "f/1.4" | "f/1.8" | "f/2.8" | "f/4" | "f/5.6" | "f/8";
+
+export interface TiAngleCameraParameters {
+  cameraModel?: TiAngleCameraModel;
+  focalLengthMm?: TiAngleFocalLengthMm;
+  iso?: TiAngleIso;
+  shutterSpeed?: TiAngleShutterSpeed;
+  aperture?: TiAngleAperture;
+}
+
 export interface TiAngleConfig {
   version: 1;
   enabled: boolean;
   azimuthDeg: number;
   elevationDeg: number;
   rollDeg: number;
+  camera?: TiAngleCameraParameters;
 }
 
 export interface TiAngleNodeData extends BaseNodeData {

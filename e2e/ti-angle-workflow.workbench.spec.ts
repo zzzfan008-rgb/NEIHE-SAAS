@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures";
 
-test("TiAngle 从添加菜单创建，手动连线并随模型适配，模板保持独立", async ({ page }) => {
+test("TiAngle 从添加菜单创建，手动连线并随模型适配，模板保持独立", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "打开项目中心" })).toBeVisible();
   const template = await page.evaluate(async () => {
@@ -38,10 +38,60 @@ test("TiAngle 从添加菜单创建，手动连线并随模型适配，模板保
   });
   const angle = page.locator(`.react-flow__node[data-id="${angleId}"]`);
   const first = page.locator('.react-flow__node[data-id="stabilize"]');
-  const toggle = angle.getByRole("button", { name: "查看输出文本", exact: true });
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const angleToggle = angle.getByRole("button", { name: /^输出视角约束/ });
+  const cameraToggle = angle.getByRole("button", { name: /^相机参数/ });
+  const outputToggle = angle.getByRole("button", { name: /^查看输出文本/ });
+  await expect(angleToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(cameraToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(outputToggle).toHaveAttribute("aria-expanded", "false");
+  await angleToggle.click();
   await angle.getByRole("switch", { name: "启用 3D 视角" }).click();
-  await angle.getByRole("button", { name: "左前方 +45°", exact: true }).click();
+  const activePreset = angle.getByRole("button", { name: "左前方 +45°", exact: true });
+  const inactivePreset = angle.getByRole("button", { name: "右前方 -45°", exact: true });
+  await activePreset.click();
+  await page.mouse.move(0, 0);
+  await expect(activePreset).toHaveAttribute("aria-pressed", "true");
+  expect(await activePreset.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, color: style.color, border: style.borderColor };
+  })).toEqual({
+    background: "rgb(185, 141, 69)",
+    color: "rgb(24, 24, 24)",
+    border: "rgb(185, 141, 69)",
+  });
+  expect(await inactivePreset.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, color: style.color, border: style.borderColor };
+  })).toEqual({
+    background: "rgb(24, 24, 24)",
+    color: "rgb(185, 141, 69)",
+    border: "rgb(185, 141, 69)",
+  });
+  await angleToggle.click();
+  await cameraToggle.focus();
+  await cameraToggle.press("Enter");
+  await expect(cameraToggle).toHaveAttribute("aria-expanded", "true");
+  await angle.getByRole("combobox", { name: "品牌相机" }).click();
+  await page.getByRole("option", { name: "Sony α7R V", exact: true }).click();
+  await angle.getByRole("combobox", { name: "焦距" }).click();
+  await page.getByRole("option", { name: "85 mm", exact: true }).click();
+  await angle.getByRole("combobox", { name: "ISO" }).click();
+  await page.getByRole("option", { name: "ISO 200", exact: true }).click();
+  await angle.getByRole("combobox", { name: "快门速度" }).click();
+  await page.getByRole("option", { name: "1/250 s", exact: true }).click();
+  await angle.getByRole("combobox", { name: "光圈大小" }).click();
+  await page.getByRole("option", { name: "f/2.8", exact: true }).click();
+  await expect(angle.getByRole("combobox", { name: "品牌相机" })).toContainText("Sony α7R V");
+  await expect(angle.getByRole("combobox", { name: "焦距" })).toContainText("85 mm");
+  await expect(angle.getByRole("combobox", { name: "ISO" })).toContainText("ISO 200");
+  await expect(angle.getByRole("combobox", { name: "快门速度" })).toContainText("1/250 s");
+  await expect(cameraToggle).toContainText("Sony α7R V · 85 mm · ISO 200 · 快门 1/250 s · 光圈 f/2.8");
+  await testInfo.attach("ti-angle-camera-controls", {
+    body: await angle.screenshot(),
+    contentType: "image/png",
+  });
+  await cameraToggle.press("Enter");
+  await expect(cameraToggle).toHaveAttribute("aria-expanded", "false");
   const source = angle.locator('[data-handleid="text"].source');
   const target = first.locator('[data-handleid="angle-direction"].target');
   await source.scrollIntoViewIfNeeded();
@@ -62,19 +112,26 @@ test("TiAngle 从添加菜单创建，手动连线并随模型适配，模板保
       (edge: { targetHandle: string }) => edge.targetHandle === "angle-direction",
     ).length;
   })).toBe(1);
-  await toggle.click();
+  await outputToggle.click();
   await expect(angle).toContainText("环绕角 45°");
   await expect(angle).toContainText("镜头约束");
+  await expect(angle).toContainText("摄影参数：Sony α7R V · 85 mm · ISO 200 · 快门 1/250 s · 光圈 f/2.8");
   await page.evaluate(async () => {
     const path = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(path);
     useFlowStore.getState().updateNodeData("stabilize", { modelId: "gpt-image-2" });
   });
-  await expect(angle).toContainText("只改变相机观察视角");
+  await expect(angle).toContainText("相机约束");
   const geometry = await angle.boundingBox();
   expect(geometry!.width).toBeGreaterThan(100);
   expect(geometry!.x).toBeGreaterThanOrEqual(0);
   expect(geometry!.x + geometry!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  for (const sectionToggle of [angleToggle, cameraToggle, outputToggle]) {
+    const sectionBox = await sectionToggle.boundingBox();
+    expect(sectionBox).not.toBeNull();
+    expect(sectionBox!.x).toBeGreaterThanOrEqual(geometry!.x);
+    expect(sectionBox!.x + sectionBox!.width).toBeLessThanOrEqual(geometry!.x + geometry!.width + 1);
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.evaluate(async () => {
     const storePath = "/src/store/flowStore.ts";
@@ -85,6 +142,24 @@ test("TiAngle 从添加菜单创建，手动连线并随模型适配，模板保
     useFlowStore.getState().createBlankTab();
     useFlowStore.getState().loadFlow({ ...snapshot, projectName: "TiAngle 恢复" });
   });
-  await expect(angle.getByRole("button", { name: "查看输出文本", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(angle.getByRole("button", { name: /^输出视角约束/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(angle.getByRole("button", { name: /^相机参数/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(angle.getByRole("button", { name: /^查看输出文本/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(angle.getByRole("button", { name: /^相机参数/ })).toContainText("Sony α7R V · 85 mm · ISO 200");
+  await angle.getByRole("button", { name: /^输出视角约束/ }).click();
   await expect(angle.getByRole("spinbutton", { name: "环绕角数值" })).toHaveValue("45");
+  expect(await page.evaluate(async () => {
+    const path = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(path);
+    const data = selectActiveDocument(useFlowStore.getState()).nodes.find(
+      (node: { type?: string }) => node.type === "ti-angle",
+    )?.data;
+    return data?.kind === "ti-angle" ? data.angle.camera : null;
+  })).toEqual({
+    cameraModel: "sony-a7r-v",
+    focalLengthMm: 85,
+    iso: 200,
+    shutterSpeed: "1/250",
+    aperture: "f/2.8",
+  });
 });

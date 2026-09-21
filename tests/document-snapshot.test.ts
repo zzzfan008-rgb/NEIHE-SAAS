@@ -585,4 +585,54 @@ for (const kind of ['original', 'neutral-outfit', 'skeleton', 'depth'] as const)
   assert.equal((validateAndMigrateFlow(saved).nodes[0].data as any).posePrompt, undefined);
 }
 
+const tiAngleCameraSource = {
+  projectName: "TiAngle 相机参数快照",
+  nodes: [{
+    id: "angle-camera",
+    type: "ti-angle",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "ti-angle",
+      label: "3D 视角",
+      status: "idle",
+      angle: {
+        version: 1,
+        enabled: true,
+        azimuthDeg: 45,
+        elevationDeg: 10,
+        rollDeg: 0,
+        camera: {
+          cameraModel: "sony-a7r-v",
+          focalLengthMm: 85,
+          iso: 200,
+          shutterSpeed: "1/250",
+          aperture: "f/2.8",
+          runtimePreview: "discard",
+        },
+      },
+    },
+  }],
+  edges: [],
+} as unknown as Parameters<typeof createDocumentSnapshot>[0];
+const tiAngleCameraSnapshot = createDocumentSnapshot(tiAngleCameraSource);
+const tiAngleCameraData = tiAngleCameraSnapshot.nodes[0].data;
+assert.equal(tiAngleCameraData.kind, "ti-angle");
+if (tiAngleCameraData.kind !== "ti-angle") throw new Error("fixture");
+assert.deepEqual(tiAngleCameraData.angle.camera, {
+  cameraModel: "sony-a7r-v",
+  focalLengthMm: 85,
+  iso: 200,
+  shutterSpeed: "1/250",
+  aperture: "f/2.8",
+});
+assert.equal((tiAngleCameraData.angle.camera as Record<string, unknown>).runtimePreview, undefined);
+(tiAngleCameraSource.nodes[0].data as Extract<WorkflowNodeData, { kind: "ti-angle" }>).angle.camera!.iso = 800;
+assert.equal(tiAngleCameraData.angle.camera?.iso, 200, "文档快照必须深拷贝相机参数");
+const restoredTiAngleCamera = validateAndMigrateFlow(
+  documentSnapshotToPersistedWorkflow(tiAngleCameraSnapshot),
+).nodes[0].data;
+assert.equal(restoredTiAngleCamera.kind, "ti-angle");
+if (restoredTiAngleCamera.kind !== "ti-angle") throw new Error("fixture");
+assert.deepEqual(restoredTiAngleCamera.angle.camera, tiAngleCameraData.angle.camera);
+
 console.log("通过纯文档快照边界与多模态端口往返测试");

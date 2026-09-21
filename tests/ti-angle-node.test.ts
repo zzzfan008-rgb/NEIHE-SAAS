@@ -19,6 +19,11 @@ const data: TiAngleNodeData = {
     azimuthDeg: 0,
     elevationDeg: 0,
     rollDeg: 0,
+    camera: {
+      cameraModel: "sony-a7r-v",
+      focalLengthMm: 85,
+      aperture: "f/2.8",
+    },
   },
 };
 
@@ -36,15 +41,13 @@ const html = renderToStaticMarkup(
 
 assert.equal(nodeTypes["ti-angle"], TiAngelNode);
 assert.match(html, /3D 视角预览/);
-assert.match(html, /启用 3D 视角/);
-assert.match(html, /环绕角/);
-assert.match(html, /俯仰角/);
-assert.match(html, /画面倾斜/);
+assert.match(html, /输出视角约束/);
+assert.match(html, /相机参数/);
 assert.match(html, /查看输出文本/);
-assert.match(html, /正面/);
-assert.match(html, /重置视角/);
-assert.match(html, /aria-expanded="false"/);
+assert.match(html, /Sony α7R V · 85 mm · 光圈 f\/2\.8/);
+assert.equal(html.match(/aria-expanded="false"/g)?.length, 3);
 assert.doesNotMatch(html, /将最终画面改为/);
+assert.doesNotMatch(html, /启用 3D 视角/);
 assert.match(html, /preview-image/);
 assert.match(html, /text/);
 
@@ -55,6 +58,17 @@ const nodeSource = readFileSync(
 assert.match(nodeSource, /navigator\.clipboard/);
 assert.match(nodeSource, /aria-controls/);
 assert.match(nodeSource, /未绑定模型/);
+assert.match(nodeSource, /启用 3D 视角/);
+assert.match(nodeSource, /环绕角/);
+assert.match(nodeSource, /俯仰角/);
+assert.match(nodeSource, /画面倾斜/);
+assert.match(nodeSource, /品牌相机/);
+assert.match(nodeSource, /焦距/);
+assert.match(nodeSource, /ISO/);
+assert.match(nodeSource, /快门速度/);
+assert.match(nodeSource, /光圈大小/);
+assert.match(nodeSource, /#b98d45/);
+assert.match(nodeSource, /#181818/);
 
 const librarySource = readFileSync(
   new URL("../src/components/panels/NodeLibraryPanel.tsx", import.meta.url),

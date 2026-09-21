@@ -7,6 +7,7 @@ import type {
   ExecutionPlan,
   NodeExecution,
   NodeKind,
+  TiAngleConfig,
   WorkflowNodeData,
 } from "../../src/types/workflow";
 import {
@@ -64,6 +65,13 @@ export class DagError extends Error {
     super(message);
     this.name = "DagError";
   }
+}
+
+function cloneTiAngleConfig(config: TiAngleConfig): TiAngleConfig {
+  return {
+    ...config,
+    ...(config.camera ? { camera: { ...config.camera } } : {}),
+  };
 }
 
 /** 运行前验证会产生费用的节点具备真实图片输入。 */
@@ -618,7 +626,7 @@ export function buildExecutionPlan(
             const compiled = compileTiAngleText(angleSource.data.angle, modelId);
             params.angleControl = {
               sourceNodeId: angleSource.id,
-              config: { ...angleSource.data.angle },
+              config: cloneTiAngleConfig(angleSource.data.angle),
               adapterVersion: compiled.adapterVersion,
               targetModelId: compiled.targetModelId,
               text: compiled.text,
@@ -834,7 +842,7 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
     case "text-input":
       return { text: data.text };
     case "ti-angle":
-      return { angle: { ...data.angle } };
+      return { angle: cloneTiAngleConfig(data.angle) };
     case "drawing-board":
       return {
         boardVersion: data.boardVersion,

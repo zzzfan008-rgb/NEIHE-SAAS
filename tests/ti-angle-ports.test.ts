@@ -10,15 +10,23 @@ import {
 } from "../server/engine/dag";
 import { executeStep } from "../server/engine/runner";
 import { validateAndMigrateFlow } from "../server/lib/workflowSchema";
+import type { TiAngleConfig } from "../src/types/workflow";
 
 console.log("TiAngelNode 端口与执行计划测试");
 
-const angleConfig = {
-  version: 1 as const,
+const angleConfig: TiAngleConfig = {
+  version: 1,
   enabled: true,
   azimuthDeg: 45,
   elevationDeg: 15,
   rollDeg: -10,
+  camera: {
+    cameraModel: "sony-a7r-v",
+    focalLengthMm: 85,
+    iso: 200,
+    shutterSpeed: "1/250",
+    aperture: "f/2.8",
+  },
 };
 
 function angleNode(id = "angle", enabled = true): FlowNode {
@@ -29,7 +37,11 @@ function angleNode(id = "angle", enabled = true): FlowNode {
       kind: "ti-angle",
       label: "3D 视角",
       status: "idle",
-      angle: { ...angleConfig, enabled },
+      angle: {
+        ...angleConfig,
+        enabled,
+        ...(angleConfig.camera ? { camera: { ...angleConfig.camera } } : {}),
+      },
     },
   } as FlowNode;
 }
@@ -186,8 +198,9 @@ assert.equal(
   "角度文本边不得占用换装图片名额",
 );
 
+const connectedAngle = angleNode();
 const plan = buildExecutionPlan(
-  [angleNode(), imageNode(), stageNode()],
+  [connectedAngle, imageNode(), stageNode()],
   [previewToAngle, angleToStage],
   { onlyNodeId: "stabilize", includeDownstream: false },
 );
@@ -205,6 +218,19 @@ assert.deepEqual(stageStep.params.angleControl, {
 assert.match(
   (stageStep.params.angleControl as { text: string }).text,
   /左前方|45/,
+);
+assert.match(
+  (stageStep.params.angleControl as { text: string }).text,
+  /摄影参数：Sony α7R V.*85 mm.*ISO 200.*1\/250 s.*f\/2\.8/s,
+);
+if (connectedAngle.data.kind !== "ti-angle" || !connectedAngle.data.angle.camera) {
+  throw new Error("测试夹具必须包含相机参数");
+}
+connectedAngle.data.angle.camera.iso = 800;
+assert.equal(
+  (stageStep.params.angleControl as { config: TiAngleConfig }).config.camera?.iso,
+  200,
+  "执行计划必须冻结嵌套相机参数",
 );
 
 const requiredReferences = [

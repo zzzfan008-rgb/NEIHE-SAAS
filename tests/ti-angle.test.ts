@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   compileTiAngleText,
+  describeTiAngleCameraParameters,
   describeTiAngleText,
   encodeTiAngleSemantics,
   normalizeTiAngleConfig,
@@ -19,6 +20,17 @@ const baseConfig: TiAngleConfig = {
   rollDeg: -10,
 };
 
+const cameraConfig: TiAngleConfig = {
+  ...baseConfig,
+  camera: {
+    cameraModel: "sony-a7r-v",
+    focalLengthMm: 85,
+    iso: 200,
+    shutterSpeed: "1/250",
+    aperture: "f/2.8",
+  },
+};
+
 assert.deepEqual(encodeTiAngleSemantics(baseConfig), {
   horizontal: "左前方",
   vertical: "高处俯拍",
@@ -33,6 +45,13 @@ assert.match(gptText.text, /45/);
 assert.match(gptText.text, /俯拍.*15/);
 assert.match(gptText.text, /逆时针.*10/);
 assert.doesNotMatch(gptText.text, /<sks>/);
+assert.doesNotMatch(gptText.text, /摄影参数/);
+
+assert.equal(
+  describeTiAngleCameraParameters(cameraConfig.camera),
+  "Sony α7R V · 85 mm · ISO 200 · 快门 1/250 s · 光圈 f/2.8",
+);
+assert.match(describeTiAngleText(cameraConfig), /摄影参数：Sony α7R V.*85 mm.*ISO 200.*1\/250 s.*f\/2\.8/s);
 
 const disabledText = compileTiAngleText(
   { ...baseConfig, enabled: false },
@@ -62,6 +81,14 @@ for (const modelId of IMAGE_MODEL_IDS) {
   assert.match(compiled.text, /15/);
   assert.match(compiled.text, /10/);
   assert.doesNotMatch(compiled.text, /<sks>/);
+
+  const cameraCompiled = compileTiAngleText(cameraConfig, modelId);
+  assert.match(cameraCompiled.text, /摄影参数：Sony α7R V/);
+  assert.match(cameraCompiled.text, /85 mm/);
+  assert.match(cameraCompiled.text, /ISO 200/);
+  assert.match(cameraCompiled.text, /快门 1\/250 s/);
+  assert.match(cameraCompiled.text, /光圈 f\/2\.8/);
+  assert.equal(cameraCompiled.text.match(/摄影参数：/g)?.length, 1);
 }
 
 assert.throws(
@@ -74,6 +101,9 @@ assert.equal(normalizeTiAngleConfig({ ...baseConfig, azimuthDeg: -0 }).azimuthDe
 assert.equal(normalizeTiAngleConfig({ ...baseConfig, azimuthDeg: 360 }).azimuthDeg, 0);
 assert.equal(normalizeTiAngleConfig({ ...baseConfig, elevationDeg: 60 }).elevationDeg, 60);
 assert.equal(normalizeTiAngleConfig({ ...baseConfig, rollDeg: -30 }).rollDeg, -30);
+assert.deepEqual(normalizeTiAngleConfig(baseConfig), baseConfig, "旧版无相机字段配置必须保持原形");
+assert.deepEqual(normalizeTiAngleConfig({ ...baseConfig, camera: {} }), baseConfig, "空相机设置不得污染旧项目");
+assert.deepEqual(normalizeTiAngleConfig(cameraConfig), cameraConfig);
 assert.equal(
   encodeTiAngleSemantics({ ...baseConfig, azimuthDeg: -22.5 }).horizontal,
   "正面",
@@ -110,6 +140,18 @@ assert.throws(
 assert.throws(
   () => validateTiAngleConfig({ ...baseConfig, enabled: "true" } as unknown as TiAngleConfig),
   /enabled.*boolean/,
+);
+assert.throws(
+  () => validateTiAngleConfig({ ...baseConfig, camera: { cameraModel: "unknown" } } as unknown as TiAngleConfig),
+  /camera\.cameraModel.*支持/,
+);
+assert.throws(
+  () => validateTiAngleConfig({ ...baseConfig, camera: { iso: 125 } } as unknown as TiAngleConfig),
+  /camera\.iso.*支持/,
+);
+assert.throws(
+  () => validateTiAngleConfig({ ...baseConfig, camera: { aperture: "f/2.8", runtimeDraft: true } } as unknown as TiAngleConfig),
+  /camera\.runtimeDraft.*不受支持/,
 );
 
 console.log(`通过 ${IMAGE_MODEL_IDS.length} 个模型适配与角度边界测试`);

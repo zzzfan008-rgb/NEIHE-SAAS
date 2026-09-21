@@ -455,6 +455,17 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
           azimuthDeg: data.angle.azimuthDeg,
           elevationDeg: data.angle.elevationDeg,
           rollDeg: data.angle.rollDeg,
+          ...(data.angle.camera
+            ? {
+                camera: {
+                  ...(data.angle.camera.cameraModel === undefined ? {} : { cameraModel: data.angle.camera.cameraModel }),
+                  ...(data.angle.camera.focalLengthMm === undefined ? {} : { focalLengthMm: data.angle.camera.focalLengthMm }),
+                  ...(data.angle.camera.iso === undefined ? {} : { iso: data.angle.camera.iso }),
+                  ...(data.angle.camera.shutterSpeed === undefined ? {} : { shutterSpeed: data.angle.camera.shutterSpeed }),
+                  ...(data.angle.camera.aperture === undefined ? {} : { aperture: data.angle.camera.aperture }),
+                },
+              }
+            : {}),
         },
       };
     case "drawing-board":
