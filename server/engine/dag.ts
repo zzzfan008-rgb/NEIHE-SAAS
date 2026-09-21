@@ -393,7 +393,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
         if (modelId !== "gpt-image-2" && modelId !== "gpt-image-2.5-sunburst") {
           throw new DagError(`节点 ${step.nodeId} 第二轮必须使用 GPT Image 2`);
         }
-        requireOne("baseline", "approved baseline");
+        requireOne("baseline", "selected baseline");
         requireOne("outfit", "outfit");
         if (
           roleSources("baseline").some((upstream) =>
@@ -401,7 +401,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
           )
         ) {
           throw new DagError(
-            `Node ${step.nodeId} requires the user to approve the completed baseline before refinement`,
+            `Node ${step.nodeId} requires the user to select a completed baseline before refinement`,
           );
         }
         if (
@@ -413,8 +413,9 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
           );
         }
         if (
-          step.params.baselineApprovalValid !== true ||
-          step.params.approvedBaselineRef !== roleImages("baseline")[0]
+          step.params.baselineApprovalValid === false ||
+          (step.params.approvedBaselineRef !== undefined &&
+            step.params.approvedBaselineRef !== roleImages("baseline")[0])
         ) {
           throw new DagError(
             `节点 ${step.nodeId} 的第一轮基准尚未确认或确认已失效`,
@@ -711,12 +712,12 @@ export function buildExecutionPlan(
         approvalNode.data.approvedSourceNodeId === candidateNode.id &&
         approvalNode.data.approvedBaselineRef === currentRef &&
         approvalNode.data.approvedBasisRevision === currentRevision;
-      params.baselineApprovalValid = Boolean(approved);
-      params.approvedBaselineRef = approved
-        ? currentRef
-        : approvalNode?.data.kind === "stage-approval"
-          ? approvalNode.data.approvedBaselineRef
-          : undefined;
+      // Only legacy approval connections carry approval facts. Manual result edges
+      // already resolve their explicit single-image sourceHandle above.
+      if (approvalNode?.data.kind === "stage-approval") {
+        params.baselineApprovalValid = Boolean(approved);
+        params.approvedBaselineRef = approved ? currentRef : approvalNode.data.approvedBaselineRef;
+      }
     }
 
     return {

@@ -1439,6 +1439,62 @@ await test("运行只接受当前已保存画布，且项目名称以服务端�
   `, [users.owner.id]))?.count, 1);
 });
 
+await test("第二轮接受用户选择的单张结果且保留项目权限检查", async () => {
+  const projectId = "manual-baseline-selection";
+  const sharp = (await import("sharp")).default;
+  const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#123456" } }).png().toBuffer();
+  const chosen = `data:image/png;base64,${png.toString("base64")}`;
+  const flow = {
+    schemaVersion: 18,
+    nodes: [
+      { id: "candidates", type: "result", position: { x: 0, y: 0 }, data: {
+        kind: "result", label: "第一轮候选", status: "success", images: [PNG_DATA_URL, chosen],
+      } },
+      { id: "outfit", type: "image-input", position: { x: 0, y: 300 }, data: {
+        kind: "image-input", label: "主穿搭", status: "success", imageRole: "garment", imageUrl: PNG_DATA_URL,
+      } },
+      { id: "refine", type: "virtual-try-on", position: { x: 400, y: 0 }, data: {
+        kind: "virtual-try-on", label: "第二轮", status: "idle", workflowStage: "garment-refine",
+        modelId: "gpt-image-2", modelOptions: { quality: "medium" }, imageSize: "2K", aspectRatio: "1:1",
+        prompt: "", outputImages: [], promptEnhancement: false, qualityMode: "fast", safetyFallback: false,
+        stylePresetId: "faithful",
+      } },
+    ],
+    edges: [
+      { id: "chosen", source: "candidates", sourceHandle: "image:1", target: "refine", targetHandle: "baseline" },
+      { id: "outfit", source: "outfit", sourceHandle: "image", target: "refine", targetHandle: "outfit" },
+    ],
+  };
+  try {
+    const saved = await request("/projects", "owner", {
+      method: "POST", body: JSON.stringify({ id: projectId, name: "手选基准", flow }),
+    });
+    assert.equal(saved.status, 200, await saved.text());
+    const body = { ...flow, projectId, onlyNodeId: "refine", clientRequestId: "manual-baseline-run" };
+    const denied = await request("/run-plan", "other", { method: "POST", body: JSON.stringify(body) });
+    assert.equal(denied.status, 403, await denied.text());
+    const accepted = await request("/run-plan", "owner", { method: "POST", body: JSON.stringify(body) });
+    assert.equal(accepted.status, 202, await accepted.clone().text());
+    const { runId } = await accepted.json() as { runId: string };
+    const queued = await queryOne<{ plan_json: string }>("SELECT plan_json FROM generation_runs WHERE id = $1", [runId]);
+    const plan = JSON.parse(queued!.plan_json);
+    assert.deepEqual(plan.steps.find((step: { nodeId: string }) => step.nodeId === "refine").inputImages, [chosen, PNG_DATA_URL]);
+    flow.edges[0].sourceHandle = "image";
+    const resaved = await request("/projects", "owner", {
+      method: "POST", body: JSON.stringify({ id: projectId, name: "手选基准", flow }),
+    });
+    assert.equal(resaved.status, 200, await resaved.text());
+    const ambiguous = await request("/run-plan", "owner", {
+      method: "POST", body: JSON.stringify({ ...body, ...flow, clientRequestId: "ambiguous-baseline-run" }),
+    });
+    assert.equal(ambiguous.status, 400, await ambiguous.text());
+    assert.equal(await queryOne("SELECT id FROM generation_runs WHERE client_request_id = $1", ["ambiguous-baseline-run"]), undefined);
+  } finally {
+    await query("DELETE FROM generation_runs WHERE project_id = $1", [projectId]);
+    await query("DELETE FROM projects WHERE id = $1", [projectId]);
+  }
+});
+
 await test("第二轮不能仅凭客户端审批字段伪造未完成的第一轮基准", async () => {
   const projectId = "staged-input-fingerprint-gate";
   const otherProjectId = "staged-input-fingerprint-other-project";

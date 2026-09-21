@@ -2336,11 +2336,11 @@ await test("最近生成成功卡显式提供查看、对比、下载与设为�
   assert.match(resultsPanelSource, /text-\[var\(--gc-media-overlay-text\)\]/);
 });
 
-await test("第二轮缺少人工确认或面料工艺时在任何网络请求前阻止运行", async () => {
-  const baseline = imageNode("staged-baseline", "第一轮基准");
+await test("第二轮要求明确选择单张候选，不再要求人工确认节点", async () => {
+  const baseline: FlowNode = { id: "staged-baseline", type: "result", position: { x: 0, y: 0 },
+    data: { kind: "result", label: "第一轮候选", status: "success", images: ["/api/files/baseline.png", "/api/files/chosen.png"] } };
   const outfit = imageNode("staged-outfit", "主穿搭");
-  if (baseline.data.kind !== "image-input" || outfit.data.kind !== "image-input") throw new Error("测试输入节点错误");
-  baseline.data.imageUrl = "/api/files/baseline.png";
+  if (outfit.data.kind !== "image-input") throw new Error("测试输入节点错误");
   outfit.data.imageUrl = "/api/files/outfit.png";
   const refine: FlowNode = {
     id: "staged-refine",
@@ -2363,8 +2363,9 @@ await test("第二轮缺少人工确认或面料工艺时在任何网络请求�
   });
   let networkCalls = 0;
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (input) => {
     networkCalls += 1;
+    if (String(input) === "/api/run-plan") return Response.json({ error: "测试拦截：不调用 AI" }, { status: 400 });
     return Response.json({ ok: true });
   };
   try {
@@ -2372,7 +2373,18 @@ await test("第二轮缺少人工确认或面料工艺时在任何网络请求�
     assert.equal(networkCalls, 0);
     const current = activeDocument().nodes.find((node) => node.id === refine.id);
     assert.equal(current?.data.status, "error");
-    assert.match(current?.data.error ?? "", /确认当前第一轮基准图/);
+    assert.match(current?.data.error ?? "", /只能.*1.*图片|选择.*单张/);
+    useFlowStore.getState().loadFlow({
+      projectName: "用户选择第二张基准",
+      nodes: [baseline, outfit, refine],
+      edges: [
+        { id: "staged-baseline-edge", source: baseline.id, sourceHandle: "image:1", target: refine.id, targetHandle: "baseline" },
+        { id: "staged-outfit-edge", source: outfit.id, target: refine.id, targetHandle: "outfit" },
+      ],
+    });
+    await useFlowStore.getState().runNode(refine.id);
+    assert.ok(networkCalls > 0, "选定单张结果应通过客户端门禁");
+    assert.match(activeDocument().nodes.find(node => node.id === refine.id)?.data.error ?? "", /测试拦截/);
   } finally {
     globalThis.fetch = originalFetch;
   }

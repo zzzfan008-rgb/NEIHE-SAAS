@@ -961,8 +961,9 @@ async function main() {
     assert.equal(stagedTryOn.flow.schemaVersion, WORKFLOW_SCHEMA_VERSION);
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3-pro-image-preview");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.modelId, "gpt-image-2");
-    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
-    assert.equal(stagedTryOn.flow.nodes.length, 21);
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.garmentCategory, undefined);
+    assert.equal(stagedTryOn.flow.nodes.some((node) => node.type === "stage-approval"), false);
+    assert.equal(stagedTryOn.flow.nodes.length, 20);
     assert.equal(stagedTryOn.flow.nodes.some(node => node.type === "ti-angle"), false, "内置模板不预置 TiAngle");
     assert.equal(stagedTryOn.flow.edges.some(edge => edge.targetHandle === "angle-direction"), false, "角度由用户自行连线");
     assert.equal(stagedTryOn.flow.nodes.some((node) => node.id === "scene"), false);
@@ -970,17 +971,21 @@ async function main() {
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.sceneInputMode, "composed-person");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "compose-person")?.type, "ai-modify");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "socks")?.data.label, "袜子参考图（可选）");
-    assert.equal(stagedTryOn.flow.edges.length, 6);
+    assert.equal(stagedTryOn.flow.edges.length, 4);
     assert.deepEqual(stagedTryOn.flow.edges.filter(edge => edge.target === "compose-person").map(edge => edge.source), ["person", "pose"], "身份和姿势的编号不随上传顺序变化");
     assert.deepEqual(stagedTryOn.flow.edges.filter(edge => edge.target === "stabilize").map(edge => [edge.source, edge.targetHandle]), [["compose-person", "person"]]);
-    assert.ok(stagedTryOn.flow.edges.some((edge) => (
-      edge.source === "stabilize" && edge.target === "approval" &&
-      edge.sourceHandle === "image" && edge.targetHandle === "baseline-candidate"
-    )));
-    assert.ok(stagedTryOn.flow.edges.some((edge) => (
-      edge.source === "approval" && edge.target === "refine" &&
-      edge.sourceHandle === "image" && edge.targetHandle === "baseline"
-    )));
+    assert.equal(stagedTryOn.flow.edges.some(edge => edge.target === "refine" && edge.targetHandle === "baseline"), false, "第二轮基准由用户选择图片并连线，不预连");
+    assert.match(String(stagedTryOn.flow.nodes.find(node => node.id === "guide")?.data.text), /选择.*连.*第二轮/);
+    const chosenFlow = validateAndMigrateFlow({
+      ...stagedTryOn.flow,
+      nodes: [...stagedTryOn.flow.nodes, { id: "manual-results", type: "result", position: { x: 980, y: 0 }, data: {
+        kind: "result", label: "第一轮结果", status: "success", images: [PNG_DATA_URL, PNG_DATA_URL],
+      } }],
+      edges: [...stagedTryOn.flow.edges, { id: "manual-baseline", source: "manual-results", sourceHandle: "image:1", target: "refine", targetHandle: "baseline" }],
+    });
+    const reopened = validateAndMigrateFlow(JSON.parse(JSON.stringify(chosenFlow)));
+    assert.equal(reopened.nodes.some(node => node.type === "stage-approval"), false, "保存重开不自动补回确认节点");
+    assert.equal(reopened.edges.find(edge => edge.id === "manual-baseline")?.sourceHandle, "image:1");
     const targetsFor = (nodeId: string) => (
       stagedTryOn.flow.nodes.find((node) => node.id === nodeId)?.data.autoConnectTargets
     );
@@ -1153,6 +1158,34 @@ async function main() {
       const before = fs.readdirSync(builtinDir).sort().map((file) => fs.readFileSync(path.join(builtinDir, file), "utf8"));
       ensureBuiltinTemplates();
       assert.deepEqual(fs.readdirSync(builtinDir).sort().map((file) => fs.readFileSync(path.join(builtinDir, file), "utf8")), before);
+    } finally {
+      if (originalDataDir === undefined) delete process.env.DATA_DIR;
+      else process.env.DATA_DIR = originalDataDir;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await test("旧内置换装模板移除确认节点和预连基准，但不修改用户项目", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "garment-manual-baseline-"));
+    const originalDataDir = process.env.DATA_DIR;
+    try {
+      process.env.DATA_DIR = dir;
+      ensureBuiltinTemplates();
+      const file = path.join(dir, "templates", "builtin", "builtin-tool-one-click-try-on.json");
+      const old = JSON.parse(fs.readFileSync(file, "utf8"));
+      old.flow.nodes.push({ id: "approval", type: "stage-approval", position: { x: 980, y: 0 }, data: {
+        kind: "stage-approval", label: "确认第一轮人物、姿势与场景基准", status: "idle", approvalKind: "scene-baseline",
+      } });
+      old.flow.edges.push(
+        { id: "stabilize-approval", source: "stabilize", target: "approval", sourceHandle: "image", targetHandle: "baseline-candidate" },
+        { id: "approval-refine", source: "approval", target: "refine", sourceHandle: "image", targetHandle: "baseline" },
+      );
+      writeJsonAtomicSync(file, old);
+      ensureBuiltinTemplates();
+      const updated = JSON.parse(fs.readFileSync(file, "utf8"));
+      assert.equal(updated.flow.nodes.some((node: { type: string }) => node.type === "stage-approval"), false);
+      assert.equal(updated.flow.edges.some((edge: { target: string; targetHandle: string }) => edge.target === "refine" && edge.targetHandle === "baseline"), false);
+      assert.equal(validateAndMigrateFlow(old.flow).nodes.some(node => node.type === "stage-approval"), true, "旧项目确认节点保留可读");
     } finally {
       if (originalDataDir === undefined) delete process.env.DATA_DIR;
       else process.env.DATA_DIR = originalDataDir;

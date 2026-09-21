@@ -102,7 +102,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
           <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">
             {data.workflowStage === "scene-stabilize"
               ? data.sceneInputMode === "composed-person" ? "保留人物、姿势与场景 · 只替换穿搭" : "人物锁身份 · 场景锁环境 · 穿搭锁服装"
-              : "锁定已确认基准，只精修服装结构、面料与工艺"}
+              : "锁定所选基准，只精修服装结构、面料与工艺"}
           </p>
         ) : undefined}
       >

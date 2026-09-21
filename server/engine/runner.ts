@@ -814,12 +814,13 @@ function stagedVirtualTryOnRuntimeError(
   );
   if (unsupportedRole !== undefined)
     return `第二轮不支持输入角色：${unsupportedRole || "未命名"}`;
-  const baselineError = requireOne("baseline", "已确认基准图");
+  const baselineError = requireOne("baseline", "第一轮基准图");
   if (baselineError) return baselineError;
   const outfitError = requireOne("outfit", "主穿搭图");
   if (outfitError) return outfitError;
   if (imagesFor("material").length > 1) return "面料参考图最多 1 张";
-  if (step.params.approvedBaselineRef !== imagesFor("baseline")[0])
+  if (step.params.baselineApprovalValid === false ||
+    (step.params.approvedBaselineRef !== undefined && step.params.approvedBaselineRef !== imagesFor("baseline")[0]))
     return "第一轮基准图尚未确认或确认已经失效";
   return undefined;
 }

@@ -1505,17 +1505,19 @@ function virtualTryOnRunBlockReason(
   const incoming = document.edges.filter((edge) => edge.target === node.id);
   const edgesFor = (role: string) =>
     incoming.filter((edge) => edge.targetHandle === role);
-  const imageFor = (role: string) => {
+  const imagesFor = (role: string) => {
     const edge = edgesFor(role)[0];
     const source = edge
       ? document.nodes.find((candidate) => candidate.id === edge.source)
       : undefined;
-    return source ? nodeOutputImages(source.data)[0] : undefined;
+    return source ? nodeOutputImages(source.data, edge?.sourceHandle) : [];
   };
   const requireSingle = (role: string, label: string) => {
     const count = edgesFor(role).length;
     if (count !== 1) return `${label}必须且只能连接 1 张图片`;
-    if (!imageFor(role)) return `${label}尚未提供可用图片`;
+    const images = imagesFor(role);
+    if (images.length === 0) return `${label}尚未提供可用图片`;
+    if (images.length !== 1) return `${label}必须且只能连接 1 张图片，请选择具体的单张结果`;
     return undefined;
   };
 
@@ -1551,7 +1553,7 @@ function virtualTryOnRunBlockReason(
     node.data.modelId !== "gpt-image-2"
   )
     return "第二轮必须使用 GPT Image 2.5 Sunburst";
-  const baselineError = requireSingle("baseline", "已确认基准图");
+  const baselineError = requireSingle("baseline", "第一轮基准图");
   if (baselineError) return baselineError;
   const outfitError = requireSingle("outfit", "主穿搭图");
   if (outfitError) return outfitError;
@@ -1560,6 +1562,8 @@ function virtualTryOnRunBlockReason(
   const approval = baselineEdge
     ? document.nodes.find((candidate) => candidate.id === baselineEdge.source)
     : undefined;
+  // Manual single-image connections need no approval; old approval nodes retain their gate.
+  if (approval?.data.kind !== "stage-approval") return undefined;
   const candidateEdge =
     approval?.data.kind === "stage-approval"
       ? document.edges.find(

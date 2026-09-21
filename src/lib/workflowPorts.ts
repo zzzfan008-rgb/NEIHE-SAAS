@@ -43,7 +43,7 @@ const SCENE_STABILIZE_PORTS: readonly NodePortSpec[] = [
 ];
 
 const GARMENT_REFINE_PORTS: readonly NodePortSpec[] = [
-  input("baseline", "已确认第一轮基准", "image", true, 1),
+  input("baseline", "第一轮基准图（用户选择）", "image", true, 1),
   input("outfit", "主穿搭图", "image", true, 1),
   input("material", "面料参考图", "image", false, 1),
   input("detail", "局部结构参考图", "image", false, MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES - 3),
@@ -67,7 +67,7 @@ export const STAGED_ROLE_LABELS: Readonly<Partial<Record<WorkflowInputRole, stri
   earrings: "耳环参考图",
   bracelet: "手镯参考图",
   detail: "服装局部结构参考图",
-  baseline: "已确认第一轮基准",
+  baseline: "第一轮基准图（用户选择）",
   material: "面料参考图",
   palette: "目标色板",
   prompt: "提示词",

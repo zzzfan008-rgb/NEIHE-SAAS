@@ -534,6 +534,21 @@ async function main() {
       "/api/files/baseline.png", "/api/files/outfit.png", "/api/files/material.png", "/api/files/detail.png",
     ]);
     assert.doesNotThrow(() => assertPlanInputs(stageTwo, stageTwoEdges));
+    const manualResults: FlowNode = {
+      id: "manual-results", type: "result",
+      data: { kind: "result", label: "第一轮候选", status: "success", images: [baselineRef, "/api/files/chosen.png"] },
+    };
+    const manualEdges: FlowEdge[] = [
+      { source: manualResults.id, sourceHandle: "image:1", target: refine.id, targetHandle: "baseline" },
+      { source: outfit.id, target: refine.id, targetHandle: "outfit" },
+    ];
+    const manualPlan = buildExecutionPlan([manualResults, outfit, refine], manualEdges, { onlyNodeId: refine.id, includeDownstream: false });
+    assert.deepStrictEqual(manualPlan.steps[0].inputImages, ["/api/files/chosen.png", "/api/files/outfit.png"]);
+    assert.doesNotThrow(() => assertPlanInputs(manualPlan, manualEdges), "用户选定的第二张结果无需确认节点即可精修");
+    const allCandidateEdges = manualEdges.map(edge => edge.targetHandle === "baseline" ? { ...edge, sourceHandle: "image" } : edge);
+    assert.throws(() => assertPlanInputs(buildExecutionPlan([manualResults, outfit, refine], allCandidateEdges, { onlyNodeId: refine.id, includeDownstream: false }), allCandidateEdges), /baseline|基准/, "不能默认取多图来源的第一张");
+    const missingCandidateEdges = manualEdges.map(edge => edge.targetHandle === "baseline" ? { ...edge, sourceHandle: "image:8" } : edge);
+    assert.throws(() => assertPlanInputs(buildExecutionPlan([manualResults, outfit, refine], missingCandidateEdges, { onlyNodeId: refine.id, includeDownstream: false }), missingCandidateEdges), /baseline|基准/);
     const invalidStageTwoNode: FlowNode = {
       ...refine,
       data: { ...refine.data, modelId: "gemini-3.1-flash-image" },

@@ -105,7 +105,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
     schemaVersion: WORKFLOW_SCHEMA_VERSION,
     id: "builtin-tool-one-click-try-on",
     name: "一键换装",
-    description: "先用 AI 改款完成人物身份与姿势合成，再由 Gemini 保留人物基准换装，确认后由 GPT Image 2 精修服装。",
+    description: "先用 AI 改款完成人物身份与姿势合成，再由 Gemini 保留人物基准换装，用户选择第一轮结果并连线后由 GPT Image 2 精修服装。",
     builtIn: true,
     createdAt: "2026-09-03T00:00:00.000Z",
     flow: {
@@ -232,17 +232,6 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           },
         },
         {
-          id: "approval",
-          type: "stage-approval",
-          position: { x: 980, y: -120 },
-          data: {
-            kind: "stage-approval",
-            label: "确认第一轮人物、姿势与场景基准",
-            status: "idle",
-            approvalKind: "scene-baseline",
-          },
-        },
-        {
           id: "material",
           type: "image-input",
           position: { x: 940, y: 420 },
@@ -295,7 +284,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
             kind: "text-input",
             label: "使用步骤",
             status: "idle",
-            text: "① 上传图 1 人物身份与图 2 目标姿势照片。两条连线已按图 1、图 2 固定排序，请两张都上传后运行前置 AI 改款。② AI 改款保留图 1 的人物外观与服饰，采用图 2 的姿势、背景、光线和镜头；生成结果自动展示，并作为人物基准传入第一轮。③ 上传主穿搭及需要的配饰，运行第一轮 Gemini：保留人物基准的身份、姿势与场景，只替换穿搭。④ 确认第一轮后填写材料与结构工艺，运行第二轮 GPT 精修。⑤ 按需运行局部重绘。不点击运行即不产生生成费用。",
+            text: "① 上传图 1 人物身份与图 2 目标姿势照片。两条连线已按图 1、图 2 固定排序，请两张都上传后运行前置 AI 改款。② AI 改款保留图 1 的人物外观与服饰，采用图 2 的姿势、背景、光线和镜头；生成结果自动展示，并作为人物基准传入第一轮。③ 上传主穿搭及需要的配饰，运行第一轮 Gemini：保留人物基准的身份、姿势与场景，只替换穿搭。④ 第一轮可能保留多张候选图；由用户在结果节点中选择所需图片，从该图片的输出端口手动连线到第二轮的第一轮基准图输入，不自动选择第一张。按需填写材料与结构工艺（留空则根据参考图判断），运行第二轮 GPT 精修。⑤ 按需运行局部重绘。不点击运行即不产生生成费用。",
           },
         },
       ],
@@ -303,8 +292,6 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
         { id: "person-compose", source: "person", target: "compose-person", sourceHandle: "image", targetHandle: "references" },
         { id: "pose-compose", source: "pose", target: "compose-person", sourceHandle: "image", targetHandle: "references" },
         { id: "compose-stabilize", source: "compose-person", target: "stabilize", sourceHandle: "image", targetHandle: "person" },
-        { id: "stabilize-approval", source: "stabilize", target: "approval", sourceHandle: "image", targetHandle: "baseline-candidate" },
-        { id: "approval-refine", source: "approval", target: "refine", sourceHandle: "image", targetHandle: "baseline" },
         { id: "refine-garment-detail", source: "refine", target: "garment-detail", sourceHandle: "image", targetHandle: "repair-source" },
       ],
     },
@@ -803,6 +790,8 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
       const nodeById = new Map(raw.flow?.nodes?.map((node) => [node.id, node]) ?? []);
       return raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION
         || named.name !== "一键换装"
+        || raw.flow?.nodes?.some((node) => node.type === "stage-approval")
+        || raw.flow?.edges?.some((edge) => edge.target === "refine" && edge.targetHandle === "baseline")
         || raw.flow?.nodes?.some((node) => node.type === "ti-angle")
         || raw.flow?.edges?.some((edge) => edge.targetHandle === "angle-direction")
         || nodeById.get("stabilize")?.data?.modelId !== "gemini-3-pro-image-preview"

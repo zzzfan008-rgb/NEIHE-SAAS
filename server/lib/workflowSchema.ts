@@ -1712,17 +1712,6 @@ export function validateAndMigrateFlow(value: unknown): PersistedWorkflow {
     if (compatibilityError)
       fail("flow.edges", `edge ${edge.id}: ${compatibilityError}`);
     if (
-      targetNode.data.kind === "virtual-try-on" &&
-      targetNode.data.workflowStage === "garment-refine" &&
-      edge.targetHandle === "baseline" &&
-      sourceNode.data.kind !== "stage-approval"
-    ) {
-      fail(
-        "flow.edges",
-        `edge ${edge.id}: 已确认第一轮基准必须来自独立确认节点`,
-      );
-    }
-    if (
       sourceNode.data.kind === "image-input" &&
       sourceNode.data.imageUrl?.startsWith("asset://") &&
       targetNode.data.kind !== "video-generate"

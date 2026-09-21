@@ -15,6 +15,8 @@ const approvalNode = fs.readFileSync(approvalNodePath, "utf8");
 const stagedNode = read("src/components/nodes/VirtualTryOnNode.tsx");
 assert.match(stagedNode, /\(参考图 /, "角色框必须显示模型实际编号");
 const workflowPorts = read("src/lib/workflowPorts.ts");
+assert.match(workflowPorts, /input\("baseline", "第一轮基准图（用户选择）"/);
+assert.match(stagedNode, /锁定所选基准/);
 const inspector = read("src/components/panels/InspectorPanel.tsx");
 
 for (const contract of ["确认连接角色", "已连接来源", "取消", "确认连接"]) {

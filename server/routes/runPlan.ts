@@ -62,6 +62,9 @@ async function assertApprovedBaselineExecution(
   const approvalNode = baselineEdge
     ? flow.nodes.find((node) => node.id === baselineEdge.source)
     : undefined;
+  // Manual baseline selection is validated by assertPlanInputs and image ownership
+  // checks before this call. Fingerprint/revision approval remains for legacy nodes.
+  if (approvalNode?.data.kind !== "stage-approval") return;
   const candidateEdge = approvalNode?.data.kind === "stage-approval"
     ? flow.edges.find(
         (edge) => edge.target === approvalNode.id && edge.targetHandle === "baseline-candidate",
