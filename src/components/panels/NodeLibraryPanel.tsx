@@ -24,6 +24,7 @@ const KIND_ORDER: NodeKind[] = [
   "print-extract",
   "print-mutate",
   "virtual-try-on",
+  "ti-angle",
   "mask-redraw",
   "result",
 ];

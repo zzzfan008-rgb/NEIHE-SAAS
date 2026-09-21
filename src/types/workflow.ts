@@ -29,6 +29,7 @@ export type NodeKind =
   | "print-mutate" // 印花裂变（gpt-image-2，1~8 张风格一致变体）
   | "virtual-try-on" // 虚拟模特换装（GPT Image 2 / Gemini 3.1 Flash Image）
   | "mask-redraw" // GPT Image 2 局部修改
+  | "ti-angle" // Three.js 三轴视角文本控制
   | "result"; // 结果展示/管理
 
 // ---------- 节点执行状态机 ----------
@@ -93,6 +94,8 @@ export const WORKFLOW_INPUT_ROLES = [
   "neckwear",
   "belt",
   "watch",
+  "preview-image",
+  "angle-direction",
 ] as const;
 
 export type WorkflowInputRole = (typeof WORKFLOW_INPUT_ROLES)[number];
@@ -222,6 +225,19 @@ export interface AiStylingNodeData
 export interface TextInputNodeData extends BaseNodeData {
   kind: "text-input";
   text: string;
+}
+
+export interface TiAngleConfig {
+  version: 1;
+  enabled: boolean;
+  azimuthDeg: number;
+  elevationDeg: number;
+  rollDeg: number;
+}
+
+export interface TiAngleNodeData extends BaseNodeData {
+  kind: "ti-angle";
+  angle: TiAngleConfig;
 }
 
 export interface DrawingBoardNodeData extends BaseNodeData {
@@ -460,6 +476,7 @@ export type WorkflowNodeData =
   | CharacterBoardNodeData
   | BackgroundExtractNodeData
   | TextInputNodeData
+  | TiAngleNodeData
   | DrawingBoardNodeData
   | ColorPaletteNodeData
   | StageApprovalNodeData
@@ -479,11 +496,11 @@ export type WorkflowNodeData =
 
 // ---------- 持久化工作流（项目 / 模板共用）----------
 /**
- * 版本 17 为背景板生成增加可选提示词；版本 16 添加人物板生成；版本 15 添加提取背景节点；版本 14 添加草图线稿优化节点；版本 13 添加多角度参考图和 AI 搭配。
- * 读取 v0-v16 时服务端确定性迁移，不自动向已有项目插入新节点；
+ * 版本 18 添加 TiAngelNode；版本 17 为背景板生成增加可选提示词；版本 16 添加人物板生成；版本 15 添加提取背景节点；版本 14 添加草图线稿优化节点；版本 13 添加多角度参考图和 AI 搭配。
+ * 读取 v0-v17 时服务端确定性迁移，不自动向已有项目插入新节点；
  * 新版本不得静默降级读取。
  */
-export const WORKFLOW_SCHEMA_VERSION = 17 as const;
+export const WORKFLOW_SCHEMA_VERSION = 18 as const;
 export type WorkflowSchemaVersion = typeof WORKFLOW_SCHEMA_VERSION;
 
 export interface PersistedWorkflowNode {
@@ -948,6 +965,29 @@ export const NODE_SPECS: Record<NodeKind, NodeSpec> = {
     outputs: "images",
     inputPorts: [imageInputPort(MAX_MASK_USER_REFERENCE_IMAGES)],
     outputPorts: [imageOutputPort()],
+  },
+  "ti-angle": {
+    kind: "ti-angle",
+    title: "3D 视角",
+    description: "拖动参考图周围的相机控件，输出环绕、俯仰与画面倾斜描述",
+    inputs: 1,
+    outputs: "none",
+    inputPorts: [{
+      id: "preview-image",
+      label: "示意参考图",
+      direction: "input",
+      valueKind: "image",
+      required: false,
+      maxSources: 1,
+    }],
+    outputPorts: [{
+      id: "text",
+      label: "视角文本",
+      direction: "output",
+      valueKind: "text",
+      required: false,
+      maxSources: 1,
+    }],
   },
   result: {
     kind: "result",

@@ -6,7 +6,7 @@ test("AI 搭配三节点、显式识别、开关及主图失效", async ({ page 
   await page.route("**/api/outfit-analysis", async route => {
     recognitionCalls++;
     const body=route.request().postDataJSON();
-    await route.fulfill({json:{id:"mock-analysis",sourceNodeId:"reference",images:body.images,status:"succeeded",referenceFingerprint:"mock-fingerprint",result:{categories:["upper","lower","whole"],description:"白衬衫与黑色长裤",hasPerson:true,ambiguous:false,upperIsOuterwear:false,existingExtras:{outerwear:false,shoes:false,bag:false,accessories:false,hat:false}}}});
+    await route.fulfill({json:{id:"mock-analysis",sourceNodeId:nodeIds.referenceId,images:body.images,status:"succeeded",referenceFingerprint:"mock-fingerprint",result:{categories:["upper","lower","whole"],description:"白衬衫与黑色长裤",hasPerson:true,ambiguous:false,upperIsOuterwear:false,existingExtras:{outerwear:false,shoes:false,bag:false,accessories:false,hat:false}}}});
   });
   await page.goto("/");
   await expect(page.getByRole("button",{name:"打开项目中心"})).toBeVisible();
@@ -17,18 +17,31 @@ test("AI 搭配三节点、显式识别、开关及主图失效", async ({ page 
     const path="/src/lib/templateLaunch.ts";const {launchTemplateInNewTab}=await import(path);
     launchTemplateInNewTab(template,"default");
   },template);
-  const node=page.locator('.react-flow__node[data-id="styling"]');
+  const nodeIds = await page.evaluate(async () => {
+    const path = "/src/store/flowStore.ts";
+    const { selectActiveNodes, useFlowStore } = await import(path);
+    const nodes = selectActiveNodes(useFlowStore.getState());
+    return {
+      referenceId: nodes.find((item:{data:{label?:string}})=>item.data.label === "上传参考图")?.id,
+      stylingId: nodes.find((item:{data:{label?:string}})=>item.data.label === "AI 搭配")?.id,
+      resultId: nodes.find((item:{data:{label?:string}})=>item.data.label === "搭配结果")?.id,
+    };
+  });
+  expect(nodeIds.referenceId).toBeTruthy();
+  expect(nodeIds.stylingId).toBeTruthy();
+  expect(nodeIds.resultId).toBeTruthy();
+  const node=page.locator(`.react-flow__node[data-id="${nodeIds.stylingId}"]`);
   await expect(page.locator('.react-flow__node')).toHaveCount(3);
   const supplementalRequirements=node.getByPlaceholder("例如：秋季通勤，搭配简洁利落；可指定场景");
-  await page.evaluate(async()=>{const path="/src/store/flowStore.ts";const {useFlowStore}=await import(path);useFlowStore.getState().updateNodeData("styling",{status:"queued"});});
+  await page.evaluate(async(stylingId)=>{const path="/src/store/flowStore.ts";const {useFlowStore}=await import(path);useFlowStore.getState().updateNodeData(stylingId,{status:"queued"});},nodeIds.stylingId);
   await expect(supplementalRequirements).toBeDisabled();
-  await page.evaluate(async()=>{const path="/src/store/flowStore.ts";const {useFlowStore}=await import(path);useFlowStore.getState().updateNodeData("styling",{status:"running"});});
+  await page.evaluate(async(stylingId)=>{const path="/src/store/flowStore.ts";const {useFlowStore}=await import(path);useFlowStore.getState().updateNodeData(stylingId,{status:"running"});},nodeIds.stylingId);
   await expect(supplementalRequirements).toBeEnabled();
   await supplementalRequirements.fill("秋季通勤，简洁利落");
   await supplementalRequirements.press("Tab");
-  await expect.poll(()=>page.evaluate(async()=>{const path="/src/store/flowStore.ts";const {selectActiveNodes,useFlowStore}=await import(path);return selectActiveNodes(useFlowStore.getState()).find((item:{id:string})=>item.id==="styling")?.data.prompt;})).toBe("秋季通勤，简洁利落");
-  await page.evaluate(async()=>{const path="/src/store/flowStore.ts";const {useFlowStore}=await import(path);useFlowStore.getState().updateNodeData("styling",{status:"idle"});});
-  const reference=page.locator('.react-flow__node[data-id="reference"]');
+  await expect.poll(()=>page.evaluate(async(stylingId)=>{const path="/src/store/flowStore.ts";const {selectActiveNodes,useFlowStore}=await import(path);return selectActiveNodes(useFlowStore.getState()).find((item:{id:string})=>item.id===stylingId)?.data.prompt;},nodeIds.stylingId)).toBe("秋季通勤，简洁利落");
+  await page.evaluate(async(stylingId)=>{const path="/src/store/flowStore.ts";const {useFlowStore}=await import(path);useFlowStore.getState().updateNodeData(stylingId,{status:"idle"});},nodeIds.stylingId);
+  const reference=page.locator(`.react-flow__node[data-id="${nodeIds.referenceId}"]`);
   await expect(node.getByRole("button",{name:"识别服饰",exact:true})).toBeDisabled();
   const png=await sharp({create:{width:60,height:90,channels:3,background:"white"}}).png().toBuffer();
   await reference.getByLabel("上传服饰参考图",{exact:true}).setInputFiles([{name:"front.png",mimeType:"image/png",buffer:png},{name:"back.png",mimeType:"image/png",buffer:png}]);
@@ -47,12 +60,12 @@ test("AI 搭配三节点、显式识别、开关及主图失效", async ({ page 
     await button.click();await expect(button).toHaveAttribute("aria-pressed","true");
     await button.press("Space");await expect(button).toHaveAttribute("aria-pressed","false");
   }
-  const geometry=await page.evaluate(()=>{
-    const ref=document.querySelector('.react-flow__node[data-id="reference"] .gc-node-frame')!.getBoundingClientRect();
-    const styling=document.querySelector('.react-flow__node[data-id="styling"] .gc-node-frame')!.getBoundingClientRect();
-    const result=document.querySelector('.react-flow__node[data-id="result"]')!.getBoundingClientRect();
+  const geometry=await page.evaluate(({referenceId,stylingId,resultId})=>{
+    const ref=document.querySelector(`.react-flow__node[data-id="${referenceId}"] .gc-node-frame`)!.getBoundingClientRect();
+    const styling=document.querySelector(`.react-flow__node[data-id="${stylingId}"] .gc-node-frame`)!.getBoundingClientRect();
+    const result=document.querySelector(`.react-flow__node[data-id="${resultId}"]`)!.getBoundingClientRect();
     return {ratio:styling.width/ref.width,gap1:(styling.left-ref.right)/ref.width,gap2:(result.left-styling.right)/ref.width,overflow:document.documentElement.scrollWidth>innerWidth};
-  });
+  }, nodeIds);
   expect(geometry.ratio).toBeCloseTo(320/280,2);expect(geometry.gap1).toBeCloseTo(80/280,2);expect(geometry.gap2).toBeCloseTo(80/280,2);expect(geometry.overflow).toBe(false);
   const contrast=await node.locator(".gc-styling-control").first().evaluate(element=>{
     const style=getComputedStyle(element);
@@ -66,20 +79,20 @@ test("AI 搭配三节点、显式识别、开关及主图失效", async ({ page 
     if(route.request().method()==="POST"){
       runCount++;
       const body=route.request().postDataJSON();
-      expect(body.onlyNodeId).toBe("styling");
-      output=body.nodes.find((item:{id:string})=>item.id==="reference").data.mainImage;
+      expect(body.onlyNodeId).toBe(nodeIds.stylingId);
+      output=body.nodes.find((item:{id:string})=>item.id===nodeIds.referenceId).data.mainImage;
       await route.fulfill({json:{runId:`mock-run-${runCount}`}});return;
     }
     if(route.request().url().endsWith("/events")){
-      const events=[{type:"node-status",nodeId:"styling",status:"running",images:[output],executionMeta:{styling:{completed:1,total:runCount===1?1:2}}},
-        {type:"node-status",nodeId:"styling",status:runCount===1?"success":"outcome_unknown",images:[output],...(runCount===1?{}:{error:"第二套结果未知，已保留第一套"})},{type:"done"}];
+      const events=[{type:"node-status",nodeId:nodeIds.stylingId,status:"running",images:[output],executionMeta:{styling:{completed:1,total:runCount===1?1:2}}},
+        {type:"node-status",nodeId:nodeIds.stylingId,status:runCount===1?"success":"outcome_unknown",images:[output],...(runCount===1?{}:{error:"第二套结果未知，已保留第一套"})},{type:"done"}];
       await route.fulfill({contentType:"text/event-stream",body:events.map((event,index)=>`id: ${index+1}\ndata: ${JSON.stringify({...event,seq:index+1})}\n\n`).join("")});return;
     }
     await route.fulfill({json:{status:"running"}});
   });
   await node.getByRole("button",{name:"生成搭配",exact:true}).click();
   await expect.poll(()=>runCount).toBe(1);
-  const result=page.locator('.react-flow__node[data-id="result"]');
+  const result=page.locator(`.react-flow__node[data-id="${nodeIds.resultId}"]`);
   await expect(result.getByAltText("搭配结果",{exact:true})).toBeVisible();
   await expect(result.getByRole("button",{name:"查看",exact:true})).toBeEnabled();
   await expect(result.getByRole("button",{name:"对比",exact:true})).toBeEnabled();

@@ -1,5 +1,4 @@
 import os from "node:os";
-import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
 import { nanoid } from "nanoid";
 import type { ExecutionPlan, NodeExecution } from "../../src/types/workflow";
@@ -17,6 +16,7 @@ import type { SceneAnalyzer } from "../lib/sceneAnalysis";
 import type { TryOnCandidateSelector } from "../lib/tryOnCandidateSelection";
 import { ACTIVE_RUN_LIMIT } from "../lib/generationLimits";
 import { lockActiveOwner } from "../lib/ownerMutation";
+import { createExecutionInputFingerprint } from "../lib/executionInputFingerprint";
 import { getProvider } from "../providers";
 import {
   AcceptedVideoTaskPersistenceError,
@@ -218,15 +218,12 @@ async function insertGenerationRun(
   const initialModel = isImageModelId(targetStep.params.modelId) ? targetStep.params.modelId : null;
   const planJson = JSON.stringify(plan);
   const requestFingerprint = clientRequestId
-    ? createHash("sha256")
-      .update(JSON.stringify({
+    ? createExecutionInputFingerprint({
         runType,
-        projectId: context.projectId ?? null,
+        projectId: context.projectId,
         nodeId: context.nodeId,
-      }))
-      .update("\0")
-      .update(planJson)
-      .digest("hex")
+        plan,
+      })
     : null;
 
   // 同一用户的新任务串行通过容量门禁；幂等重放先返回旧 Run，不占新名额。

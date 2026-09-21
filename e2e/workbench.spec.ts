@@ -16,6 +16,21 @@ interface Rect {
   height: number;
 }
 
+async function nodeIdByLabel(page: Page, label: string): Promise<string> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const nodeId = await page.evaluate(async (targetLabel) => {
+      const storeModulePath = "/src/store/flowStore.ts";
+      const { selectActiveDocument, useFlowStore } = await import(storeModulePath);
+      return selectActiveDocument(useFlowStore.getState()).nodes.find(
+        (node: { data: { label?: unknown } }) => node.data.label === targetLabel,
+      )?.id;
+    }, label);
+    if (nodeId) return nodeId;
+    await page.waitForTimeout(50);
+  }
+  throw new Error(`Missing cloned node with label: ${label}`);
+}
+
 test("first-round model and ideas persist with desktop controls", async ({ page }, testInfo) => {
   await openFreshBlankProject(page);
   await page.evaluate(async () => {
@@ -219,6 +234,806 @@ test("GPT Image 2.5 quality selection persists and fits desktop canvas", async (
   expect(migrated).toEqual(["low", "high", "max"].map((quality) => ({
     modelId: "gpt-image-2.5-sunburst", quality, outputImages: ["/api/files/keep.png"],
   })));
+});
+
+test("TiAngelNode preview fits desktop widths, folds text and isolates pointer drag", async ({ page }) => {
+  await openFreshBlankProject(page);
+  await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const landingPath = "/src/lib/canvasLanding.ts";
+    const { useFlowStore } = await import(storePath);
+    const { requestCanvasLanding } = await import(landingPath);
+    useFlowStore.getState().loadFlow({
+      projectName: "TiAngelNode 视角验收",
+      markDirty: true,
+      nodes: [{
+        id: "ti-angle-e2e",
+        type: "ti-angle",
+        position: { x: 0, y: 0 },
+        data: {
+          kind: "ti-angle",
+          label: "3D 视角",
+          status: "idle",
+          angle: { version: 1, enabled: true, azimuthDeg: 0, elevationDeg: 0, rollDeg: 0 },
+        },
+      }],
+      edges: [],
+    });
+    useFlowStore.temporal.getState().clear();
+    requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, fitView: true });
+  });
+
+  const node = page.locator('.react-flow__node[data-id="ti-angle-e2e"]');
+  const preview = node.locator("[data-ti-angle-preview]");
+  await expect(node).toBeVisible();
+  await expect(preview).toContainText("拖动相机球调整视角");
+  await expect(preview.getByRole("button", { name: "重试 3D 预览" })).toHaveCount(0);
+  const previewBox = await preview.boundingBox();
+  expect(previewBox).not.toBeNull();
+  expect(previewBox!.width).toBeGreaterThan(180);
+  expect(previewBox!.height).toBeGreaterThan(100);
+  expect(previewBox!.x).toBeGreaterThanOrEqual(0);
+  expect(previewBox!.x + previewBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+
+  await node.getByRole("button", { name: "左前方 +45°", exact: true }).click();
+  await expect.poll(() => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((candidate: { id: string }) => candidate.id === "ti-angle-e2e")?.data.angle;
+  })).toMatchObject({ azimuthDeg: 45, elevationDeg: 0, rollDeg: 0, enabled: true });
+  await node.getByRole("button", { name: "重置视角", exact: true }).click();
+  await expect.poll(() => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((candidate: { id: string }) => candidate.id === "ti-angle-e2e")?.data.angle;
+  })).toMatchObject({ azimuthDeg: 0, elevationDeg: 0, rollDeg: 0, enabled: true });
+  const historyAfterReset = await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storePath);
+    return useFlowStore.temporal.getState().pastStates.length;
+  });
+  await node.getByRole("button", { name: "重置视角", exact: true }).click();
+  await expect.poll(() => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storePath);
+    return useFlowStore.temporal.getState().pastStates.length;
+  })).toBe(historyAfterReset);
+  const azimuthInput = node.getByRole("spinbutton", { name: "环绕角数值" });
+  await azimuthInput.focus();
+  await azimuthInput.press("Shift+ArrowUp");
+  await expect(azimuthInput).toHaveValue("5");
+  await node.getByRole("button", { name: "重置视角", exact: true }).click();
+
+  const outputToggle = node.getByRole("button", { name: "查看输出文本", exact: true });
+  await expect(outputToggle).toHaveAttribute("aria-expanded", "false");
+  await outputToggle.click();
+  await expect(outputToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(node).toContainText("通用视角描述（未绑定模型）");
+  const copyButton = node.getByRole("button", { name: "复制视角文本", exact: true });
+  await expect(copyButton).toBeVisible();
+
+  const before = await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    const document = selectActiveDocument(useFlowStore.getState());
+    return document.nodes.find((candidate: { id: string }) => candidate.id === "ti-angle-e2e")?.data.angle;
+  });
+  const historyBeforeDrag = await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storePath);
+    return useFlowStore.temporal.getState().pastStates.length;
+  });
+  const nodeBeforeDrag = await node.boundingBox();
+  const canvas = preview.locator("canvas");
+  const canvasBox = await canvas.boundingBox();
+  expect(canvasBox).not.toBeNull();
+  const startX = canvasBox!.x + canvasBox!.width / 2;
+  const startY = canvasBox!.y + canvasBox!.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 32, startY - 14, { steps: 6 });
+  await page.mouse.up();
+
+  const after = await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    const document = selectActiveDocument(useFlowStore.getState());
+    return document.nodes.find((candidate: { id: string }) => candidate.id === "ti-angle-e2e")?.data.angle;
+  });
+  expect(after).not.toEqual(before);
+  expect(after?.azimuthDeg).not.toBe(0);
+  await expect.poll(() => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storePath);
+    return useFlowStore.temporal.getState().pastStates.length;
+  })).toBe(historyBeforeDrag + 1);
+  await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storePath);
+    useFlowStore.getState().undo();
+  });
+  await expect.poll(() => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((candidate: { id: string }) => candidate.id === "ti-angle-e2e")?.data.angle;
+  })).toEqual(before);
+  await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storePath);
+    useFlowStore.getState().redo();
+  });
+  await expect.poll(() => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((candidate: { id: string }) => candidate.id === "ti-angle-e2e")?.data.angle;
+  })).toEqual(after);
+  const nodeAfterDrag = await node.boundingBox();
+  expect(nodeAfterDrag).not.toBeNull();
+  expect(Math.abs(nodeAfterDrag!.x - nodeBeforeDrag!.x)).toBeLessThan(1);
+  expect(Math.abs(nodeAfterDrag!.y - nodeBeforeDrag!.y)).toBeLessThan(1);
+
+  const contextLost = await canvas.evaluate((element) => {
+    const gl = (element as HTMLCanvasElement).getContext("webgl2")
+      ?? (element as HTMLCanvasElement).getContext("webgl");
+    const extension = gl?.getExtension("WEBGL_lose_context");
+    if (!extension) return false;
+    extension.loseContext();
+    return true;
+  });
+  expect(contextLost).toBe(true);
+  await expect(preview).toContainText("WebGL 预览暂时不可用");
+  await expect(preview.getByRole("button", { name: "重试 3D 预览" })).toBeVisible();
+  const angleAfterContextLoss = await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((candidate: { id: string }) => candidate.id === "ti-angle-e2e")?.data.angle;
+  });
+  await preview.getByRole("button", { name: "重试 3D 预览" }).click();
+  await expect.poll(() => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((candidate: { id: string }) => candidate.id === "ti-angle-e2e")?.data.angle;
+  })).toEqual(angleAfterContextLoss);
+});
+
+
+test("TiAngelNode raycast handles isolate axes and ignore blank or occluded hits", async ({ page }, testInfo) => {
+  await openFreshBlankProject(page);
+  await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const landingPath = "/src/lib/canvasLanding.ts";
+    const { useFlowStore } = await import(storePath);
+    const { requestCanvasLanding } = await import(landingPath);
+    useFlowStore.getState().loadFlow({
+      projectName: "TiAngelNode 命中验收",
+      markDirty: true,
+      nodes: [{
+        id: "ti-angle-hit-test",
+        type: "ti-angle",
+        position: { x: 0, y: 0 },
+        data: {
+          kind: "ti-angle",
+          label: "3D 视角命中",
+          status: "idle",
+          angle: { version: 1, enabled: true, azimuthDeg: 0, elevationDeg: 0, rollDeg: 0 },
+        },
+      }],
+      edges: [],
+    });
+    useFlowStore.temporal.getState().clear();
+    requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, fitView: true });
+  });
+
+  const node = page.locator('.react-flow__node[data-id="ti-angle-hit-test"]');
+  const preview = node.locator("[data-ti-angle-preview]");
+  const canvas = preview.locator("canvas");
+  await expect(canvas).toBeVisible();
+  await page.waitForTimeout(200);
+
+  const readAngle = () => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { selectActiveDocument, useFlowStore } = await import(storePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find(
+      (candidate: { id: string }) => candidate.id === "ti-angle-hit-test",
+    )?.data.angle as { azimuthDeg: number; elevationDeg: number; rollDeg: number };
+  });
+  const setAngle = async (azimuthDeg: number, elevationDeg = 0, rollDeg = 0) => {
+    await page.evaluate(async ({ azimuthDeg, elevationDeg, rollDeg }) => {
+      const storePath = "/src/store/flowStore.ts";
+      const { useFlowStore } = await import(storePath);
+      useFlowStore.getState().updateNodeData("ti-angle-hit-test", {
+        angle: { version: 1, enabled: true, azimuthDeg, elevationDeg, rollDeg },
+      });
+    }, { azimuthDeg, elevationDeg, rollDeg });
+    await expect.poll(readAngle).toMatchObject({ azimuthDeg, elevationDeg, rollDeg });
+  };
+  const drag = async (x: number, y: number, dx: number, dy: number) => {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y + dy, { steps: 6 });
+    await page.mouse.up();
+  };
+
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("TiAngelNode canvas is missing");
+  const pixelsPerWorldUnit = box.height / 4;
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+
+  const azimuthHandle = {
+    x: centerX,
+    y: centerY - 0.58 * pixelsPerWorldUnit,
+  };
+  await drag(azimuthHandle.x, azimuthHandle.y, box.width * 0.1, box.height * 0.12);
+  await expect.poll(readAngle).toMatchObject({ elevationDeg: 0, rollDeg: 0 });
+  expect((await readAngle()).azimuthDeg).not.toBe(0);
+
+  await setAngle(0);
+  const elevationAngle = ((45 / 105) * Math.PI) - Math.PI / 2;
+  const elevationHandle = {
+    x: centerX + Math.cos(elevationAngle) * 0.68 * pixelsPerWorldUnit,
+    y: centerY - Math.sin(elevationAngle) * 1.02 * pixelsPerWorldUnit,
+  };
+  await drag(elevationHandle.x, elevationHandle.y, box.width * 0.08, -box.height * 0.1);
+  await expect.poll(readAngle).toMatchObject({ azimuthDeg: 0, rollDeg: 0 });
+  expect((await readAngle()).elevationDeg).not.toBe(0);
+
+  await setAngle(0);
+  await drag(box.x + 8, box.y + box.height - 8, 32, -18);
+  await expect.poll(readAngle).toEqual({
+    version: 1,
+    enabled: true,
+    azimuthDeg: 0,
+    elevationDeg: 0,
+    rollDeg: 0,
+  });
+
+  await setAngle(-180);
+  await drag(centerX, centerY, 32, -18);
+  await expect.poll(readAngle).toEqual({
+    version: 1,
+    enabled: true,
+    azimuthDeg: -180,
+    elevationDeg: 0,
+    rollDeg: 0,
+  });
+
+  await setAngle(0);
+  await testInfo.attach("ti-angle-raycast-handles", {
+    body: await preview.screenshot(),
+    contentType: "image/png",
+  });
+});
+
+
+test("TiAngelNode ignores late reference-image callbacks after document, tab and node changes", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const requests = new Map<string, { requested: ReturnType<typeof deferred>; settled: ReturnType<typeof deferred> }>();
+  const releases = new Map<string, ReturnType<typeof deferred>>();
+  for (const phase of ["replace", "switch", "remove"]) {
+    requests.set(phase, { requested: deferred(), settled: deferred() });
+    releases.set(phase, deferred());
+  }
+  await page.route("**/e2e/ti-angle-stale-*.png", async (route) => {
+    const phase = new URL(route.request().url()).pathname.match(/ti-angle-stale-(replace|switch|remove)\.png$/)?.[1];
+    if (!phase) return route.continue();
+    requests.get(phase)!.requested.resolve();
+    await releases.get(phase)!.promise;
+    await route.fulfill({ status: 500, contentType: "image/png", body: "late reference image" });
+    requests.get(phase)!.settled.resolve();
+  });
+
+  const loadAngleFlow = async (projectId: string, imageUrl: string) => page.evaluate(async ({ projectId, imageUrl }) => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storePath);
+    useFlowStore.getState().loadFlow({
+      projectId,
+      projectName: `TiAngelNode 异步资源 ${projectId}`,
+      markDirty: true,
+      nodes: [
+        {
+          id: "ti-angle-async",
+          type: "ti-angle",
+          position: { x: 0, y: 0 },
+          data: {
+            kind: "ti-angle",
+            label: "异步资源视角",
+            status: "idle",
+            angle: { version: 1, enabled: true, azimuthDeg: 0, elevationDeg: 0, rollDeg: 0 },
+          },
+        },
+        {
+          id: "ti-angle-preview-source",
+          type: "image-input",
+          position: { x: -360, y: 0 },
+          data: {
+            kind: "image-input",
+            label: "延迟示意图",
+            status: "idle",
+            imageRole: "reference",
+            imageUrl,
+          },
+        },
+      ],
+      edges: [{
+        id: `${projectId}-preview`,
+        source: "ti-angle-preview-source",
+        sourceHandle: "image",
+        target: "ti-angle-async",
+        targetHandle: "preview-image",
+      }],
+    });
+  }, { projectId, imageUrl });
+
+  await loadAngleFlow("async-replace", "/e2e/ti-angle-stale-replace.png");
+  await requests.get("replace")!.requested.promise;
+  const angleNode = page.locator('.react-flow__node[data-id="ti-angle-async"]');
+  await expect(angleNode).toContainText("正在加载示意参考图");
+  await loadAngleFlow("async-replacement", "");
+  releases.get("replace")!.resolve();
+  await requests.get("replace")!.settled.promise;
+  await expect(angleNode.locator("[data-ti-angle-preview]")).not.toContainText("示意参考图无法加载");
+  await expect.poll(() => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    return selectActiveDocument(useFlowStore.getState()).projectId;
+  })).toBe("async-replacement");
+
+  await loadAngleFlow("async-switch", "/e2e/ti-angle-stale-switch.png");
+  await requests.get("switch")!.requested.promise;
+  await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storePath);
+    useFlowStore.getState().createBlankTab();
+  });
+  await expect(page.getByRole("region", { name: "开始第一个创作任务" })).toBeVisible();
+  releases.get("switch")!.resolve();
+  await requests.get("switch")!.settled.promise;
+  await expect(page.locator('[data-ti-angle-preview]')).toHaveCount(0);
+
+  await loadAngleFlow("async-remove", "/e2e/ti-angle-stale-remove.png");
+  await requests.get("remove")!.requested.promise;
+  await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storePath);
+    useFlowStore.getState().onNodesChange([{ id: "ti-angle-async", type: "remove" }]);
+  });
+  await expect(page.locator('.react-flow__node[data-id="ti-angle-async"]')).toHaveCount(0);
+  releases.get("remove")!.resolve();
+  await requests.get("remove")!.settled.promise;
+  await expect.poll(() => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storePath);
+    const document = selectActiveDocument(useFlowStore.getState());
+    return document.nodes.some((node: { id: string }) => node.id === "ti-angle-async");
+  })).toBe(false);
+});
+
+
+test("TiAngelNode reads authenticated reference images and completes a successful texture swap", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const requests: Array<{ path: string; cookie: string }> = [];
+  const imageBRequested = deferred();
+  const releaseImageB = deferred();
+  const imageBSettled = deferred();
+  await page.route("**/api/files/ti-angle-auth-*.png", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    requests.push({ path, cookie: route.request().headers().cookie ?? "" });
+    if (path.endsWith("ti-angle-auth-b.png")) {
+      imageBRequested.resolve();
+      await releaseImageB.promise;
+    }
+    await route.fulfill({ status: 200, contentType: "image/png", body: E2E_UPLOAD_PNG });
+    if (path.endsWith("ti-angle-auth-b.png")) imageBSettled.resolve();
+  });
+
+  const loadAngleFlow = async (imageUrl: string) => page.evaluate(async (nextImageUrl) => {
+    const storePath = "/src/store/flowStore.ts";
+    const landingPath = "/src/lib/canvasLanding.ts";
+    const { useFlowStore } = await import(storePath);
+    const { requestCanvasLanding } = await import(landingPath);
+    useFlowStore.getState().loadFlow({
+      projectId: `ti-angle-auth-${nextImageUrl.endsWith("b.png") ? "b" : "a"}`,
+      projectName: "TiAngelNode 鉴权参考图验收",
+      markDirty: true,
+      nodes: [
+        {
+          id: "ti-angle-auth-preview",
+          type: "ti-angle",
+          position: { x: 0, y: 0 },
+          data: {
+            kind: "ti-angle",
+            label: "鉴权参考图视角",
+            status: "idle",
+            angle: { version: 1, enabled: true, azimuthDeg: 0, elevationDeg: 0, rollDeg: 0 },
+          },
+        },
+        {
+          id: "ti-angle-auth-source",
+          type: "image-input",
+          position: { x: -360, y: 0 },
+          data: {
+            kind: "image-input",
+            label: "鉴权参考图",
+            status: "success",
+            imageRole: "reference",
+            imageUrl: nextImageUrl,
+          },
+        },
+      ],
+      edges: [{
+        id: `ti-angle-auth-${nextImageUrl.endsWith("b.png") ? "b" : "a"}-edge`,
+        source: "ti-angle-auth-source",
+        sourceHandle: "image",
+        target: "ti-angle-auth-preview",
+        targetHandle: "preview-image",
+      }],
+    });
+    useFlowStore.temporal.getState().clear();
+    requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, fitView: true });
+  }, imageUrl);
+
+  await loadAngleFlow("/api/files/ti-angle-auth-a.png");
+  const node = page.locator('.react-flow__node[data-id="ti-angle-auth-preview"]');
+  const preview = node.locator("[data-ti-angle-preview]");
+  await expect.poll(() => requests.some(({ path }) => path.endsWith("ti-angle-auth-a.png"))).toBe(true);
+  await expect(preview).toHaveAttribute("data-ti-angle-image-state", "loaded");
+  expect(requests.find(({ path }) => path.endsWith("ti-angle-auth-a.png"))?.cookie).toBeTruthy();
+
+  await loadAngleFlow("/api/files/ti-angle-auth-b.png");
+  await imageBRequested.promise;
+  await expect(preview).toHaveAttribute("data-ti-angle-image-state", "loading");
+  await expect(preview).not.toContainText("示意参考图无法加载");
+  releaseImageB.resolve();
+  await imageBSettled.promise;
+  await expect(preview).toHaveAttribute("data-ti-angle-image-state", "loaded");
+  expect(requests.find(({ path }) => path.endsWith("ti-angle-auth-b.png"))?.cookie).toBeTruthy();
+});
+
+
+test("TiAngelNode survives formal save, project-center reopen and page refresh without runtime state", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const projectName = `TiAngelNode 保存重开 ${Date.now()}`;
+  const identity = await page.evaluate(async (name) => {
+    const storePath = "/src/store/flowStore.ts";
+    const landingPath = "/src/lib/canvasLanding.ts";
+    const { selectActiveDocument, useFlowStore } = await import(storePath);
+    const { requestCanvasLanding } = await import(landingPath);
+    const current = selectActiveDocument(useFlowStore.getState());
+    useFlowStore.getState().loadFlow({
+      projectId: current.projectId,
+      projectName: name,
+      markDirty: true,
+      nodes: [
+        {
+          id: "ti-angle-save-source",
+          type: "image-input",
+          position: { x: -420, y: 0 },
+          data: {
+            kind: "image-input",
+            label: "保存示意图",
+            status: "idle",
+            imageRole: "reference",
+            autoConnectTargets: [{ targetNodeId: "ti-angle-save", targetHandle: "preview-image" }],
+          },
+        },
+        {
+          id: "ti-angle-save",
+          type: "ti-angle",
+          position: { x: 0, y: 0 },
+          data: {
+            kind: "ti-angle",
+            label: "保存恢复视角",
+            status: "idle",
+            angle: {
+              version: 1,
+              enabled: true,
+              azimuthDeg: 123,
+              elevationDeg: -17,
+              rollDeg: 12,
+              dragState: { pointerId: 7 },
+            } as never,
+            collapsed: false,
+            compiledText: "不得保存的运行时文本",
+            renderer: { active: true },
+          } as never,
+        },
+        {
+          id: "ti-angle-save-target",
+          type: "virtual-try-on",
+          position: { x: 520, y: 0 },
+          data: {
+            kind: "virtual-try-on",
+            label: "保存恢复第一轮",
+            status: "idle",
+            workflowStage: "scene-stabilize",
+            prompt: "",
+            modelId: "gemini-3.1-flash-image",
+            modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
+            imageSize: "2K",
+            aspectRatio: "1:1",
+            basisRevision: 0,
+            promptEnhancement: false,
+            qualityMode: "fast",
+            safetyFallback: false,
+            stylePresetId: "faithful",
+            outputImages: [],
+          },
+        },
+      ],
+      edges: [
+        {
+          id: "ti-angle-save-preview-edge",
+          source: "ti-angle-save-source",
+          sourceHandle: "image",
+          target: "ti-angle-save",
+          targetHandle: "preview-image",
+        },
+        {
+          id: "ti-angle-save-text-edge",
+          source: "ti-angle-save",
+          sourceHandle: "text",
+          target: "ti-angle-save-target",
+          targetHandle: "angle-direction",
+        },
+      ],
+    });
+    useFlowStore.temporal.getState().clear();
+    const document = selectActiveDocument(useFlowStore.getState());
+    requestCanvasLanding({ tabId: document.id, fitView: true });
+    return { projectId: document.projectId, projectName: document.projectName };
+  }, projectName);
+
+  const saveResponsePromise = page.waitForResponse((response) => (
+    response.request().method() === "POST"
+    && new URL(response.url()).pathname === "/api/projects"
+  ));
+  const saved = await page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storePath);
+    return useFlowStore.getState().saveProject();
+  });
+  const saveResponse = await saveResponsePromise;
+  expect(saved, await saveResponse.text()).toBe(true);
+  expect(saveResponse.ok()).toBe(true);
+
+  const detailResponse = await page.request.get(`/api/projects/${encodeURIComponent(identity.projectId)}`);
+  expect(detailResponse.ok(), await detailResponse.text()).toBe(true);
+  const detail = await detailResponse.json() as {
+    flow: {
+      nodes: Array<{ id: string; data: Record<string, unknown> }>;
+      edges: Array<{ id: string; source: string; sourceHandle?: string; target: string; targetHandle?: string }>;
+    };
+  };
+  const persistedAngle = detail.flow.nodes.find((node) => node.id === "ti-angle-save");
+  expect(persistedAngle?.data.angle).toEqual({
+    version: 1,
+    enabled: true,
+    azimuthDeg: 123,
+    elevationDeg: -17,
+    rollDeg: 12,
+  });
+  expect(JSON.stringify(persistedAngle)).not.toMatch(/dragState|collapsed|compiledText|renderer/);
+  expect(detail.flow.nodes.find((node) => node.id === "ti-angle-save-source")?.data.autoConnectTargets).toEqual([
+    { targetNodeId: "ti-angle-save", targetHandle: "preview-image" },
+  ]);
+  expect(detail.flow.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    sourceHandle: edge.sourceHandle,
+    target: edge.target,
+    targetHandle: edge.targetHandle,
+  }))).toEqual([
+    {
+      id: "ti-angle-save-preview-edge",
+      source: "ti-angle-save-source",
+      sourceHandle: "image",
+      target: "ti-angle-save",
+      targetHandle: "preview-image",
+    },
+    {
+      id: "ti-angle-save-text-edge",
+      source: "ti-angle-save",
+      sourceHandle: "text",
+      target: "ti-angle-save-target",
+      targetHandle: "angle-direction",
+    },
+  ]);
+
+  await expect.poll(() => page.evaluate(async () => {
+    const safetyPath = "/src/store/generationSafety.ts";
+    const { getGenerationSafetyBlockReason } = await import(safetyPath);
+    return getGenerationSafetyBlockReason();
+  })).toBeNull();
+  await page.getByRole("button", { name: `关闭 ${projectName}` }).click();
+  await expect.poll(() => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { selectActiveDocument, useFlowStore } = await import(storePath);
+    return selectActiveDocument(useFlowStore.getState()).projectId;
+  })).not.toBe(identity.projectId);
+  await page.getByRole("button", { name: "打开项目中心" }).click();
+  const projectCenter = page.getByRole("dialog", { name: "项目中心" });
+  await expect(projectCenter).toBeVisible();
+  await projectCenter.getByPlaceholder("搜索最近项目").fill(projectName);
+  await projectCenter.getByRole("button", { name: new RegExp(projectName) }).click();
+
+  const restoredNode = page.locator('.react-flow__node[data-id="ti-angle-save"]');
+  await expect(restoredNode).toBeVisible();
+  const outputToggle = restoredNode.getByRole("button", { name: "查看输出文本", exact: true });
+  await expect(outputToggle).toHaveAttribute("aria-expanded", "false");
+
+  const readRestoredDocument = () => page.evaluate(async () => {
+    const storePath = "/src/store/flowStore.ts";
+    const { selectActiveDocument, useFlowStore } = await import(storePath);
+    const document = selectActiveDocument(useFlowStore.getState());
+    const angle = document.nodes.find((node: { id: string }) => node.id === "ti-angle-save");
+    return {
+      projectId: document.projectId,
+      dirty: document.dirty,
+      angle: angle?.data.angle,
+      autoConnectTargets: document.nodes.find((node: { id: string }) => node.id === "ti-angle-save-source")?.data.autoConnectTargets,
+      edgeIds: document.edges.map((edge: { id: string }) => edge.id).sort(),
+    };
+  });
+  await expect.poll(readRestoredDocument).toEqual({
+    projectId: identity.projectId,
+    dirty: false,
+    angle: {
+      version: 1,
+      enabled: true,
+      azimuthDeg: 123,
+      elevationDeg: -17,
+      rollDeg: 12,
+    },
+    autoConnectTargets: [{ targetNodeId: "ti-angle-save", targetHandle: "preview-image" }],
+    edgeIds: ["ti-angle-save-preview-edge", "ti-angle-save-text-edge"],
+  });
+
+  await page.reload();
+  await expect(page.locator('.react-flow__node[data-id="ti-angle-save"]')).toBeVisible();
+  await expect(page.locator('.react-flow__node[data-id="ti-angle-save"]')
+    .getByRole("button", { name: "查看输出文本", exact: true }))
+    .toHaveAttribute("aria-expanded", "false");
+  await expect.poll(readRestoredDocument).toEqual({
+    projectId: identity.projectId,
+    dirty: false,
+    angle: {
+      version: 1,
+      enabled: true,
+      azimuthDeg: 123,
+      elevationDeg: -17,
+      rollDeg: 12,
+    },
+    autoConnectTargets: [{ targetNodeId: "ti-angle-save", targetHandle: "preview-image" }],
+    edgeIds: ["ti-angle-save-preview-edge", "ti-angle-save-text-edge"],
+  });
+});
+
+
+test("TiAngelNode output supports multi-target copy, focus restoration and read-only mode", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const loadAngleFlow = async (readOnly = false) => page.evaluate(async (isReadOnly) => {
+    const storePath = "/src/store/flowStore.ts";
+    const landingPath = "/src/lib/canvasLanding.ts";
+    const { useFlowStore } = await import(storePath);
+    const { requestCanvasLanding } = await import(landingPath);
+    useFlowStore.getState().loadFlow({
+      projectId: `ti-angle-output-${isReadOnly ? "readonly" : "editable"}`,
+      projectName: "TiAngelNode 输出交互验收",
+      nodes: [
+        {
+          id: "ti-angle-output-e2e",
+          type: "ti-angle",
+          position: { x: 0, y: 0 },
+          data: {
+            kind: "ti-angle",
+            label: "3D 视角输出",
+            status: "idle",
+            angle: { version: 1, enabled: true, azimuthDeg: 45, elevationDeg: 15, rollDeg: -10 },
+          },
+        },
+        {
+          id: "ti-angle-gpt-target",
+          type: "sketch-to-render",
+          position: { x: 560, y: 0 },
+          data: {
+            kind: "sketch-to-render",
+            label: "GPT 目标",
+            status: "idle",
+            prompt: "",
+            modelId: "gpt-image-2",
+            modelOptions: { size: "1024x1024", quality: "medium" },
+            aspectRatio: "1:1",
+            batchSize: 1,
+            outputImages: [],
+          },
+        },
+        {
+          id: "ti-angle-gemini-target",
+          type: "ai-modify",
+          position: { x: 560, y: 700 },
+          data: {
+            kind: "ai-modify",
+            label: "Gemini 目标",
+            status: "idle",
+            prompt: "",
+            modelId: "gemini-3.1-flash-image",
+            modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
+            aspectRatio: "1:1",
+            batchSize: 1,
+            outputImages: [],
+          },
+        },
+      ],
+      edges: [
+        { id: "ti-angle-output-gpt", source: "ti-angle-output-e2e", sourceHandle: "text", target: "ti-angle-gpt-target", targetHandle: "prompt" },
+        { id: "ti-angle-output-gemini", source: "ti-angle-output-e2e", sourceHandle: "text", target: "ti-angle-gemini-target", targetHandle: "prompt" },
+    ] });
+    if (isReadOnly) {
+      useFlowStore.setState((state: { activeTabId: string; tabs: Array<{ id: string; readOnly: boolean }> }) => ({
+        tabs: state.tabs.map((tab) => tab.id === state.activeTabId ? { ...tab, readOnly: true } : tab),
+      }));
+    }
+    useFlowStore.temporal.getState().clear();
+    requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, fitView: true });
+  }, readOnly);
+
+  await loadAngleFlow();
+  await page.evaluate(() => {
+    const writes: string[] = [];
+    Object.defineProperty(window, "__tiAngleClipboardWrites", { configurable: true, value: writes });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => { writes.push(text); } },
+    });
+  });
+  const node = page.locator('.react-flow__node[data-id="ti-angle-output-e2e"]');
+  const outputToggle = node.getByRole("button", { name: "查看输出文本", exact: true });
+  await expect(node).toBeVisible();
+  await outputToggle.click();
+  await expect(outputToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(node).toContainText("接收节点：GPT 目标");
+  await expect(node).toContainText("模型：gpt-image-2");
+  await expect(node).toContainText("接收节点：Gemini 目标");
+  await expect(node).toContainText("模型：gemini-3.1-flash-image");
+  const copyButtons = node.getByRole("button", { name: "复制视角文本", exact: true });
+  await expect(copyButtons).toHaveCount(2);
+
+  await outputToggle.click();
+  await expect(outputToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(outputToggle).toBeFocused();
+  await outputToggle.click();
+  await copyButtons.first().click();
+  await expect.poll(() => page.evaluate(() => (window as Window & { __tiAngleClipboardWrites?: string[] }).__tiAngleClipboardWrites?.length ?? 0)).toBe(1);
+  await expect.poll(() => page.evaluate(() => (window as Window & { __tiAngleClipboardWrites?: string[] }).__tiAngleClipboardWrites?.[0] ?? "")).toContain("左前方");
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => { throw new Error("clipboard blocked"); } },
+    });
+  });
+  await copyButtons.first().click();
+  await expect(node).toContainText("只改变相机观察视角", { timeout: 1000 });
+
+  const beforeReadOnly = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storeModulePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((candidate: { id: string }) => candidate.id === "ti-angle-output-e2e")?.data.angle;
+  });
+  await loadAngleFlow(true);
+  const readOnlyNode = page.locator('.react-flow__node[data-id="ti-angle-output-e2e"]');
+  await expect(readOnlyNode.getByRole("switch", { name: "启用 3D 视角" })).toBeDisabled();
+  await expect(readOnlyNode.getByRole("button", { name: "左前方 +45°", exact: true })).toBeDisabled();
+  await expect(readOnlyNode.getByRole("button", { name: "重置视角", exact: true })).toBeDisabled();
+  await expect(readOnlyNode.getByRole("spinbutton", { name: "环绕角数值" })).toBeDisabled();
+  await expect(readOnlyNode.locator("[data-ti-angle-preview] canvas")).toHaveAttribute("aria-disabled", "true");
+  const afterReadOnly = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocument } = await import(storeModulePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((candidate: { id: string }) => candidate.id === "ti-angle-output-e2e")?.data.angle;
+  });
+  expect(afterReadOnly).toEqual(beforeReadOnly);
 });
 
 test("color picker supports native fallback, direct selection, cancellation and failures", async ({ page }) => {
@@ -778,9 +1593,15 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   await rail.getByRole("button", { name: "模特换装", exact: true }).click();
   const menu = page.getByRole("menu", { name: "模特换装" });
   await menu.getByRole("menuitem", { name: /一键换装/ }).click();
-  await expect(page.locator(".react-flow__node")).toHaveCount(23);
-  const personNode = page.locator('.react-flow__node[data-id="person"]');
-  const outfitNode = page.locator('.react-flow__node[data-id="outfit"]');
+  await expect(page.locator(".react-flow__node")).toHaveCount(21);
+  const personId = await nodeIdByLabel(page, "图 1 · 人物身份参考（必需）");
+  const outfitId = await nodeIdByLabel(page, "主穿搭图（必需）");
+  const composeId = await nodeIdByLabel(page, "前置 · AI 换脸与换姿势");
+  const stabilizeId = await nodeIdByLabel(page, "第一轮 · Gemini 场景化定版");
+  const refineId = await nodeIdByLabel(page, "第二轮 · GPT 服装还原与精修");
+  const garmentDetailId = await nodeIdByLabel(page, "第二轮 · 局部重绘（可选）");
+  const personNode = page.locator(`.react-flow__node[data-id="${personId}"]`);
+  const outfitNode = page.locator(`.react-flow__node[data-id="${outfitId}"]`);
   const personMedia = personNode.locator(".gc-image-input-media");
   await personNode.locator('input[type="file"]').setInputFiles({
     name: "person.png",
@@ -788,55 +1609,50 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     buffer: E2E_UPLOAD_PNG,
   });
   await expect(personMedia.getByAltText("已上传图片")).toBeVisible();
-  await expect.poll(() => page.evaluate(async () => {
+  await expect.poll(() => page.evaluate(async ({ personId, stabilizeId }) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const tab = useFlowStore.getState().tabs.find((candidate: { id: string }) => candidate.id === useFlowStore.getState().activeTabId);
     return tab?.edges.map((edge: { source: string; target: string; targetHandle?: string | null }) => `${edge.source}:${edge.target}:${edge.targetHandle}`).sort();
-  })).toEqual([
-    "approval:refine:baseline",
-    "person:stabilize:person",
-    "refine:garment-detail:repair-source",
-    "stabilize:approval:baseline-candidate",
-  ]);
+  }, { personId, stabilizeId })).toEqual(expect.arrayContaining([
+    `${personId}:${composeId}:references`,
+  ]));
 
   await outfitNode.locator('input[type="file"]').setInputFiles({
     name: "outfit.png",
     mimeType: "image/png",
     buffer: E2E_UPLOAD_PNG,
   });
-  await expect.poll(() => page.evaluate(async () => {
+  await expect.poll(() => page.evaluate(async ({ outfitId, stabilizeId, refineId, garmentDetailId }) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
-    return tab?.edges.filter((edge: { source: string }) => edge.source === "outfit").map((edge: { target: string }) => edge.target).sort();
-  })).toEqual(["garment-detail", "refine", "stabilize"]);
+    return tab?.edges.filter((edge: { source: string }) => edge.source === outfitId).map((edge: { target: string }) => edge.target).sort();
+  }, { outfitId, stabilizeId, refineId, garmentDetailId })).toEqual([garmentDetailId, refineId, stabilizeId].sort());
 
-  const stabilizeNode = page.locator('.react-flow__node[data-id="stabilize"]');
+  const stabilizeNode = page.locator(`.react-flow__node[data-id="${stabilizeId}"]`);
   await expect(stabilizeNode).toBeVisible();
   await stabilizeNode.locator(".gc-node-floating-title").click();
   await page.getByRole("button", { name: "属性", exact: true }).click();
   const qualityControls = page.locator("#workbench-inspector-panel");
-  await expect(qualityControls.getByText("风格预设", { exact: true })).toBeVisible();
-  await expect(qualityControls.getByRole("combobox", { name: "风格预设" })).toContainText("忠实还原");
-  await expect(qualityControls.getByRole("button", { name: "最佳", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await expect(qualityControls.getByRole("switch", { name: "提示词增强" })).toBeChecked();
-  await expect(qualityControls.getByRole("switch", { name: "审核失败安全降级一次" })).toBeChecked();
+  await expect(qualityControls.getByRole("combobox", { name: "图像模型" })).toContainText("Gemini 3 Pro");
+  await expect(qualityControls.getByRole("switch", { name: "提示词增强" })).toHaveCount(0);
+  await expect(qualityControls.getByRole("switch", { name: "审核失败安全降级一次" })).toHaveCount(0);
   await page.getByRole("button", { name: "属性", exact: true }).click();
 
-  await page.evaluate(async () => {
+  await page.evaluate(async (garmentDetailId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
-    useFlowStore.getState().setSelectedNodeIds(["garment-detail"]);
-  });
-  await expect(page.locator('.react-flow__node[data-id="garment-detail"]')).toContainText("第二轮 · 局部重绘（可选）");
-  const localRedraw = await page.evaluate(async () => {
+    useFlowStore.getState().setSelectedNodeIds([garmentDetailId]);
+  }, garmentDetailId);
+  await expect(page.locator(`.react-flow__node[data-id="${garmentDetailId}"]`)).toContainText("第二轮 · 局部重绘（可选）");
+  const localRedraw = await page.evaluate(async (garmentDetailId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { selectActiveDocument, useFlowStore } = await import(storeModulePath);
     const document = selectActiveDocument(useFlowStore.getState());
-    return document.nodes.find((node: BrowserFlowNode) => node.id === "garment-detail")?.data;
-  });
+    return document.nodes.find((node: BrowserFlowNode) => node.id === garmentDetailId)?.data;
+  }, garmentDetailId);
   expect(localRedraw).toMatchObject({
     kind: "mask-redraw",
     modelId: "gpt-image-2.5-sunburst",
@@ -878,14 +1694,14 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   await expect(personNode).toHaveClass(/\bselected\b/);
   const minimapThumbnail = page.locator(".gc-minimap-node-thumbnail").first();
   await expect(minimapThumbnail).toBeVisible();
-  const resizeBefore = await page.evaluate(async () => {
+  const resizeBefore = await page.evaluate(async (personId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { persistedWorkflowForProjectTab, useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId)!;
-    const node = tab.nodes.find((candidate: { id: string }) => candidate.id === "person")!;
-    return { position: node.position, revision: tab.revision, persistedPosition: persistedWorkflowForProjectTab(tab).nodes.find((candidate: { id: string }) => candidate.id === "person")?.position };
-  });
+    const node = tab.nodes.find((candidate: { id: string }) => candidate.id === personId)!;
+    return { position: node.position, revision: tab.revision, persistedPosition: persistedWorkflowForProjectTab(tab).nodes.find((candidate: { id: string }) => candidate.id === personId)?.position };
+  }, personId);
   const cornerHandles = personNode.locator(".react-flow__resize-control.handle");
   await expect(cornerHandles).toHaveCount(4);
   const topLeftBox = await personNode.locator(".react-flow__resize-control.handle.top.left").boundingBox();
@@ -901,19 +1717,19 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   await page.mouse.move(topLeftBox.x - 28, topLeftBox.y - 20, { steps: 6 });
   await page.mouse.up();
   await expect.poll(async () => (await personNode.boundingBox())?.width ?? 0).toBeGreaterThan(nodeBoxBeforeResize.width);
-  const resizeAfter = await page.evaluate(async () => {
+  const resizeAfter = await page.evaluate(async (personId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { persistedWorkflowForProjectTab, useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId)!;
-    const node = tab.nodes.find((candidate: { id: string }) => candidate.id === "person")!;
+    const node = tab.nodes.find((candidate: { id: string }) => candidate.id === personId)!;
     return {
       position: node.position,
       revision: tab.revision,
       pastStates: useFlowStore.temporal.getState().pastStates.length,
-      persistedPosition: persistedWorkflowForProjectTab(tab).nodes.find((candidate: { id: string }) => candidate.id === "person")?.position,
+      persistedPosition: persistedWorkflowForProjectTab(tab).nodes.find((candidate: { id: string }) => candidate.id === personId)?.position,
     };
-  });
+  }, personId);
   expect(resizeAfter.position).not.toEqual(resizeBefore.position);
   expect(resizeAfter.persistedPosition).toEqual(resizeBefore.persistedPosition);
   expect(resizeAfter.revision).toBe(resizeBefore.revision);
@@ -923,13 +1739,13 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   await expect.poll(async () => (await personNode.boundingBox())?.width ?? 0).toBeGreaterThan(widthBeforeKeyboardResize);
   await expect(page.getByRole("dialog", { name: "图片查看器" })).toHaveCount(0);
 
-  const start = await page.evaluate(async () => {
+  const start = await page.evaluate(async (personId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
-    return tab?.nodes.find((node: { id: string; position: { x: number; y: number } }) => node.id === "person")?.position;
-  });
+    return tab?.nodes.find((node: { id: string; position: { x: number; y: number } }) => node.id === personId)?.position;
+  }, personId);
   const mediaBox = await personMedia.boundingBox();
   if (!mediaBox || !start) throw new Error("Uploaded image drag target is missing");
   await page.mouse.move(mediaBox.x + mediaBox.width / 2, mediaBox.y + mediaBox.height / 2);
@@ -942,21 +1758,21 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
     return useFlowStore.temporal.getState().pastStates.length;
   })).toBe(1);
   await page.keyboard.press(`${modifier}+z`);
-  await expect.poll(() => page.evaluate(async (expected) => {
+  await expect.poll(() => page.evaluate(async ({ expected, personId }) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
-    const position = tab?.nodes.find((node: { id: string; position: { x: number; y: number } }) => node.id === "person")?.position;
+    const position = tab?.nodes.find((node: { id: string; position: { x: number; y: number } }) => node.id === personId)?.position;
     return position ? Math.max(Math.abs(position.x - expected.x), Math.abs(position.y - expected.y)) : Infinity;
-  }, start)).toBeLessThan(0.001);
-  const removableEdgeId = await page.evaluate(async () => {
+  }, { expected: start, personId })).toBeLessThan(0.001);
+  const removableEdgeId = await page.evaluate(async (personId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
-    return tab?.edges.find((edge: { source: string }) => edge.source === "person")?.id;
-  });
+    return tab?.edges.find((edge: { source: string }) => edge.source === personId)?.id;
+  }, personId);
   if (!removableEdgeId) throw new Error("Expected a person reference edge");
   const removableEdge = page.locator(`.react-flow__edge[data-id="${removableEdgeId}"] .react-flow__edge-interaction`);
   const removableEdgeBox = await removableEdge.boundingBox();
@@ -993,7 +1809,8 @@ test("delayed style preset writes stay bound to the initiating document", async 
   await rail.getByRole("button", { name: "模特换装", exact: true }).click();
   await page.getByRole("menu", { name: "模特换装" }).getByRole("menuitem", { name: /一键换装/ }).click();
 
-  const stabilizeNode = page.locator('.react-flow__node[data-id="stabilize"]');
+  const stabilizeId = await nodeIdByLabel(page, "第一轮 · Gemini 场景化定版");
+  const stabilizeNode = page.locator(`.react-flow__node[data-id="${stabilizeId}"]`);
   await expect(stabilizeNode).toBeVisible();
   await stabilizeNode.locator(".gc-node-floating-title").click();
   const inspector = page.locator("#workbench-inspector-panel");
@@ -1053,12 +1870,12 @@ test("delayed style preset writes stay bound to the initiating document", async 
   await dialog.getByRole("button", { name: "保存", exact: true }).click();
   await saveStarted.promise;
 
-  const saveTargets = await page.evaluate(async () => {
+  const saveTargets = await page.evaluate(async (stabilizeId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const store = useFlowStore.getState();
     const source = store.tabs.find((tab: BrowserProjectTab) => tab.id === store.activeTabId)!;
-    const stage = source.nodes.find((node: BrowserFlowNode) => node.id === "stabilize")!;
+    const stage = source.nodes.find((node: BrowserFlowNode) => node.id === stabilizeId)!;
     store.createBlankTab();
     useFlowStore.getState().loadFlow({
       projectId: `style-isolation-${crypto.randomUUID()}`,
@@ -1068,33 +1885,33 @@ test("delayed style preset writes stay bound to the initiating document", async 
       markDirty: true,
     });
     return { sourceTabId: source.id, activeTabId: useFlowStore.getState().activeTabId };
-  });
+  }, stabilizeId);
   const saveRefresh = page.waitForResponse((response) => (
     response.request().method() === "GET"
     && new URL(response.url()).pathname === "/api/try-on-style-presets"
   ));
   releaseSave.resolve();
   await saveRefresh;
-  await expect.poll(() => page.evaluate(async ({ sourceTabId, activeTabId }) => {
+  await expect.poll(() => page.evaluate(async ({ sourceTabId, activeTabId, stabilizeId }) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
-    const source = state.tabs.find((tab: BrowserProjectTab) => tab.id === sourceTabId)?.nodes.find((node: BrowserFlowNode) => node.id === "stabilize");
-    const active = state.tabs.find((tab: BrowserProjectTab) => tab.id === activeTabId)?.nodes.find((node: BrowserFlowNode) => node.id === "stabilize");
+    const source = state.tabs.find((tab: BrowserProjectTab) => tab.id === sourceTabId)?.nodes.find((node: BrowserFlowNode) => node.id === stabilizeId);
+    const active = state.tabs.find((tab: BrowserProjectTab) => tab.id === activeTabId)?.nodes.find((node: BrowserFlowNode) => node.id === stabilizeId);
     return {
       sourceIsCustom: source?.data.kind === "virtual-try-on" && Boolean(source.data.stylePresetId && source.data.stylePresetId !== "faithful"),
       activePreset: active?.data.kind === "virtual-try-on" ? active.data.stylePresetId : undefined,
     };
-  }, saveTargets)).toEqual({ sourceIsCustom: true, activePreset: "faithful" });
+  }, { ...saveTargets, stabilizeId })).toEqual({ sourceIsCustom: true, activePreset: "faithful" });
   await page.unroute("**/api/try-on-style-presets");
   await page.unroute("**/api/assets?*");
 
-  await page.evaluate(async (sourceTabId) => {
+  await page.evaluate(async ({ sourceTabId, stabilizeId }) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     useFlowStore.getState().switchTab(sourceTabId);
-    useFlowStore.getState().setSelectedNodeIds(["stabilize"]);
-  }, saveTargets.sourceTabId);
+    useFlowStore.getState().setSelectedNodeIds([stabilizeId]);
+  }, { sourceTabId: saveTargets.sourceTabId, stabilizeId });
   await expect(inspector.getByRole("button", { name: "删除当前风格预设" })).toBeVisible();
 
   const deleteStarted = deferred();
@@ -1112,12 +1929,12 @@ test("delayed style preset writes stay bound to the initiating document", async 
   await inspector.getByRole("button", { name: "删除当前风格预设" }).click();
   await deleteStarted.promise;
 
-  const replacement = await page.evaluate(async () => {
+  const replacement = await page.evaluate(async (stabilizeId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const current = state.tabs.find((tab: BrowserProjectTab) => tab.id === state.activeTabId)!;
-    const stage = current.nodes.find((node: BrowserFlowNode) => node.id === "stabilize")!;
+    const stage = current.nodes.find((node: BrowserFlowNode) => node.id === stabilizeId)!;
     const nextProjectId = `style-replacement-${crypto.randomUUID()}`;
     state.loadFlow({
       projectId: nextProjectId,
@@ -1127,7 +1944,7 @@ test("delayed style preset writes stay bound to the initiating document", async 
       markDirty: true,
     });
     return { tabId: current.id, projectId: nextProjectId };
-  });
+  }, stabilizeId);
   const deleteRefresh = page.waitForResponse((response) => (
     response.request().method() === "GET"
     && new URL(response.url()).pathname === "/api/try-on-style-presets"
@@ -1135,16 +1952,16 @@ test("delayed style preset writes stay bound to the initiating document", async 
   releaseDelete.resolve();
   await deleteRefresh;
   await page.waitForTimeout(100);
-  expect(await page.evaluate(async ({ tabId, projectId }) => {
+  expect(await page.evaluate(async ({ tabId, projectId, stabilizeId }) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const tab = useFlowStore.getState().tabs.find((candidate: BrowserProjectTab) => candidate.id === tabId);
-    const stage = tab?.nodes.find((node: BrowserFlowNode) => node.id === "stabilize");
+    const stage = tab?.nodes.find((node: BrowserFlowNode) => node.id === stabilizeId);
     return {
       projectId: tab?.projectId,
       presetId: stage?.data.kind === "virtual-try-on" ? stage.data.stylePresetId : undefined,
     };
-  }, replacement)).toEqual({ projectId: replacement.projectId, presetId: "faithful" });
+  }, { ...replacement, stabilizeId })).toEqual({ projectId: replacement.projectId, presetId: "faithful" });
 });
 
 test("staged try-on confirms a semantic role before connecting and invalidates stale approval", async ({ page }, testInfo) => {
@@ -1242,16 +2059,19 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
   await expect(openTemplate).toBeVisible();
   await openTemplate.click();
   await expect(projectCenter).toBeHidden();
-  const stabilizeNode = page.locator('.react-flow__node[data-id="e2e-stabilize"]');
-  const approvalNode = page.locator('.react-flow__node[data-id="e2e-approval"]');
-  const refineNode = page.locator('.react-flow__node[data-id="e2e-refine"]');
+  const sourceId = await nodeIdByLabel(page, "待分配参考图");
+  const stabilizeId = await nodeIdByLabel(page, "第一轮 · Gemini 场景化定版");
+  const approvalId = await nodeIdByLabel(page, "确认第一轮基准");
+  const refineId = await nodeIdByLabel(page, "第二轮 · GPT 服装精修");
+  const stabilizeNode = page.locator(`.react-flow__node[data-id="${stabilizeId}"]`);
+  const approvalNode = page.locator(`.react-flow__node[data-id="${approvalId}"]`);
+  const refineNode = page.locator(`.react-flow__node[data-id="${refineId}"]`);
   await expect(stabilizeNode).toBeVisible();
-  // The first round now includes a four-row ideas editor and model/parameter controls.
-  expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(page.viewportSize()!.height - 100);
+  expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(page.viewportSize()!.height - 120);
   expect((await rect(refineNode)).height).toBeLessThanOrEqual(637.4375);
 
   for (const [node, portIds] of [
-    [stabilizeNode, ["person", "scene", "pose", "outfit", "detail"]],
+    [stabilizeNode, ["person", "scene", "outfit", "detail", "angle-direction"]],
     [refineNode, ["baseline", "outfit", "material", "detail"]],
   ] as const) {
     for (const portId of portIds) {
@@ -1292,7 +2112,7 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
   }
 
   await expectCurrentThemeContract(page);
-  expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(page.viewportSize()!.height - 100);
+  expect((await rect(stabilizeNode)).height).toBeLessThanOrEqual(page.viewportSize()!.height - 120);
   expect((await rect(refineNode)).height).toBeLessThanOrEqual(637.4375);
 
   await page.evaluate(async () => {
@@ -1304,23 +2124,23 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
   await stabilizeNode.locator(".gc-node-floating-title").click();
   await expect(page.locator(".gc-workflow-edge--downstream")).toHaveCount(1);
 
-  await page.evaluate(async () => {
+  await page.evaluate(async (stabilizeId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
-    useFlowStore.getState().setNodeStatus("e2e-stabilize", "running");
-  });
+    useFlowStore.getState().setNodeStatus(stabilizeId, "running");
+  }, stabilizeId);
   const flowDots = page.locator(".gc-edge-flow-dots");
   await expect(flowDots).toHaveCount(1);
   await expect.poll(() => flowDots.evaluate((element) => getComputedStyle(element).display)).toBe("none");
-  await page.evaluate(async () => {
+  await page.evaluate(async ({ stabilizeId, approvalId }) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
-    useFlowStore.getState().setNodeStatus("e2e-stabilize", "idle");
+    useFlowStore.getState().setNodeStatus(stabilizeId, "idle");
     useFlowStore.getState().onNodesChange([
-      { id: "e2e-stabilize", type: "position", position: { x: 380, y: 0 } },
-      { id: "e2e-approval", type: "position", position: { x: 400, y: 10 } },
+      { id: stabilizeId, type: "position", position: { x: 380, y: 0 } },
+      { id: approvalId, type: "position", position: { x: 400, y: 10 } },
     ]);
-  });
+  }, { stabilizeId, approvalId });
   await expect.poll(async () => {
     const a = await rect(stabilizeNode);
     const b = await rect(approvalNode);
@@ -1330,13 +2150,13 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
     x: (Math.min(a.left, b.left) + Math.max(a.right, b.right)) / 2,
     y: (Math.min(a.top, b.top) + Math.max(a.bottom, b.bottom)) / 2,
   }));
-  const refinePositionBefore = await page.evaluate(async () => {
+  const refinePositionBefore = await page.evaluate(async (refineId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
-    return tab?.nodes.find((node: { id: string }) => node.id === "e2e-refine")?.position;
-  });
+    return tab?.nodes.find((node: { id: string }) => node.id === refineId)?.position;
+  }, refineId);
   const canvasCenterBefore = await flowCenter(page.getByRole("application", { name: "工作流画布" }));
   await page.getByRole("button", { name: "整理所选工作流" }).click();
   await expect.poll(async () => {
@@ -1351,32 +2171,32 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
   expect(Math.abs(componentCenterAfter.x - componentCenterBefore.x)).toBeLessThanOrEqual(1);
   expect(Math.abs(componentCenterAfter.y - componentCenterBefore.y)).toBeLessThanOrEqual(1);
   await expectFlowCenter(page.getByRole("application", { name: "工作流画布" }), canvasCenterBefore);
-  expect(await page.evaluate(async () => {
+  expect(await page.evaluate(async (refineId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
-    return tab?.nodes.find((node: { id: string }) => node.id === "e2e-refine")?.position;
-  })).toEqual(refinePositionBefore);
+    return tab?.nodes.find((node: { id: string }) => node.id === refineId)?.position;
+  }, refineId)).toEqual(refinePositionBefore);
 
   // 自动整理刻意只移动所选连通分量；把未连接的测试素材放回第一轮左侧，
   // 避免它与保持中心后的节点重叠，随后再验证真实拖线交互。
-  await page.evaluate(async () => {
+  await page.evaluate(async ({ stabilizeId, sourceId }) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
-    const stage = tab?.nodes.find((node: { id: string }) => node.id === "e2e-stabilize");
+    const stage = tab?.nodes.find((node: { id: string }) => node.id === stabilizeId);
     if (!stage) throw new Error("missing staged node");
     state.onNodesChange([{
-      id: "e2e-role-source",
+      id: sourceId,
       type: "position",
       position: { x: stage.position.x - 420, y: stage.position.y },
     }]);
-  });
+  }, { stabilizeId, sourceId });
 
-  const sourceHandle = page.locator('.react-flow__node[data-id="e2e-role-source"] .react-flow__handle.source');
-  const detailHandle = page.locator('.react-flow__node[data-id="e2e-stabilize"] [data-handleid="detail"]');
+  const sourceHandle = page.locator(`.react-flow__node[data-id="${sourceId}"] .react-flow__handle.source`);
+  const detailHandle = page.locator(`.react-flow__node[data-id="${stabilizeId}"] [data-handleid="detail"]`);
   await sourceHandle.dragTo(detailHandle);
   const roleDialog = page.getByRole("dialog", { name: "确认连接角色" });
   await expect(roleDialog).toBeVisible();
@@ -1390,46 +2210,46 @@ test("staged try-on confirms a semantic role before connecting and invalidates s
   await roleDialog.getByRole("radio", { name: /服装局部结构参考/ }).check();
   await roleDialog.getByRole("button", { name: "确认连接" }).click();
   await expect(roleDialog).toBeHidden();
-  await expect.poll(async () => page.evaluate(async () => {
+  await expect.poll(async () => page.evaluate(async ({ sourceId, stabilizeId }) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
     return tab?.edges.some((edge: { source: string; target: string; targetHandle?: string | null }) => (
-      edge.source === "e2e-role-source" && edge.target === "e2e-stabilize" && edge.targetHandle === "detail"
+      edge.source === sourceId && edge.target === stabilizeId && edge.targetHandle === "detail"
     ));
-  })).toBe(true);
+  }, { sourceId, stabilizeId })).toBe(true);
   await expect(detailHandle).toHaveAttribute("data-connection-state", "connected");
 
   await detailHandle.click({ button: "right" });
-  await expect.poll(async () => page.evaluate(async () => {
+  await expect.poll(async () => page.evaluate(async ({ sourceId, stabilizeId }) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
     const state = useFlowStore.getState();
     const tab = state.tabs.find((candidate: { id: string }) => candidate.id === state.activeTabId);
     return tab?.edges.some((edge: { source: string; target: string; targetHandle?: string | null }) => (
-      edge.source === "e2e-role-source" && edge.target === "e2e-stabilize" && edge.targetHandle === "detail"
+      edge.source === sourceId && edge.target === stabilizeId && edge.targetHandle === "detail"
     ));
-  })).toBe(false);
+  }, { sourceId, stabilizeId })).toBe(false);
   await expect(detailHandle).toHaveAttribute("data-connection-state", "optional");
 
-  await page.evaluate(async () => {
+  await page.evaluate(async (stabilizeId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
-    useFlowStore.getState().updateNodeData("e2e-stabilize", {
+    useFlowStore.getState().updateNodeData(stabilizeId, {
       outputImages: ["data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="],
     });
-  });
-  const approval = page.locator('.react-flow__node[data-id="e2e-approval"]');
+  }, stabilizeId);
+  const approval = page.locator(`.react-flow__node[data-id="${approvalId}"]`);
   await expect(approval.getByText("待确认", { exact: true })).toBeVisible();
   await approval.getByRole("button", { name: "确认当前第一轮基准" }).click();
   await expect(approval.getByText("基准已确认")).toBeVisible();
 
-  await page.evaluate(async () => {
+  await page.evaluate(async (stabilizeId) => {
     const storeModulePath = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(storeModulePath);
-    useFlowStore.getState().updateNodeData("e2e-stabilize", { prompt: "改变第一轮生成依据" });
-  });
+    useFlowStore.getState().updateNodeData(stabilizeId, { prompt: "改变第一轮生成依据" });
+  }, stabilizeId);
   await expect(approval.locator('.gc-node-card[data-display-state="needs-reconfirmation"]')).toBeVisible();
 });
 
@@ -2203,6 +3023,94 @@ test("result quick transforms create server-safe edges for the selected image", 
   await resultNode.getByRole("button", { name: "高清放大" }).click();
   await page.getByRole("menuitem", { name: "2K", exact: true }).click();
   await assertConnection("upscale");
+});
+
+test("copying a TiAngelNode subgraph remaps internal edges and node references", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().loadFlow({
+      projectName: "TiAngelNode 子图复制",
+      markDirty: true,
+      nodes: [
+        {
+          id: "clipboard-person",
+          type: "image-input",
+          position: { x: 0, y: 0 },
+          data: {
+            kind: "image-input",
+            label: "复制人物",
+            status: "idle",
+            imageRole: "reference",
+            autoConnectTargets: [{ targetNodeId: "clipboard-angle", targetHandle: "preview-image" }],
+          },
+        },
+        {
+          id: "clipboard-angle",
+          type: "ti-angle",
+          position: { x: 360, y: 0 },
+          data: {
+            kind: "ti-angle",
+            label: "复制视角",
+            status: "idle",
+            angle: { version: 1, enabled: true, azimuthDeg: 20, elevationDeg: 5, rollDeg: 0 },
+          },
+        },
+      ],
+      edges: [{
+        id: "clipboard-preview",
+        source: "clipboard-person",
+        sourceHandle: "image",
+        target: "clipboard-angle",
+        targetHandle: "preview-image",
+      }],
+    });
+    useFlowStore.getState().setSelectedNodeIds(["clipboard-person", "clipboard-angle"]);
+  });
+  await expect(page.locator(".react-flow__node")).toHaveCount(2);
+  await page.keyboard.press(`${modifier}+c`);
+  await page.keyboard.press(`${modifier}+v`);
+  await expect(page.locator(".react-flow__node")).toHaveCount(4);
+
+  const pasted = await page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { selectActiveDocument, useFlowStore } = await import(storeModulePath);
+    const document = selectActiveDocument(useFlowStore.getState());
+    const cloneNodes = document.nodes.filter((node: BrowserFlowNode) => !["clipboard-person", "clipboard-angle"].includes(node.id));
+    const cloneIds = new Set(cloneNodes.map((node: BrowserFlowNode) => node.id));
+    const cloneEdge = document.edges.find((edge: { source: string; target: string }) => cloneIds.has(edge.source) && cloneIds.has(edge.target));
+    const clonePerson = cloneNodes.find((node: BrowserFlowNode) => node.data.kind === "image-input");
+    return {
+      cloneIds: cloneNodes.map((node: BrowserFlowNode) => node.id),
+      edge: cloneEdge ? {
+        source: cloneEdge.source,
+        target: cloneEdge.target,
+        sourceHandle: cloneEdge.sourceHandle,
+        targetHandle: cloneEdge.targetHandle,
+      } : null,
+      autoConnectTarget: clonePerson?.data.kind === "image-input"
+        ? clonePerson.data.autoConnectTargets?.[0]?.targetNodeId
+        : undefined,
+    };
+  });
+  expect(pasted.cloneIds).toHaveLength(2);
+  expect(pasted.edge?.source).toBeTruthy();
+  expect(pasted.edge?.target).toBeTruthy();
+  expect(pasted.edge?.source).not.toBe("clipboard-person");
+  expect(pasted.edge?.target).not.toBe("clipboard-angle");
+  expect(pasted.edge?.sourceHandle).toBe("image");
+  expect(pasted.edge?.targetHandle).toBe("preview-image");
+  expect(pasted.autoConnectTarget).toBe(pasted.edge?.target);
+
+  await page.keyboard.press(`${modifier}+z`);
+  await expect(page.locator(".react-flow__node")).toHaveCount(2);
+  await expect.poll(() => page.evaluate(async () => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { selectActiveDocument, useFlowStore } = await import(storeModulePath);
+    return selectActiveDocument(useFlowStore.getState()).edges.map((edge: { id: string }) => edge.id);
+  })).toEqual(["clipboard-preview"]);
 });
 
 test("dragging a node near the canvas edge never auto-pans the viewport", async ({ page }) => {

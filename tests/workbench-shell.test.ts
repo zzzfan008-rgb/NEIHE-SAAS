@@ -247,7 +247,7 @@ assert.match(toolRailSource, /\{TOOL_GROUPS\.map\([\s\S]*?aria-label="资产库"
 assert.doesNotMatch(toolRailSource, /Separator|role="separator"/, "创作工具与快捷键入口之间不得增加分隔线");
 assert.match(appSource, /requestCanvasZoom\("in"\)/, "主修饰键加号必须缩放画布而不是浏览器页面");
 assert.match(appSource, /copySelectedNodesToClipboard\(\)/, "复制快捷键必须读取 canonical 多选节点");
-assert.match(appSource, /addExistingNodes\(additions\)/, "多节点粘贴必须通过原子批量 action 落入文档");
+assert.match(appSource, /addExistingNodes\(additions,\s*pastedEdges\)/, "多节点粘贴必须通过原子批量 action 同时落入节点与内部连线");
 assert.equal(
   (workbenchShellRenderSource.match(/\{children\}/g) ?? []).length,
   1,

@@ -21,6 +21,7 @@ import { DrawingBoardNode } from "./DrawingBoardNode";
 import { ColorPaletteNode } from "./ColorPaletteNode";
 import { OutfitReferenceNode } from "./OutfitReferenceNode";
 import { AiStylingNode } from "./AiStylingNode";
+import { TiAngelNode } from "./TiAngelNode";
 
 export const nodeTypes: NodeTypes = {
   "character-board": CharacterBoardNode,
@@ -44,6 +45,7 @@ export const nodeTypes: NodeTypes = {
   "print-mutate": PrintMutateNode,
   "mask-redraw": MaskRedrawNode,
   "virtual-try-on": VirtualTryOnNode,
+  "ti-angle": TiAngelNode,
   result: ResultNode,
 };
 
@@ -62,3 +64,4 @@ export { AudioInputNode } from "./AudioInputNode";
 export { StageApprovalNode } from "./StageApprovalNode";
 export { DrawingBoardNode } from "./DrawingBoardNode";
 export { ColorPaletteNode } from "./ColorPaletteNode";
+export { TiAngelNode } from "./TiAngelNode";

@@ -185,6 +185,125 @@ await test("入队立即返回且数据库重连后 queued 任务仍可执行并
   assert.deepEqual(replay?.map((event) => event.seq), allEvents.slice(2).map((event) => event.seq));
 });
 
+await test("TiAngel 角度快照在入队、重试和数据库重连后保持不变", async () => {
+  const nodeId = `angle-snapshot-${++sequence}`;
+  const originalAngleText = "Use a front-left camera view with a mild high angle and level roll.";
+  const angleControl = {
+    sourceNodeId: `angle-source-${sequence}`,
+    config: {
+      version: 1 as const,
+      enabled: true,
+      azimuthDeg: 35,
+      elevationDeg: 10,
+      rollDeg: 0,
+    },
+    adapterVersion: 1 as const,
+    targetModelId: "gemini-3.1-flash-image" as const,
+    text: originalAngleText,
+  };
+  const stage: NodeExecution = {
+    nodeId,
+    kind: "virtual-try-on",
+    inputImages: [],
+    upstream: [
+      { nodeId: `${nodeId}-person`, images: [PNG_DATA_URL], targetHandle: "person" },
+      { nodeId: `${nodeId}-scene`, images: [PNG_DATA_URL], targetHandle: "scene" },
+      { nodeId: `${nodeId}-pose`, images: [PNG_DATA_URL], targetHandle: "pose" },
+      { nodeId: `${nodeId}-outfit`, images: [PNG_DATA_URL], targetHandle: "outfit" },
+    ],
+    params: {
+      workflowStage: "scene-stabilize",
+      prompt: "保持人物动作",
+      imageSize: "2K",
+      aspectRatio: "1:1",
+      modelId: "gemini-3.1-flash-image",
+      modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
+      promptEnhancement: false,
+      qualityMode: "fast",
+      safetyFallback: false,
+      stylePresetId: "faithful",
+      angleControl,
+    },
+  };
+  const fake = resolver((_request, call) => {
+    if (call === 1) {
+      throw new ProviderError("暂时失败", 503, "gemini-3.1-flash-image", "gateway_unavailable");
+    }
+    return { images: [PNG_DATA_URL], model: "gemini-3.1-flash-image" };
+  });
+  const sceneAnalyzer: SceneAnalyzer = async () => ({
+    prompt: "环境：摄影棚；背景：暖灰；光线：柔光；镜头：平视；取景：全身；构图：纵深居中",
+    providerRequests: 0,
+    model: "snapshot-test",
+    cacheHit: true,
+  });
+  const poseAnalyzer: PoseAnalyzer = async () => ({
+    guideImage: PNG_DATA_URL,
+    prompt: "身体姿势：自然站立；手部姿势：自然下垂；头部姿势：正直；视线方向：正前方",
+    providerRequests: 0,
+    model: "snapshot-test",
+    cacheHit: true,
+  });
+  const identityAnchorer: IdentityAnchorer = async () => ({
+    image: PNG_DATA_URL,
+    providerRequests: 0,
+    model: "snapshot-test",
+    cacheHit: true,
+    fallback: false,
+  });
+  const run = await queue.enqueueGenerationRun(
+    { steps: [stage] },
+    owner.id,
+    {
+      ...context(nodeId),
+      clientRequestId: `angle-snapshot-request-${sequence}`,
+      nodeLabel: "角度快照第一轮",
+      kind: "virtual-try-on",
+      referenceImages: [PNG_DATA_URL, PNG_DATA_URL, PNG_DATA_URL, PNG_DATA_URL],
+    },
+  );
+
+  angleControl.config.azimuthDeg = -70;
+  angleControl.text = "MUTATED AFTER QUEUE";
+  assert.equal(await queue.processNextGenerationJob("worker-angle-snapshot-first", {
+    resolveProvider: fake.resolveProvider,
+    sceneAnalyzer,
+    poseAnalyzer,
+    identityAnchorer,
+    now: () => tick(),
+    random: () => 0,
+    retryDelaysMs: [0, 0],
+  }), true);
+  assert.equal((await runRow(run.id))?.status, "retry_wait");
+
+  await database.closeDatabaseForTests();
+  await database.initializeDatabase();
+  angleControl.config.azimuthDeg = 120;
+  angleControl.text = "MUTATED BEFORE RETRY";
+  assert.equal(await queue.processNextGenerationJob("worker-angle-snapshot-retry", {
+    resolveProvider: fake.resolveProvider,
+    sceneAnalyzer,
+    poseAnalyzer,
+    identityAnchorer,
+    now: () => tick(),
+    random: () => 0,
+    retryDelaysMs: [0, 0],
+  }), true);
+
+  assert.equal(fake.calls(), 2);
+  assert.equal((await runRow(run.id))?.status, "succeeded");
+  for (const request of fake.requests()) {
+    assert.match(request.prompt, new RegExp(originalAngleText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(request.prompt, /MUTATED/);
+  }
+  const stored = await database.queryOne<{ step_json: string }>(
+    "SELECT step_json FROM generation_run_steps WHERE run_id = $1 AND node_id = $2",
+    [run.id, nodeId],
+  );
+  const storedStep = JSON.parse(stored?.step_json ?? "{}") as NodeExecution;
+  assert.equal((storedStep.params.angleControl as { text?: string } | undefined)?.text, originalAngleText);
+});
+
 await test("领取旧版超量配色任务时同步规范化历史请求数量", async () => {
   sequence += 1;
   const nodeId = `legacy-recolor-count-${sequence}`;

@@ -19,6 +19,7 @@ const { deleteStoredImage, uploadsDir } = await import("../server/lib/fileStore"
 const { createSession, SESSION_COOKIE } = await import("../server/lib/auth");
 const { createRun } = await import("../server/engine/runner");
 const { buildExecutionPlan } = await import("../server/engine/dag");
+const { createExecutionInputFingerprint } = await import("../server/lib/executionInputFingerprint");
 const { authRouter } = await import("../server/routes/auth");
 const { runPlanRouter } = await import("../server/routes/runPlan");
 const { generateRouter } = await import("../server/routes/generate");
@@ -32,7 +33,7 @@ const {
 } = await import("../server/routes/projects");
 const { usageRouter } = await import("../server/routes/usage");
 const { historyRouter } = await import("../server/routes/history");
-const { templatesRouter } = await import("../server/routes/templates");
+const { ensureBuiltinTemplates, templatesRouter } = await import("../server/routes/templates");
 const { tryOnStylePresetsRouter } = await import("../server/routes/tryOnStylePresets");
 const { migrateLegacyData } = await import("../server/lib/legacyMigration");
 const {
@@ -449,6 +450,90 @@ await test("已退役的配色替换内置模板即使被旧服务重写也不�
   assert.equal(templates.find((template) => template.id === "builtin-tool-fabric-replace")?.name, "面料配色替换");
   assert.equal(fs.existsSync(retiredPath), false);
   assert.equal((await request("/templates/builtin-tool-color-replace", "owner")).status, 404);
+});
+
+await test("托管内置模板刷新不改写旧用户项目或用户模板", async () => {
+  const projectId = "managed-refresh-preserves-project";
+  const projectFlow = generationFlow("旧用户项目内容不得改写");
+  const savedProject = await request("/projects", "owner", {
+    method: "POST",
+    body: JSON.stringify({ id: projectId, name: "旧用户项目", flow: projectFlow }),
+  });
+  assert.equal(savedProject.status, 200, await savedProject.text());
+
+  const createdTemplate = await request("/templates", "owner", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "旧用户模板",
+      description: "内置模板刷新时必须保持原字节",
+      flow: projectFlow,
+    }),
+  });
+  const templateResponseText = await createdTemplate.text();
+  assert.equal(createdTemplate.status, 200, templateResponseText);
+  const templateId = (JSON.parse(templateResponseText) as { id: string }).id;
+  const templateFile = path.join(legacyTemplateDir, `${templateId}.json`);
+
+  const projectBefore = await queryOne<{
+    name: string;
+    flow_json: string;
+    lifecycle: string;
+    draft_revision: number;
+    updated_at: string;
+  }>(`
+    SELECT name, flow_json, lifecycle, draft_revision, updated_at::text AS updated_at
+    FROM projects WHERE id = $1
+  `, [projectId]);
+  const templateBefore = fs.readFileSync(templateFile, "utf8");
+
+  ensureBuiltinTemplates();
+  const builtinPath = path.join(temp, "templates", "builtin", "builtin-tool-one-click-try-on.json");
+  const staleBuiltin = JSON.parse(fs.readFileSync(builtinPath, "utf8")) as {
+    flow: {
+      nodes: Array<{ id: string; type?: string; position?: { x: number; y: number }; data?: Record<string, unknown> }>;
+      edges: Array<{ id?: string; source: string; sourceHandle?: string; target: string; targetHandle?: string }>;
+    };
+  };
+  staleBuiltin.flow.nodes.push({ id: "view-angle", type: "ti-angle", position: { x: 0, y: 0 }, data: {
+    kind: "ti-angle", label: "3D 视角", status: "idle",
+    angle: { version: 1, enabled: false, azimuthDeg: 0, elevationDeg: 0, rollDeg: 0 },
+  } });
+  staleBuiltin.flow.edges.push({ id: "legacy-angle-edge", source: "view-angle", sourceHandle: "text", target: "stabilize", targetHandle: "angle-direction" });
+  fs.writeFileSync(builtinPath, JSON.stringify(staleBuiltin, null, 2), "utf8");
+
+  ensureBuiltinTemplates();
+
+  const refreshedBuiltin = JSON.parse(fs.readFileSync(builtinPath, "utf8")) as {
+    flow: {
+      nodes: Array<{ id: string }>;
+      edges: Array<{ source: string; sourceHandle?: string; target: string; targetHandle?: string }>;
+    };
+  };
+  assert.equal(refreshedBuiltin.flow.nodes.some((node) => node.id === "view-angle"), false);
+  assert.equal(refreshedBuiltin.flow.edges.some((edge) => (
+    edge.source === "person" && edge.sourceHandle === "image" &&
+    edge.target === "view-angle" && edge.targetHandle === "preview-image"
+  )), false);
+  assert.equal(refreshedBuiltin.flow.edges.some((edge) => (
+    edge.source === "view-angle" || edge.targetHandle === "angle-direction"
+  )), false);
+
+  const projectAfter = await queryOne<{
+    name: string;
+    flow_json: string;
+    lifecycle: string;
+    draft_revision: number;
+    updated_at: string;
+  }>(`
+    SELECT name, flow_json, lifecycle, draft_revision, updated_at::text AS updated_at
+    FROM projects WHERE id = $1
+  `, [projectId]);
+  assert.deepEqual(projectAfter, projectBefore);
+  assert.equal(fs.readFileSync(templateFile, "utf8"), templateBefore);
+  assert.equal((await request(`/templates/${templateId}`, "other")).status, 404);
+
+  assert.equal((await request(`/templates/${templateId}`, "owner", { method: "DELETE" })).status, 200);
+  await query("DELETE FROM projects WHERE id = $1", [projectId]);
 });
 
 await test("用户模板按账号隔离，其他用户无法读取或删除，管理员可审计", async () => {
@@ -1352,6 +1437,320 @@ await test("运行只接受当前已保存画布，且项目名称以服务端�
     SELECT COUNT(*)::int AS count FROM generation_runs
     WHERE owner_id = $1 AND client_request_id = 'accepted-persisted-plan'
   `, [users.owner.id]))?.count, 1);
+});
+
+await test("第二轮不能仅凭客户端审批字段伪造未完成的第一轮基准", async () => {
+  const projectId = "staged-input-fingerprint-gate";
+  const otherProjectId = "staged-input-fingerprint-other-project";
+  const firstImage = PNG_DATA_URL;
+  const imageNode = (id: string, label: string) => ({
+    id,
+    type: "image-input",
+    position: { x: 0, y: 0 },
+    data: {
+      kind: "image-input" as const,
+      label,
+      status: "success" as const,
+      imageRole: "reference" as const,
+      imageUrl: firstImage,
+    },
+  });
+  const angleNode = {
+    id: "fingerprint-angle",
+    type: "ti-angle",
+    position: { x: 0, y: 240 },
+    data: {
+      kind: "ti-angle" as const,
+      label: "3D 视角",
+      status: "idle" as const,
+      angle: {
+        version: 1 as const,
+        enabled: true,
+        azimuthDeg: 35,
+        elevationDeg: 10,
+        rollDeg: 0,
+      },
+    },
+  };
+  const firstStage = {
+    id: "fingerprint-first-stage",
+    type: "virtual-try-on",
+    position: { x: 320, y: 0 },
+    data: {
+      kind: "virtual-try-on" as const,
+      label: "第一轮场景定版",
+      status: "success" as const,
+      workflowStage: "scene-stabilize" as const,
+      prompt: "保持人物动作",
+      modelId: "gemini-3.1-flash-image" as const,
+      modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
+      imageSize: "2K",
+      aspectRatio: "1:1",
+      basisRevision: 1,
+      promptEnhancement: false,
+      safetyFallback: false,
+      qualityMode: "fast" as const,
+      stylePresetId: "faithful",
+      outputImages: [firstImage],
+    },
+  };
+  const approval = {
+    id: "fingerprint-approval",
+    type: "stage-approval",
+    position: { x: 680, y: 0 },
+    data: {
+      kind: "stage-approval" as const,
+      label: "确认第一轮基准",
+      status: "success" as const,
+      approvalKind: "scene-baseline" as const,
+      approvedSourceNodeId: firstStage.id,
+      approvedBaselineRef: firstImage,
+      approvedBasisRevision: 1,
+      approvedAt: now,
+    },
+  };
+  const secondStage = {
+    id: "fingerprint-second-stage",
+    type: "virtual-try-on",
+    position: { x: 1040, y: 0 },
+    data: {
+      kind: "virtual-try-on" as const,
+      label: "第二轮服装精修",
+      status: "idle" as const,
+      workflowStage: "garment-refine" as const,
+      prompt: "保持人物和场景不变",
+      modelId: "gpt-image-2" as const,
+      modelOptions: { quality: "medium" as const },
+      imageSize: "2K",
+      aspectRatio: "1:1",
+      garmentCategory: "knit" as const,
+      materialSpec: "羊毛双股纱",
+      constructionSpec: "12GG 平针",
+      promptEnhancement: false,
+      qualityMode: "balanced" as const,
+      safetyFallback: false,
+      stylePresetId: "faithful",
+      outputImages: [],
+    },
+  };
+  const firstStageEdges = [
+    { id: "fingerprint-person-edge", source: "fingerprint-person", target: firstStage.id, targetHandle: "person" as const },
+    { id: "fingerprint-scene-edge", source: "fingerprint-scene", target: firstStage.id, targetHandle: "scene" as const },
+    { id: "fingerprint-pose-edge", source: "fingerprint-pose", target: firstStage.id, targetHandle: "pose" as const },
+    { id: "fingerprint-outfit-first-edge", source: "fingerprint-outfit", target: firstStage.id, targetHandle: "outfit" as const },
+  ];
+  const stagedFlow = {
+    schemaVersion: 18 as const,
+    nodes: [
+      angleNode,
+      imageNode("fingerprint-person", "人物身份"),
+      imageNode("fingerprint-scene", "场景"),
+      imageNode("fingerprint-pose", "姿势"),
+      imageNode("fingerprint-outfit", "主穿搭"),
+      firstStage,
+      approval,
+      secondStage,
+    ],
+    edges: [
+      ...firstStageEdges,
+      { id: "fingerprint-angle-edge", source: angleNode.id, sourceHandle: "text", target: firstStage.id, targetHandle: "angle-direction" as const },
+      { id: "fingerprint-candidate-edge", source: firstStage.id, target: approval.id, targetHandle: "baseline-candidate" as const },
+      { id: "fingerprint-baseline-edge", source: approval.id, target: secondStage.id, targetHandle: "baseline" as const },
+      { id: "fingerprint-outfit-second-edge", source: "fingerprint-outfit", target: secondStage.id, targetHandle: "outfit" as const },
+    ],
+  };
+  const saved = await request("/projects", "owner", {
+    method: "POST",
+    body: JSON.stringify({ id: projectId, name: "指纹门禁项目", flow: stagedFlow }),
+  });
+  assert.equal(saved.status, 200, await saved.text());
+  try {
+    const submittedAngleDrift = structuredClone(stagedFlow);
+    const submittedAngleNode = submittedAngleDrift.nodes.find((node) => node.id === angleNode.id);
+    assert.equal(submittedAngleNode?.data.kind, "ti-angle");
+    if (submittedAngleNode?.data.kind === "ti-angle") {
+      submittedAngleNode.data.angle.azimuthDeg = -55;
+    }
+    const angleConflictRequestId = "staged-angle-plan-conflict";
+    const angleConflict = await request("/run-plan", "owner", {
+      method: "POST",
+      body: JSON.stringify({
+        ...submittedAngleDrift,
+        onlyNodeId: firstStage.id,
+        projectId,
+        clientRequestId: angleConflictRequestId,
+      }),
+    });
+    const angleConflictBody = await angleConflict.text();
+    assert.equal(angleConflict.status, 409, angleConflictBody);
+    assert.match(angleConflictBody, /画布尚未保存|已在其他位置更新/);
+    assert.equal(
+      await queryOne<{ id: string }>(`
+        SELECT id FROM generation_runs WHERE client_request_id = $1
+      `, [angleConflictRequestId]),
+      undefined,
+    );
+
+    const angleConflictOtherOwner = await request("/run-plan", "other", {
+      method: "POST",
+      body: JSON.stringify({
+        ...submittedAngleDrift,
+        onlyNodeId: firstStage.id,
+        projectId,
+        clientRequestId: "staged-angle-plan-other-owner",
+      }),
+    });
+    assert.equal(angleConflictOtherOwner.status, 403, await angleConflictOtherOwner.text());
+
+    const response = await request("/run-plan", "owner", {
+      method: "POST",
+      body: JSON.stringify({
+        ...stagedFlow,
+        onlyNodeId: secondStage.id,
+        projectId,
+        clientRequestId: "staged-fingerprint-forged-approval",
+      }),
+    });
+    const body = await response.text();
+    assert.equal(response.status, 400, body);
+    assert.match(body, /完整输入|重新生成并确认/);
+
+    const firstStagePlan = buildExecutionPlan(stagedFlow.nodes, stagedFlow.edges, {
+      onlyNodeId: firstStage.id,
+      includeDownstream: false,
+    });
+    const firstFingerprint = createExecutionInputFingerprint({
+      runType: "workflow",
+      projectId,
+      nodeId: firstStage.id,
+      plan: firstStagePlan,
+    });
+    const firstRunId = "staged-first-success";
+    const finishedAt = Date.now();
+    await query(`
+      INSERT INTO generation_runs (
+        id, owner_id, project_id, project_name, node_id, node_label, kind, model,
+        requested_count, successful_count, status, started_at, finished_at,
+        plan_json, run_type, client_request_id, request_fingerprint, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'virtual-try-on', $7, 1, 1, 'success', $8, $9, $10, 'workflow', $11, $12, $9)
+    `, [
+      firstRunId,
+      users.owner.id,
+      projectId,
+      "指纹门禁项目",
+      firstStage.id,
+      "第一轮场景定版",
+      firstStage.data.modelId,
+      finishedAt - 1,
+      finishedAt,
+      JSON.stringify(firstStagePlan),
+      "staged-first-success-request",
+      firstFingerprint,
+    ]);
+    await query(`
+      INSERT INTO generation_outputs (id, run_id, image, status, created_at)
+      VALUES ('staged-first-success-output', $1, $2, 'success', $3)
+    `, [firstRunId, firstImage, finishedAt]);
+
+    const otherProject = await request("/projects", "owner", {
+      method: "POST",
+      body: JSON.stringify({ id: otherProjectId, name: "跨项目指纹门禁", flow: stagedFlow }),
+    });
+    assert.equal(otherProject.status, 200, await otherProject.text());
+    const crossProjectResponse = await request("/run-plan", "owner", {
+      method: "POST",
+      body: JSON.stringify({
+        ...stagedFlow,
+        onlyNodeId: secondStage.id,
+        projectId: otherProjectId,
+        clientRequestId: "staged-fingerprint-cross-project",
+      }),
+    });
+    const crossProjectBody = await crossProjectResponse.text();
+    assert.equal(crossProjectResponse.status, 400, crossProjectBody);
+    assert.match(crossProjectBody, /完整输入|重新生成并确认/);
+
+    const accepted = await request("/run-plan", "owner", {
+      method: "POST",
+      body: JSON.stringify({
+        ...stagedFlow,
+        onlyNodeId: secondStage.id,
+        projectId,
+        clientRequestId: "staged-fingerprint-valid",
+      }),
+    });
+    const acceptedBody = await accepted.json() as { runId?: string; error?: string };
+    assert.equal(accepted.status, 202, acceptedBody.error);
+    assert.ok(acceptedBody.runId);
+    const queuedBeforeChange = await queryOne<{ plan_json: string; request_fingerprint: string }>(`
+      SELECT plan_json, request_fingerprint FROM generation_runs WHERE id = $1
+    `, [acceptedBody.runId]);
+    assert.ok(queuedBeforeChange);
+    const queuedPlan = JSON.parse(queuedBeforeChange.plan_json) as { steps: Array<{ nodeId: string; params: Record<string, unknown> }> };
+    assert.equal(queuedPlan.steps.at(-1)?.nodeId, secondStage.id);
+    assert.equal("angleControl" in (queuedPlan.steps.at(-1)?.params ?? {}), false);
+
+    const changedFlow = structuredClone(stagedFlow);
+    const changedAngleNode = changedFlow.nodes.find((node) => node.id === angleNode.id);
+    assert.equal(changedAngleNode?.data.kind, "ti-angle");
+    if (changedAngleNode?.data.kind === "ti-angle") {
+      changedAngleNode.data.angle.azimuthDeg = -55;
+    }
+    const changedFirstStage = changedFlow.nodes.find((node) => node.id === firstStage.id);
+    assert.equal(changedFirstStage?.data.kind, "virtual-try-on");
+    if (changedFirstStage?.data.kind === "virtual-try-on") {
+      changedFirstStage.data.basisRevision = 2;
+    }
+    const changedApproval = changedFlow.nodes.find((node) => node.id === approval.id);
+    assert.equal(changedApproval?.data.kind, "stage-approval");
+    if (changedApproval?.data.kind === "stage-approval") {
+      changedApproval.data.approvedBasisRevision = 2;
+    }
+    const changedProject = await request("/projects", "owner", {
+      method: "POST",
+      body: JSON.stringify({ id: projectId, name: "指纹门禁项目", flow: changedFlow }),
+    });
+    assert.equal(changedProject.status, 200, await changedProject.text());
+    const staleResponse = await request("/run-plan", "owner", {
+      method: "POST",
+      body: JSON.stringify({
+        ...changedFlow,
+        onlyNodeId: secondStage.id,
+        projectId,
+        clientRequestId: "staged-fingerprint-stale",
+      }),
+    });
+    const staleBody = await staleResponse.text();
+    assert.equal(staleResponse.status, 400, staleBody);
+    assert.match(staleBody, /完整输入|重新生成并确认/);
+    assert.deepEqual(
+      await queryOne<{ plan_json: string; request_fingerprint: string }>(`
+        SELECT plan_json, request_fingerprint FROM generation_runs WHERE id = $1
+      `, [acceptedBody.runId]),
+      queuedBeforeChange,
+    );
+
+    const restoredProject = await request("/projects", "owner", {
+      method: "POST",
+      body: JSON.stringify({ id: projectId, name: "指纹门禁项目", flow: stagedFlow }),
+    });
+    assert.equal(restoredProject.status, 200, await restoredProject.text());
+    const restoredResponse = await request("/run-plan", "owner", {
+      method: "POST",
+      body: JSON.stringify({
+        ...stagedFlow,
+        onlyNodeId: secondStage.id,
+        projectId,
+        clientRequestId: "staged-fingerprint-restored",
+      }),
+    });
+    const restoredBody = await restoredResponse.json() as { runId?: string; error?: string };
+    assert.equal(restoredResponse.status, 202, restoredBody.error);
+    assert.ok(restoredBody.runId);
+  } finally {
+    await query("DELETE FROM generation_runs WHERE project_id = ANY($1::text[])", [[projectId, otherProjectId]]);
+    await query("DELETE FROM projects WHERE id = ANY($1::text[])", [[projectId, otherProjectId]]);
+  }
 });
 
 await test("项目保存与运行都拒绝引用他人的私有文件", async () => {

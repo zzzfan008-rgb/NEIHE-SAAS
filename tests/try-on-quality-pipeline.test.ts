@@ -114,12 +114,19 @@ assert.equal(readTryOnPoseReview({ version: 1, referenceType: 'depth', candidate
 assert.equal(readTryOnPoseReview({ version: 1, referenceType: 'depth', candidates: [{ index: 0, status: 'match' }] }), undefined);
 try {
   let earlyPoseCalls = 0;
+  let angleControlled = false;
   globalThis.fetch = async (_url, init) => {
     calls += 1;
     const body = JSON.parse(String(init?.body));
     const parts = body.messages[0].content;
     const reviewInstructions = parts.filter((part: { type?: string }) => part.type === 'text').map((part: { text?: string }) => part.text).join('\n');
     const poseOnly = reviewInstructions.includes('独立姿势对照评审');
+    if (angleControlled) {
+      assert.match(reviewInstructions, /TiAngelNode 已启用/);
+      assert.match(reviewInstructions, poseOnly ? /不要求复制原图二维坐标/ : /不得因候选偏离原 scene 镜头/);
+    } else {
+      assert.doesNotMatch(reviewInstructions, /TiAngelNode 已启用/);
+    }
     if (poseOnly) {
       assert.doesNotMatch(reviewInstructions, /不能泄漏的完整生成提示词|角色：scene|角色：person|角色：outfit/);
       assert.match(reviewInstructions, /depth/);
@@ -148,6 +155,13 @@ try {
   assert.equal(result.providerRequests, 4, '质量重试与每候选独立姿势请求均计费');
   assert.equal(marked, 4);
   assert.equal(input.referenceImages[0], image, "评审压缩不得修改生图参考");
+  angleControlled = true;
+  calls = 0;
+  earlyPoseCalls = 0;
+  const angled = await selectBestTryOnCandidate({ ...input, angleControlled: true });
+  assert.equal(angled.selectedIndex, 1);
+  assert.equal(angled.providerRequests, 4, '角度控制仍逐候选独立评姿势');
+  angleControlled = false;
   calls = 0;
   globalThis.fetch = async () => { calls += 1; return new Response(JSON.stringify({ error: { message: "Unauthorized" } }), { status: 401 }); };
   await assert.rejects(selectBestTryOnCandidate(input));

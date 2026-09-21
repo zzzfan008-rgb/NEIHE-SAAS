@@ -6,9 +6,14 @@
  *   GET  /api/run-plan/:id/events SSE 事件流（含重放，事件见 engine/runner.ts RunEvent）
  */
 import { Router, type Request, type Response } from "express";
+import type { PoolClient } from "pg";
 import { assertStylingAnalyses } from './outfitAnalysis';
 import { isDeepStrictEqual } from "node:util";
-import { WORKFLOW_SCHEMA_VERSION } from "../../src/types/workflow";
+import {
+  WORKFLOW_SCHEMA_VERSION,
+  type NodeExecution,
+  type PersistedWorkflow,
+} from "../../src/types/workflow";
 import { assertPlanInputs, buildExecutionPlan, DagError } from "../engine/dag";
 import { getRunForUser, normalizedRequestedCountForStep, type RunEvent } from "../engine/runner";
 import {
@@ -31,11 +36,84 @@ import {
   assertImageReferencesAccessible,
   ImageReferenceAccessError,
 } from "../lib/imageReferenceAccess";
+import { createExecutionInputFingerprint } from "../lib/executionInputFingerprint";
 
 export const runPlanRouter = Router();
 
 export function requestedCountForStep(kind: string, params: Record<string, unknown>): number {
   return normalizedRequestedCountForStep(kind, params);
+}
+
+async function assertApprovedBaselineExecution(
+  client: PoolClient,
+  flow: PersistedWorkflow,
+  targetStep: NodeExecution,
+  ownerId: string,
+  projectId: string,
+): Promise<void> {
+  if (
+    targetStep.kind !== "virtual-try-on" ||
+    targetStep.params.workflowStage !== "garment-refine"
+  ) return;
+
+  const baselineEdge = flow.edges.find(
+    (edge) => edge.target === targetStep.nodeId && edge.targetHandle === "baseline",
+  );
+  const approvalNode = baselineEdge
+    ? flow.nodes.find((node) => node.id === baselineEdge.source)
+    : undefined;
+  const candidateEdge = approvalNode?.data.kind === "stage-approval"
+    ? flow.edges.find(
+        (edge) => edge.target === approvalNode.id && edge.targetHandle === "baseline-candidate",
+      )
+    : undefined;
+  const candidateNode = candidateEdge
+    ? flow.nodes.find((node) => node.id === candidateEdge.source)
+    : undefined;
+  const approvedBaselineRef = typeof targetStep.params.approvedBaselineRef === "string"
+    ? targetStep.params.approvedBaselineRef
+    : undefined;
+  const approvedBasisRevision = candidateNode?.data.kind === "virtual-try-on"
+    && candidateNode.data.workflowStage === "scene-stabilize"
+    ? candidateNode.data.basisRevision ?? 0
+    : undefined;
+
+  if (
+    !candidateNode ||
+    !approvedBaselineRef ||
+    approvedBasisRevision === undefined ||
+    !Number.isSafeInteger(approvedBasisRevision)
+  ) {
+    throw new DagError("第二轮基准无法验证对应的第一轮完整输入，请重新生成并确认第一轮基准");
+  }
+
+  const firstStagePlan = buildExecutionPlan(flow.nodes, flow.edges, {
+    onlyNodeId: candidateNode.id,
+    includeDownstream: false,
+  });
+  const fingerprint = createExecutionInputFingerprint({
+    runType: "workflow",
+    projectId,
+    nodeId: candidateNode.id,
+    plan: firstStagePlan,
+  });
+  const verified = await queryOne<{ id: string }>(`
+    SELECT run.id
+    FROM generation_runs run
+    JOIN generation_outputs output ON output.run_id = run.id
+    WHERE run.owner_id = $1
+      AND run.project_id = $2
+      AND run.node_id = $3
+      AND run.request_fingerprint = $4
+      AND run.status IN ('succeeded', 'success')
+      AND run.deleted_at IS NULL
+      AND output.status = 'success'
+      AND output.image = $5
+    LIMIT 1
+  `, [ownerId, projectId, candidateNode.id, fingerprint, approvedBaselineRef], client);
+  if (!verified) {
+    throw new DagError("第二轮基准无法验证对应的第一轮完整输入，请重新生成并确认第一轮基准");
+  }
 }
 
 runPlanRouter.post("/", asyncHandler(async (req, res) => {
@@ -103,6 +181,7 @@ runPlanRouter.post("/", asyncHandler(async (req, res) => {
       await assertImageReferencesAccessible(plan, user.id, client);
       await assertStylingAnalyses(plan,user.id,projectId,client);
       const targetStep = plan.steps.find((step) => step.nodeId === onlyNodeId) ?? plan.steps[plan.steps.length - 1];
+      await assertApprovedBaselineExecution(client, flow, targetStep, user.id, projectId);
       const targetNode = flow.nodes.find((node) => node.id === targetStep.nodeId);
       const params = targetStep.params;
       const requestedCount = requestedCountForStep(targetStep.kind, params);

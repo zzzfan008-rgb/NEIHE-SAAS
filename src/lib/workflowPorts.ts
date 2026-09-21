@@ -39,6 +39,7 @@ const SCENE_STABILIZE_PORTS: readonly NodePortSpec[] = [
   input("earrings", "耳环参考图", "image", false, 1),
   input("bracelet", "手镯参考图", "image", false, 1),
   input("detail", "服装局部结构参考图", "image", false, 5),
+  input("angle-direction", "3D 视角文本", "text", false, 1),
 ];
 
 const GARMENT_REFINE_PORTS: readonly NodePortSpec[] = [
@@ -77,6 +78,8 @@ export const STAGED_ROLE_LABELS: Readonly<Partial<Record<WorkflowInputRole, stri
   "reference-image": "参考图片",
   "reference-video": "参考视频",
   "reference-audio": "参考音频",
+  "preview-image": "示意参考图",
+  "angle-direction": "3D 视角文本",
 };
 
 export function isStagedTryOnData(data: WorkflowNodeData): boolean {
@@ -209,6 +212,22 @@ export function connectionCompatibilityError(options: {
     && source.data.imageUrl?.startsWith("asset://")
     && target.data.kind !== "video-generate"
   ) return "asset:// 图片素材只能连接 Seedance 视频节点";
+  if (
+    targetHandle === "preview-image" &&
+    target.data.kind === "ti-angle" &&
+    source.data.kind !== "image-input" &&
+    source.data.kind !== "character-board"
+  ) {
+    return "3D 视角示意图只能连接图片输入或人物板节点";
+  }
+  if (targetHandle === "angle-direction") {
+    if (target.data.kind !== "virtual-try-on" || target.data.workflowStage !== "scene-stabilize") {
+      return "3D 视角文本只能连接第一轮 scene-stabilize 节点";
+    }
+    if (source.data.kind !== "ti-angle") {
+      return "3D 视角文本输入只允许来自 TiAngelNode";
+    }
+  }
   const sourcePort = outputPortFor(source.data, sourceHandle);
   if (!sourcePort) return "来源节点没有可用的输出端口";
   const targetPort = inputPortFor(target.data, targetHandle);
@@ -218,7 +237,8 @@ export function connectionCompatibilityError(options: {
   }
   if (
     isStagedTryOnData(target.data)
-    && existingEdges.filter((edge) => edge.target === target.id).length >= MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES
+    && targetPort.valueKind === "image"
+    && existingEdges.filter((edge) => edge.target === target.id && edge.targetHandle !== "angle-direction").length >= MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES
   ) {
     return `分步换装最多 ${MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES} 张参考图`;
   }

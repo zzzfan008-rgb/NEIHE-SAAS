@@ -76,6 +76,7 @@ import {
   isSeedanceVideoModel,
   normalizedSeedanceSettings,
 } from "@/lib/seedance";
+import { normalizeTiAngleConfig } from "@/lib/tiAngle";
 import type { DrawingDocument } from "@/components/drawing/drawingModel";
 
 export type FlowNode = Node<WorkflowNodeData> & {
@@ -894,8 +895,8 @@ export function commitDocumentMutation(mutation: DocumentMutation): boolean {
   return commitDocumentMutationWithSet(useFlowStore.setState, mutation);
 }
 
-/** 原子加入一组完整节点；复制多选节点时只写一次 revision 与撤销记录。 */
-export function addExistingNodes(nodes: FlowNode[]): string[] {
+/** 原子加入一组节点及其内部连线；复制子图时只写一次 revision 与撤销记录。 */
+export function addExistingNodes(nodes: FlowNode[], edges: Edge[] = []): string[] {
   if (nodes.length === 0) return [];
   let addedIds: string[] = [];
   const changed = commitDocumentMutation((tab) => {
@@ -909,8 +910,21 @@ export function addExistingNodes(nodes: FlowNode[]): string[] {
     if (additions.length === 0) return {};
     addedIds = additions.map((node) => node.id);
     const nextNodes = [...tab.nodes, ...additions];
+    const addedIdSet = new Set(addedIds);
+    const knownEdgeIds = new Set(tab.edges.map((edge) => edge.id));
+    const nextEdges = edges.filter((edge) => {
+      if (
+        !addedIdSet.has(edge.source) ||
+        !addedIdSet.has(edge.target) ||
+        knownEdgeIds.has(edge.id)
+      )
+        return false;
+      knownEdgeIds.add(edge.id);
+      return true;
+    });
     return {
       ...normalizeNodeSelection(nextNodes, addedIds),
+      edges: [...tab.edges, ...nextEdges],
       selectedResultId: null,
     };
   });
@@ -1223,6 +1237,18 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
       };
     case "text-input":
       return { ...base, kind, text: "" };
+    case "ti-angle":
+      return {
+        ...base,
+        kind,
+        angle: {
+          version: 1,
+          enabled: false,
+          azimuthDeg: 0,
+          elevationDeg: 0,
+          rollDeg: 0,
+        },
+      };
     case "drawing-board":
       return {
         ...base,
@@ -1463,7 +1489,7 @@ export function nodeOutputImages(
   if (data.kind === "result") {
     return imagesForSourceHandle(data.images ?? [], sourceHandle);
   }
-  if (data.kind === "text-input" || data.kind === "color-palette") return [];
+  if (data.kind === "text-input" || data.kind === "color-palette" || data.kind === "ti-angle") return [];
   return data.outputImages ?? [];
 }
 
@@ -2642,6 +2668,9 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     "confirmPopoverOpen",
     "approvalDialogOpen",
     "displayState",
+    "collapsed",
+    "compiledText",
+    "renderer",
   ])
     delete data[transientKey];
   if (typeof input.error !== "string") delete data.error;
@@ -2748,6 +2777,14 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     case "text-input":
       data.text = typeof input.text === "string" ? input.text : "";
       break;
+    case "ti-angle": {
+      try {
+        data.angle = normalizeTiAngleConfig(input.angle ?? defaults.angle);
+      } catch {
+        data.angle = defaults.angle;
+      }
+      break;
+    }
     case "drawing-board":
       data.boardVersion = 1;
       data.width =
@@ -5709,6 +5746,7 @@ export const useFlowStore = create<FlowState>()(
             "modelId",
             "modelOptions",
             "outputImages",
+            "angle",
           ]);
           const sourceOutputKeys = new Set([
             "imageUrl",
@@ -5717,6 +5755,7 @@ export const useFlowStore = create<FlowState>()(
             "outputImages",
             "previewImageRef",
             "exportImageRef",
+            "angle",
           ]);
           const stageTargets = new Set<string>();
           if (

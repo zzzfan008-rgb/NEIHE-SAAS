@@ -963,6 +963,8 @@ async function main() {
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.modelId, "gpt-image-2");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
     assert.equal(stagedTryOn.flow.nodes.length, 21);
+    assert.equal(stagedTryOn.flow.nodes.some(node => node.type === "ti-angle"), false, "内置模板不预置 TiAngle");
+    assert.equal(stagedTryOn.flow.edges.some(edge => edge.targetHandle === "angle-direction"), false, "角度由用户自行连线");
     assert.equal(stagedTryOn.flow.nodes.some((node) => node.id === "scene"), false);
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "pose")?.data.label, "图 2 · 目标姿势与场景（必需）");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.sceneInputMode, "composed-person");

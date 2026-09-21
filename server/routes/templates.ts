@@ -803,6 +803,8 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
       const nodeById = new Map(raw.flow?.nodes?.map((node) => [node.id, node]) ?? []);
       return raw.schemaVersion !== WORKFLOW_SCHEMA_VERSION
         || named.name !== "一键换装"
+        || raw.flow?.nodes?.some((node) => node.type === "ti-angle")
+        || raw.flow?.edges?.some((edge) => edge.targetHandle === "angle-direction")
         || nodeById.get("stabilize")?.data?.modelId !== "gemini-3-pro-image-preview"
         || nodeById.get("stabilize")?.data?.label !== "第一轮 · Gemini 场景化定版"
         || nodeById.get("stabilize")?.data?.sceneInputMode !== "composed-person"

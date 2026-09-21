@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { ReactFlowProvider } from "@xyflow/react";
+import { ReactFlowProvider, type Edge } from "@xyflow/react";
 import { nanoid } from "nanoid";
 import {
   addExistingNodes,
@@ -8,6 +8,7 @@ import {
   reconcileRunHistory,
   recentResultsPatch,
   resumeRecentResults,
+  selectActiveEdges,
   selectActiveNodes,
   selectActiveSelectedNodeIds,
   selectHasDirtyTabs,
@@ -44,7 +45,10 @@ import {
 } from "@/lib/overlayEvents";
 import { requestCanvasZoom } from "@/lib/keyboardShortcuts";
 import { OPEN_BUILTIN_TEMPLATE_EVENT } from "@/lib/canvasCreation";
-import { launchTemplateInNewTab } from "@/lib/templateLaunch";
+import {
+  launchTemplateInNewTab,
+  remapWorkflowNodeDataReferences,
+} from "@/lib/templateLaunch";
 import type { WorkflowTemplate } from "@/types/workflow";
 
 const LazyCompareOverlay = lazy(() => import("@/components/CompareOverlay").then((module) => ({
@@ -61,13 +65,19 @@ const LazyGenerationRecordDialog = lazy(() => import("@/components/GenerationRec
 })));
 
 interface NodeClipboardEntry {
+  id: string;
   data: FlowNode["data"];
   type: string;
   offset: { x: number; y: number };
 }
 
-/** 剪贴板里的节点快照（仅内存，跨项目/刷新不保留，不复制连线）。 */
-let nodeClipboard: NodeClipboardEntry[] | null = null;
+interface NodeClipboard {
+  nodes: NodeClipboardEntry[];
+  edges: Edge[];
+}
+
+/** 剪贴板里的子图快照（仅内存，跨项目/刷新不保留）。 */
+let nodeClipboard: NodeClipboard | null = null;
 
 function copySelectedNodesToClipboard(): boolean {
   const state = useFlowStore.getState();
@@ -81,19 +91,28 @@ function copySelectedNodesToClipboard(): boolean {
     x: Math.min(...selectedNodes.map((node) => node.position.x)),
     y: Math.min(...selectedNodes.map((node) => node.position.y)),
   };
-  nodeClipboard = selectedNodes.map((node) => ({
-    data: JSON.parse(JSON.stringify(node.data)) as FlowNode["data"],
-    type: node.type ?? node.data.kind,
-    offset: {
-      x: node.position.x - origin.x,
-      y: node.position.y - origin.y,
-    },
-  }));
+  const selectedIds = new Set(selectedNodes.map((node) => node.id));
+  nodeClipboard = {
+    nodes: selectedNodes.map((node) => ({
+      id: node.id,
+      data: JSON.parse(JSON.stringify(node.data)) as FlowNode["data"],
+      type: node.type ?? node.data.kind,
+      offset: {
+        x: node.position.x - origin.x,
+        y: node.position.y - origin.y,
+      },
+    })),
+    edges: JSON.parse(JSON.stringify(
+      selectActiveEdges(state).filter((edge) => (
+        selectedIds.has(edge.source) && selectedIds.has(edge.target)
+      )),
+    )) as Edge[],
+  };
   return true;
 }
 
 function pasteClipboardNodes(): string[] {
-  if (!nodeClipboard?.length) return [];
+  if (!nodeClipboard?.nodes.length) return [];
   const state = useFlowStore.getState();
   const nodes = selectActiveNodes(state);
   const selectedIds = new Set(selectActiveSelectedNodeIds(state));
@@ -109,21 +128,38 @@ function pasteClipboardNodes(): string[] {
         y: Math.min(...anchorNodes.map((node) => node.position.y)) + 40,
       }
     : { x: 0, y: 0 };
-  const additions = nodeClipboard.map((entry) => {
+  const idMap = new Map(
+    nodeClipboard.nodes.map((entry) => [entry.id, nanoid(8)]),
+  );
+  const additions = nodeClipboard.nodes.map((entry) => {
     const data = JSON.parse(JSON.stringify(entry.data)) as FlowNode["data"];
     data.status = "idle";
     data.error = undefined;
     return {
-      id: nanoid(8),
+      id: idMap.get(entry.id)!,
       type: entry.type,
       position: {
         x: origin.x + entry.offset.x,
         y: origin.y + entry.offset.y,
       },
-      data,
+      data: remapWorkflowNodeDataReferences(
+        data as Record<string, unknown>,
+        idMap,
+      ) as FlowNode["data"],
     } satisfies FlowNode;
   });
-  return addExistingNodes(additions);
+  const pastedEdges = nodeClipboard.edges.flatMap((edge) => {
+    const source = idMap.get(edge.source);
+    const target = idMap.get(edge.target);
+    if (!source || !target) return [];
+    return [{
+      ...edge,
+      id: `edge-${nanoid(10)}`,
+      source,
+      target,
+    }];
+  });
+  return addExistingNodes(additions, pastedEdges);
 }
 
 interface HistoryPage {
@@ -186,7 +222,7 @@ function useGlobalShortcuts() {
       } else if (key === "c") {
         copySelectedNodesToClipboard();
       } else if (key === "v") {
-        if (!nodeClipboard?.length) return;
+        if (!nodeClipboard?.nodes.length) return;
         e.preventDefault();
         pasteClipboardNodes();
       } else if (key === "d") {

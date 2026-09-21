@@ -80,7 +80,8 @@ test('从添加节点创建姿势参考，通用入口连接并保留旧连线',
   const first = page.locator('.react-flow__node[data-id="first"]');
   await expect(first.locator('[data-port-row="pose"]')).toHaveCount(0);
   await expect(first.getByRole('group', { name: '当前姿势参考' })).toHaveCount(0);
-  await expect(first.locator('[data-port-row]')).toHaveCount(11);
+  await expect(first.locator('[data-port-row]:not([data-port-row="angle-direction"])')).toHaveCount(11);
+  await expect(first.locator('[data-port-row="angle-direction"]')).toHaveCount(1);
   await expect(page.locator('.react-flow__edge-path')).toHaveCount(4);
   const bounds = await first.boundingBox();
   expect(bounds!.width).toBeGreaterThan(0);

@@ -19,6 +19,7 @@ import {
   type PersistedWorkflow,
   type SeedanceOutputFormat,
   type SeedanceVideoModelId,
+  type TiAngleConfig,
   type VideoAspectRatio,
   type VideoGenerationMode,
   type VideoResolution,
@@ -82,6 +83,11 @@ export type DocumentNodeData =
       kind: "text-input";
       label: string;
       text: string;
+    }
+  | {
+      kind: "ti-angle";
+      label: string;
+      angle: TiAngleConfig;
     }
   | {
       kind: "drawing-board";
@@ -437,6 +443,20 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
       };
     case "text-input":
       return { kind: data.kind, label: data.label, text: data.text };
+    case "ti-angle":
+      return {
+        kind: data.kind,
+        label: data.label,
+        // TiAngleNode 的拖动/编译状态可能暂存在 angle 对象附近；文档边界
+        // 只允许保存协议字段，避免嵌套运行时字段随项目或草稿一起落盘。
+        angle: {
+          version: data.angle.version,
+          enabled: data.angle.enabled,
+          azimuthDeg: data.angle.azimuthDeg,
+          elevationDeg: data.angle.elevationDeg,
+          rollDeg: data.angle.rollDeg,
+        },
+      };
     case "drawing-board":
       return {
         kind: data.kind,

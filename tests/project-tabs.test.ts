@@ -861,6 +861,57 @@ await test("多选节点批量粘贴只产生一次文档提交与撤销记录",
   assert.equal(activeDocument().selectedNodeIds.length, 0);
 });
 
+await test("批量粘贴 TiAngelNode 子图时一次性加入内部连线并可完整撤销", () => {
+  const source = {
+    ...imageNode("subgraph-source", "人物"),
+    data: {
+      ...imageNode("subgraph-source", "人物").data,
+      autoConnectTargets: [{ targetNodeId: "subgraph-angle", targetHandle: "preview-image" as const }],
+    },
+  };
+  const angle: FlowNode = {
+    id: "subgraph-angle",
+    type: "ti-angle",
+    position: { x: 320, y: 0 },
+    data: {
+      kind: "ti-angle",
+      label: "3D 视角",
+      status: "idle",
+      angle: { version: 1, enabled: true, azimuthDeg: 30, elevationDeg: 10, rollDeg: 0 },
+    },
+  };
+  useFlowStore.getState().loadFlow({
+    projectId: "subgraph-copy-project",
+    projectName: "TiAngelNode 子图复制测试",
+    nodes: [source, angle],
+    edges: [],
+  });
+  const pastedSource = { ...source, id: "pasted-source", position: { x: 80, y: 60 } };
+  const pastedAngle = { ...angle, id: "pasted-angle", position: { x: 400, y: 60 } };
+  const pastedEdge: Edge = {
+    id: "pasted-angle-preview",
+    source: pastedSource.id,
+    sourceHandle: "image",
+    target: pastedAngle.id,
+    targetHandle: "preview-image",
+  };
+  const addNodesWithEdges = addExistingNodes as unknown as (
+    nodes: FlowNode[],
+    edges: Edge[],
+  ) => string[];
+
+  assert.deepEqual(addNodesWithEdges([pastedSource, pastedAngle], [pastedEdge]), [
+    pastedSource.id,
+    pastedAngle.id,
+  ]);
+  assert.deepEqual(activeDocument().edges, [pastedEdge]);
+  assert.equal(activeDocument().revision, 1);
+
+  useFlowStore.getState().undo();
+  assert.deepEqual(activeDocument().nodes.map((node) => node.id), [source.id, angle.id]);
+  assert.deepEqual(activeDocument().edges, []);
+});
+
 await test("空白项目启动器只在从未持久化的 pristine 文档中生效", async () => {
   useFlowStore.getState().createBlankTab();
   assert.equal(isPristineProjectTab(activeDocument()), true);

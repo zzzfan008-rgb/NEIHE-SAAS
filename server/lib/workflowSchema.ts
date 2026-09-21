@@ -34,6 +34,7 @@ import {
   inputPortFor,
 } from "../../src/lib/workflowPorts";
 import { MASK_REPAIR_FOCUSES } from "../../src/lib/maskRepair";
+import { validateTiAngleConfig } from "../../src/lib/tiAngle";
 import {
   SEEDANCE_MODEL_CAPABILITIES,
   SEEDANCE_OUTPUT_FORMATS,
@@ -53,6 +54,7 @@ const NODE_KINDS: readonly NodeKind[] = [
   "character-board",
   "background-extract",
   "text-input",
+  "ti-angle",
   "drawing-board",
   "color-palette",
   "stage-approval",
@@ -407,6 +409,17 @@ function migrateNodeData(
       };
     case "text-input":
       return { text: "", ...raw };
+    case "ti-angle":
+      return {
+        angle: {
+          version: 1,
+          enabled: false,
+          azimuthDeg: 0,
+          elevationDeg: 0,
+          rollDeg: 0,
+        },
+        ...raw,
+      };
     case "drawing-board":
       return {
         boardVersion: 1,
@@ -738,6 +751,16 @@ function validateData(
       break;
     case "text-input":
       stringValue(raw.text, `${path}.text`);
+      break;
+    case "ti-angle":
+      try {
+        validateTiAngleConfig(raw.angle);
+      } catch (error) {
+        fail(
+          `${path}.angle`,
+          error instanceof Error ? error.message : "must be a valid angle configuration",
+        );
+      }
       break;
     case "drawing-board":
       oneOf(raw.boardVersion, [1] as const, `${path}.boardVersion`);

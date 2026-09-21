@@ -10,6 +10,7 @@ import {
   PaletteIcon,
   PencilRulerIcon,
   PipetteIcon,
+  Rotate3dIcon,
   ScanIcon,
   ScissorsIcon,
   ShirtIcon,
@@ -43,6 +44,7 @@ const ITEM_ICONS: Record<string, typeof TypeIcon> = {
   images: ImagesIcon,
   "pencil-ruler": PencilRulerIcon,
   pipette: PipetteIcon,
+  "rotate-3d": Rotate3dIcon,
 };
 
 function itemIcon(icon: ToolIconName) {

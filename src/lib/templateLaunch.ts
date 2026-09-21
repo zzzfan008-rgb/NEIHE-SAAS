@@ -86,7 +86,57 @@ export function templateLandingNodeId(
   );
 }
 
-function cloneNodes(nodes: WorkflowTemplate["flow"]["nodes"]): FlowNode[] {
+type TemplateNodeIdMap = ReadonlyMap<string, string>;
+
+function createTemplateNodeIdMap(
+  nodes: WorkflowTemplate["flow"]["nodes"],
+): Map<string, string> {
+  const sourceIds = new Set(nodes.map((node) => node.id));
+  const idMap = new Map<string, string>();
+  for (const node of nodes) {
+    let clonedId = `node-${nanoid(10)}`;
+    while (sourceIds.has(clonedId) || idMapHasValue(idMap, clonedId)) {
+      clonedId = `node-${nanoid(10)}`;
+    }
+    idMap.set(node.id, clonedId);
+  }
+  return idMap;
+}
+
+function idMapHasValue(idMap: Map<string, string>, value: string): boolean {
+  for (const mappedId of idMap.values()) {
+    if (mappedId === value) return true;
+  }
+  return false;
+}
+
+export function remapWorkflowNodeDataReferences(
+  data: Record<string, unknown>,
+  idMap: TemplateNodeIdMap,
+): Record<string, unknown> {
+  const next = { ...data };
+  const autoConnectTargets = next.autoConnectTargets;
+  if (Array.isArray(autoConnectTargets)) {
+    next.autoConnectTargets = autoConnectTargets.map((target) => {
+      if (!target || typeof target !== "object") return target;
+      const candidate = target as Record<string, unknown>;
+      const targetNodeId = candidate.targetNodeId;
+      return typeof targetNodeId === "string"
+        ? { ...candidate, targetNodeId: idMap.get(targetNodeId) ?? targetNodeId }
+        : target;
+    });
+  }
+  for (const [key, value] of Object.entries(next)) {
+    if (key === "autoConnectTargets" || !key.endsWith("NodeId")) continue;
+    if (typeof value === "string") next[key] = idMap.get(value) ?? value;
+  }
+  return next;
+}
+
+function cloneNodes(
+  nodes: WorkflowTemplate["flow"]["nodes"],
+  idMap: TemplateNodeIdMap,
+): FlowNode[] {
   return structuredClone(nodes).map((node) => {
     const data = { ...node.data } as Record<string, unknown>;
     delete data.error;
@@ -126,12 +176,35 @@ function cloneNodes(nodes: WorkflowTemplate["flow"]["nodes"]): FlowNode[] {
       delete data.maskSourceRef;
     }
     if (node.data.kind === "print-extract") data.savedAsAssets = [];
-    return { ...node, data };
+    return {
+      ...node,
+      id: idMap.get(node.id) ?? node.id,
+      data: remapWorkflowNodeDataReferences(data, idMap),
+    };
   }) as FlowNode[];
 }
 
-function cloneEdges(edges: WorkflowTemplate["flow"]["edges"]): Edge[] {
-  return structuredClone(edges) as Edge[];
+function cloneEdges(
+  edges: WorkflowTemplate["flow"]["edges"],
+  idMap: TemplateNodeIdMap,
+): Edge[] {
+  return structuredClone(edges).map((edge) => ({
+    ...edge,
+    id: `edge-${nanoid(10)}`,
+    source: idMap.get(edge.source) ?? edge.source,
+    target: idMap.get(edge.target) ?? edge.target,
+  })) as Edge[];
+}
+
+function cloneTemplateFlow(template: WorkflowTemplate): {
+  nodes: FlowNode[];
+  edges: Edge[];
+} {
+  const idMap = createTemplateNodeIdMap(template.flow.nodes);
+  return {
+    nodes: cloneNodes(template.flow.nodes, idMap),
+    edges: cloneEdges(template.flow.edges, idMap),
+  };
 }
 
 /** 从模板始终新建独立项目页签，并登记一次性 fitView/首输入焦点。 */
@@ -140,8 +213,7 @@ export function launchTemplateInNewTab(
   mode: TemplateLaunchMode = "default",
 ): { tabId: string; projectId: string; landingNodeId?: string } {
   const projectId = nanoid(10);
-  const nodes = cloneNodes(template.flow.nodes);
-  const edges = cloneEdges(template.flow.edges);
+  const { nodes, edges } = cloneTemplateFlow(template);
   const landingNodeId = templateLandingNodeId(nodes, mode);
   useFlowStore.getState().openFlowTab({
     projectId,
@@ -176,8 +248,7 @@ export function launchStarterTemplate(
     return launchTemplateInNewTab(template, mode);
   }
 
-  const nodes = cloneNodes(template.flow.nodes);
-  const edges = cloneEdges(template.flow.edges);
+  const { nodes, edges } = cloneTemplateFlow(template);
   const landingNodeId = templateLandingNodeId(nodes, mode);
   let changed = false;
   flushSync(() => {

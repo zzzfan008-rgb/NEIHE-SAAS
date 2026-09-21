@@ -52,6 +52,7 @@ export interface TryOnCandidateSelectionInput {
   referenceRoles: string[];
   prompt: string;
   poseReferenceType?: unknown;
+  angleControlled?: boolean;
   beforeProviderCall?: (providerRequest: number) => void | Promise<void>;
 }
 
@@ -162,7 +163,7 @@ export function parseTryOnCandidateSelection(
   };
 }
 
-function poseReviewContent(referenceImage: string, candidates: string[], referenceType: PoseReviewReferenceType): Array<Record<string, unknown>> {
+function poseReviewContent(referenceImage: string, candidates: string[], referenceType: PoseReviewReferenceType, angleControlled = false): Array<Record<string, unknown>> {
   const checks = Object.fromEntries(Object.keys(POSE_REVIEW_LABELS).map(field => [field, {
     status: 'indeterminate', reference: '参考中可见的状态或不可判断的原因', candidate: '候选中可见的状态或不可判断的原因',
   }]));
@@ -171,6 +172,7 @@ function poseReviewContent(referenceImage: string, candidates: string[], referen
 人物照片只判断可见姿态；骨架图只判断二维关键点和肢体关系，不猜测精确深度、表情或视线；深度图只判断可见轮廓、朝向和相对前后关系，不猜测眼睛、手指或遮挡处的精确关节。未知类型只按可见证据，不自行声称它是照片。
 状态只能是 match（一致）、mismatch（明确偏差）、indeterminate（遮挡、模糊或证据不足）、not-observable（该参考类型无法提供的信息）。depth/skeleton 的 gaze 应为 not-observable，不是 mismatch。关键腿部、交叉等无法判断时不能报 match；即使报告 not-observable，也不会自动通过。每项必须写出参考与候选各自可见的依据，不复述目标要求。
 只返回 JSON：${JSON.stringify({ candidates: [{ index: 0, checks }] })}。每张候选恰好一项，index 必须对应候选标签（从0开始）；不得自行省略分项或选择赢家。` },
+    ...(angleControlled ? [{ type: 'text', text: 'TiAngelNode 已启用：按目标相机角度合理投影，只核对肢体动作及关节相对关系，不要求复制原图二维坐标。画面左右以参考图标识对应肢体，并在候选中追踪同一肢体；相机环绕或画面 roll 造成的投影变化不是动作改变或水平镜像。遮挡和证据不足仍应报告 indeterminate，不能默认通过。' }] : []),
     { type: 'text', text: '唯一姿势参考' },
     { type: 'image_url', image_url: { url: referenceImage } },
     ...candidates.flatMap((image, index) => [
@@ -229,8 +231,11 @@ export const selectBestTryOnCandidate: TryOnCandidateSelector = async (input) =>
   const posePolicy = poseIndexes.length ? '姿势由另一独立请求核对。' : '未提供姿势参考，无需核对动作一致性。';
   const content: Array<Record<string, unknown>> = [{
     type: 'text',
-    text: `你是写实服装换装质量评审器。阶段=${input.stage}。${roleText}。下面先给参考图，再给候选图。参考编号沿用原始上传编号，缺号并非漏图。按身份20、肢体结构15、服装版型20、材质纹理20、配饰与文字准确性15、构图与场景10评分。身份替换、明显多肢缺肢、严重手脚错误、场景服装污染、核心穿搭错误、虚构或改写 Logo/文字、核心包鞋缺失必须 hardFail=true。只返回 JSON：{"scores":[{"index":0,"identity":0,"anatomy":0,"garment":0,"material":0,"accessories":0,"scene":0,"hardFail":false${sceneStage ? '' : ',"poseMatches":true'},"reasons":["具体问题"]}]}。index 从0开始且每张候选恰好一项。${sceneStage ? `本请求不评动作一致性，不返回姿势通过结论，也不因动作差异或无法判断动作而 hardFail；${posePolicy}肢体结构只评畸形、多肢等解剖错误。` : '第二轮对照 baseline 保持姿势，明显姿势偏差必须 poseMatches=false 且 hardFail=true，并说明具体差异。'}scene 只核对空间、镜头、构图与光线，不继承其中的人物服装。目标提示词（仅在本次评审职责内生效）：${input.prompt}`,
+    text: `你是写实服装换装质量评审器。阶段=${input.stage}。${roleText}。下面先给参考图，再给候选图。参考编号沿用原始上传编号，缺号并非漏图。按身份20、肢体结构15、服装版型20、材质纹理20、配饰与文字准确性15、构图与场景10评分。身份替换、明显多肢缺肢、严重手脚错误、场景服装污染、核心穿搭错误、虚构或改写 Logo/文字、核心包鞋缺失必须 hardFail=true。只返回 JSON：{"scores":[{"index":0,"identity":0,"anatomy":0,"garment":0,"material":0,"accessories":0,"scene":0,"hardFail":false${sceneStage ? '' : ',"poseMatches":true'},"reasons":["具体问题"]}]}。index 从0开始且每张候选恰好一项。${sceneStage ? `本请求不评动作一致性，不返回姿势通过结论，也不因动作差异或无法判断动作而 hardFail；${posePolicy}肢体结构只评畸形、多肢等解剖错误。` : '第二轮对照 baseline 保持姿势，明显姿势偏差必须 poseMatches=false 且 hardFail=true，并说明具体差异。'}${sceneStage && input.angleControlled ? 'scene 只核对背景空间、材质、色彩与光线，允许目标相机重建透视和取景。' : 'scene 只核对空间、镜头、构图与光线，不继承其中的人物服装。'}目标提示词（仅在本次评审职责内生效）：${input.prompt}`,
   }];
+  if (sceneStage && input.angleControlled) {
+    content.push({ type: 'text', text: 'TiAngelNode 已启用：scene 只核对背景空间、材质、色彩与光线风格，不得因候选偏离原 scene 镜头、取景或二维构图而扣分；镜头约束以目标提示词中的受控相机视角为准。' });
+  }
   for (const ref of references) {
     content.push({ type: 'text', text: `参考图 ${ref.index + 1}，角色：${ref.role}` });
     content.push({ type: 'image_url', image_url: { url: ref.image } });
@@ -255,7 +260,7 @@ export const selectBestTryOnCandidate: TryOnCandidateSelector = async (input) =>
     const poseCandidates: TryOnPoseReview['candidates'] = [];
     for (const [index, candidate] of input.candidates.entries()) {
       const reviewed = await requestCandidateReview(
-        poseReviewContent(input.referenceImages[poseIndexes[0]], [candidate], referenceType), model, beforeCall,
+        poseReviewContent(input.referenceImages[poseIndexes[0]], [candidate], referenceType, input.angleControlled), model, beforeCall,
         payload => {
           const raw = readJudgeJson(payload, model);
           try {

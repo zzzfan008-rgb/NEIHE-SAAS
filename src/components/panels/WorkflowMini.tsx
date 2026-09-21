@@ -8,6 +8,7 @@ const KIND_COLOR: Record<NodeKind, string> = {
   "image-input": "#4A90D9",
   "background-extract": "#7FA58A",
   "text-input": "#718096",
+  "ti-angle": "#63B3ED",
   "drawing-board": "#3B9C8C",
   "color-palette": "#C87A9A",
   "stage-approval": "#C9953D",

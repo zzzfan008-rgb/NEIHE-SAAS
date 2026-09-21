@@ -45,6 +45,13 @@ export const TOOL_GROUPS: readonly ToolGroup[] = [
         { type: "node", kind: "text-input" },
       ),
       available(
+        "ti-angle",
+        "3D 视角",
+        "rotate-3d",
+        "添加可拖动的三轴视角控制，并输出适配生图模型的角度文本。",
+        { type: "node", kind: "ti-angle" },
+      ),
+      available(
         "local-image",
         "本地上传图片",
         "image-plus",

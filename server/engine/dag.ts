@@ -30,6 +30,7 @@ import {
   effectiveIncomingSources,
   isBypassedMaskRepair,
 } from "../../src/lib/maskRepair";
+import { compileTiAngleText } from "../../src/lib/tiAngle";
 import { imagesForSourceHandle } from "../../src/lib/workflowPorts";
 import { orderedOutfitImages } from "../../src/lib/styling";
 import { validPoseReferenceSource } from "../../src/types/poseReference";
@@ -550,6 +551,10 @@ export function buildExecutionPlan(
       targetHandle?: string | null;
     }[] = [];
     for (const effective of effectiveIncomingSources(nodes, edges, id)) {
+      const isAngleTextEdge = effective.targetHandle === "angle-direction";
+      const isTiAnglePreviewEdge =
+        data.kind === "ti-angle" && effective.targetHandle === "preview-image";
+      if (isAngleTextEdge || isTiAnglePreviewEdge) continue;
       const srcData = effective.node.data;
       upstream.push({
         nodeId: effective.node.id,
@@ -590,6 +595,41 @@ export function buildExecutionPlan(
     }
 
     const params = extractParams(data);
+    if (data.kind === "virtual-try-on" && data.workflowStage === "scene-stabilize") {
+      const angleEdges = edges.filter(
+        (edge) => edge.target === id && edge.targetHandle === "angle-direction",
+      );
+      if (angleEdges.length > 1) {
+        throw new DagError(`节点 ${id} 最多只能连接一个 3D 视角节点`);
+      }
+      const angleEdge = angleEdges[0];
+      if (angleEdge) {
+        const angleSource = nodeMap.get(angleEdge.source);
+        if (!angleSource || angleSource.data.kind !== "ti-angle") {
+          throw new DagError(`节点 ${id} 的 3D 视角文本来源必须是 TiAngelNode`);
+        }
+        if (angleSource.data.angle.enabled) {
+          const modelId = params.modelId;
+          if (!isImageModelId(modelId)) {
+            throw new DagError(`节点 ${id} 无法为 3D 视角文本确定目标生图模型`);
+          }
+          try {
+            const compiled = compileTiAngleText(angleSource.data.angle, modelId);
+            params.angleControl = {
+              sourceNodeId: angleSource.id,
+              config: { ...angleSource.data.angle },
+              adapterVersion: compiled.adapterVersion,
+              targetModelId: compiled.targetModelId,
+              text: compiled.text,
+            };
+          } catch (error) {
+            throw new DagError(
+              `节点 ${id} 的 3D 视角配置无效：${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+      }
+    }
     if (data.kind === 'virtual-try-on' && data.workflowStage === 'scene-stabilize') {
       const pose = upstream.find(source => source.targetHandle === 'pose');
       const source = pose && nodeMap.get(pose.nodeId)?.data;
@@ -723,6 +763,7 @@ function extractOutputImages(
       return data.audioUrl ? [data.audioUrl] : [];
     case "text-input":
     case "color-palette":
+    case "ti-angle":
       return [];
     case "background-extract":
     case "character-board":
@@ -791,6 +832,8 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
       };
     case "text-input":
       return { text: data.text };
+    case "ti-angle":
+      return { angle: { ...data.angle } };
     case "drawing-board":
       return {
         boardVersion: data.boardVersion,
