@@ -35,7 +35,9 @@ export function SceneStabilizeControls({ nodeId, data }: { nodeId: string; data:
         placeholder="例如：整体呈现简洁的时装画册质感，减少过度磨皮。"
         className="min-h-20 resize-none text-xs [field-sizing:fixed]" />
     </label>
-    <p className="text-[9px] leading-relaxed text-[var(--gc-text-muted)]">身份、服装与场景由对应参考图决定。需要指定动作时，可从左侧“添加节点”添加人物姿势参考图并连接；未连接时依据创作想法自然安排动作。</p>
+    <p className="text-[9px] leading-relaxed text-[var(--gc-text-muted)]">{data.sceneInputMode === 'composed-person'
+      ? '人物基准图已完成人物身份、姿势与场景定版。本轮保留基准图，只替换主穿搭及指定配饰。'
+      : '身份、服装与场景由对应参考图决定。需要指定动作时，可从左侧“添加节点”添加人物姿势参考图并连接；未连接时依据创作想法自然安排动作。'}</p>
     <p className="text-[9px] leading-relaxed text-[var(--gc-text-muted)]">第一轮不执行通用提示词增强，保留原始要求；审核拒绝时不自动改写重试。</p>
     <Option label="图像模型" value={data.modelId} disabled={disabled}
       items={SCENE_STABILIZE_MODEL_IDS.map(id => [id, imageModelLabel(id) + (id === 'gemini-3.1-flash-image' ? '（旧配置兼容）' : '')])}
@@ -50,7 +52,7 @@ export function SceneStabilizeControls({ nodeId, data }: { nodeId: string; data:
       }} />
     <div className="grid min-w-0 grid-cols-2 gap-2">
       <Option label="画幅比例" value={data.sceneFraming === 'custom' ? data.aspectRatio : 'scene'} disabled={disabled}
-        items={[["scene", "跟随场景"], ...RATIOS.map(ratio => [ratio, ratio])]}
+        items={[["scene", data.sceneInputMode === 'composed-person' ? "跟随人物基准" : "跟随场景"], ...RATIOS.map(ratio => [ratio, ratio])]}
         onChange={value => {
           if (value === 'scene') change({ sceneFraming: 'scene' });
           else if (RATIOS.includes(value as typeof RATIOS[number])) change({ sceneFraming: 'custom', aspectRatio: value as typeof RATIOS[number], modelOptions: dimensions(data.imageSize, value as typeof RATIOS[number]) });

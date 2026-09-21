@@ -141,7 +141,9 @@ export function inputPortSpecs(data: WorkflowNodeData): readonly NodePortSpec[] 
     return [input("source-video", data.mode === "video-edit" ? "待编辑视频" : "待延长视频", "video", true, 1), prompt];
   }
   if (data.kind === "virtual-try-on") {
-    if (data.workflowStage === "scene-stabilize") return SCENE_STABILIZE_PORTS;
+    if (data.workflowStage === "scene-stabilize") return data.sceneInputMode === "composed-person"
+      ? [input("person", "人物基准图", "image", true, 1), ...SCENE_STABILIZE_PORTS.filter(port => !["person", "scene", "pose"].includes(port.id))]
+      : SCENE_STABILIZE_PORTS;
     if (data.workflowStage === "garment-refine") return GARMENT_REFINE_PORTS;
   }
   if (data.kind === "mask-redraw") return MASK_REPAIR_PORTS;

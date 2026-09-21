@@ -240,6 +240,8 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     if (step.kind === "sketch-optimize" && usableImages.length !== 1) {
       throw new DagError("草图线稿优化需要连接一张参考图片");
     }
+    if (step.kind === "ai-modify" && step.params.referenceMode === "identity-pose" && usableImages.length !== 2)
+      throw new DagError("请分别上传图 1 人物身份与图 2 目标姿势照片");
     if (step.kind === "background-extract" && usableImages.length !== 1) {
       throw new DagError("背景板生成节点需要上传或连接一张图片");
     }
@@ -346,16 +348,19 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
         }
         const personSources = roleSources("person");
         const personImages = roleImages("person");
+        const composed = step.params.sceneInputMode === "composed-person";
         if (
           personSources.length < 1 ||
-          personSources.length > 3 ||
+          personSources.length > (composed ? 1 : 3) ||
           personImages.length !== personSources.length
         ) {
           throw new DagError(
-            `节点 ${step.nodeId} 必须连接 1 至 3 张同一人物身份图片`,
+            composed ? "人物基准图必须连接 1 张" : `节点 ${step.nodeId} 必须连接 1 至 3 张同一人物身份图片`,
           );
         }
-        requireOne("scene", "scene");
+        if (composed && (roleSources("scene").length || roleSources("pose").length))
+          throw new DagError("人物基准模式不接受独立场景或姿势输入");
+        if (!composed) requireOne("scene", "scene");
         if (roleSources("pose").length) requireOne("pose", "pose");
         requireOne("outfit", "outfit");
         for (const [role, label] of [
@@ -853,6 +858,7 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
     case "ai-modify":
       return {
         prompt: data.prompt,
+        referenceMode: data.referenceMode,
         aspectRatio: data.aspectRatio,
         batchSize: data.batchSize,
         ...modelFields(data.aspectRatio),
@@ -875,6 +881,7 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
       return {
         workflowStage: data.workflowStage,
         sceneFraming: data.sceneFraming,
+        sceneInputMode: data.sceneInputMode,
         prompt: data.prompt,
         imageSize: data.imageSize,
         aspectRatio: data.aspectRatio,

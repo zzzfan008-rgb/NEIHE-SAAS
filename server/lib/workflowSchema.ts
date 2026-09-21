@@ -924,6 +924,8 @@ function validateData(
     case "sketch-optimize":
     case "sketch-to-render":
     case "ai-modify":
+      if (kind === "ai-modify" && raw.referenceMode !== undefined)
+        oneOf(raw.referenceMode, ["identity-pose"] as const, `${path}.referenceMode`);
       if (kind === "sketch-optimize" && raw.batchSize !== 1)
         fail(`${path}.batchSize`, "sketch optimization generates one image");
       stringValue(raw.prompt, `${path}.prompt`);
@@ -968,6 +970,7 @@ function validateData(
       stringValue(raw.prompt, `${path}.prompt`);
       oneOf(raw.imageSize, raw.workflowStage === "scene-stabilize" && String(raw.modelId).startsWith("gemini-") ? ["1K", "2K", "4K"] : IMAGE_SIZES, `${path}.imageSize`);
       if (raw.sceneFraming !== undefined) oneOf(raw.sceneFraming, ["scene", "custom"] as const, `${path}.sceneFraming`);
+      if (raw.sceneInputMode !== undefined) oneOf(raw.sceneInputMode, ["composed-person"] as const, `${path}.sceneInputMode`);
       oneOf(
         raw.aspectRatio,
         ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"] as const,

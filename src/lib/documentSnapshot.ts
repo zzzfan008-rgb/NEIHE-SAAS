@@ -144,6 +144,7 @@ export type DocumentNodeData =
     } & GenerationModelDocumentFields)
   | ({
       kind: "ai-modify";
+      referenceMode?: "identity-pose";
       label: string;
       prompt: string;
       aspectRatio: string;
@@ -186,6 +187,7 @@ export type DocumentNodeData =
       prompt: string;
       imageSize: "1K" | "2K" | "4K";
       sceneFraming?: "scene" | "custom";
+      sceneInputMode?: "composed-person";
       aspectRatio: "1:1" | "4:5" | "3:4" | "2:3" | "9:16" | "16:9";
       garmentCategory?: "knit" | "woven" | "other";
       materialSpec?: string;
@@ -514,6 +516,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
     case "ai-modify":
       return {
         kind: data.kind,
+        ...(data.referenceMode === "identity-pose" ? { referenceMode: data.referenceMode } : {}),
         label: data.label,
         prompt: data.prompt,
         aspectRatio: data.aspectRatio,
@@ -569,6 +572,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         label: data.label,
         workflowStage: data.workflowStage,
         ...(data.sceneFraming ? { sceneFraming: data.sceneFraming } : {}),
+        ...(data.sceneInputMode === "composed-person" ? { sceneInputMode: data.sceneInputMode } : {}),
         prompt: data.prompt,
         imageSize: data.imageSize,
         aspectRatio: data.aspectRatio,

@@ -298,6 +298,7 @@ export interface AiModifyNodeData
   extends BaseNodeData,
     ModelSelectableNodeData {
   kind: "ai-modify";
+  referenceMode?: "identity-pose";
   prompt: string;
   aspectRatio: string;
   batchSize: BatchSize; // 改款指令，如"改成娃娃领、袖长改短"
@@ -357,6 +358,8 @@ export interface VirtualTryOnNodeData extends BaseNodeData {
   imageSize: "1K" | "2K" | "4K";
   /** 第一轮默认跟随场景画幅；custom 使用用户指定比例。 */
   sceneFraming?: "scene" | "custom";
+  /** 前置改款已确定身份、动作与场景；第一轮只替换穿搭。 */
+  sceneInputMode?: "composed-person";
   /** 标准换装和第一轮自选画幅使用此比例；跟随场景及第二轮由参考图推导。 */
   aspectRatio: "1:1" | "4:5" | "3:4" | "2:3" | "9:16" | "16:9";
   /** 第一轮语义输入、参数、输出或重跑发生变化时递增。 */

@@ -1496,6 +1496,8 @@ function virtualTryOnRunBlockReason(
   if (node.data.workflowStage === "scene-stabilize") {
     if (!isSceneStabilizeModelId(node.data.modelId))
       return "第一轮所选模型不受支持";
+    if (node.data.sceneInputMode === "composed-person")
+      return requireSingle("person", "人物基准图") ?? requireSingle("outfit", "主穿搭图");
     const poseSource = document.nodes.find(candidate => candidate.id === edgesFor('pose')[0]?.source);
     if (poseSource?.data.kind === 'image-input' && poseSource.data.imageUrl && !posePromptForImage(poseSource.data)?.trim())
       return '请先在人物姿势参考图中完成反推或填写姿势提示词，再生成第一轮';
@@ -2914,6 +2916,8 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
     case "sketch-to-render":
     case "ai-modify":
       data.prompt = typeof input.prompt === "string" ? input.prompt : "";
+      if (kind === "ai-modify" && input.referenceMode === "identity-pose") data.referenceMode = input.referenceMode;
+      else delete data.referenceMode;
       data.aspectRatio =
         typeof input.aspectRatio === "string" &&
         ["1:1", "3:4", "4:3", "9:16", "16:9"].includes(input.aspectRatio)
@@ -2967,6 +2971,8 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
       data.imageSize = input.imageSize === "4K" ? "4K" : input.imageSize === "1K" && data.workflowStage === "scene-stabilize" && String(data.modelId).startsWith("gemini-") ? "1K" : "2K";
       if (input.sceneFraming === "scene" || input.sceneFraming === "custom") data.sceneFraming = input.sceneFraming;
       else delete data.sceneFraming;
+      if (input.sceneInputMode === "composed-person") data.sceneInputMode = input.sceneInputMode;
+      else delete data.sceneInputMode;
       data.aspectRatio =
         typeof input.aspectRatio === "string" &&
         ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"].includes(input.aspectRatio)
@@ -5699,6 +5705,7 @@ export const useFlowStore = create<FlowState>()(
           const edited = tab.nodes.find((node) => node.id === id)!;
           const basisKeys = new Set([
             "sceneFraming",
+            "sceneInputMode",
             "aspectRatio",
             "prompt",
             "imageSize",
@@ -5934,6 +5941,13 @@ export const useFlowStore = create<FlowState>()(
           );
           if (node.data.kind === "character-board" && !node.data.sourceImage) {
             preparationError = "请先上传一张模特图";
+          }
+          if (node.data.kind === "ai-modify" && node.data.referenceMode === "identity-pose") {
+            const references = initialDocument.edges.filter(edge => edge.target === id && edge.targetHandle === "references");
+            if (references.length !== 2 || references.some(edge => {
+              const source = initialDocument.nodes.find(candidate => candidate.id === edge.source);
+              return !source || nodeOutputImages(source.data, edge.sourceHandle).length !== 1;
+            })) preparationError = "请分别上传图 1 人物身份与图 2 目标姿势照片";
           }
           if (node.data.kind === "ai-styling") {
             const { validStylingAnalysis, stylingInput } = await import(

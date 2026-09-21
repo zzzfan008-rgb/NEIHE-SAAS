@@ -962,12 +962,15 @@ async function main() {
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.modelId, "gemini-3-pro-image-preview");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "refine")?.data.modelId, "gpt-image-2");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "approval")?.type, "stage-approval");
-    assert.equal(stagedTryOn.flow.nodes.length, 23);
-    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "scene")?.data.label, "场景参考图（必需）");
-    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "pose")?.data.label, "人物姿势参考图（可选）");
+    assert.equal(stagedTryOn.flow.nodes.length, 21);
+    assert.equal(stagedTryOn.flow.nodes.some((node) => node.id === "scene"), false);
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "pose")?.data.label, "图 2 · 目标姿势与场景（必需）");
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "stabilize")?.data.sceneInputMode, "composed-person");
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "compose-person")?.type, "ai-modify");
     assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "socks")?.data.label, "袜子参考图（可选）");
-    assert.equal(stagedTryOn.flow.edges.length, 3, "图片连接必须在赋值后创建，第二轮结果固定连接局部重绘");
-    assert.equal(stagedTryOn.flow.edges.some((edge) => edge.target === "stabilize" && edge.source !== "approval"), false);
+    assert.equal(stagedTryOn.flow.edges.length, 6);
+    assert.deepEqual(stagedTryOn.flow.edges.filter(edge => edge.target === "compose-person").map(edge => edge.source), ["person", "pose"], "身份和姿势的编号不随上传顺序变化");
+    assert.deepEqual(stagedTryOn.flow.edges.filter(edge => edge.target === "stabilize").map(edge => [edge.source, edge.targetHandle]), [["compose-person", "person"]]);
     assert.ok(stagedTryOn.flow.edges.some((edge) => (
       edge.source === "stabilize" && edge.target === "approval" &&
       edge.sourceHandle === "image" && edge.targetHandle === "baseline-candidate"
@@ -979,12 +982,9 @@ async function main() {
     const targetsFor = (nodeId: string) => (
       stagedTryOn.flow.nodes.find((node) => node.id === nodeId)?.data.autoConnectTargets
     );
-    assert.deepEqual(targetsFor("person"), [{ targetNodeId: "stabilize", targetHandle: "person" }]);
-    assert.deepEqual(targetsFor("identity-secondary-1"), [{ targetNodeId: "stabilize", targetHandle: "person" }]);
-    assert.deepEqual(targetsFor("identity-secondary-2"), [{ targetNodeId: "stabilize", targetHandle: "person" }]);
-    assert.deepEqual(targetsFor("scene"), [{ targetNodeId: "stabilize", targetHandle: "scene" }]);
+    assert.equal(targetsFor("person"), undefined);
     assert.equal(targetsFor("pose"), undefined);
-    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "pose")?.data.poseReference, true);
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "pose")?.data.poseReference, undefined);
     assert.deepEqual(targetsFor("outfit"), [
       { targetNodeId: "stabilize", targetHandle: "outfit" },
       { targetNodeId: "refine", targetHandle: "outfit" },
@@ -1048,7 +1048,7 @@ async function main() {
       ensureBuiltinTemplates();
       const modelRefreshed = JSON.parse(fs.readFileSync(stagedPath, "utf-8")).flow.nodes.find((node: { id: string }) => node.id === "stabilize");
       assert.equal(modelRefreshed.data.modelId, "gemini-3-pro-image-preview", "内置模板缓存应更新为 Pro 默认值");
-      assert.equal(modelRefreshed.data.label, "第一轮 · 场景化定版");
+      assert.equal(modelRefreshed.data.label, "第一轮 · Gemini 场景化定版");
       const existing = JSON.parse(fs.readFileSync(existingPath, "utf-8")) as {
         schemaVersion: number;
         description: string;
@@ -1145,7 +1145,8 @@ async function main() {
       const fabric = JSON.parse(fs.readFileSync(path.join(builtinDir, "builtin-tool-fabric-replace.json"), "utf8"));
       assert.equal(fabric.schemaVersion, WORKFLOW_SCHEMA_VERSION);
       assert.equal(fabric.flow.nodes.find((node: { id: string }) => node.id === "generate").data.modelId, DEFAULT_GENERATION_MODEL_ID);
-      assert.equal(fs.readFileSync(tryOnPath, "utf8"), tryOnJson);
+      const refreshedTryOn = JSON.parse(fs.readFileSync(tryOnPath, "utf8"));
+      assert.equal(refreshedTryOn.flow.nodes.find((node: { id: string }) => node.id === "stabilize").data.sceneInputMode, "composed-person");
       assert.equal(fs.readFileSync(userPath, "utf8"), legacy);
       const before = fs.readdirSync(builtinDir).sort().map((file) => fs.readFileSync(path.join(builtinDir, file), "utf8"));
       ensureBuiltinTemplates();
