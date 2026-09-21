@@ -430,16 +430,28 @@ function stagedVirtualTryOnPrompt(
       ? "针织"
       : params.garmentCategory === "woven"
         ? "梭织"
-        : "其他材料";
-  const material = String(params.materialSpec ?? "").trim();
-  const construction = String(params.constructionSpec ?? "").trim();
+        : params.garmentCategory === "other"
+          ? "其他材料"
+          : "未指定；根据主穿搭图中清晰可见的服装结构判断，不预设针织或梭织";
+  const materialInput = String(params.materialSpec ?? "").trim();
+  const constructionInput = String(params.constructionSpec ?? "").trim();
+  const material = materialInput || (indexes("material").length
+    ? "未指定；仅依据面料参考图与主穿搭图中清晰可见的材质、纹理、厚薄和垂感还原，不虚构精确纤维成分或克重"
+    : "未指定；仅依据主穿搭图中清晰可见的材质表现还原，不虚构精确纤维成分、克重或其他不可见参数");
+  const construction = constructionInput || (indexes("detail").length
+    ? "未指定；依据主穿搭图和局部结构参考中清晰可见的版型与制作结构还原，不虚构不可见的机号、密度或工艺参数"
+    : "未指定；仅依据主穿搭图中清晰可见的版型与制作结构还原，不虚构不可见的机号、密度或工艺参数");
   const materialReference = indexes("material").length
-    ? `${one("material")}是面料、纱线或表面纹理参考，其视觉表现服从用户文字材料规格。`
-    : "没有独立材料图片，以用户文字材料规格为准。";
+    ? materialInput
+      ? `${one("material")}是面料、纱线或表面纹理参考，其视觉表现服从用户文字材料规格。`
+      : `${one("material")}是面料、纱线或表面纹理参考，仅采用其中清晰可见的材质表现。`
+    : materialInput
+      ? "没有独立材料图片，以用户文字材料规格为准。"
+      : "没有独立材料图片，以主穿搭图中清晰可见的材质表现为准。";
   const details = indexes("detail").length
     ? `${many("detail")}是局部结构参考，只能修正对应领口、门襟、袖型、腰头、褶裥、口袋或五金，不得改变整体廓形。`
     : "没有局部结构参考。";
-  return `完成第二轮服装精修。以${one("baseline")}作为底图做局部服装精修，不得裁剪、缩放、扩图、重新取景或重新生成整个人物。该图是用户已经确认的唯一人物与场景基准，绝对锁定人物身份、五官、肤色、发型、体型、动作、神态、身体姿势、手脚、目标配饰、人物位置、背景、光线、镜头和构图；面部、头发、裸露皮肤、手脚、包袋、鞋履、首饰及其已有金属装饰图案与五金保持不变，不得重画、替换或漂移。${one("outfit")}是主穿搭参考，控制服装整体廓形、领型、袖型、衣长、腰线、松量、层次与搭配；图中清晰可见的腰头、腰袢、系带、褶裥、裤线和裤腿宽度优先于通用设计常识，不得简化为近似扣带或其它结构。服装品类：${category}。材料规格：${material}。结构工艺：${construction}。${materialReference}${details}${stylePrompt ? `延续已确认基准中的${stylePrompt}，不得借此重画场景。` : ""}冲突时严格遵循“已确认人物与场景基准 > 主穿搭整体版型 > 用户文字材料与工艺规格 > 材料参考图 > 对应局部结构参考图”。只允许修改服装覆盖区域，以及服装与身体接触所必需的自然褶皱、遮挡和阴影。准确还原面料纹理、针织或织造结构、缝线、辅料、垂感与厚薄，不得改变已确认的人物、配饰和场景。不要生成参考图中不存在的文字、装饰图案、水印、标记框、错误手指或畸形肢体；目标商品上已经存在的金属装饰图案与五金必须保持原有位置、比例和外观。输出一张完整写实的最终精修图片${extra ? `。补充要求：${extra}` : ""}`;
+  return `完成第二轮服装精修。以${one("baseline")}作为底图做局部服装精修，不得裁剪、缩放、扩图、重新取景或重新生成整个人物。该图是用户已经确认的唯一人物与场景基准，绝对锁定人物身份、五官、肤色、发型、体型、动作、神态、身体姿势、手脚、目标配饰、人物位置、背景、光线、镜头和构图；面部、头发、裸露皮肤、手脚、包袋、鞋履、首饰及其已有金属装饰图案与五金保持不变，不得重画、替换或漂移。${one("outfit")}是主穿搭参考，控制服装整体廓形、领型、袖型、衣长、腰线、松量、层次与搭配；图中清晰可见的腰头、腰袢、系带、褶裥、裤线和裤腿宽度优先于通用设计常识，不得简化为近似扣带或其它结构。服装品类：${category}。材料规格：${material}。结构工艺：${construction}。${materialReference}${details}${stylePrompt ? `延续已确认基准中的${stylePrompt}，不得借此重画场景。` : ""}冲突时严格遵循“已确认人物与场景基准 > 主穿搭整体版型 > 已填写的用户文字材料与工艺规格 > 材料参考图 > 对应局部结构参考图”。只允许修改服装覆盖区域，以及服装与身体接触所必需的自然褶皱、遮挡和阴影。准确还原面料纹理、针织或织造结构、缝线、辅料、垂感与厚薄，不得改变已确认的人物、配饰和场景。不要生成参考图中不存在的文字、装饰图案、水印、标记框、错误手指或畸形肢体；目标商品上已经存在的金属装饰图案与五金必须保持原有位置、比例和外观。输出一张完整写实的最终精修图片${extra ? `。补充要求：${extra}` : ""}`;
 }
 
 const SCENE_STABILIZE_REFERENCE_ORDER = [
@@ -768,18 +780,6 @@ function stagedVirtualTryOnRuntimeError(
   if (imagesFor("material").length > 1) return "面料参考图最多 1 张";
   if (step.params.approvedBaselineRef !== imagesFor("baseline")[0])
     return "第一轮基准图尚未确认或确认已经失效";
-  if (!["knit", "woven", "other"].includes(String(step.params.garmentCategory)))
-    return "请选择服装品类";
-  if (
-    typeof step.params.materialSpec !== "string" ||
-    !step.params.materialSpec.trim()
-  )
-    return "请填写面料或材料说明";
-  if (
-    typeof step.params.constructionSpec !== "string" ||
-    !step.params.constructionSpec.trim()
-  )
-    return "请填写针织、织造或加工工艺";
   return undefined;
 }
 

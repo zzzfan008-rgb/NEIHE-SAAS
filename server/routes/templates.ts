@@ -262,7 +262,6 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
             modelOptions: { quality: "medium" },
             imageSize: "2K",
             aspectRatio: "3:4",
-            garmentCategory: "knit",
             materialSpec: "",
             constructionSpec: "",
             promptEnhancement: true,
@@ -788,7 +787,7 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
       schemaVersion?: unknown;
       name?: unknown;
       flow?: {
-        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown; label?: unknown; modelId?: unknown; sceneInputMode?: unknown; referenceMode?: unknown; poseReference?: unknown; autoConnectTargets?: unknown } }>;
+        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown; label?: unknown; modelId?: unknown; sceneInputMode?: unknown; referenceMode?: unknown; garmentCategory?: unknown; poseReference?: unknown; autoConnectTargets?: unknown } }>;
         edges?: Array<{ id?: unknown; source?: unknown; target?: unknown; targetHandle?: unknown }>;
       };
     };
@@ -809,6 +808,7 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
         || nodeById.get("stabilize")?.data?.sceneInputMode !== "composed-person"
         || nodeById.get("compose-person")?.type !== "ai-modify"
         || nodeById.get("compose-person")?.data?.referenceMode !== "identity-pose"
+        || nodeById.get("refine")?.data?.garmentCategory !== undefined
         || JSON.stringify(raw.flow?.edges?.filter(edge => edge.target === "compose-person").map(edge => [edge.source, edge.targetHandle])) !== JSON.stringify([["person", "references"], ["pose", "references"]])
         || !raw.flow?.edges?.some(edge => edge.source === "compose-person" && edge.target === "stabilize" && edge.targetHandle === "person")
         || nodeById.get("garment-detail")?.type !== "mask-redraw"

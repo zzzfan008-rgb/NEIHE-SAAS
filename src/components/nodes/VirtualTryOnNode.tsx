@@ -85,9 +85,6 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
   const missingRequiredRole = roleRows.some(({ port, connectedSource }) => (
     port.required && connectedSource.length === 0
   ));
-  const missingRefineSpec = data.workflowStage === "garment-refine" && (
-    !data.garmentCategory || !data.materialSpec?.trim() || !data.constructionSpec?.trim()
-  );
   const staged = data.workflowStage !== "standard";
 
   return (
@@ -99,8 +96,8 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         status={data.status}
         error={data.error}
         selected={selected}
-        missingInput={staged && (missingRequiredRole || missingRefineSpec)}
-        executable={staged && !missingRequiredRole && !missingRefineSpec}
+        missingInput={staged && missingRequiredRole}
+        executable={staged && !missingRequiredRole}
         summary={staged ? (
           <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">
             {data.workflowStage === "scene-stabilize"

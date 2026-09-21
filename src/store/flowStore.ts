@@ -1561,9 +1561,6 @@ function virtualTryOnRunBlockReason(
     approval.data.approvedBasisRevision !== currentBasis
   )
     return "请先在独立确认节点检查并确认当前第一轮基准图";
-  if (!node.data.garmentCategory) return "请选择服装品类";
-  if (!node.data.materialSpec?.trim()) return "请填写面料或材料说明";
-  if (!node.data.constructionSpec?.trim()) return "请填写针织、织造或加工工艺";
   return undefined;
 }
 

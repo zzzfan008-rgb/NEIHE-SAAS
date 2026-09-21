@@ -419,29 +419,6 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
             `节点 ${step.nodeId} 的第一轮基准尚未确认或确认已失效`,
           );
         }
-        if (
-          !["knit", "woven", "other"].includes(
-            String(step.params.garmentCategory),
-          )
-        ) {
-          throw new DagError(`Node ${step.nodeId} requires a garment category`);
-        }
-        if (
-          typeof step.params.materialSpec !== "string" ||
-          !step.params.materialSpec.trim()
-        ) {
-          throw new DagError(
-            `Node ${step.nodeId} requires a material specification`,
-          );
-        }
-        if (
-          typeof step.params.constructionSpec !== "string" ||
-          !step.params.constructionSpec.trim()
-        ) {
-          throw new DagError(
-            `Node ${step.nodeId} requires a construction specification`,
-          );
-        }
         continue;
       }
       if (usableImages.length < 2) {

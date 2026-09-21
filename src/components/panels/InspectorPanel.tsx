@@ -452,13 +452,13 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
           {d.workflowStage === "garment-refine" && (
             <div className="space-y-3 border-t border-[var(--gc-border)] pt-3">
               <fieldset className="space-y-1">
-                <legend className="text-[10px] text-[var(--gc-text-muted)]">服装品类（必填）</legend>
-                <div className="flex gap-2">
-                  {([[
+                <legend className="text-[10px] text-[var(--gc-text-muted)]">服装品类（选填）</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {([[undefined, "自动判断"], [
                     "knit", "针织",
                   ], ["woven", "梭织"], ["other", "其他"]] as const).map(([garmentCategory, label]) => (
                     <Button
-                      key={garmentCategory}
+                      key={garmentCategory ?? "auto"}
                       type="button"
                       size="sm"
                       variant={d.garmentCategory === garmentCategory ? "default" : "outline"}
@@ -473,26 +473,26 @@ function PropertyEditor({ nodeId }: { nodeId: string }) {
                 </div>
               </fieldset>
               <label className="block space-y-1">
-                <span className="text-[10px] text-[var(--gc-text-muted)]">材料/面料规格（必填）</span>
+                <span className="text-[10px] text-[var(--gc-text-muted)]">材料/面料规格（选填）</span>
                 <Textarea
                   value={d.materialSpec ?? ""}
                   {...materialEdit.bind}
                   rows={4}
                   placeholder={d.garmentCategory === "knit"
                     ? "纤维成分、纱线粗细、厚度、手感"
-                    : "成分、克重、厚薄、垂感或材料规格"}
+                    : "留空时根据主穿搭和面料参考图判断"}
                   className={cn(panelInputClass, "h-auto min-h-24 resize-none py-2 leading-5")}
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-[10px] text-[var(--gc-text-muted)]">结构/制作工艺（必填）</span>
+                <span className="text-[10px] text-[var(--gc-text-muted)]">结构/制作工艺（选填）</span>
                 <Textarea
                   value={d.constructionSpec ?? ""}
                   {...constructionEdit.bind}
                   rows={4}
                   placeholder={d.garmentCategory === "knit"
                     ? "机号、针织组织、密度、罗纹、绞花或收针方式"
-                    : "织法、褶裥、压线、拼接、粘衬和缝制结构"}
+                    : "留空时根据主穿搭和局部结构参考判断"}
                   className={cn(panelInputClass, "h-auto min-h-24 resize-none py-2 leading-5")}
                 />
               </label>
