@@ -12,6 +12,7 @@ import {
   containImageRect,
   frameMarkerRotationDeg,
   sphericalToTiAngle,
+  normalizeTiAngleDegrees,
   type TiAngleDragMode,
 } from "@/lib/tiAngleGeometry";
 import type { TiAngleConfig } from "@/types/workflow";
@@ -35,6 +36,7 @@ interface ActiveDrag {
 interface PreviewScene {
   render: () => void;
   hitTest: (clientX: number, clientY: number) => TiAngleDragMode | null;
+  dragAxis: (start: TiAngleConfig, mode: TiAngleDragMode, dx: number, dy: number) => TiAngleConfig;
   dispose: () => void;
 }
 
@@ -66,27 +68,12 @@ function createRectGeometry(THREE: ThreeModule, width: number, height: number) {
   ]);
 }
 
-function createEllipseGeometry(THREE: ThreeModule, radiusX: number, radiusY: number) {
-  const curve = new THREE.EllipseCurve(0, 0, radiusX, radiusY, 0, Math.PI * 2, false, 0);
-  return new THREE.BufferGeometry().setFromPoints(
-    curve.getPoints(96).map((point) => new THREE.Vector3(point.x, point.y, 0)),
-  );
-}
-
-function createArcGeometry(THREE: ThreeModule, radiusX: number, radiusY: number) {
-  const curve = new THREE.EllipseCurve(
-    0,
-    0,
-    radiusX,
-    radiusY,
-    -Math.PI / 2,
-    Math.PI / 2,
-    false,
-    0,
-  );
-  return new THREE.BufferGeometry().setFromPoints(
-    curve.getPoints(48).map((point) => new THREE.Vector3(point.x, point.y, 0.01)),
-  );
+function createArcGeometry(THREE: ThreeModule) {
+  const points = Array.from({ length: 49 }, (_, index) => {
+    const angle = ((-45 + (index / 48) * 105) * Math.PI) / 180;
+    return new THREE.Vector3(-Math.cos(angle) * 1.85, Math.sin(angle) * 1.85, 0);
+  });
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 64, 0.026, 8, false);
 }
 
 export function TiAnglePreview({ image, config, disabled = false, onCommit }: TiAnglePreviewProps) {
@@ -141,71 +128,90 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
         renderer.setClearColor(0x000000, 0);
 
         const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(-2, 2, 2, -2, 0.1, 20);
-        camera.position.set(0, 0, 6);
+        const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 40);
+        camera.position.set(4, 3, 6);
         camera.lookAt(0, 0, 0);
-
-        const accent = new THREE.Color("#8bd8ff");
-        const muted = new THREE.Color("#557080");
-        const cssAccent = getComputedStyle(host).getPropertyValue("--gc-accent").trim();
-        if (cssAccent) {
-          try {
-            accent.setStyle(cssAccent);
-          } catch {
-            // CSS custom properties may use a color syntax older Three.js cannot parse.
-          }
-        }
+        const accent = new THREE.Color("#dfff45");
+        scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+        const keyLight = new THREE.DirectionalLight(0xffffff, 3);
+        keyLight.position.set(-3, 6, 5);
+        scene.add(keyLight);
+        const fillLight = new THREE.DirectionalLight(0xffffff, 0.7);
+        fillLight.position.set(4, 1, -3);
+        scene.add(fillLight);
 
         const imageMaterial = new THREE.MeshBasicMaterial({
-          color: 0xffffff,
-          transparent: true,
-          opacity: image ? 0.92 : 0.12,
-          side: THREE.DoubleSide,
+          color: image ? 0xffffff : 0x68686b,
+          side: THREE.FrontSide,
         });
-        const imagePlane = new THREE.Mesh(new THREE.PlaneGeometry(2.55, 1.7), imageMaterial);
-        imagePlane.position.z = -0.08;
+        const imagePlane = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.8), imageMaterial);
         scene.add(imagePlane);
+        // A neutral back prevents the source photograph from looking like a generated rear view.
+        const imageBack = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.35, 1.8),
+          new THREE.MeshBasicMaterial({ color: 0x505054, side: THREE.BackSide }),
+        );
+        scene.add(imageBack);
+        const cardBorder = new THREE.LineLoop(
+          createRectGeometry(THREE, 1.35, 1.8),
+          new THREE.LineBasicMaterial({ color: 0xbebec2 }),
+        );
+        scene.add(cardBorder);
+        const cardTop = new THREE.Mesh(
+          new THREE.ConeGeometry(0.055, 0.12, 3),
+          new THREE.MeshBasicMaterial({ color: accent }),
+        );
+        cardTop.position.set(0, 0.78, 0.012);
+        scene.add(cardTop);
 
-        const frameMaterial = new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.62 });
-        const frame = new THREE.LineLoop(createRectGeometry(THREE, 2.68, 1.83), frameMaterial);
-        frame.position.z = 0.08;
-        scene.add(frame);
-
-        const orbitMaterial = new THREE.LineBasicMaterial({ color: muted, transparent: true, opacity: 0.72 });
-        const orbit = new THREE.LineLoop(createEllipseGeometry(THREE, 1.42, 0.58), orbitMaterial);
-        orbit.position.z = 0.03;
+        const orbitMaterial = new THREE.MeshStandardMaterial({ color: 0xc5c5c8, roughness: 0.48, metalness: 0.15 });
+        const orbit = new THREE.Mesh(new THREE.TorusGeometry(1.85, 0.028, 8, 96), orbitMaterial);
+        orbit.rotation.x = Math.PI / 2;
+        orbit.position.y = -0.94;
         scene.add(orbit);
-
-        const elevationArc = new THREE.Line(createArcGeometry(THREE, 0.68, 1.02), orbitMaterial);
-        elevationArc.position.z = 0.04;
+        const elevationArc = new THREE.Mesh(createArcGeometry(THREE), orbitMaterial);
         scene.add(elevationArc);
 
-        const axisMaterial = new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.3 });
-        const axis = new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(-1.6, 0, 0),
-            new THREE.Vector3(1.6, 0, 0),
-          ]),
-          axisMaterial,
-        );
-        axis.position.z = 0.02;
-        scene.add(axis);
-
         const ball = new THREE.Mesh(
-          new THREE.SphereGeometry(0.1, 18, 12),
-          new THREE.MeshBasicMaterial({ color: accent }),
+          new THREE.SphereGeometry(0.14, 24, 16),
+          new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 0.25, roughness: 0.35 }),
         );
         scene.add(ball);
 
+        const cameraRig = new THREE.Group();
+        const cameraArrow = new THREE.Mesh(
+          new THREE.ConeGeometry(0.16, 0.36, 4),
+          new THREE.MeshStandardMaterial({ color: accent, roughness: 0.5 }),
+        );
+        cameraArrow.rotation.x = Math.PI / 2;
+        cameraArrow.position.z = 0.3;
+        cameraRig.add(cameraArrow);
+        const frame = new THREE.LineLoop(
+          createRectGeometry(THREE, 0.38, 0.27),
+          new THREE.LineBasicMaterial({ color: accent }),
+        );
+        const frameTop = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(-0.06, 0.135, 0),
+            new THREE.Vector3(0, 0.22, 0),
+            new THREE.Vector3(0.06, 0.135, 0),
+          ]),
+          new THREE.LineBasicMaterial({ color: accent }),
+        );
+        frame.add(frameTop);
+        frame.position.z = 0.52;
+        cameraRig.add(frame);
+        scene.add(cameraRig);
+
         const azimuthHandle = new THREE.Mesh(
-          new THREE.SphereGeometry(0.075, 16, 10),
-          new THREE.MeshBasicMaterial({ color: accent }),
+          new THREE.SphereGeometry(0.16, 24, 16),
+          new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.24, metalness: 0.2 }),
         );
         scene.add(azimuthHandle);
 
         const elevationHandle = new THREE.Mesh(
-          new THREE.SphereGeometry(0.075, 16, 10),
-          new THREE.MeshBasicMaterial({ color: 0xffd88b }),
+          new THREE.SphereGeometry(0.16, 24, 16),
+          new THREE.MeshStandardMaterial({ color: 0xaaaaae, roughness: 0.3, metalness: 0.18 }),
         );
         scene.add(elevationHandle);
 
@@ -237,13 +243,16 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
         let imageHeight = 0;
 
         const fitImagePlane = (width: number, height: number) => {
-          const fit = containImageRect(width, height, 255, 170);
-          const planeWidth = 2.55 * (fit.width / 255);
-          const planeHeight = 1.7 * (fit.height / 170);
+          const fit = containImageRect(width, height, 160, 180);
+          const planeWidth = fit.width / 100;
+          const planeHeight = fit.height / 100;
           imagePlane.geometry.dispose();
           imagePlane.geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
-          frame.geometry.dispose();
-          frame.geometry = createRectGeometry(THREE, planeWidth + 0.13, planeHeight + 0.13);
+          imageBack.geometry.dispose();
+          imageBack.geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+          cardBorder.geometry.dispose();
+          cardBorder.geometry = createRectGeometry(THREE, planeWidth, planeHeight);
+          cardTop.position.y = planeHeight / 2 - 0.08;
         };
 
         if (image) {
@@ -276,36 +285,37 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
 
         const render = () => {
           const current = draftRef.current;
-          const position = sphericalToTiAngle(current, 1.55);
+          const position = sphericalToTiAngle(current, 1.35);
           const markerPosition = new THREE.Vector3(
-            position.x * 1.12,
-            position.y * 1.12,
-            position.z * 1.12,
+            position.x,
+            position.y,
+            position.z,
           );
           ball.position.copy(markerPosition);
           ballHitTarget.position.copy(markerPosition);
+          cameraRig.position.copy(markerPosition);
+          cameraRig.lookAt(0, 0, 0);
 
           const azimuthRadians = (current.azimuthDeg * Math.PI) / 180;
           const azimuthPosition = new THREE.Vector3(
-            Math.sin(azimuthRadians) * 1.42,
-            Math.cos(azimuthRadians) * 0.58,
-            Math.cos(azimuthRadians) * 0.75,
+            Math.sin(azimuthRadians) * 1.85,
+            -0.94,
+            Math.cos(azimuthRadians) * 1.85,
           );
           azimuthHandle.position.copy(azimuthPosition);
           azimuthHitTarget.position.copy(azimuthPosition);
 
-          const elevationRadians =
-            ((current.elevationDeg + 45) / 105) * Math.PI - Math.PI / 2;
+          const elevationRadians = (current.elevationDeg * Math.PI) / 180;
           const elevationPosition = new THREE.Vector3(
-            Math.cos(elevationRadians) * 0.68,
-            Math.sin(elevationRadians) * 1.02,
-            0.24,
+            -Math.cos(elevationRadians) * 1.85,
+            Math.sin(elevationRadians) * 1.85,
+            0,
           );
           elevationHandle.position.copy(elevationPosition);
           elevationHitTarget.position.copy(elevationPosition);
 
           directionLine.geometry.setFromPoints([
-            new THREE.Vector3(0, 0, 0.2),
+            new THREE.Vector3(0, 0, 0),
             markerPosition,
           ]);
           frame.rotation.z = (frameMarkerRotationDeg(current.rollDeg) * Math.PI) / 180;
@@ -333,12 +343,13 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
           raycaster.setFromCamera(pointer, camera);
           const intersections = raycaster.intersectObjects([
             imagePlane,
+            imageBack,
             ballHitTarget,
             azimuthHitTarget,
             elevationHitTarget,
           ]);
           const first = intersections[0]?.object;
-          if (!first || first === imagePlane) return null;
+          if (!first || first === imagePlane || first === imageBack) return null;
           if (first === ballHitTarget) return "orbit";
           if (first === azimuthHitTarget) return "azimuth";
           if (first === elevationHitTarget) return "elevation";
@@ -351,12 +362,40 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
           const height = Math.max(1, Math.floor(rect.height || host.clientHeight || 208));
           renderer.setSize(width, height, false);
           const aspect = width / height;
-          camera.left = -2 * aspect;
-          camera.right = 2 * aspect;
-          camera.top = 2;
-          camera.bottom = -2;
+          camera.aspect = aspect;
           camera.updateProjectionMatrix();
           render();
+        };
+
+        // Match the projected track, preserving the initial grab offset rather than
+        // treating a perspective orbit as a horizontal screen-space slider.
+        const dragAxis: PreviewScene["dragAxis"] = (start, mode, dx, dy) => {
+          const rect = canvas.getBoundingClientRect();
+          const projectAngle = (degrees: number) => {
+            const radians = (degrees * Math.PI) / 180;
+            const point = mode === "azimuth"
+              ? new THREE.Vector3(Math.sin(radians) * 1.85, -0.94, Math.cos(radians) * 1.85)
+              : new THREE.Vector3(-Math.cos(radians) * 1.85, Math.sin(radians) * 1.85, 0);
+            point.project(camera);
+            return { x: point.x * rect.width / 2, y: -point.y * rect.height / 2 };
+          };
+          const initial = mode === "azimuth" ? start.azimuthDeg : start.elevationDeg;
+          const origin = projectAngle(initial);
+          let best = initial;
+          let distance = Infinity;
+          const min = mode === "azimuth" ? initial - 180 : -45;
+          const max = mode === "azimuth" ? initial + 180 : 60;
+          for (let angle = min; angle <= max; angle++) {
+            const point = projectAngle(angle);
+            const candidate = (point.x - origin.x - dx) ** 2 + (point.y - origin.y - dy) ** 2;
+            if (candidate < distance) {
+              best = angle;
+              distance = candidate;
+            }
+          }
+          return { ...start, ...normalizeTiAngleDegrees({ ...start,
+            ...(mode === "azimuth" ? { azimuthDeg: best } : { elevationDeg: best }),
+          }) };
         };
 
         const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
@@ -377,6 +416,7 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
         currentScene = {
           render,
           hitTest,
+          dragAxis,
           dispose: () => {
             resizeObserver?.disconnect();
             window.removeEventListener("resize", resize);
@@ -458,7 +498,9 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
       height: rect.height,
       mode: active.mode,
     });
-    const next: TiAngleConfig = { ...active.start, ...nextDegrees };
+    const next: TiAngleConfig = (active.mode === "azimuth" || active.mode === "elevation") && sceneRef.current
+      ? sceneRef.current.dragAxis(active.start, active.mode, event.clientX - active.startX, event.clientY - active.startY)
+      : { ...active.start, ...nextDegrees };
     active.changed = !sameAngle(active.start, next);
     draftRef.current = next;
     setDraft(next);
@@ -517,7 +559,7 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
       data-ti-angle-preview="true"
       data-ti-angle-image-state={textureState}
       aria-label="3D 视角预览"
-      className="relative h-36 overflow-hidden rounded-lg border border-[var(--gc-node-border)] bg-[radial-gradient(circle_at_center,color-mix(in_srgb,var(--gc-accent)_13%,transparent),transparent_66%),var(--gc-node-inner)]"
+      className="relative h-52 overflow-hidden rounded-lg border border-[var(--gc-node-border)] bg-[#38383b]"
     >
       <canvas
         ref={canvasRef}
@@ -544,7 +586,7 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
         拖动相机球调整视角
       </div>
       <span className="sr-only">示意参考图</span>
-      <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-[var(--gc-node-main)]/80 px-1.5 py-0.5 font-mono text-[9px] text-[var(--gc-node-muted)]">
+      <div className="pointer-events-none absolute top-2 right-2 rounded bg-[var(--gc-node-main)]/80 px-1.5 py-0.5 font-mono text-[9px] text-[var(--gc-node-muted)]">
         {signedAngle(draft.azimuthDeg)} / {signedAngle(draft.elevationDeg)} / {signedAngle(draft.rollDeg)}
       </div>
       {rendererError && (

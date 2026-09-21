@@ -15,6 +15,16 @@ import { Mesh } from "three/src/objects/Mesh.js";
 import { Raycaster } from "three/src/core/Raycaster.js";
 import { Scene } from "three/src/scenes/Scene.js";
 import { TextureLoader } from "three/src/loaders/TextureLoader.js";
+export { PerspectiveCamera } from "three/src/cameras/PerspectiveCamera.js";
+export { AmbientLight } from "three/src/lights/AmbientLight.js";
+export { DirectionalLight } from "three/src/lights/DirectionalLight.js";
+export { MeshStandardMaterial } from "three/src/materials/MeshStandardMaterial.js";
+export { TorusGeometry } from "three/src/geometries/TorusGeometry.js";
+export { TubeGeometry } from "three/src/geometries/TubeGeometry.js";
+export { ConeGeometry } from "three/src/geometries/ConeGeometry.js";
+export { CatmullRomCurve3 } from "three/src/extras/curves/CatmullRomCurve3.js";
+export { Group } from "three/src/objects/Group.js";
+export { FrontSide, BackSide } from "three/src/constants.js";
 
 export {
   BufferGeometry,

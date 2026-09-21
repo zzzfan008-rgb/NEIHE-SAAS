@@ -6,6 +6,16 @@ import {
   type WorkflowTemplate,
 } from "../src/types/workflow";
 import { expect, test } from "./fixtures";
+import { PerspectiveCamera, Vector3 } from "three";
+
+function tiAngleScreenPoint(box: { x: number; y: number; width: number; height: number }, x: number, y: number, z: number) {
+  const camera = new PerspectiveCamera(32, box.width / box.height, 0.1, 40);
+  camera.position.set(4, 3, 6);
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld();
+  const point = new Vector3(x, y, z).project(camera);
+  return { x: box.x + (point.x + 1) * box.width / 2, y: box.y + (1 - point.y) * box.height / 2 };
+}
 
 interface Rect {
   left: number;
@@ -327,8 +337,9 @@ test("TiAngelNode preview fits desktop widths, folds text and isolates pointer d
   const canvas = preview.locator("canvas");
   const canvasBox = await canvas.boundingBox();
   expect(canvasBox).not.toBeNull();
-  const startX = canvasBox!.x + canvasBox!.width / 2;
-  const startY = canvasBox!.y + canvasBox!.height / 2;
+  const cameraPoint = tiAngleScreenPoint(canvasBox!, 0, 0, 1.35);
+  const startX = cameraPoint.x;
+  const startY = cameraPoint.y;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + 32, startY - 14, { steps: 6 });
@@ -456,27 +467,21 @@ test("TiAngelNode raycast handles isolate axes and ignore blank or occluded hits
 
   const box = await canvas.boundingBox();
   if (!box) throw new Error("TiAngelNode canvas is missing");
-  const pixelsPerWorldUnit = box.height / 4;
   const centerX = box.x + box.width / 2;
   const centerY = box.y + box.height / 2;
 
-  const azimuthHandle = {
-    x: centerX,
-    y: centerY - 0.58 * pixelsPerWorldUnit,
-  };
-  await drag(azimuthHandle.x, azimuthHandle.y, box.width * 0.1, box.height * 0.12);
+  const azimuthHandle = tiAngleScreenPoint(box, 0, -0.94, 1.85);
+  const azimuthTarget = tiAngleScreenPoint(box, Math.sin(Math.PI / 6) * 1.85, -0.94, Math.cos(Math.PI / 6) * 1.85);
+  await drag(azimuthHandle.x, azimuthHandle.y, azimuthTarget.x - azimuthHandle.x, azimuthTarget.y - azimuthHandle.y);
   await expect.poll(readAngle).toMatchObject({ elevationDeg: 0, rollDeg: 0 });
-  expect((await readAngle()).azimuthDeg).not.toBe(0);
+  expect(Math.abs((await readAngle()).azimuthDeg - 30)).toBeLessThanOrEqual(2);
 
   await setAngle(0);
-  const elevationAngle = ((45 / 105) * Math.PI) - Math.PI / 2;
-  const elevationHandle = {
-    x: centerX + Math.cos(elevationAngle) * 0.68 * pixelsPerWorldUnit,
-    y: centerY - Math.sin(elevationAngle) * 1.02 * pixelsPerWorldUnit,
-  };
-  await drag(elevationHandle.x, elevationHandle.y, box.width * 0.08, -box.height * 0.1);
+  const elevationHandle = tiAngleScreenPoint(box, -1.85, 0, 0);
+  const elevationTarget = tiAngleScreenPoint(box, -Math.cos(Math.PI / 6) * 1.85, Math.sin(Math.PI / 6) * 1.85, 0);
+  await drag(elevationHandle.x, elevationHandle.y, elevationTarget.x - elevationHandle.x, elevationTarget.y - elevationHandle.y);
   await expect.poll(readAngle).toMatchObject({ azimuthDeg: 0, rollDeg: 0 });
-  expect((await readAngle()).elevationDeg).not.toBe(0);
+  expect(Math.abs((await readAngle()).elevationDeg - 30)).toBeLessThanOrEqual(2);
 
   await setAngle(0);
   await drag(box.x + 8, box.y + box.height - 8, 32, -18);
@@ -500,7 +505,7 @@ test("TiAngelNode raycast handles isolate axes and ignore blank or occluded hits
 
   await setAngle(0);
   await testInfo.attach("ti-angle-raycast-handles", {
-    body: await preview.screenshot(),
+    body: await preview.screenshot({ path: testInfo.outputPath("ti-angle-preview.png") }),
     contentType: "image/png",
   });
 });
