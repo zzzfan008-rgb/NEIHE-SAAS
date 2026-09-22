@@ -187,7 +187,7 @@ export function CanvasFlow() {
   const activeTabId = useFlowStore((s) => s.activeTabId);
   const readOnly = useFlowStore(selectActiveReadOnly);
   const primarySelectedNodeId = useFlowStore(selectActivePrimarySelectedNodeId);
-  const { fitView, getViewport, screenToFlowPosition, setViewport } = useReactFlow();
+  const { fitView, screenToFlowPosition } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const [landingVersion, setLandingVersion] = useState(0);
   const [compactMinimap, setCompactMinimap] = useState(false);
@@ -197,9 +197,6 @@ export function CanvasFlow() {
   const minimap = MINIMAP_COLORS.current;
   const multiSelectionKeyCode = detectDesktopShortcutPlatform() === "macos" ? "Meta" : "Control";
   const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const canvasSizeRef = useRef<{ width: number; height: number } | null>(null);
-  const pendingResizeDeltaRef = useRef({ width: 0, height: 0 });
-  const resizeFrameRef = useRef<number | null>(null);
   const dragTransactionRef = useRef<DragHistoryTransactionRef>({
     current: null,
     startedAt: null,
@@ -301,45 +298,14 @@ export function CanvasFlow() {
 
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
-      const nextSize = {
-        width: entry.contentRect.width,
-        height: entry.contentRect.height,
-      };
-      setCompactMinimap(nextSize.width < 760);
-
-      const previousSize = canvasSizeRef.current;
-      canvasSizeRef.current = nextSize;
-      if (!previousSize) return;
-
-      pendingResizeDeltaRef.current.width += nextSize.width - previousSize.width;
-      pendingResizeDeltaRef.current.height += nextSize.height - previousSize.height;
-      if (resizeFrameRef.current !== null) cancelAnimationFrame(resizeFrameRef.current);
-      resizeFrameRef.current = requestAnimationFrame(() => {
-        resizeFrameRef.current = null;
-        const delta = pendingResizeDeltaRef.current;
-        pendingResizeDeltaRef.current = { width: 0, height: 0 };
-        if (delta.width === 0 && delta.height === 0) return;
-        const viewport = getViewport();
-        void setViewport(
-          {
-            ...viewport,
-            x: viewport.x + delta.width / 2,
-            y: viewport.y + delta.height / 2,
-          },
-          { duration: 0 },
-        );
-      });
+      setCompactMinimap(entry.contentRect.width < 760);
     });
 
     observer.observe(container);
     return () => {
       observer.disconnect();
-      if (resizeFrameRef.current !== null) cancelAnimationFrame(resizeFrameRef.current);
-      resizeFrameRef.current = null;
-      canvasSizeRef.current = null;
-      pendingResizeDeltaRef.current = { width: 0, height: 0 };
     };
-  }, [getViewport, setViewport]);
+  }, []);
 
   useEffect(() => {
     const onLanding = (event: Event) => {

@@ -1,4 +1,5 @@
 import type { DocumentTarget } from "@/store/flowStore";
+import type { ImageConversationSourceSelection } from "@/lib/imageConversationInputs";
 
 export const OPEN_COMPARE_EVENT = "garment:open-compare";
 export const OPEN_ASSET_PICKER_EVENT = "garment:open-asset-picker";
@@ -8,6 +9,11 @@ export type AssetPickerRequest = { mode: "browse" } | {
   mode?: "pick";
   target: DocumentTarget;
   nodeId: string;
+} | {
+  mode: "conversation";
+  target: DocumentTarget;
+  purpose: "base" | "reference" | "new-base";
+  onSelect: (selection: ImageConversationSourceSelection) => void;
 };
 
 export interface GenerationRecordRequest {

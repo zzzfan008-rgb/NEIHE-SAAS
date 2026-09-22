@@ -13,6 +13,9 @@ export type WorkbenchUiAction =
   | { type: "escape" }
   | { type: "consume-focus-return" }
   | { type: "toggle-right-dock" }
+  | { type: "close-right-dock" }
+  | { type: "toggle-conversation-dock" }
+  | { type: "close-conversation-dock" }
   | { type: "toggle-results-flyout" }
   | { type: "close-results-flyout" };
 
@@ -21,6 +24,7 @@ export const INITIAL_WORKBENCH_UI_STATE: WorkbenchUiState = {
   openToolGroupId: null,
   pinnedToolGroupId: null,
   rightDockOpen: false,
+  conversationDockOpen: false,
   resultsFlyoutOpen: false,
   focusReturnGroupId: null,
 };
@@ -84,7 +88,21 @@ export function workbenchUiReducer(
     case "consume-focus-return":
       return state.focusReturnGroupId === null ? state : { ...state, focusReturnGroupId: null };
     case "toggle-right-dock":
-      return { ...state, rightDockOpen: !state.rightDockOpen };
+      return {
+        ...state,
+        rightDockOpen: !state.rightDockOpen,
+        conversationDockOpen: false,
+      };
+    case "close-right-dock":
+      return state.rightDockOpen ? { ...state, rightDockOpen: false } : state;
+    case "toggle-conversation-dock":
+      return {
+        ...state,
+        rightDockOpen: false,
+        conversationDockOpen: !state.conversationDockOpen,
+      };
+    case "close-conversation-dock":
+      return state.conversationDockOpen ? { ...state, conversationDockOpen: false } : state;
     case "toggle-results-flyout":
       return { ...state, resultsFlyoutOpen: !state.resultsFlyoutOpen };
     case "close-results-flyout":

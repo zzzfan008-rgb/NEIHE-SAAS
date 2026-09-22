@@ -79,6 +79,7 @@ export const config = {
   /** 换装候选择优和身份框定位使用的视觉模型。 */
   tryOnJudgeModel: () => process.env.TRY_ON_JUDGE_MODEL?.trim() || config.sceneAnalysisModel(),
   identityAnalysisModel: () => process.env.IDENTITY_ANALYSIS_MODEL?.trim() || config.sceneAnalysisModel(),
+  imageConversationPlannerModel: () => process.env.IMAGE_CONVERSATION_PLANNER_MODEL?.trim() || "gpt-5.6-terra",
 
   /** 不发外部请求的 AI 配置就绪检查，供 readiness 使用。 */
   aiConfigReady: () => {

@@ -172,6 +172,9 @@ export interface ImageInputNodeData extends BaseNodeData {
   posePromptImage?: string;
   /** dataURL 或 /api/files/xxx 路径 */
   imageUrl?: string;
+  /** 对话修改结果/资产的稳定来源身份；预览仍使用 imageUrl。 */
+  imageConversationSourceRef?: string;
+  imageConversationId?: string;
   imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
   /** 图片赋值成功后，由 Store 原子补齐的模板声明连接。 */
   autoConnectTargets?: ImageInputAutoConnectTarget[];

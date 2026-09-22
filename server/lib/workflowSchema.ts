@@ -687,6 +687,18 @@ function validateData(
       if (raw.poseReference !== undefined && typeof raw.poseReference !== "boolean")
         fail(`${path}.poseReference`, "must be a boolean");
       optionalImageReference(raw.imageUrl, `${path}.imageUrl`);
+      if (raw.imageConversationSourceRef !== undefined) {
+        const sourceRef = stringValue(raw.imageConversationSourceRef, `${path}.imageConversationSourceRef`, { nonEmpty: true });
+        if (!/^(?:asset|generation-output)\/[A-Za-z0-9_-]{1,128}$|^\/api\/files\/[\w.-]+$/.test(sourceRef)) {
+          fail(`${path}.imageConversationSourceRef`, "must be a valid conversation source reference");
+        }
+      }
+      if (raw.imageConversationId !== undefined) {
+        const conversationId = stringValue(raw.imageConversationId, `${path}.imageConversationId`, { nonEmpty: true });
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(conversationId)) {
+          fail(`${path}.imageConversationId`, "must be a valid conversation id");
+        }
+      }
       if (raw.posePrompt !== undefined) {
         stringValue(raw.posePrompt, `${path}.posePrompt`);
         if ((raw.posePrompt as string).length > 4000) fail(`${path}.posePrompt`, 'must be at most 4000 characters');

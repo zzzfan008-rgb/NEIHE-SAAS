@@ -7,6 +7,10 @@ import { migrateColorCatalog } from "./colorCatalogMigration";
 import { migrateBrandColors } from "./brandColorMigration";
 import { migrateMaterialAnalysis } from "./materialAnalysisMigration";
 import { migratePoseReferences } from "./poseReferenceMigration";
+import { migrateImageConversations } from "./imageConversationMigration";
+import { migrateImageConversationPlanning } from "./imageConversationPlanningMigration";
+import { migrateImageConversationStartNew } from "./imageConversationStartNewMigration";
+import { migrateImageConversationRequests } from "./imageConversationRequestsMigration";
 
 const { Pool, types } = pg;
 types.setTypeParser(20, Number);
@@ -754,6 +758,10 @@ async function migrate(): Promise<void> {
 
     if (!applied.has(22)) await migrateMaterialAnalysis(client, config.sceneAnalysisModel());
     if (!applied.has(23)) await migratePoseReferences(client);
+    if (!applied.has(24)) await migrateImageConversations(client);
+    if (!applied.has(25)) await migrateImageConversationPlanning(client);
+    if (!applied.has(26)) await migrateImageConversationStartNew(client);
+    if (!applied.has(27)) await migrateImageConversationRequests(client);
 
     // SQLite can be restored after an empty database has already applied migration 17.
     if (!applied.has(17) || imported !== undefined) {

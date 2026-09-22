@@ -492,6 +492,38 @@ await test("runner 仅对生成/改款画幅和高清放大应用尺寸后处理
   );
 });
 
+await test("图片对话步骤向用户选定的模型发送显式路由标记", async () => {
+  const source = await fixtureDataUrl(32, 32);
+  let captured: { modelSelection?: string } | undefined;
+  const provider: AIProvider = {
+    id: "gpt-image-2.5-flare",
+    async generate() {
+      throw new Error("unexpected generate");
+    },
+    async edit(request) {
+      captured = request;
+      return { images: [source], model: "gpt-image-2.5-flare" };
+    },
+  };
+  await executeStep(
+    {
+      nodeId: "conversation-explicit-model",
+      kind: "ai-modify",
+      inputImages: [source],
+      params: {
+        modelId: "gpt-image-2.5-flare",
+        modelOptions: { quality: "medium", size: "2048x2048" },
+        aspectRatio: "1:1",
+        batchSize: 1,
+        conversationMode: "single",
+      },
+    } as never,
+    [source],
+    () => provider,
+  );
+  assert.equal(captured?.modelSelection, "explicit");
+});
+
 await test("Gemini 文生图和编辑保留原生分辨率与长宽比，不套用通用画幅", async () => {
   for (const [width, height, ratio, imageSize] of [
     [512, 512, "1:1", "512"],

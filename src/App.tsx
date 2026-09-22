@@ -8,6 +8,7 @@ import {
   reconcileRunHistory,
   recentResultsPatch,
   resumeRecentResults,
+  selectActiveDocument,
   selectActiveEdges,
   selectActiveNodes,
   selectActiveSelectedNodeIds,
@@ -23,6 +24,7 @@ import { ProjectTabs } from "@/components/panels/ProjectTabs";
 import { InspectorPanel } from "@/components/panels/InspectorPanel";
 import { ResultsPanel } from "@/components/panels/ResultsPanel";
 import { WorkbenchShell } from "@/components/workbench/WorkbenchShell";
+import { ConversationPanel } from "@/components/conversation/ConversationPanel";
 import { TaskLauncher } from "@/components/TaskLauncher";
 import { TutorialOverlay } from "@/components/tutorial/TutorialOverlay";
 import { setGenerationSafetyBlockReason } from "@/store/generationSafety";
@@ -72,6 +74,8 @@ interface NodeClipboardEntry {
 }
 
 interface NodeClipboard {
+  /** 用于区分同项目副本与跨项目粘贴；跨项目只能复制图片，不继承对话归属。 */
+  projectId: string;
   nodes: NodeClipboardEntry[];
   edges: Edge[];
 }
@@ -93,6 +97,7 @@ function copySelectedNodesToClipboard(): boolean {
   };
   const selectedIds = new Set(selectedNodes.map((node) => node.id));
   nodeClipboard = {
+    projectId: selectActiveDocument(state).projectId,
     nodes: selectedNodes.map((node) => ({
       id: node.id,
       data: JSON.parse(JSON.stringify(node.data)) as FlowNode["data"],
@@ -114,6 +119,8 @@ function copySelectedNodesToClipboard(): boolean {
 function pasteClipboardNodes(): string[] {
   if (!nodeClipboard?.nodes.length) return [];
   const state = useFlowStore.getState();
+  const targetProjectId = selectActiveDocument(state).projectId;
+  const isCrossProjectPaste = nodeClipboard.projectId !== targetProjectId;
   const nodes = selectActiveNodes(state);
   const selectedIds = new Set(selectActiveSelectedNodeIds(state));
   const selectedNodes = nodes.filter((node) => selectedIds.has(node.id));
@@ -132,7 +139,13 @@ function pasteClipboardNodes(): string[] {
     nodeClipboard.nodes.map((entry) => [entry.id, nanoid(8)]),
   );
   const additions = nodeClipboard.nodes.map((entry) => {
-    const data = JSON.parse(JSON.stringify(entry.data)) as FlowNode["data"];
+    let data = JSON.parse(JSON.stringify(entry.data)) as FlowNode["data"];
+    if (isCrossProjectPaste) {
+      const independentData = { ...(data as Record<string, unknown>) };
+      delete independentData.imageConversationSourceRef;
+      delete independentData.imageConversationId;
+      data = independentData as FlowNode["data"];
+    }
     data.status = "idle";
     data.error = undefined;
     return {
@@ -261,6 +274,7 @@ function Workspace() {
   const closeViewer = useFlowStore((state) => state.closeViewer);
   const clearCompare = useFlowStore((state) => state.clearCompare);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [conversationOpenRequest, setConversationOpenRequest] = useState(0);
   const [assetPickerRequest, setAssetPickerRequest] = useState<AssetPickerRequest | null>(null);
   const [generationRecordResultId, setGenerationRecordResultId] = useState<string | null>(null);
   const [toolLaunchError, setToolLaunchError] = useState<string | null>(null);
@@ -269,7 +283,9 @@ function Workspace() {
     const openCompare = () => setCompareOpen(true);
     const openAssetPicker = (event: Event) => {
       const request = (event as CustomEvent<AssetPickerRequest>).detail;
-      if (request?.mode === "browse" || (request?.target && request.nodeId)) setAssetPickerRequest(request);
+      if (request?.mode === "browse" || request?.mode === "conversation" || (request?.target && request.nodeId)) {
+        setAssetPickerRequest(request);
+      }
     };
     const openGenerationRecord = (event: Event) => {
       const request = (event as CustomEvent<GenerationRecordRequest>).detail;
@@ -461,6 +477,8 @@ function Workspace() {
         inspector={(
           <InspectorPanel view="properties" className="h-full w-full border-0" />
         )}
+        onConversationOpen={() => setConversationOpenRequest((value) => value + 1)}
+        conversation={<ConversationPanel openRequest={conversationOpenRequest} />}
         results={(
           <ResultsPanel
             hasMore={historyHasMore}

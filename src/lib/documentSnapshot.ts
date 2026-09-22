@@ -67,6 +67,8 @@ export type DocumentNodeData =
       poseReferenceSource?: import('../types/poseReference').PoseReferenceSource;
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
       imageUrl?: string;
+      imageConversationSourceRef?: string;
+      imageConversationId?: string;
       autoConnectTargets?: Array<{
         targetNodeId: string;
         targetHandle: WorkflowInputRole;
@@ -288,6 +290,14 @@ function optionalString<K extends string>(
   return value === undefined ? {} : ({ [key]: value } as Record<K, string>);
 }
 
+function validImageConversationSourceRef(value: string | undefined): boolean {
+  return typeof value === "string" && /^(?:asset|generation-output)\/[A-Za-z0-9_-]{1,128}$|^\/api\/files\/[\w.-]+$/.test(value);
+}
+
+function validImageConversationId(value: string | undefined): boolean {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
 function optionalNumber<K extends string>(
   key: K,
   value: number | undefined,
@@ -424,6 +434,12 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
               ...optionalString("neutralSource", data.poseReferenceSource.neutralSource) } }
           : {}),
         ...optionalString("imageUrl", data.imageUrl),
+        ...(validImageConversationSourceRef(data.imageConversationSourceRef)
+          ? { imageConversationSourceRef: data.imageConversationSourceRef }
+          : {}),
+        ...(validImageConversationId(data.imageConversationId)
+          ? { imageConversationId: data.imageConversationId }
+          : {}),
         ...(data.autoConnectTargets
           ? {
               autoConnectTargets: data.autoConnectTargets.map((target) => ({

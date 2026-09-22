@@ -36,6 +36,7 @@ import {
   reconcileUserTemplateAccountMutations,
 } from "./lib/userTemplateLifecycle";
 import { purgeExpiredMaterialDrafts } from "./lib/materialAnalysisStore";
+import { imageConversationsRouter } from "./routes/imageConversations";
 
 const app = express();
 
@@ -113,6 +114,9 @@ app.post("/api/pose-references/outfit", aiRateLimit);
 app.use("/api/pose-references", createPoseReferencesRouter());
 app.use("/api/files", filesRouter);
 app.use("/api/projects", projectsRouter);
+app.post("/api/image-conversations/:conversationId/rounds/plan", aiRateLimit);
+app.post("/api/image-conversations/:conversationId/intents/:intentId/retry", aiRateLimit);
+app.use("/api/image-conversations", imageConversationsRouter);
 app.use("/api/drawing-boards", drawingBoardsRouter);
 app.use("/api/templates", templatesRouter);
 app.use("/api/try-on-style-presets", tryOnStylePresetsRouter);

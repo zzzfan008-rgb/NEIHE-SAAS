@@ -38,6 +38,7 @@ assert.deepEqual(state, {
   openToolGroupId: null,
   pinnedToolGroupId: null,
   rightDockOpen: false,
+  conversationDockOpen: false,
   resultsFlyoutOpen: false,
   focusReturnGroupId: null,
 });
@@ -63,6 +64,11 @@ state = workbenchUiReducer(state, { type: "consume-focus-return" });
 assert.equal(state.focusReturnGroupId, null);
 state = workbenchUiReducer(state, { type: "toggle-right-dock" });
 assert.equal(state.rightDockOpen, true);
+state = workbenchUiReducer(state, { type: "toggle-conversation-dock" });
+assert.equal(state.rightDockOpen, false);
+assert.equal(state.conversationDockOpen, true);
+state = workbenchUiReducer(state, { type: "close-conversation-dock" });
+assert.equal(state.conversationDockOpen, false);
 state = workbenchUiReducer(state, { type: "toggle-results-flyout" });
 assert.equal(state.resultsFlyoutOpen, true);
 state = workbenchUiReducer(state, { type: "close-results-flyout" });
@@ -171,6 +177,10 @@ assert.match(assetPickerSource, /EyeIcon[\s\S]*Trash2Icon/, "素材卡片必须�
 assert.match(assetPickerSource, /asset\.canManage\s*&&/, "素材删除入口必须服从服务端返回的管理权限");
 assert.match(assetPickerSource, /method:\s*"DELETE"/, "素材删除必须调用既有 DELETE 资产接口");
 assert.match(assetPickerSource, /openViewer\(\{[\s\S]*meta:\s*"资产库"/, "素材预览必须复用全局图片查看器");
+assert.match(assetPickerSource, /request\.mode === "conversation"/, "对话修改必须复用素材库选择浮层而非另起一套素材入口");
+assert.match(assetPickerSource, /\/api\/assets\/\$\{encodeURIComponent\(asset\.id\)\}\/references/, "素材进入对话前必须绑定到当前项目");
+assert.match(assetPickerSource, /sourceRef: `asset\/\$\{asset\.id\}`/, "素材进入对话必须保留稳定 asset 身份");
+assert.match(assetPickerSource, /request\.onSelect\(/, "素材选择必须回传对话预览与稳定身份");
 assert.match(combined, /transition-\[width,visibility\]/, "桌面 Dock 应通过占位宽度开合，避免遮挡画布控件与结果");
 assert.match(shellSource, /<ToolRail state=\{state\} dispatch=\{dispatch\}/, "左侧入口必须替换为五组 ToolRail");
 assert.doesNotMatch(shellSource, /LIBRARY_PANEL_ID|workbench-library-panel/, "旧节点库 Dock 不得继续出现在工作台外壳");
@@ -181,11 +191,7 @@ assert.match(popoverSource, /PopoverPrimitive\.Positioner/, "工具浮层必须�
 assert.match(popoverSource, /max-h-\(--available-height\)/, "工具浮层高度必须受可用视口边界约束");
 assert.match(popoverSource, /motion-reduce:animate-none/, "工具浮层必须尊重减少动态效果偏好");
 assert.match(canvasFlowSource, /new ResizeObserver/, "Dock 改变画布尺寸时必须监听容器几何变化");
-assert.match(
-  canvasFlowSource,
-  /x: viewport\.x \+ delta\.width \/ 2/,
-  "Dock 开合必须维持画布中心对应的世界坐标",
-);
+assert.doesNotMatch(canvasFlowSource, /getViewport|setViewport/, "Dock 开合不得主动改写 React Flow viewport");
 assert.match(canvasFlowSource, /compactMinimap \? 128 : 200/, "窄画布必须缩小 MiniMap");
 assert.match(canvasFlowSource, /nodeComponent=\{CanvasMiniMapNode\}/, "MiniMap 必须使用带图片的自定义 SVG 节点");
 assert.match(canvasFlowSource, /intent\.type === "drawing-board"[\s\S]*?openDrawingTool\(\{[\s\S]*?position: resolved[\s\S]*?return;/, "绘画工具必须先打开编辑器并延后创建节点");
@@ -248,6 +254,10 @@ assert.doesNotMatch(toolRailSource, /Separator|role="separator"/, "创作工具�
 assert.match(appSource, /requestCanvasZoom\("in"\)/, "主修饰键加号必须缩放画布而不是浏览器页面");
 assert.match(appSource, /copySelectedNodesToClipboard\(\)/, "复制快捷键必须读取 canonical 多选节点");
 assert.match(appSource, /addExistingNodes\(additions,\s*pastedEdges\)/, "多节点粘贴必须通过原子批量 action 同时落入节点与内部连线");
+assert.match(appSource, /projectId: selectActiveDocument\(state\)\.projectId/, "节点剪贴板必须记录来源项目");
+assert.match(appSource, /isCrossProjectPaste/, "跨项目粘贴必须识别项目边界");
+assert.match(appSource, /delete independentData\.imageConversationSourceRef/, "跨项目粘贴不得继承原对话来源");
+assert.match(appSource, /delete independentData\.imageConversationId/, "跨项目粘贴不得继承原对话身份");
 assert.equal(
   (workbenchShellRenderSource.match(/\{children\}/g) ?? []).length,
   1,
@@ -259,7 +269,11 @@ assert.equal(
   "属性 Dock 必须保持单实例挂载",
 );
 assert.equal((workbenchShellRenderSource.match(/\{results\}/g) ?? []).length, 1, "结果与记录面板必须保持单实例挂载");
-assert.match(shellSource, /id=\{INSPECTOR_PANEL_ID\}[\s\S]*?inert=\{!state\.rightDockOpen\}/);
+assert.equal((workbenchShellRenderSource.match(/\{conversation\}/g) ?? []).length, 1, "对话修改面板必须保持单实例挂载");
+assert.match(shellSource, /w-\[clamp\(360px,31\.25vw,440px\)\]/, "右侧 Dock 必须按三档桌面宽度占位");
+assert.match(shellSource, /aria-label="对话修改"[\s\S]*?aria-controls=\{INSPECTOR_PANEL_ID\}[\s\S]*?aria-expanded=\{state\.conversationDockOpen\}/);
+assert.match(shellSource, /top-12 z-40/, "对话入口必须位于属性入口下方且不重叠");
+assert.match(shellSource, /inert=\{!dockOpen\}/, "右侧 Dock 收起时必须保持 inert");
 assert.doesNotMatch(shellSource, /MobileSheet|useMediaQuery|DESKTOP_QUERY|mobilePanel/);
 assert.doesNotMatch(appSource, /workspaceKey=\{activeTabId\}/);
 assert.match(appSource, /inspector=\{\([\s\S]*?<InspectorPanel view="properties"/);
@@ -273,6 +287,7 @@ assert.match(generationRecordDialogSource, /--gc-border/);
 assert.doesNotMatch(appSource, /NodeLibraryPanel/, "旧节点库不得继续挂载；工具发现统一由 ToolRail 提供");
 assert.ok(nodeLibrarySource.length > 0, "旧节点库源码暂保留以支持回滚，但不得挂载");
 assert.match(appSource, /LazyAssetPickerOverlay/, "节点内的素材选择浮层必须继续保留");
+assert.match(appSource, /request\?\.mode === "conversation"/, "工作台必须接收对话修改的素材选择请求");
 assert.doesNotMatch(nodeFrameSource, /onCancel|>\s*取消\s*</, "生成按钮不得再暴露取消入口");
 assert.doesNotMatch(flowStoreSource, /cancelNodeRun|\/api\/run-plan\/.*\/cancel/, "客户端不得保留任务取消模块");
 assert.doesNotMatch(runPlanRouteSource, /\/:id\/cancel|cancelDurableRun/, "运行 API 不得暴露用户取消端点");

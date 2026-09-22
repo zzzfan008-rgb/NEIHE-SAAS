@@ -108,7 +108,7 @@ test("desktop workbench captures visual and accessibility audit evidence", async
     const dockRect = dock.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
     return {
-      expectedDockWidth: window.innerWidth <= 1100 ? 288 : 320,
+      expectedDockWidth: window.innerWidth <= 1100 ? 360 : window.innerWidth < 1360 ? 400 : 440,
       dock: { left: dockRect.left, width: dockRect.width, right: dockRect.right },
       canvas: { left: canvasRect.left, width: canvasRect.width, right: canvasRect.right },
       focus: document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "BODY",

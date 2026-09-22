@@ -113,10 +113,23 @@ async function syncAssetRefs(
   `, [ownerId, refs], client);
   const wanted = assets.map((asset) => asset.id);
   const now = new Date().toISOString();
-  await client.query("DELETE FROM project_asset_refs WHERE project_id = $1", [projectId]);
+  await client.query(`
+    DELETE FROM project_asset_refs refs WHERE project_id = $1
+      AND NOT EXISTS (
+        SELECT 1 FROM image_conversation_sources s
+        WHERE s.project_id = $1 AND s.owner_id = $2
+          AND s.source_ref = 'asset/' || refs.asset_id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM image_conversation_rounds r,
+          LATERAL jsonb_array_elements(r.input_manifest) item
+        WHERE r.project_id = $1 AND r.owner_id = $2
+          AND item->>'sourceRef' = 'asset/' || refs.asset_id
+      )
+  `, [projectId, ownerId]);
   for (const assetId of wanted) {
     await client.query(
-      "INSERT INTO project_asset_refs (project_id, asset_id, created_at) VALUES ($1, $2, $3)",
+      "INSERT INTO project_asset_refs (project_id, asset_id, created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
       [projectId, assetId, now],
     );
   }
@@ -179,6 +192,11 @@ async function syncMaskFiles(
     WHERE owner_id = $1 AND project_id = $2
       AND source_type IN ('mask-draft', 'mask')
       AND NOT (id = ANY($4::text[]))
+      AND NOT EXISTS (
+        SELECT 1 FROM image_conversation_rounds r
+        WHERE r.owner_id = $1 AND r.project_id = $2
+          AND r.mask_ref = '/api/files/' || files.id
+      )
   `, [ownerId, projectId, retireAt, ids]);
   if (ids.length > 0) {
     await client.query(`
@@ -223,6 +241,13 @@ export async function purgeExpiredProjects(): Promise<void> {
           DELETE FROM files f
           WHERE f.id = ANY($2::text[])
             AND f.purge_after IS NOT NULL AND f.purge_after <= $1
+            AND NOT EXISTS (
+              SELECT 1 FROM image_conversation_rounds cr
+              JOIN projects cp ON cp.id = cr.project_id
+              WHERE cr.owner_id = f.owner_id
+                AND (cp.purge_after IS NULL OR cp.purge_after > $1)
+                AND cr.mask_ref = '/api/files/' || f.id
+            )
             AND NOT EXISTS (
               SELECT 1 FROM assets a
               WHERE a.image = '/api/files/' || f.id

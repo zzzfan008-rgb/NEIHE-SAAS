@@ -326,6 +326,28 @@ await test("图片赋值与模板自动连接原子提交，重复和过期写�
   assert.deepEqual(activeDocument(), beforeStaleWrite);
 });
 
+await test("替换图片后清除旧的对话来源与会话身份", () => {
+  const resultNode = imageNode("conversation-result-copy", "对话结果副本");
+  if (resultNode.data.kind !== "image-input") throw new Error("测试图片节点错误");
+  resultNode.data.imageUrl = "/api/files/old-result.png";
+  resultNode.data.imageConversationSourceRef = "generation-output/old-result";
+  resultNode.data.imageConversationId = "conversation-old";
+  useFlowStore.getState().loadFlow({
+    projectId: "conversation-replacement-project",
+    projectName: "对话替换隔离",
+    nodes: [resultNode],
+    edges: [],
+  });
+  const target = selectActiveDocumentTarget(useFlowStore.getState());
+
+  useFlowStore.getState().assignImageInputInTab(target, resultNode.id, "/api/files/new-upload.png");
+
+  const replaced = activeDocument().nodes.find((node) => node.id === resultNode.id);
+  assert.equal(replaced?.data.kind === "image-input" ? replaced.data.imageUrl : undefined, "/api/files/new-upload.png");
+  assert.equal(replaced?.data.kind === "image-input" ? replaced.data.imageConversationSourceRef : undefined, undefined);
+  assert.equal(replaced?.data.kind === "image-input" ? replaced.data.imageConversationId : undefined, undefined);
+});
+
 await test("视频模式切换原子清理失效入边，一次撤销恢复设置和连线", () => {
   const frame = imageNode("video-frame", "视频首帧");
   const video: FlowNode = {

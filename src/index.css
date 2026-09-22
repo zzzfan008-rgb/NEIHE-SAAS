@@ -269,11 +269,11 @@ body {
 
 @media (max-width: 1100px) {
   .gc-context-dock.visible {
-    width: 18rem !important;
+    width: 360px !important;
   }
 
   .gc-context-dock-content {
-    width: 18rem !important;
+    width: 360px !important;
   }
 }
 

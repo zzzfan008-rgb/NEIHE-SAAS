@@ -39,6 +39,7 @@ export interface WorkbenchUiState {
   openToolGroupId: ToolGroupId | null;
   pinnedToolGroupId: ToolGroupId | null;
   rightDockOpen: boolean;
+  conversationDockOpen: boolean;
   resultsFlyoutOpen: boolean;
 }
 

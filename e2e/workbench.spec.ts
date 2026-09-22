@@ -3154,7 +3154,7 @@ test("tool rail, right dock and horizontal zoom controls preserve canvas identit
   const viewport = page.viewportSize();
   if (!viewport) throw new Error("Desktop viewport is required");
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
-  const expectedDockWidth = viewport.width <= 1100 ? 288 : 320;
+  const expectedDockWidth = viewport.width <= 1100 ? 360 : viewport.width < 1360 ? 400 : 440;
 
   const contextToggle = page.getByRole("button", { name: "属性", exact: true });
   const resultsToggle = page.getByRole("button", { name: "结果 / 记录", exact: true });
@@ -3261,7 +3261,6 @@ test("tool rail, right dock and horizontal zoom controls preserve canvas identit
   await page.evaluate(() => new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   }));
-  const flowCenterBeforeDock = await flowCenter(canvas);
   const transformBeforeDock = await page.locator(".react-flow__viewport").evaluate(
     (element) => getComputedStyle(element).transform,
   );
@@ -3286,7 +3285,9 @@ test("tool rail, right dock and horizontal zoom controls preserve canvas identit
   const contextZoomRect = await rect(zoomControls);
   expect(contextMinimapRect.left - contextZoomRect.right).toBeGreaterThanOrEqual(27);
   expect(contextMinimapRect.left - contextZoomRect.right).toBeLessThanOrEqual(29);
-  await expectFlowCenter(canvas, flowCenterBeforeDock);
+  await expect.poll(async () => page.locator(".react-flow__viewport").evaluate(
+    (element) => getComputedStyle(element).transform,
+  )).toBe(transformBeforeDock);
 
   // 结果使用独立左侧覆盖浮层；开合不能丢失 Results DOM 或滚动状态。
   await resultsToggle.click();
@@ -3367,7 +3368,9 @@ test("tool rail, right dock and horizontal zoom controls preserve canvas identit
   const minimapRect = await rect(page.locator(".react-flow__minimap"));
   expectInside(minimapRect, canvasRect);
   expect(minimapRect.width).toBe(canvasRect.width < 760 ? 128 : 200);
-  await expectFlowCenter(canvas, flowCenterBeforeDock);
+  await expect.poll(async () => page.locator(".react-flow__viewport").evaluate(
+    (element) => getComputedStyle(element).transform,
+  )).toBe(transformBeforeDock);
 
   // 模板浮层必须按当前 Dock 后的中心宽度收缩，不能被画布容器裁切。
   const releaseTemplateSaves: Array<() => void> = [];
@@ -3512,6 +3515,77 @@ test("single current theme remains applied without a picker", async ({ page }) =
   await expectCurrentThemeContract(page);
   await expect(page.getByRole("button", { name: /^切换主题，当前为/ })).toHaveCount(0);
   await expect(page.getByRole("menuitemradio")).toHaveCount(0);
+});
+
+test("conversation edit dock preserves desktop geometry, focus, and mode drafts", async ({ page }) => {
+  await openFreshBlankProject(page);
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("Desktop viewport is required");
+  const expectedDockWidth = viewport.width <= 1100 ? 360 : viewport.width < 1360 ? 400 : 440;
+  const propertyToggle = page.getByRole("button", { name: "属性", exact: true });
+  const conversationToggle = page.getByRole("button", { name: "对话修改", exact: true });
+  const dock = page.locator("#workbench-inspector-panel");
+  const panel = page.getByTestId("image-conversation-panel");
+  const canvas = page.getByRole("application", { name: "工作流画布" });
+  const viewportTransform = page.locator(".react-flow__viewport");
+
+  const propertyBox = await propertyToggle.boundingBox();
+  const conversationBox = await conversationToggle.boundingBox();
+  expect(propertyBox).not.toBeNull();
+  expect(conversationBox).not.toBeNull();
+  expect(propertyBox!.y + propertyBox!.height).toBeLessThanOrEqual(conversationBox!.y);
+  await expect(dock).toHaveAttribute("aria-hidden", "true");
+  await expectWidth(dock, 0);
+  const transformBefore = await viewportTransform.evaluate((element) => getComputedStyle(element).transform);
+
+  await conversationToggle.click();
+  await expect(conversationToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(propertyToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("tab", { name: "单图修改" })).toBeVisible();
+  await expect(panel.getByRole("tab", { name: "多图融合" })).toBeVisible();
+  await expect(panel.getByRole("tab", { name: "局部重绘" })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "本地上传" })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "素材库" })).toBeVisible();
+  await panel.getByRole("button", { name: "素材库" }).click();
+  const conversationAssetDialog = page.getByRole("dialog", { name: "开始新修改：选择底图" });
+  await expect(conversationAssetDialog).toBeVisible();
+  await conversationAssetDialog.getByRole("button", { name: "关闭" }).click();
+  await expect(conversationAssetDialog).toBeHidden();
+  await expectWidth(dock, expectedDockWidth);
+  await expectWidth(canvas, viewport.width - expectedDockWidth);
+  await expect.poll(async () => viewportTransform.evaluate((element) => getComputedStyle(element).transform)).toBe(transformBefore);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  const prompt = panel.getByRole("textbox", { name: "对话修改指令" });
+  await prompt.fill("单图草稿");
+  await panel.getByRole("tab", { name: "多图融合" }).click();
+  await prompt.fill("融合草稿");
+  await panel.getByRole("tab", { name: "局部重绘" }).click();
+  await prompt.fill("蒙版草稿");
+  await panel.getByRole("tab", { name: "单图修改" }).click();
+  await expect(prompt).toHaveValue("单图草稿");
+  await panel.getByRole("tab", { name: "多图融合" }).click();
+  await expect(prompt).toHaveValue("融合草稿");
+  await panel.getByRole("tab", { name: "局部重绘" }).click();
+  await expect(prompt).toHaveValue("蒙版草稿");
+
+  await propertyToggle.click();
+  await expect(propertyToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(conversationToggle).toHaveAttribute("aria-expanded", "false");
+  await expectWidth(dock, expectedDockWidth);
+  await expectWidth(canvas, viewport.width - expectedDockWidth);
+  await expect.poll(async () => viewportTransform.evaluate((element) => getComputedStyle(element).transform)).toBe(transformBefore);
+
+  await conversationToggle.click();
+  await expect(conversationToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(propertyToggle).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("Escape");
+  await expect(conversationToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(conversationToggle).toBeFocused();
+  await expectWidth(dock, 0);
+  await expectWidth(canvas, viewport.width);
+  await expect.poll(async () => viewportTransform.evaluate((element) => getComputedStyle(element).transform)).toBe(transformBefore);
 });
 
 test("creation tools open an editable board and create a new typed palette without AI", async ({ page }) => {

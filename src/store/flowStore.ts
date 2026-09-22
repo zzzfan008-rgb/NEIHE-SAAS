@@ -112,7 +112,7 @@ export interface RecentResult {
   thumbnail?: string;
   nodeId: string;
   nodeLabel: string;
-  kind: NodeKind;
+  kind: NodeKind | "image-conversation";
   projectId?: string;
   projectName?: string;
   /** 后端运行 ID，用于页面刷新后恢复仍在执行的任务。 */
@@ -259,6 +259,12 @@ export interface FlowState {
   addAssetNode: (
     asset: Pick<Asset, "name" | "image">,
     position: { x: number; y: number },
+  ) => string | null;
+  /** 将对话修改的具体结果以可追溯来源加入当前文档，不覆盖原节点。 */
+  addImageConversationResultNode: (
+    target: DocumentTarget,
+    result: { name: string; image: string; sourceRef: string; conversationId?: string },
+    position?: { x: number; y: number },
   ) => string | null;
   /** 复制/粘贴等调用方已有完整节点时，仍通过此入口维护 revision/dirty。 */
   addExistingNode: (node: FlowNode) => void;
@@ -5660,6 +5666,43 @@ export const useFlowStore = create<FlowState>()(
           return id;
         },
 
+        addImageConversationResultNode: (target, result, position) => {
+          if (!result.name.trim() || !result.sourceRef.trim() || !/^\/api\/files\/[\w.-]+$/.test(result.image)) {
+            return null;
+          }
+          let addedId: string | null = null;
+          const changed = commitDocumentMutationWithSet(set, (tab) => {
+            if (
+              tab.id !== target.tabId ||
+              tab.projectId !== target.projectId ||
+              tab.documentEpoch !== target.documentEpoch ||
+              tab.readOnly
+            ) return {};
+            const id = nanoid(8);
+            const minX = Math.min(0, ...tab.nodes.map((node) => node.position.x));
+            const resolvedPosition = position ?? { x: minX - 320, y: tab.nodes.length * 40 };
+            const node: FlowNode = {
+              id,
+              type: "image-input",
+              position: resolvedPosition,
+              data: {
+                ...defaultNodeData("image-input"),
+                label: result.name,
+                status: "success",
+                imageUrl: result.image,
+                imageConversationSourceRef: result.sourceRef,
+                ...(result.conversationId ? { imageConversationId: result.conversationId } : {}),
+              } as ImageInputNodeData,
+            };
+            addedId = id;
+            return {
+              ...normalizeNodeSelection([...tab.nodes, node], [id]),
+              selectedResultId: null,
+            };
+          });
+          return changed ? addedId : null;
+        },
+
         addExistingNode: (node) => {
           const tab = selectActiveDocument(get());
           if (tab.readOnly) return;
@@ -5897,12 +5940,20 @@ export const useFlowStore = create<FlowState>()(
               node.id === id
                 ? {
                     ...node,
-                    data: {
+                    data: (() => {
+                      const data = {
                       ...node.data,
                       imageUrl,
                       status: "success" as const,
                       error: undefined,
-                    },
+                      } as WorkflowNodeData & Record<string, unknown>;
+                      if (imageChanged) {
+                        // A replacement image starts an independent conversation branch.
+                        delete data.imageConversationSourceRef;
+                        delete data.imageConversationId;
+                      }
+                      return data;
+                    })(),
                   }
                 : node,
             );

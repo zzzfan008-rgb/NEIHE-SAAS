@@ -44,8 +44,18 @@ assert.deepEqual(versions, [
   { version: 21, name: "ai_styling" },
   { version: 22, name: "material_analysis_and_assets" },
   { version: 23, name: "pose_reference_comparison" },
+  { version: 24, name: "image_conversations" },
+  { version: 25, name: "image_conversation_planning" },
+  { version: 26, name: "image_conversation_start_new" },
+  { version: 27, name: "image_conversation_requests" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
+const requestConstraints = await query<{ definition: string }>(`
+  SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+  WHERE conrelid = 'image_conversation_requests'::regclass
+`);
+assert.ok(requestConstraints.some(({ definition }) => /PRIMARY KEY \(owner_id, client_request_id\)/.test(definition)));
+assert.ok(requestConstraints.some(({ definition }) => /response_status IS NULL/.test(definition)));
 
 const colorPreferenceColumns = await query<{ column_name: string }>(`
   SELECT column_name FROM information_schema.columns

@@ -62,6 +62,7 @@ export function AssetPickerOverlay({
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
+  const [pickingAssetId, setPickingAssetId] = useState<string | null>(null);
   const [savingCategoryId, setSavingCategoryId] = useState<string | null>(null);
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [analysisOpen, setAnalysisOpen] = useState(false);
@@ -128,9 +129,35 @@ export function AssetPickerOverlay({
     return () => cancelAnimationFrame(frame);
   }, [previewAssetId, viewer]);
 
-  const pick = (asset: Asset) => {
+  const pick = async (asset: Asset) => {
     if (request.mode === "browse") {
       viewAsset(asset, `card:${asset.id}`);
+      return;
+    }
+    if (request.mode === "conversation") {
+      setPickingAssetId(asset.id);
+      setError(null);
+      try {
+        const response = await fetch(`/api/assets/${encodeURIComponent(asset.id)}/references`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId: request.target.projectId }),
+        });
+        const body = await response.json().catch(() => null) as { error?: unknown } | null;
+        if (!response.ok) {
+          throw new Error(typeof body?.error === "string" ? body.error : `HTTP ${response.status}`);
+        }
+        request.onSelect({
+          sourceRef: `asset/${asset.id}`,
+          previewRef: asset.image,
+          label: asset.name,
+        });
+        onRequestChange(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setPickingAssetId(null);
+      }
       return;
     }
     assignImageInputInTab(request.target, request.nodeId, asset.image);
@@ -203,10 +230,18 @@ export function AssetPickerOverlay({
           <div className="flex items-center justify-between border-b border-[var(--gc-border)] px-4 py-3">
             <div>
               <DialogTitle className="text-xs font-medium tracking-widest text-[var(--gc-text)]">
-                {request.mode === "browse" ? "资产库" : "从素材库选择"}
+                {request.mode === "browse"
+                  ? "资产库"
+                  : request.mode === "conversation"
+                    ? request.purpose === "new-base" ? "开始新修改：选择底图" : request.purpose === "base" ? "选择对话底图" : "添加对话参考图"
+                    : "从素材库选择"}
               </DialogTitle>
               <DialogDescription className="sr-only">
-                {request.mode === "browse" ? "已保存的图片素材" : "选择当前图片节点的素材"}
+                {request.mode === "browse"
+                  ? "已保存的图片素材"
+                  : request.mode === "conversation"
+                    ? request.purpose === "new-base" ? "选择素材后会创建独立图片对话" : "选择素材后会关联到当前项目，并作为对话修改输入"
+                    : "选择当前图片节点的素材"}
               </DialogDescription>
             </div>
             <DialogClose render={<Button type="button" variant="outline" size="xs" />}>
@@ -280,7 +315,8 @@ export function AssetPickerOverlay({
                     <Button
                       type="button"
                       variant="ghost"
-                      onClick={() => pick(asset)}
+                      onClick={() => void pick(asset)}
+                      disabled={pickingAssetId !== null}
                       ref={(element) => {
                         if (request.mode !== "browse") return;
                         if (element) previewButtons.current.set(`card:${asset.id}`, element);

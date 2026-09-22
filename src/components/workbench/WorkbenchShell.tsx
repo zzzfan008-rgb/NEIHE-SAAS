@@ -1,5 +1,5 @@
-import { useEffect, useReducer, type ReactNode } from "react";
-import { HistoryIcon, PanelRightCloseIcon, PanelRightOpenIcon, XIcon } from "lucide-react";
+import { useEffect, useReducer, useRef, type ReactNode } from "react";
+import { HistoryIcon, MessageCircleIcon, PanelRightCloseIcon, PanelRightOpenIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -15,6 +15,8 @@ const RESULTS_FLYOUT_PANEL_ID = "workbench-results-flyout";
 
 interface WorkbenchShellProps {
   inspector: ReactNode;
+  conversation: ReactNode;
+  onConversationOpen?: () => void;
   results: ReactNode;
   children: ReactNode;
 }
@@ -23,8 +25,12 @@ interface WorkbenchShellProps {
  * Single-mounted canvas and context trees with a five-group floating tool rail.
  * The retired node library has been replaced by the discoverable tool flyouts.
  */
-export function WorkbenchShell({ inspector, results, children }: WorkbenchShellProps) {
+export function WorkbenchShell({ inspector, conversation, onConversationOpen, results, children }: WorkbenchShellProps) {
   const [state, dispatch] = useReducer(workbenchUiReducer, INITIAL_WORKBENCH_UI_STATE);
+  const inspectorButtonRef = useRef<HTMLButtonElement>(null);
+  const conversationButtonRef = useRef<HTMLButtonElement>(null);
+  const previousDock = useRef<"closed" | "properties" | "conversation">("closed");
+  const dockOpen = state.rightDockOpen || state.conversationDockOpen;
 
   useEffect(() => {
     if (!state.resultsFlyoutOpen) return;
@@ -35,6 +41,31 @@ export function WorkbenchShell({ inspector, results, children }: WorkbenchShellP
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [state.resultsFlyoutOpen]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (state.conversationDockOpen) {
+        dispatch({ type: "close-conversation-dock" });
+      } else if (state.rightDockOpen) {
+        dispatch({ type: "close-right-dock" });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [state.conversationDockOpen, state.rightDockOpen]);
+
+  useEffect(() => {
+    const currentDock = state.conversationDockOpen
+      ? "conversation"
+      : state.rightDockOpen
+        ? "properties"
+        : "closed";
+    const previous = previousDock.current;
+    previousDock.current = currentDock;
+    if (currentDock !== "closed" || previous === "closed") return;
+    (previous === "conversation" ? conversationButtonRef : inspectorButtonRef).current?.focus();
+  }, [state.conversationDockOpen, state.rightDockOpen]);
 
   return (
     <TooltipProvider delay={250}>
@@ -105,17 +136,32 @@ export function WorkbenchShell({ inspector, results, children }: WorkbenchShellP
 
         <aside
           id={INSPECTOR_PANEL_ID}
-          aria-label="属性"
-          aria-hidden={!state.rightDockOpen}
-          inert={!state.rightDockOpen}
+          aria-label={state.conversationDockOpen ? "对话修改" : "属性"}
+          aria-hidden={!dockOpen}
+          inert={!dockOpen}
           className={cn(
             "gc-panel gc-context-dock relative z-30 flex shrink-0 overflow-hidden bg-[var(--gc-panel)] transition-[width,visibility] duration-200 motion-reduce:transition-none",
-            state.rightDockOpen
-              ? "visible w-80 border-l border-[var(--gc-border)]"
+            dockOpen
+              ? "visible w-[clamp(360px,31.25vw,440px)] border-l border-[var(--gc-border)]"
               : "invisible w-0 border-l-0",
           )}
         >
-          <div className="gc-context-dock-content h-full min-h-0 w-full shrink-0">{inspector}</div>
+          <div
+            className="gc-context-dock-content h-full min-h-0 w-full shrink-0"
+            aria-hidden={!state.rightDockOpen}
+            inert={!state.rightDockOpen}
+            hidden={!state.rightDockOpen}
+          >
+            {inspector}
+          </div>
+          <div
+            className="gc-context-dock-content h-full min-h-0 w-full shrink-0"
+            aria-hidden={!state.conversationDockOpen}
+            inert={!state.conversationDockOpen}
+            hidden={!state.conversationDockOpen}
+          >
+            {conversation}
+          </div>
         </aside>
 
         <Tooltip>
@@ -125,6 +171,7 @@ export function WorkbenchShell({ inspector, results, children }: WorkbenchShellP
                 type="button"
                 variant="ghost"
                 size="icon"
+                ref={inspectorButtonRef}
                 aria-label="属性"
                 aria-controls={INSPECTOR_PANEL_ID}
                 aria-expanded={state.rightDockOpen}
@@ -138,6 +185,30 @@ export function WorkbenchShell({ inspector, results, children }: WorkbenchShellP
             )}
           />
           <TooltipContent side="left">{state.rightDockOpen ? "收起属性" : "展开属性"}</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={(
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                ref={conversationButtonRef}
+                aria-label="对话修改"
+                aria-controls={INSPECTOR_PANEL_ID}
+                aria-expanded={state.conversationDockOpen}
+                onClick={() => {
+                  if (!state.conversationDockOpen) onConversationOpen?.();
+                  dispatch({ type: "toggle-conversation-dock" });
+                }}
+                className="gc-panel absolute right-2 top-12 z-40 bg-[var(--gc-panel)] text-[var(--gc-text-muted)] shadow-lg ring-1 ring-[var(--gc-border)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-accent)]"
+              >
+                <MessageCircleIcon aria-hidden="true" />
+              </Button>
+            )}
+          />
+          <TooltipContent side="left">{state.conversationDockOpen ? "收起对话修改" : "打开对话修改"}</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

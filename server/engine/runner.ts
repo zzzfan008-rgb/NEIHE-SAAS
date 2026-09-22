@@ -2036,6 +2036,10 @@ export async function executeStep(
             )
           : modelOptions;
       const request = {
+        ...((step.kind === "ai-modify" || step.kind === "mask-redraw") &&
+        ["single", "fusion", "mask"].includes(String(step.params.conversationMode))
+          ? { modelSelection: "explicit" as const }
+          : {}),
         ...(step.kind === "virtual-try-on" &&
         step.params.workflowStage === "scene-stabilize"
           ? { modelSelection: "explicit" as const }

@@ -35,6 +35,7 @@ import {
   type RunEvent,
   type StepResult,
 } from "./runner";
+import { reconcileImageConversationRun } from "./imageConversationReconciliation";
 
 export type DurableRunStatus =
   | "queued"
@@ -979,7 +980,7 @@ async function handleJobError(
 }
 
 export async function recoverExpiredGenerationJobs(now = Date.now()): Promise<number> {
-  return transaction(async (client) => {
+  const recovered = await transaction(async (client) => {
     const rows = (await client.query<JobLockRow>(`
       SELECT j.id, j.run_id, j.step_id, j.status, j.retry_count, j.attempt_started_at, j.worker_id,
         j.idempotency_key, j.provider_task_id, j.provider_model,
@@ -1051,6 +1052,20 @@ export async function recoverExpiredGenerationJobs(now = Date.now()): Promise<nu
     }
     return rows.length;
   });
+  // Include previous recovery commits whose process died before reconciliation.
+  const pending = await query<{ generation_run_id: string }>(`
+    SELECT a.generation_run_id FROM image_conversation_attempts a
+    JOIN generation_runs r ON r.id = a.generation_run_id
+    WHERE a.status <> CASE
+      WHEN r.status IN ('queued', 'retry_wait') THEN 'queued'
+      WHEN r.status IN ('running', 'cancel_requested') THEN 'running'
+      WHEN r.status IN ('succeeded', 'success') THEN 'succeeded'
+      WHEN r.status = 'outcome_unknown' THEN 'outcome_unknown'
+      ELSE 'failed' END
+    ORDER BY a.generation_run_id
+  `);
+  for (const attempt of pending) await reconcileImageConversationRun(attempt.generation_run_id);
+  return recovered;
 }
 
 export async function processNextGenerationJob(
@@ -1129,6 +1144,9 @@ export async function processNextGenerationJob(
     await handleJobError(job, workerId, error, options);
   } finally {
     clearInterval(heartbeat);
+    await reconcileImageConversationRun(job.runId).catch((error) => {
+      console.error("[garment-canvas] image conversation reconciliation failed", error);
+    });
   }
   return true;
 }

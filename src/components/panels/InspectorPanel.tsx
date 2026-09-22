@@ -579,7 +579,7 @@ function ResultRecordDetail({ resultId }: { resultId: string }) {
       <dl className="space-y-1.5 text-[10px]">
         <div className="flex justify-between">
           <dt className="text-[var(--gc-text-muted)]">节点类型</dt>
-          <dd className="text-[var(--gc-text)]">{NODE_SPECS[record.kind].title}</dd>
+          <dd className="text-[var(--gc-text)]">{record.kind === "image-conversation" ? "对话修改" : NODE_SPECS[record.kind].title}</dd>
         </div>
         {record.projectName && (
           <div className="flex justify-between gap-3">

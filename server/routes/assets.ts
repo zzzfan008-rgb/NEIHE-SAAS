@@ -345,6 +345,14 @@ assetsRouter.delete("/:id", asyncHandler(async (req, res) => {
       client,
     );
     if (ref) return { status: "referenced" as const };
+    const conversationRef = await queryOne<{ id: string }>(`
+      SELECT source.id
+      FROM image_conversation_sources source
+      JOIN image_conversations conversation ON conversation.id = source.conversation_id
+      WHERE source.source_ref = $1 AND conversation.status = 'active'
+      LIMIT 1
+    `, [`asset/${req.params.id}`], client);
+    if (conversationRef) return { status: "referenced" as const };
     const deletedAt = new Date();
     const purgeAfter = new Date(deletedAt.getTime() + TRASH_DAYS * 24 * 60 * 60 * 1000);
     await client.query("UPDATE assets SET deleted_at = $1, purge_after = $2 WHERE id = $3", [
