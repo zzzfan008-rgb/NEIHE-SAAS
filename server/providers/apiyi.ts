@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { createHash, randomUUID } from "node:crypto";
 import { requestGptImage25 } from "./gptImage25";
 import {
   type AIProvider,
@@ -433,7 +434,32 @@ async function parseOpenAiImages(
   return (await parseOpenAiImageResponse(payload, modelId, opts)).images;
 }
 
-async function parseGeminiImages(payload: unknown, modelId: ImageModelId): Promise<string[]> {
+// Allowlist structured diagnostics only: never retain response text, image data or headers wholesale.
+function geminiResponseDiagnostic(payload: unknown) {
+  const body = record(payload);
+  const token = (value: unknown) => typeof value === "string" && /^[\w.:-]{1,160}$/.test(value)
+    && !/sk-/i.test(value) ? value : null;
+  const ratings = (value: unknown) => Array.isArray(value) ? value.slice(0, 16).map((item) => {
+    const rating = record(item);
+    return {
+      category: token(rating?.category), probability: token(rating?.probability),
+      blocked: typeof rating?.blocked === "boolean" ? rating.blocked : null,
+    };
+  }) : [];
+  const feedback = record(body?.promptFeedback);
+  return {
+    responseId: token(body?.responseId), modelVersion: token(body?.modelVersion),
+    promptFeedback: feedback ? { blockReason: token(feedback.blockReason), safetyRatings: ratings(feedback.safetyRatings) } : null,
+    candidateFeedback: Array.isArray(body?.candidates) ? body.candidates.slice(0, 16).map((value) => {
+      const candidate = record(value);
+      return { finishReason: token(candidate?.finishReason), safetyRatings: ratings(candidate?.safetyRatings) };
+    }) : [],
+  };
+}
+
+async function parseGeminiImages(
+  payload: unknown, modelId: ImageModelId, context: Record<string, unknown> = {},
+): Promise<string[]> {
   const body = record(payload);
   if (!body) throw new ProviderError("Gemini 响应格式无效", 502, modelId, "invalid_response");
   throwEmbeddedError(body, modelId);
@@ -452,11 +478,13 @@ async function parseGeminiImages(payload: unknown, modelId: ImageModelId): Promi
   const finishReasons: string[] = [];
 
   const diagnostic = () => JSON.stringify({
+    ...geminiResponseDiagnostic(body),
     topLevelKeys: Object.keys(body).sort(),
     candidateCount: candidates.length,
     candidatesTokenCount: candidatesTokenCount ?? null,
     promptBlockReason: promptBlockReason ?? null,
     finishReasons,
+    ...context,
   });
 
   if (promptBlockReason && promptBlockReason !== "BLOCK_REASON_UNSPECIFIED") {
@@ -742,7 +770,24 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
     }
     case "gemini-3-pro-image-preview":
     case "gemini-3.1-flash-image": {
-      const parts = [{ text: req.prompt }, ...await geminiReferenceParts(refs, modelId)];
+      const imageParts = await geminiReferenceParts(refs, modelId);
+      const parts = [{ text: req.prompt }, ...imageParts];
+      const requestSummary = {
+        diagnosticId: randomUUID(), model: upstreamModelId(modelId),
+        path: resolveContractPath(contract.edit.path, modelId),
+        imageConfig: { aspectRatio: options.aspectRatio, imageSize: options.imageSize },
+        responseModalities: ["IMAGE"], textPartCount: 1, imageCount: imageParts.length,
+        promptCharacters: req.prompt.length,
+        promptSha256: createHash("sha256").update(req.prompt).digest("hex"),
+        images: await Promise.all(imageParts.map(async ({ inlineData }, index) => {
+          const buffer = Buffer.from(inlineData.data, "base64");
+          const metadata = await sharp(buffer).metadata();
+          return { index: index + 1, mimeType: inlineData.mimeType, bytes: buffer.length,
+            width: metadata.width, height: metadata.height,
+            sha256: createHash("sha256").update(buffer).digest("hex") };
+        })),
+      };
+      console.info("[ai-gemini-edit-request]", JSON.stringify(requestSummary));
       response = await fetchApiyi(modelId, contract.edit.path, () => ({
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiyiApiKey()}` },
@@ -753,7 +798,14 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
           } },
         }),
       }));
-      return { images: await parseGeminiImages(await readJson(response, modelId), modelId), model: modelId };
+      const payload = await readJson(response, modelId);
+      const rawRequestId = response.headers.get("x-request-id");
+      const context = {
+        requestSummary, upstreamHttpStatus: response.status,
+        upstreamRequestId: rawRequestId && /^[\w.:-]{1,160}$/.test(rawRequestId) && !/sk-/i.test(rawRequestId) ? rawRequestId : null,
+      };
+      console.info("[ai-gemini-edit-response]", JSON.stringify({ ...context, ...geminiResponseDiagnostic(payload) }));
+      return { images: await parseGeminiImages(payload, modelId, context), model: modelId };
     }
     case "flux-2-pro": {
       const adaptedRefs = await Promise.all(refs.map(adaptFluxReference));

@@ -901,12 +901,37 @@ async function main(): Promise<void> {
         let calls = 0;
         const restoreFetch = installFetchMock(() => {
           calls++;
-          return Response.json({ promptFeedback: { blockReason: reason }, usageMetadata: { candidatesTokenCount: 0 } });
+          return Response.json({
+            responseId: "response-test-123", modelVersion: "gemini-test-version",
+            promptFeedback: { blockReason: reason, blockReasonMessage: "PRIVATE_RESPONSE_TEXT",
+              safetyRatings: [{ category: "HARM_CATEGORY_DANGEROUS_CONTENT", probability: "NEGLIGIBLE", blocked: false }] },
+            usageMetadata: { candidatesTokenCount: 0 },
+          }, { headers: { "x-request-id": "request-test-123" } });
         });
         try {
           await assert.rejects(() => apiyiProviders["gemini-3-pro-image-preview"].edit({
             prompt: "服装展示", referenceImages: [white], modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
-          }), (error: unknown) => error instanceof ProviderError && expected.test(error.message));
+          }), (error: unknown) => {
+            assert.ok(error instanceof ProviderError && expected.test(error.message));
+            const diagnostic = JSON.parse(error.diagnostic!);
+            assert.equal(diagnostic.responseId, "response-test-123");
+            assert.equal(diagnostic.modelVersion, "gemini-test-version");
+            assert.equal(diagnostic.upstreamHttpStatus, 200);
+            assert.equal(diagnostic.upstreamRequestId, "request-test-123");
+            assert.equal(diagnostic.promptFeedback.blockReason, reason);
+            assert.equal(diagnostic.promptFeedback.safetyRatings[0].blocked, false);
+            assert.equal(diagnostic.requestSummary.imageCount, 1);
+            assert.equal(diagnostic.requestSummary.model, "gemini-3-pro-image-preview");
+            assert.deepEqual(diagnostic.requestSummary.imageConfig, { aspectRatio: "3:4", imageSize: "2K" });
+            assert.equal(diagnostic.requestSummary.images[0].index, 1);
+            assert.equal(diagnostic.requestSummary.images[0].mimeType, "image/png");
+            assert.ok(diagnostic.requestSummary.images[0].bytes > 0);
+            assert.ok(diagnostic.requestSummary.images[0].width > 0);
+            assert.ok(!error.diagnostic!.includes("PRIVATE_RESPONSE_TEXT"));
+            assert.ok(!error.diagnostic!.includes(white.split(",")[1]));
+            assert.ok(!error.diagnostic!.includes("服装展示"));
+            return true;
+          });
           assert.equal(calls, 1, "明确拦截不自动重发");
         } finally { restoreFetch(); }
       }
@@ -918,6 +943,53 @@ async function main(): Promise<void> {
         const result = await apiyiProviders["gemini-3-pro-image-preview"].edit({ prompt: "服装展示", referenceImages: [white], modelOptions: { aspectRatio: "3:4", imageSize: "2K" } });
         assert.deepEqual(result.images, [white], "token 统计异常不能覆盖实际有效图片");
       } finally { restoreFetch(); }
+    });
+
+    await test("Gemini 编辑诊断匹配实际多图请求且不泄露私有内容", async () => {
+      const originalInfo = console.info;
+      const logs: Array<[string, string]> = [];
+      console.info = (tag, value) => { logs.push([String(tag), String(value)]); };
+      let sent: { inlineData: { data: string; mimeType: string } }[] = [];
+      const restoreFetch = installFetchMock((_input, init) => {
+        sent = (jsonBody(init).contents as Array<{ parts: typeof sent }>)[0].parts.slice(1);
+        return Response.json({
+          responseId: "sk-PRIVATE_SECRET", modelVersion: "unsafe\nPRIVATE_TEXT",
+          promptFeedback: { blockReasonMessage: "PRIVATE_TEXT" },
+          candidates: [{ finishReason: "STOP", safetyRatings: [{ category: "HARM_CATEGORY_DANGEROUS_CONTENT", probability: "LOW", blocked: false }],
+            content: { parts: [{ text: "PRIVATE_TEXT" }, { inlineData: { mimeType: "image/png", data: white.split(",")[1] } }] } }],
+        });
+      });
+      try {
+        for (const model of ["gemini-3-pro-image-preview", "gemini-3.1-flash-image"] as const) {
+          const result = await apiyiProviders[model].edit({ prompt: "PRIVATE_PROMPT", referenceImages: [white, blue],
+            modelOptions: { aspectRatio: "2:3", imageSize: "2K" } });
+          assert.deepEqual(result.images, [white]);
+          const summary = JSON.parse(logs.filter(([tag]) => tag === "[ai-gemini-edit-request]").at(-1)![1]);
+          const response = JSON.parse(logs.filter(([tag]) => tag === "[ai-gemini-edit-response]").at(-1)![1]);
+          assert.equal(summary.model, model);
+          assert.equal(summary.imageCount, 2);
+          assert.equal(summary.path, `/v1beta/models/${model}:generateContent`);
+          assert.deepEqual(summary.imageConfig, { aspectRatio: "2:3", imageSize: "2K" });
+          assert.deepEqual(response.requestSummary, summary);
+          assert.equal(response.responseId, null);
+          assert.equal(response.modelVersion, null);
+          assert.equal(response.candidateFeedback[0].finishReason, "STOP");
+          assert.notEqual(summary.images[0].sha256, summary.images[1].sha256);
+          for (const [index, part] of sent.entries()) {
+            const buffer = Buffer.from(part.inlineData.data, "base64");
+            const meta = await sharp(buffer).metadata();
+            assert.equal(summary.images[index].index, index + 1);
+            assert.equal(summary.images[index].bytes, buffer.length);
+            assert.equal(summary.images[index].width, meta.width);
+            assert.equal(summary.images[index].height, meta.height);
+            assert.equal(summary.images[index].mimeType, part.inlineData.mimeType);
+          }
+        }
+        const serialized = JSON.stringify(logs);
+        for (const forbidden of ["PRIVATE_SECRET", "PRIVATE_TEXT", "PRIVATE_PROMPT", white.split(",")[1], blue.split(",")[1]]) {
+          assert.ok(!serialized.includes(forbidden), "诊断只允许元数据");
+        }
+      } finally { restoreFetch(); console.info = originalInfo; }
     });
 
     await test("Gemini 在 chunked JSON 已完整但连接未收尾时主动回收结果", async () => {
