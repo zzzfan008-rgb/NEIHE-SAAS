@@ -11,6 +11,7 @@ import { inputPortSpecs } from "../src/lib/workflowPorts";
 import { buildExecutionPlan, assertPlanInputs } from "../server/engine/dag";
 import { executeStep } from "../server/engine/runner";
 import { parseDataUrl } from "../server/providers/base";
+import { apiyiProviders } from "../server/providers/apiyi";
 import { selectActiveDocument, useFlowStore, applyRunEventToRecentResults } from "../src/store/flowStore";
 import type { GenerationRequestSnapshot } from "../server/lib/generationRecords";
 import type { ImageGenRequest, VirtualTryOnNodeData, WorkflowTemplate } from "../src/types/workflow";
@@ -160,4 +161,66 @@ try {
     assert.deepEqual(recorded!.references.slice(0, 3).map(ref => ref.role), ["pose", "person", "scene"]);
   }
 } finally { globalThis.fetch = oldFetch; }
+
+// Exercise the real adapter, but replace the network boundary; never contact a paid provider.
+const originalBase = process.env.APIYI_BASE_URL;
+const originalKey = process.env.APIYI_API_KEY;
+process.env.APIYI_BASE_URL = "https://gateway.example";
+process.env.APIYI_API_KEY = "test-only-contract-key";
+try {
+  for (const count of [4, 5, 6, 7, 20]) {
+    const roles = count === 20 ? allRoles : baseRoles.slice(0, count);
+    const originals = roles.map((_, index) => images[index]);
+    const sentPrompts: string[] = [];
+    for (const concise of [false, true]) {
+      let calls = 0;
+      let recorded: GenerationRequestSnapshot | undefined;
+      globalThis.fetch = async (url, init) => {
+        calls++;
+        assert.equal(String(url), `https://gateway.example/v1beta/models/${pro}:generateContent`);
+        assert.equal(init?.method, "POST");
+        const headers = new Headers(init?.headers);
+        assert.equal(headers.get("authorization"), "Bearer test-only-contract-key");
+        assert.equal(headers.get("content-type"), "application/json");
+        const body = JSON.parse(String(init?.body));
+        assert.equal(body.contents.length, 1);
+        const parts = body.contents[0].parts;
+        assert.equal(parts.length, Math.min(count, 6) + 1);
+        assert.deepEqual(Object.keys(parts[0]), ["text"]);
+        const prompt = parts[0].text as string;
+        assert.equal(prompt, recorded?.prompt, "历史记录与真正发送的指令一致");
+        sentPrompts.push(prompt);
+        assert.match(prompt, /保持参考人物外观一致/);
+        assert.match(prompt, /保留胸前印花/);
+        assert.match(prompt, /参考图1：姿势/);
+        if (count === 7) assert.match(prompt, /参考图5拼图第1行第2列：袜子/);
+        for (const [index, part] of parts.slice(1).entries()) {
+          assert.deepEqual(Object.keys(part), ["inlineData"], "text 和 inlineData 绝不混合");
+          assert.ok(["image/png", "image/jpeg"].includes(part.inlineData.mimeType));
+          assert.ok(!part.inlineData.data.startsWith("data:"));
+          assert.equal(Buffer.from(part.inlineData.data, "base64").toString("base64"), part.inlineData.data);
+          if (index < 3 || count <= 6) assert.equal(part.inlineData.data, originals[index].split(",")[1]);
+        }
+        assert.deepEqual(body.generationConfig, { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "3:4", imageSize: "2K" } });
+        return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [
+          { text: "完成" }, { inlineData: { mimeType: "image/png", data: images[0].split(",")[1] } },
+        ] } }] });
+      };
+      await executeStep({ nodeId: "stabilize", kind: "virtual-try-on", inputImages: [...originals].reverse(),
+        params: { ...data, prompt: "保留胸前印花", sceneFraming: "custom", aspectRatio: "3:4", imageSize: "2K",
+          modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, ...(concise ? { multiImagePromptMode: "concise" } : {}) } },
+      [...originals].reverse(), () => apiyiProviders[pro], {
+        referenceRoles: [...roles].reverse(), onSceneRequestPrepared: async value => { recorded = value; },
+        sceneAnalyzer: async () => { throw new Error("禁止额外分析请求"); },
+        candidateSelector: async () => ({ selectedIndex: 0, scores: [], model: "mock", providerRequests: 0, allHardFail: false }),
+      });
+      assert.equal(calls, 1, "一次编辑，不自动追加请求");
+    }
+    assert.ok(sentPrompts[1].length < sentPrompts[0].length, "简化仅影响本次指令");
+  }
+} finally {
+  globalThis.fetch = oldFetch;
+  if (originalBase === undefined) delete process.env.APIYI_BASE_URL; else process.env.APIYI_BASE_URL = originalBase;
+  if (originalKey === undefined) delete process.env.APIYI_API_KEY; else process.env.APIYI_API_KEY = originalKey;
+}
 console.log("多图编辑换装：排序、六图边界、20图拼接、像素几何、模板复制/持久化、DAG与模拟模型请求通过（无付费调用）");

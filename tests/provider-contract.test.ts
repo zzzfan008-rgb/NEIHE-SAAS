@@ -828,7 +828,7 @@ async function main(): Promise<void> {
       }
     });
 
-    await test("Gemini 按官方优先级识别审核结果、文本说明并只采用最后一张终稿", async () => {
+    await test("Gemini 不将零输出推断为安全拦截，保留明确审核原因和最后一张终稿", async () => {
       const responses: unknown[] = [
         {
           candidates: null,
@@ -868,8 +868,9 @@ async function main(): Promise<void> {
         await assert.rejects(
           invoke,
           (error: unknown) => error instanceof ProviderError &&
-            error.category === "content_refused" &&
-            error.diagnostic?.includes("candidatesTokenCount=0") === true,
+            error.category === "invalid_response" &&
+            !error.message.includes("安全审核") &&
+            error.diagnostic?.includes('"candidatesTokenCount":0') === true,
         );
         await assert.rejects(
           invoke,
@@ -886,6 +887,37 @@ async function main(): Promise<void> {
       } finally {
         restoreFetch();
       }
+    });
+
+    await test("Gemini promptFeedback 原因优先于零 token，OTHER 不误报 SAFETY", async () => {
+      for (const [reason, expected] of [
+        ["SAFETY", /安全审核.*SAFETY/],
+        ["BLOCKLIST", /屏蔽词.*BLOCKLIST/],
+        ["OTHER", /OTHER.*未说明具体原因/],
+        ["PROHIBITED_CONTENT", /禁止内容.*PROHIBITED_CONTENT/],
+        ["UNRECOGNIZED", /未说明具体原因/],
+        ["constructor", /未说明具体原因/],
+      ] as const) {
+        let calls = 0;
+        const restoreFetch = installFetchMock(() => {
+          calls++;
+          return Response.json({ promptFeedback: { blockReason: reason }, usageMetadata: { candidatesTokenCount: 0 } });
+        });
+        try {
+          await assert.rejects(() => apiyiProviders["gemini-3-pro-image-preview"].edit({
+            prompt: "服装展示", referenceImages: [white], modelOptions: { aspectRatio: "3:4", imageSize: "2K" },
+          }), (error: unknown) => error instanceof ProviderError && expected.test(error.message));
+          assert.equal(calls, 1, "明确拦截不自动重发");
+        } finally { restoreFetch(); }
+      }
+      const restoreFetch = installFetchMock(() => Response.json({
+        candidates: [{ finishReason: "STOP", content: { parts: [{ inlineData: { mimeType: "image/png", data: white.split(",")[1] } }] } }],
+        usageMetadata: { candidatesTokenCount: 0 },
+      }));
+      try {
+        const result = await apiyiProviders["gemini-3-pro-image-preview"].edit({ prompt: "服装展示", referenceImages: [white], modelOptions: { aspectRatio: "3:4", imageSize: "2K" } });
+        assert.deepEqual(result.images, [white], "token 统计异常不能覆盖实际有效图片");
+      } finally { restoreFetch(); }
     });
 
     await test("Gemini 在 chunked JSON 已完整但连接未收尾时主动回收结果", async () => {

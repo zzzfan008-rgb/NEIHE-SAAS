@@ -1964,7 +1964,7 @@ export async function executeStep(
           ? frozenAngleControlPrompt(step.params, modelId)
           : undefined;
       const basePrompt = multiImageEdit
-        ? multiImageTryOnPrompt(multiImageReferenceMap, extra, Boolean(angleControlText))
+        ? multiImageTryOnPrompt(multiImageReferenceMap, extra, Boolean(angleControlText), step.params.multiImagePromptMode === "concise")
         : step.kind === "sketch-optimize"
           ? sketchOptimizationPrompt(extra)
           : step.kind === "background-extract"

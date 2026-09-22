@@ -459,15 +459,16 @@ async function parseGeminiImages(payload: unknown, modelId: ImageModelId): Promi
     finishReasons,
   });
 
-  if (candidatesTokenCount === 0) {
-    throw new ProviderError(
-      "本次请求在候选生成前被 AI 安全审核拦截，请调整提示词或参考图片后重试",
-      422, modelId, "content_refused", `candidatesTokenCount=0; ${diagnostic()}`,
-    );
-  }
   if (promptBlockReason && promptBlockReason !== "BLOCK_REASON_UNSPECIFIED") {
+    // Token counts describe usage, not moderation. Only explicit feedback identifies a block.
+    const messages: Record<string, string> = {
+      SAFETY: "本次请求未通过 AI 安全审核（SAFETY），请检查提示词或参考图片",
+      BLOCKLIST: "本次请求命中服务方屏蔽词规则（BLOCKLIST），请检查提示词",
+      PROHIBITED_CONTENT: "本次请求被服务方禁止内容规则拦截（PROHIBITED_CONTENT），请检查参考内容",
+      OTHER: "服务方阻止了本次请求（OTHER），未说明具体原因；不能据此判定为安全违规",
+    };
     throw new ProviderError(
-      "本次请求未通过 AI 安全审核，请调整提示词或参考图片后重试",
+      Object.hasOwn(messages, promptBlockReason) ? messages[promptBlockReason] : "服务方阻止了本次请求，未说明具体原因，请联系管理员核查",
       422, modelId, "content_refused", diagnostic(),
     );
   }
@@ -511,6 +512,12 @@ async function parseGeminiImages(payload: unknown, modelId: ImageModelId): Promi
     if (["SAFETY", "PROHIBITED_CONTENT", "IMAGE_PROHIBITED_CONTENT"].includes(abnormalFinishReason)) {
       throw new ProviderError(
         "本次请求未通过 AI 安全审核，请调整提示词或参考图片后重试",
+        422, modelId, "content_refused", diagnostic(),
+      );
+    }
+    if (abnormalFinishReason === "BLOCKLIST") {
+      throw new ProviderError(
+        "生成被服务方屏蔽词规则拦截（BLOCKLIST），请检查提示词",
         422, modelId, "content_refused", diagnostic(),
       );
     }

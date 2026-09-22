@@ -296,7 +296,7 @@ export interface FlowState {
     imageUrl: string,
   ) => void;
   setNodeStatus: (id: string, status: NodeRunStatus, error?: string) => void;
-  runNode: (id: string) => Promise<void>;
+  runNode: (id: string, options?: { multiImagePromptMode: "concise" }) => Promise<void>;
   /** 保存当前页签；返回服务端是否确认持久化成功。 */
   saveProject: () => Promise<boolean>;
   /** 保存指定文档目标；供跨异步边界且可能切换页签的流程使用。 */
@@ -5947,7 +5947,7 @@ export const useFlowStore = create<FlowState>()(
             });
           })(),
 
-        runNode: async (id) => {
+        runNode: async (id, options) => {
           // UI 禁用只是反馈层；所有付费运行仍必须在唯一 action 入口二次校验。
           if (getGenerationSafetyBlockReason()) return;
           flushActiveTextEdit();
@@ -5974,6 +5974,9 @@ export const useFlowStore = create<FlowState>()(
           )
             return;
           const kind = node.data.kind;
+          if (options && (node.data.kind !== "virtual-try-on" ||
+            node.data.workflowStage !== "scene-stabilize" || node.data.sceneInputMode !== "multi-reference-edit" ||
+            node.data.status !== "error")) return;
           if (
             node.data.kind === "mask-redraw" &&
             node.data.executionMode === "bypass"
@@ -6149,6 +6152,7 @@ export const useFlowStore = create<FlowState>()(
                   includeDownstream: false,
                   projectId: submissionSnapshot.projectId,
                   clientRequestId,
+                  ...(options ? { multiImagePromptMode: options.multiImagePromptMode } : {}),
                 }),
               });
             } catch (error) {

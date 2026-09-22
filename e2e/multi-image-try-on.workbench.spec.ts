@@ -63,6 +63,42 @@ test("两阶段模板独立保存、角色编号、六图拼接边界和桌面�
   await expect(node.getByRole("button", { name: "生成多图换装", exact: true })).toBeVisible();
   await expect(page.locator("[data-pose-prompt-editor]")).toHaveCount(0);
   expect(poseRequests, "新模式连线不反推姿势或生成中间图").toEqual([]);
+  const retry = node.getByRole("button", { name: "使用简化提示词重试", exact: true });
+  await expect(retry).toHaveCount(0);
+  await page.evaluate(async () => {
+    const path = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(path);
+    useFlowStore.getState().setNodeStatus("stabilize", "error", "服务方阻止了本次请求（OTHER），未说明具体原因");
+  });
+  await expect(retry).toBeVisible();
+  await expect(node).toContainText("会发起新的生成请求，可能产生费用");
+  const retryBounds = await retry.boundingBox();
+  const nodeBounds = await node.boundingBox();
+  expect(retryBounds!.width).toBeGreaterThan(0);
+  expect(retryBounds!.x).toBeGreaterThanOrEqual(nodeBounds!.x);
+  expect(retryBounds!.x + retryBounds!.width).toBeLessThanOrEqual(nodeBounds!.x + nodeBounds!.width + 1);
+  const submissions: Array<{ multiImagePromptMode?: string; onlyNodeId?: string; includeDownstream?: boolean; nodes: Array<{ data: Record<string, unknown> }> }> = [];
+  await page.route("**/api/run-plan", async route => {
+    submissions.push(route.request().postDataJSON());
+    await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "模拟失败，不调用模型" }) });
+  });
+  await retry.click();
+  await expect.poll(() => submissions.length).toBe(1);
+  expect(submissions[0].multiImagePromptMode).toBe("concise");
+  expect(submissions[0].onlyNodeId).toBe("stabilize");
+  expect(submissions[0].includeDownstream).toBe(false);
+  expect(submissions[0].nodes.every(item => !("multiImagePromptMode" in item.data))).toBeTruthy();
+  await expect(retry).toBeVisible();
+  await node.getByRole("button", { name: "生成多图换装", exact: true }).click();
+  await expect.poll(() => submissions.length).toBe(2);
+  expect(submissions[1].multiImagePromptMode).toBeUndefined();
+  await expect(retry).toBeVisible();
+  await page.evaluate(async () => {
+    const path = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(path);
+    useFlowStore.getState().setNodeStatus("stabilize", "outcome_unknown", "结果待确认");
+  });
+  await expect(retry).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("multi-image-try-on.png") });
   await page.evaluate(async image => {
     const path = "/src/store/flowStore.ts";

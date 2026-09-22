@@ -3,7 +3,7 @@ import { NodeHandle as Handle } from "./NodeHandle";
 import { SceneStabilizeControls } from "./SceneStabilizeControls";
 import { GptQualityControls } from "./GptQualityControls";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
-import { nodeOutputImages, selectActiveEdges, selectActiveNodes, useFlowStore } from "@/store/flowStore";
+import { nodeOutputImages, selectActiveEdges, selectActiveNodes, selectActiveReadOnly, useFlowStore } from "@/store/flowStore";
 import { orderSceneReferences } from "@/lib/sceneReferenceOrder";
 import { isMultiImageTryOn, planMultiImageReferences } from "@/lib/multiImageTryOn";
 import { inputPortSpecs } from "@/lib/workflowPorts";
@@ -55,6 +55,7 @@ function StageHandles({ data }: { data: VirtualTryOnNodeData }) {
 
 export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualTryOnNodeData>>) {
   const runNode = useFlowStore((state) => state.runNode);
+  const readOnly = useFlowStore(selectActiveReadOnly);
   const updateNodeData = useFlowStore((state) => state.updateNodeData);
   const nodes = useFlowStore(selectActiveNodes);
   const edges = useFlowStore(selectActiveEdges);
@@ -214,6 +215,12 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
           onClick={() => void runNode(id)}
           label={multiImageEdit ? "生成多图换装" : data.workflowStage === "scene-stabilize" ? "生成第一轮基准" : data.workflowStage === "garment-refine" ? "生成服装精修" : "生成换装效果"}
         />
+        {multiImageEdit && data.status === "error" && <div className="space-y-1">
+          <RunButton status={data.status} disabled={readOnly}
+            onClick={() => void runNode(id, { multiImagePromptMode: "concise" })}
+            label="使用简化提示词重试" />
+          <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">会发起新的生成请求，可能产生费用；仅本次简化提示词，参考图与拍摄参数不变，不保证生成成功。</p>
+        </div>}
         {running && <Developing />}
         <ImageGrid images={data.outputImages} />
       </NodeFrame>

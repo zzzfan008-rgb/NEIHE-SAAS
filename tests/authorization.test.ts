@@ -1332,6 +1332,52 @@ await test("运行必须绑定项目，且他人与管理员都不能运行项�
   }
 });
 
+await test("简化提示词拒绝无目标、下游执行、非法模式与旧节点", async () => {
+  const savedFlow = generationFlow("普通节点");
+  await request("/projects", "owner", { method: "POST", body: JSON.stringify({ id: "concise-legacy", name: "旧节点", flow: savedFlow }) });
+  for (const override of [
+    { multiImagePromptMode: "bad", onlyNodeId: "generate" },
+    { multiImagePromptMode: "concise" },
+    { multiImagePromptMode: "concise", onlyNodeId: "generate", includeDownstream: true },
+    { multiImagePromptMode: "concise", onlyNodeId: "generate" },
+  ]) {
+    const result = await request("/run-plan", "owner", { method: "POST", body: JSON.stringify({
+      ...savedFlow, projectId: "concise-legacy", clientRequestId: "concise-invalid-request", ...override,
+    }) });
+    assert.equal(result.status, 400, await result.text());
+  }
+});
+
+await test("多图简化仅进入本次运行，保留项目快照、权限和请求去重", async () => {
+  const template = JSON.parse(fs.readFileSync(new URL("../templates/multi-image-try-on.workflow.json", import.meta.url), "utf8"));
+  const generation = template.flow.nodes.find((node: { id: string }) => node.id === "stabilize");
+  const roles = ["pose", "person", "scene", "outfit"];
+  const image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
+  const savedFlow = { schemaVersion: 2, nodes: [generation, ...roles.map(id => ({ id, type: "image-input", position: { x: 0, y: 0 },
+    data: { kind: "image-input", label: id, status: "idle", imageRole: "reference", imageUrl: image },
+  }))], edges: roles.map(id => ({ id, source: id, sourceHandle: "image", target: "stabilize", targetHandle: id })) };
+  const save = await request("/projects", "owner", { method: "POST", body: JSON.stringify({ id: "concise-multi", name: "多图", flow: savedFlow }) });
+  assert.equal(save.status, 200, await save.text());
+  const before = await queryOne<{ flow_json: string }>("SELECT flow_json FROM projects WHERE id = 'concise-multi'");
+  const body = { ...savedFlow, projectId: "concise-multi", onlyNodeId: "stabilize", includeDownstream: false,
+    clientRequestId: "concise-valid-request", multiImagePromptMode: "concise" };
+  for (const actor of ["other", "admin"] as const) {
+    const denied = await request("/run-plan", actor, { method: "POST", body: JSON.stringify(body) });
+    assert.equal(denied.status, 403, await denied.text());
+  }
+  const accepted = await request("/run-plan", "owner", { method: "POST", body: JSON.stringify(body) });
+  const result = await accepted.json() as { runId?: string; error?: string };
+  assert.equal(accepted.status, 202, result.error);
+  const row = await queryOne<{ parameters_json: string }>("SELECT parameters_json FROM generation_runs WHERE id = $1", [result.runId]);
+  assert.equal(JSON.parse(row!.parameters_json).multiImagePromptMode, "concise");
+  assert.deepEqual(await queryOne("SELECT flow_json FROM projects WHERE id = 'concise-multi'"), before);
+  const replay = await request("/run-plan", "owner", { method: "POST", body: JSON.stringify(body) });
+  assert.equal(replay.status, 202);
+  assert.equal((await replay.json() as { runId: string }).runId, result.runId);
+  const changed = await request("/run-plan", "owner", { method: "POST", body: JSON.stringify({ ...body, multiImagePromptMode: undefined }) });
+  assert.equal(changed.status, 409, "同一请求编号不能改变提示词模式");
+});
+
 await test("同 ID 项目不能被其他账号覆盖", async () => {
   const denied = await request("/projects", "other", {
     method: "POST",
