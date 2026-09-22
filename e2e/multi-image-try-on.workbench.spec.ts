@@ -2,7 +2,7 @@ import fs from "node:fs";
 import sharp from "sharp";
 import { test, expect } from "./fixtures";
 
-test("两阶段模板独立保存、角色编号、六图拼接边界和桌面布局", async ({ page }, testInfo) => {
+test("两阶段模板独立保存、角色编号、14图直传边界和桌面布局", async ({ page }, testInfo) => {
   const poseRequests: string[] = [];
   page.on("request", request => {
     if (request.method() === "POST" && request.url().includes("/api/pose-references")) poseRequests.push(request.url());
@@ -35,10 +35,10 @@ test("两阶段模板独立保存、角色编号、六图拼接边界和桌面�
     requestCanvasLanding({ tabId: useFlowStore.getState().activeTabId, nodeId: "stabilize", fitView: true });
   }, { template, image });
   const node = page.locator('.react-flow__node[data-id="stabilize"]');
-  for (const [role, number] of Object.entries({ pose: 1, person: 2, scene: 3, outfit: 4, shoes: 5, socks: 5, hat: 6 })) {
+  for (const [role, number] of Object.entries({ pose: 1, person: 2, scene: 3, outfit: 4, shoes: 5, socks: 6, hat: 7 })) {
     await expect(node.locator(`[data-reference-numbers="${role}"]`)).toHaveText(`(参考图 ${number})`);
   }
-  await expect(node.getByLabel("参考图传递策略")).toContainText("7 张有效参考图 → 6 张传入");
+  await expect(node.getByLabel("参考图传递策略")).toContainText("7 张有效参考图 → 7 张传入");
   const geometry = await node.locator("[data-port-row]").evaluateAll(rows => rows.map(row => {
     const box = row.getBoundingClientRect();
     const label = row.querySelector("[data-reference-numbers]")!;
@@ -68,7 +68,12 @@ test("两阶段模板独立保存、角色编号、六图拼接边界和桌面�
   await page.evaluate(async () => {
     const path = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(path);
-    useFlowStore.getState().setNodeStatus("stabilize", "error", "服务方阻止了本次请求（OTHER），未说明具体原因");
+    // Reloaded documents normalize runtime status to idle; history remains authoritative.
+    const state = useFlowStore.getState();
+    const projectId = state.tabs.find((tab: { id: string }) => tab.id === state.activeTabId).projectId;
+    state.setNodeStatus("stabilize", "idle");
+    useFlowStore.setState({ recentResults: [{ id: "restored-failure", runId: "restored-run", projectId,
+      nodeId: "stabilize", nodeLabel: "多图换装", kind: "virtual-try-on", image: "", status: "error", startedAt: 1 }] });
   });
   await expect(retry).toBeVisible();
   await expect(node).toContainText("会发起新的生成请求，可能产生费用");
@@ -103,8 +108,8 @@ test("两阶段模板独立保存、角色编号、六图拼接边界和桌面�
   await page.evaluate(async image => {
     const path = "/src/store/flowStore.ts";
     const { useFlowStore } = await import(path);
-    const roles = ["pose", "person", "scene", "outfit", "shoes (拼图第1行第1列)", "socks (拼图第1行第2列)", "hat"];
-    const references = roles.map((role, index) => ({ role, image, number: [1, 2, 3, 4, 5, 5, 6][index] }));
+    const roles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
+    const references = roles.map((role, index) => ({ role, image, number: index + 1 }));
     useFlowStore.setState({ recentResults: [{ id: "test-multi-record", nodeId: "stabilize", kind: "virtual-try-on", image: "",
       nodeLabel: "多图换装记录", status: "success", startedAt: 1, finishedAt: 2,
       referenceImages: roles.map(() => image), parameters: { sceneInputMode: "multi-reference-edit", referenceManifest: references },
@@ -113,8 +118,8 @@ test("两阶段模板独立保存、角色编号、六图拼接边界和桌面�
   }, image);
   const dialog = page.getByRole("dialog", { name: "多图换装记录" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("原始素材映射到 6 张模型参考图");
-  await expect(dialog.getByRole("img", { name: "参考图 5 · socks (拼图第1行第2列)", exact: true })).toBeVisible();
+  await expect(dialog).toContainText("原始素材映射到 7 张模型参考图");
+  await expect(dialog.getByRole("img", { name: "参考图 6 · socks", exact: true })).toBeVisible();
   expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();

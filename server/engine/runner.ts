@@ -369,7 +369,6 @@ function stagedVirtualTryOnPrompt(
     const anglePriority = angleControlled ? "相机环绕、俯仰与画面 roll 仅由 3D 视角约束决定；姿势引导只控制肢体动作及关节相对关系，按目标相机角度合理投影，不逐像素复制二维投影。场景参考只控制背景空间、材质、色彩与光线风格；允许为目标镜头合理重建透视。" : "";
     const sections = [
       `建立第一轮人物场景基准。`,
-      `【动作坐标约定】左右始终按观看图片的画面左/右，不按人物解剖学左右；禁止水平镜像。动作描述也使用这一约定，只解释姿势图中可见的关系，不替换或补造动作。`,
       indexes("pose-guide").length
         ? `【姿势】${one("pose-guide")}是${poseLabel}。${poseDescription}${poseInstruction}${expressionInstruction}最终动作仅由姿势参考图中可见的动作几何决定。人物身份图、主穿搭图、场景图及配饰图均不提供动作依据。忽略姿势参考中的服装、身份和背景，不忽略其动作；不得擅自摆正躯干、拉直四肢、改变手部位置或调整为左右对称站姿。`
         : "【姿势】未提供独立姿势参考图。根据用户创作想法与场景空间自然安排人物动作，保持合理的人体结构、接触与遮挡；不把身份、穿搭或场景参考中的动作作为强制约束。",
@@ -1698,7 +1697,7 @@ export async function executeStep(
       if (step.kind === "fabric-recolor" && fabricImageUrl) {
         referenceImages.push(...(await resolveImageRefs([fabricImageUrl])));
       }
-      const maxReferences = multiImageEdit && modelId === "gemini-3-pro-image-preview" ? 6 : Math.min(
+      const maxReferences = Math.min(
         step.kind === "virtual-try-on"
           ? MAX_VIRTUAL_TRY_ON_REFERENCE_IMAGES
           : MAX_REFERENCE_IMAGES,
@@ -2180,7 +2179,9 @@ export async function executeStep(
       let candidateSelection: TryOnCandidateSelection | undefined;
       let candidateSelectionWarning: string | undefined;
       let candidateSelectionError: string | undefined;
-      if (isStagedTryOn) {
+      const candidateReviewDisabled =
+        isStagedTryOn && step.params.candidateReviewMode === "disabled";
+      if (isStagedTryOn && !candidateReviewDisabled) {
         try {
           candidateSelection = await (
             options.candidateSelector ?? selectBestTryOnCandidate
@@ -2243,6 +2244,7 @@ export async function executeStep(
                   : undefined,
                 promptEnhancement: promptEnhancementMeta ?? { enabled: false },
                 safetyFallbackUsed,
+                candidateReviewDisabled,
                 candidateSelection,
                 candidateSelectionWarning,
                 candidateSelectionError,

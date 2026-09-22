@@ -120,7 +120,7 @@ async function assertApprovedBaselineExecution(
 }
 
 runPlanRouter.post("/", asyncHandler(async (req, res) => {
-  const { nodes, edges, onlyNodeId, includeDownstream, projectId, clientRequestId, multiImagePromptMode } = req.body as {
+  const { nodes, edges, onlyNodeId, includeDownstream, projectId, clientRequestId, multiImagePromptMode, candidateReviewMode } = req.body as {
     nodes?: unknown[];
     edges?: unknown[];
     onlyNodeId?: string;
@@ -128,6 +128,7 @@ runPlanRouter.post("/", asyncHandler(async (req, res) => {
     projectId?: string;
     clientRequestId?: string;
     multiImagePromptMode?: unknown;
+    candidateReviewMode?: unknown;
   };
   if (!Array.isArray(nodes) || !Array.isArray(edges)) {
     res.status(400).json({ error: "nodes and edges arrays are required" });
@@ -144,6 +145,11 @@ runPlanRouter.post("/", asyncHandler(async (req, res) => {
   if (multiImagePromptMode !== undefined &&
       (multiImagePromptMode !== "concise" || !onlyNodeId || includeDownstream === true)) {
     res.status(400).json({ error: "简化提示词仅支持单个多图编辑节点" });
+    return;
+  }
+  if (candidateReviewMode !== undefined &&
+      (candidateReviewMode !== "disabled" || !onlyNodeId || includeDownstream === true)) {
+    res.status(400).json({ error: "关闭候选评审仅支持单个多图编辑节点" });
     return;
   }
   if (typeof projectId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(projectId)) {
@@ -197,6 +203,14 @@ runPlanRouter.post("/", asyncHandler(async (req, res) => {
         }
         // Run-only override: verified saved graph stays untouched; fingerprint/history include this mode.
         targetStep.params = { ...targetStep.params, multiImagePromptMode };
+      }
+      if (candidateReviewMode === "disabled") {
+        if (plan.steps.length !== 1 || targetStep.kind !== "virtual-try-on" ||
+            targetStep.params.workflowStage !== "scene-stabilize" || targetStep.params.sceneInputMode !== "multi-reference-edit") {
+          throw new DagError("关闭候选评审仅支持单个多图编辑节点");
+        }
+        // Run-only diagnostic override. Persist it with the run, never in the saved project.
+        targetStep.params = { ...targetStep.params, candidateReviewMode };
       }
       await assertApprovedBaselineExecution(client, flow, targetStep, user.id, projectId);
       const targetNode = flow.nodes.find((node) => node.id === targetStep.nodeId);

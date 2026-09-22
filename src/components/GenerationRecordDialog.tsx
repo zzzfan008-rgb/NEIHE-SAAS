@@ -122,7 +122,8 @@ export function GenerationRecordDialog({
             )}
           </dl>
 
-          <TryOnPoseReviewSummary executionMeta={record.executionMeta} stage={record.parameters?.workflowStage} />
+          <TryOnPoseReviewSummary executionMeta={record.executionMeta} stage={record.parameters?.workflowStage}
+            reviewMode={record.parameters?.candidateReviewMode} />
 
           {record.prompt && (
             <section className="mt-4">

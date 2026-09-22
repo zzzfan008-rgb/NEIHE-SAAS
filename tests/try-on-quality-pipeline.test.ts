@@ -399,6 +399,7 @@ try {
     const posePrompt = '整体姿态：侧身站立\n面部神态：嘴唇闭合，嘴角轻微上扬\n视线方向：无法判断';
     const generate = async (request: ImageGenRequest) => {
       assert.ok(request.prompt.includes(posePrompt), '用户确认的姿态与神态原文进入最终请求');
+      assert.doesNotMatch(request.prompt, /【动作坐标约定】|左右始终按观看图片的画面左\/右|不按人物解剖学左右/);
       assert.match(request.prompt, /“无法判断”表示没有该项约束/);
       assert.match(request.prompt, /不能从灰阶或关键点猜测视线与表情/);
       assert.match(request.prompt, /神态只改变可见表情，不改变身份参考的五官结构/);

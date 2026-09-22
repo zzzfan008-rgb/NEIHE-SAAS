@@ -1,3 +1,5 @@
+import { isImageModelId, modelMaxReferenceImages } from "../types/imageModels";
+
 /** Opt-in policy for the two-stage template; legacy try-on modes are unchanged. */
 export const MULTI_IMAGE_TRY_ON_MODE = "multi-reference-edit" as const;
 export const MULTI_IMAGE_TRY_ON_MAX_SOURCES = 20;
@@ -77,7 +79,8 @@ export function planMultiImageReferences<T extends { role: string }>(
     return index < 0 ? MULTI_IMAGE_TRY_ON_ROLES.length : index;
   };
   const ordered = [...references].sort((a, b) => rank(a.role) - rank(b.role));
-  if (modelId !== "gemini-3-pro-image-preview" || ordered.length <= 6) {
+  const providerLimit = isImageModelId(modelId) ? modelMaxReferenceImages(modelId) : ordered.length;
+  if (modelId !== "gemini-3-pro-image-preview" || ordered.length <= providerLimit) {
     return ordered.map((reference, index) => ({ number: index + 1, role: reference.role, members: [reference] }));
   }
   let groups = ordered.map(ref => ({ role: ref.role, members: [ref] }));
@@ -89,7 +92,7 @@ export function planMultiImageReferences<T extends { role: string }>(
     ["footwear", (ref: T) => ["shoes", "socks"].includes(ref.role)],
     ["garments", (ref: T) => ["outfit", "detail"].includes(ref.role)],
   ] as const) {
-    if (groups.length <= 6) break;
+    if (groups.length <= providerLimit) break;
     const members = ordered.filter(matches);
     if (members.length < 2) continue;
     const first = groups.findIndex(group => matches(group.members[0]));

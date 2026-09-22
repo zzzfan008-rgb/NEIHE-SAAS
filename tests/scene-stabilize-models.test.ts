@@ -57,9 +57,11 @@ try {
   assert.equal((requests.at(-1)!.body as FormData).get('model'), 'gpt-image-2.5-sunburst-2026-09-08');
   await apiyiProviders['gemini-3-pro-image-preview'].edit({ prompt: '场景融合', referenceImages: [image],
     modelOptions: { aspectRatio: '4:5', imageSize: '1K' } });
-  assert.match(requests.at(-1)!.url, /gemini-3-pro-image-preview:generateContent$/);
-  assert.deepEqual(JSON.parse(requests.at(-1)!.body as string).generationConfig.imageConfig,
-    { aspectRatio: '4:5', imageSize: '1K' });
+  assert.match(requests.at(-1)!.url, /gemini-3-pro-image:generateContent$/);
+  const proBody = JSON.parse(requests.at(-1)!.body as string);
+  assert.equal(proBody.contents[0].role, 'user');
+  assert.equal(proBody.contents[0].parts[1].inline_data.mime_type, 'image/png');
+  assert.deepEqual(proBody.generationConfig.imageConfig, { imageSize: '1K' });
 } finally { globalThis.fetch = originalFetch; }
 console.log('First-round model identity, options, persistence and provider routing passed (mock only)');
 

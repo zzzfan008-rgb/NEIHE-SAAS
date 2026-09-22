@@ -828,6 +828,46 @@ async function main(): Promise<void> {
       }
     });
 
+    await test("Gemini Pro 使用正式模型路由和供应商多图请求格式", async () => {
+      let capturedUrl = "";
+      let capturedBody: Record<string, unknown> | undefined;
+      const restoreFetch = installFetchMock((input, init) => {
+        capturedUrl = String(input);
+        capturedBody = jsonBody(init);
+        return Response.json({
+          candidates: [{
+            finishReason: "STOP",
+            content: { parts: [{ inline_data: { mime_type: "image/png", data: white.split(",")[1] } }] },
+          }],
+        });
+      });
+      try {
+        const result = await apiyiProviders["gemini-3-pro-image-preview"].edit({
+          prompt: "服装展示",
+          referenceImages: [white, blue],
+          modelOptions: { aspectRatio: "2:3", imageSize: "2K" },
+        });
+        assert.deepEqual(result.images, [white]);
+        assert.equal(capturedUrl, "https://gateway.example/v1beta/models/gemini-3-pro-image:generateContent");
+        const contents = capturedBody?.contents as Array<{ role?: string; parts: Array<Record<string, unknown>> }>;
+        assert.equal(contents[0].role, "user");
+        assert.deepEqual(contents[0].parts[0], { text: "服装展示" });
+        assert.equal(contents[0].parts.length, 3);
+        for (const part of contents[0].parts.slice(1)) {
+          assert.equal(Object.hasOwn(part, "inlineData"), false);
+          const inline = part.inline_data as { mime_type: string; data: string };
+          assert.equal(inline.mime_type, "image/png");
+          assert.ok(inline.data.length > 0);
+        }
+        assert.deepEqual(capturedBody?.generationConfig, {
+          responseModalities: ["IMAGE"],
+          imageConfig: { imageSize: "2K" },
+        });
+      } finally {
+        restoreFetch();
+      }
+    });
+
     await test("Gemini 不将零输出推断为安全拦截，保留明确审核原因和最后一张终稿", async () => {
       const responses: unknown[] = [
         {
@@ -921,8 +961,8 @@ async function main(): Promise<void> {
             assert.equal(diagnostic.promptFeedback.blockReason, reason);
             assert.equal(diagnostic.promptFeedback.safetyRatings[0].blocked, false);
             assert.equal(diagnostic.requestSummary.imageCount, 1);
-            assert.equal(diagnostic.requestSummary.model, "gemini-3-pro-image-preview");
-            assert.deepEqual(diagnostic.requestSummary.imageConfig, { aspectRatio: "3:4", imageSize: "2K" });
+            assert.equal(diagnostic.requestSummary.model, "gemini-3-pro-image");
+            assert.deepEqual(diagnostic.requestSummary.imageConfig, { imageSize: "2K" });
             assert.equal(diagnostic.requestSummary.images[0].index, 1);
             assert.equal(diagnostic.requestSummary.images[0].mimeType, "image/png");
             assert.ok(diagnostic.requestSummary.images[0].bytes > 0);
@@ -949,9 +989,13 @@ async function main(): Promise<void> {
       const originalInfo = console.info;
       const logs: Array<[string, string]> = [];
       console.info = (tag, value) => { logs.push([String(tag), String(value)]); };
-      let sent: { inlineData: { data: string; mimeType: string } }[] = [];
+      let sent: Array<{ data: string; mimeType: string }> = [];
       const restoreFetch = installFetchMock((_input, init) => {
-        sent = (jsonBody(init).contents as Array<{ parts: typeof sent }>)[0].parts.slice(1);
+        const raw = (jsonBody(init).contents as Array<{ parts: Array<Record<string, unknown>> }>)[0].parts.slice(1);
+        sent = raw.map((part) => {
+          const inline = (part.inlineData ?? part.inline_data) as Record<string, string>;
+          return { data: inline.data, mimeType: inline.mimeType ?? inline.mime_type };
+        });
         return Response.json({
           responseId: "sk-PRIVATE_SECRET", modelVersion: "unsafe\nPRIVATE_TEXT",
           promptFeedback: { blockReasonMessage: "PRIVATE_TEXT" },
@@ -966,23 +1010,26 @@ async function main(): Promise<void> {
           assert.deepEqual(result.images, [white]);
           const summary = JSON.parse(logs.filter(([tag]) => tag === "[ai-gemini-edit-request]").at(-1)![1]);
           const response = JSON.parse(logs.filter(([tag]) => tag === "[ai-gemini-edit-response]").at(-1)![1]);
-          assert.equal(summary.model, model);
+          const upstreamModel = model === "gemini-3-pro-image-preview" ? "gemini-3-pro-image" : model;
+          assert.equal(summary.model, upstreamModel);
           assert.equal(summary.imageCount, 2);
-          assert.equal(summary.path, `/v1beta/models/${model}:generateContent`);
-          assert.deepEqual(summary.imageConfig, { aspectRatio: "2:3", imageSize: "2K" });
+          assert.equal(summary.path, `/v1beta/models/${upstreamModel}:generateContent`);
+          assert.deepEqual(summary.imageConfig, model === "gemini-3-pro-image-preview"
+            ? { imageSize: "2K" }
+            : { aspectRatio: "2:3", imageSize: "2K" });
           assert.deepEqual(response.requestSummary, summary);
           assert.equal(response.responseId, null);
           assert.equal(response.modelVersion, null);
           assert.equal(response.candidateFeedback[0].finishReason, "STOP");
           assert.notEqual(summary.images[0].sha256, summary.images[1].sha256);
           for (const [index, part] of sent.entries()) {
-            const buffer = Buffer.from(part.inlineData.data, "base64");
+            const buffer = Buffer.from(part.data, "base64");
             const meta = await sharp(buffer).metadata();
             assert.equal(summary.images[index].index, index + 1);
             assert.equal(summary.images[index].bytes, buffer.length);
             assert.equal(summary.images[index].width, meta.width);
             assert.equal(summary.images[index].height, meta.height);
-            assert.equal(summary.images[index].mimeType, part.inlineData.mimeType);
+            assert.equal(summary.images[index].mimeType, part.mimeType);
           }
         }
         const serialized = JSON.stringify(logs);

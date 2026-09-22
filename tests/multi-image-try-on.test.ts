@@ -3,7 +3,7 @@ import fs from "node:fs";
 import sharp from "sharp";
 import { PROVIDER_TARGET_BYTES } from "../server/lib/uploadImageNormalization";
 import { planMultiImageReferences, multiImageReferenceError, MULTI_IMAGE_TRY_ON_ROLES, readMultiImageReferenceManifest, isDirectMultiImagePoseNode } from "../src/lib/multiImageTryOn";
-import { prepareMultiImageTryOn, stitchReferenceImages } from "../server/lib/multiImageTryOn";
+import { multiImageTryOnPrompt, prepareMultiImageTryOn, stitchReferenceImages } from "../server/lib/multiImageTryOn";
 import { copyMultiImageTryOnTemplate } from "../src/lib/multiImageTryOnTemplate";
 import { createDocumentSnapshot, documentSnapshotToPersistedWorkflow } from "../src/lib/documentSnapshot";
 import { validateAndMigrateFlow } from "../server/lib/workflowSchema";
@@ -12,27 +12,43 @@ import { buildExecutionPlan, assertPlanInputs } from "../server/engine/dag";
 import { executeStep } from "../server/engine/runner";
 import { parseDataUrl } from "../server/providers/base";
 import { apiyiProviders } from "../server/providers/apiyi";
-import { selectActiveDocument, useFlowStore, applyRunEventToRecentResults } from "../src/store/flowStore";
+import { selectActiveDocument, selectCanRetryMultiImage, useFlowStore, applyRunEventToRecentResults, type RecentResult } from "../src/store/flowStore";
 import type { GenerationRequestSnapshot } from "../server/lib/generationRecords";
 import type { ImageGenRequest, VirtualTryOnNodeData, WorkflowTemplate } from "../src/types/workflow";
 
 const pro = "gemini-3-pro-image-preview";
+const referenceMap = "参考图1：姿势。\n参考图2：人物。\n参考图3：场景。\n参考图4：主穿搭。\n参考图5拼图第1行第1列：鞋子。\n参考图5拼图第1行第2列：袜子。";
+for (const concise of [false, true]) {
+  for (const angleControlled of [false, true]) {
+    const prompt = multiImageTryOnPrompt(referenceMap, "保留胸前印花和项链", angleControlled, concise);
+    assert.ok(prompt.includes(referenceMap));
+    assert.match(prompt, /以参考图2中的人物为主体/);
+    assert.match(prompt, /保持参考人物外观一致/);
+    assert.match(prompt, /参照图1.*头部朝向.*手部动作.*双腿弯曲/);
+    assert.match(prompt, /采用图3的场景、光照/);
+    assert.match(prompt, /保留胸前印花和项链/);
+    assert.match(prompt, /版型、颜色/);
+    assert.doesNotMatch(prompt, /换脸|身份替换|执行一次多图编辑换装/);
+    if (angleControlled) assert.match(prompt, /姿势图控制关节动作，但不覆盖3D视角/);
+    else assert.match(prompt, /保持姿势参考的动作与左右关系，不镜像/);
+  }
+}
 const baseRoles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
 const allRoles = [...MULTI_IMAGE_TRY_ON_ROLES, "detail", "detail", "detail", "detail"];
-for (const count of [4, 5, 6, 7, 20]) {
-  const roles = count === 20 ? allRoles : baseRoles.slice(0, count);
+for (const count of [4, 5, 6, 7, 14, 15, 20]) {
+  const roles = count > baseRoles.length ? allRoles.slice(0, count) : baseRoles.slice(0, count);
   const refs = roles.map((role, index) => ({ role, id: `original-${index}` })).reverse();
   const before = JSON.stringify(refs);
   const groups = planMultiImageReferences(refs, pro);
   assert.equal(JSON.stringify(refs), before);
   assert.deepEqual(groups.slice(0, 3).map(group => group.role), ["pose", "person", "scene"]);
   assert.equal(groups.flatMap(group => group.members).length, count, "不丢弃任何素材");
-  assert.ok(groups.length <= 6);
-  if (count <= 6) assert.ok(groups.every(group => group.members.length === 1), "六张及以下不拼接");
-  if (count > 6) assert.ok(groups.find(group => group.role === "footwear")?.members.length === 2);
+  assert.ok(groups.length <= 14);
+  if (count <= 14) assert.ok(groups.every(group => group.members.length === 1), "正式Pro容量内不拼接");
+  if (count > 14) assert.ok(groups.some(group => group.members.length > 1), "超过正式Pro容量后才拼接");
   assert.equal(multiImageReferenceError(roles), undefined);
 }
-assert.equal(planMultiImageReferences(allRoles.map(role => ({ role })), "gemini-3.1-flash-image").length, 20, "只对Pro使用六图策略，其他模型另行校验自己的上限");
+assert.equal(planMultiImageReferences(allRoles.map(role => ({ role })), "gemini-3.1-flash-image").length, 20, "只对Pro使用超额拼接策略，其他模型另行校验自己的上限");
 assert.match(multiImageReferenceError(["person", "scene", "outfit"])!, /姿势/);
 assert.match(multiImageReferenceError([...baseRoles, "person"])!, /人物/);
 assert.match(multiImageReferenceError([...baseRoles, "unknown"])!, /不支持/);
@@ -68,7 +84,7 @@ const boundedSheet = parseDataUrl(await stitchReferenceImages(noisyImages));
 assert.ok(boundedSheet.buffer.length <= PROVIDER_TARGET_BYTES, "高细节配饰拼图不超过Provider大小限制");
 assert.equal(boundedSheet.mime, "image/jpeg", "大拼图触发有界压缩，普通小拼图仍保持PNG");
 const packed = await prepareMultiImageTryOn(images, allRoles, images, pro);
-assert.equal(packed.referenceImages.length, 6);
+assert.equal(packed.referenceImages.length, 12);
 assert.deepEqual(packed.referenceImages.slice(0, 3), images.slice(0, 3), "前三张原图原样传递");
 assert.equal(packed.references.length, 20);
 assert.deepEqual(readMultiImageReferenceManifest(packed.references), packed.references);
@@ -81,7 +97,7 @@ const history = applyRunEventToRecentResults([{
 assert.equal(history[0].prompt, "最终分组提示词");
 assert.deepEqual(history[0].parameters?.referenceManifest, packed.references, "运行记录支持拼图中的重复参数编号");
 assert.deepEqual(history[0].referenceImages, packed.references.map(ref => ref.image), "历史记录保留素材来源，不持久化临时拼图DataURL");
-assert.match(packed.instructions, /参考图6拼图第1行第1列：包袋/);
+assert.match(packed.instructions, /拼图第1行第1列：包袋/);
 await assert.rejects(prepareMultiImageTryOn(images, ["pose"], images, pro), /信息不完整/);
 
 const template = JSON.parse(fs.readFileSync(new URL("../templates/multi-image-try-on.workflow.json", import.meta.url), "utf8")) as WorkflowTemplate;
@@ -107,6 +123,20 @@ assert.equal(data.sceneInputMode, "multi-reference-edit");
 assert.deepEqual(inputPortSpecs(data).filter(port => port.required).map(port => port.id), ["pose", "person", "scene", "outfit"]);
 useFlowStore.getState().loadFlow({ ...roundtrip, projectName: template.name });
 assert.equal(selectActiveDocument(useFlowStore.getState()).nodes.find(node => node.id === "stabilize")!.data.sceneInputMode, "multi-reference-edit");
+
+const retryState = useFlowStore.getState();
+const retryDocument = selectActiveDocument(retryState);
+const failedRecord: RecentResult = { id: "failure", runId: "failed-run", projectId: retryDocument.projectId,
+  nodeId: "stabilize", nodeLabel: "换装", kind: "virtual-try-on", image: "", status: "error", startedAt: 1 };
+assert.equal(selectCanRetryMultiImage({ ...retryState, recentResults: [failedRecord] }, "stabilize"), true);
+assert.equal(selectCanRetryMultiImage({ ...retryState, recentResults: [{ ...failedRecord, projectId: "other" }] }, "stabilize"), false);
+assert.equal(selectCanRetryMultiImage({ ...retryState, recentResults: [{ ...failedRecord, nodeId: "other" }] }, "stabilize"), false);
+for (const status of ["success", "outcome_unknown", "running", "queued"] as const) {
+  assert.equal(selectCanRetryMultiImage({ ...retryState, recentResults: [failedRecord,
+    { ...failedRecord, id: "newer", startedAt: 2, status }] }, "stabilize"), false, status);
+}
+assert.equal(selectCanRetryMultiImage({ ...retryState, recentResults: [failedRecord],
+  tabs: retryState.tabs.map(tab => tab.id === retryDocument.id ? { ...tab, readOnly: true } : tab) }, "stabilize"), false);
 
 const flow = structuredClone(roundtrip);
 for (const node of flow.nodes) {
@@ -136,10 +166,10 @@ try {
     let recorded: GenerationRequestSnapshot | undefined;
     const edit = async (request: ImageGenRequest) => {
       calls++;
-      assert.ok(request.referenceImages!.length <= 6);
+      assert.ok(request.referenceImages!.length <= 14);
       assert.deepEqual(request.referenceImages!.slice(0, 3), sourceImages.slice(0, 3));
-      if (roles.length <= 6) assert.deepEqual(request.referenceImages, sourceImages);
-      assert.match(request.prompt, /直接输出完整成片/);
+      if (roles.length <= 14) assert.deepEqual(request.referenceImages, sourceImages);
+      assert.match(request.prompt, /输出一张完整的服装摄影照片/);
       assert.match(request.prompt, /针织组织、蕾丝、缝线/);
       assert.doesNotMatch(request.prompt, /不强求针目|完成第一轮场景化/);
       return { images: [images[0]], model: pro };
@@ -160,6 +190,23 @@ try {
     assert.equal(recorded!.references.length, roles.length, "记录保留全部原图与参数编号映射");
     assert.deepEqual(recorded!.references.slice(0, 3).map(ref => ref.role), ["pose", "person", "scene"]);
   }
+  let disabledReviewCalls = 0;
+  const noReview = await executeStep({
+    nodeId: "stabilize", kind: "virtual-try-on", inputImages: images.slice(0, 4),
+    params: { ...data, sceneFraming: "scene", candidateReviewMode: "disabled" },
+  }, images.slice(0, 4), () => ({
+    id: pro,
+    edit: async () => ({ images: [images[0]], model: pro }),
+    generate: async () => { throw new Error("必须多图编辑，不得文生图"); },
+  }), {
+    referenceRoles: baseRoles.slice(0, 4),
+    candidateSelector: async () => {
+      disabledReviewCalls += 1;
+      throw new Error("关闭评审后不得调用候选评审");
+    },
+  });
+  assert.equal(disabledReviewCalls, 0);
+  assert.equal((noReview.executionMeta?.tryOn as Record<string, unknown>).candidateReviewDisabled, true);
 } finally { globalThis.fetch = oldFetch; }
 
 // Exercise the real adapter, but replace the network boundary; never contact a paid provider.
@@ -168,24 +215,26 @@ const originalKey = process.env.APIYI_API_KEY;
 process.env.APIYI_BASE_URL = "https://gateway.example";
 process.env.APIYI_API_KEY = "test-only-contract-key";
 try {
-  for (const count of [4, 5, 6, 7, 20]) {
-    const roles = count === 20 ? allRoles : baseRoles.slice(0, count);
+  for (const count of [4, 5, 6, 7, 14, 15, 20]) {
+    const roles = count > baseRoles.length ? allRoles.slice(0, count) : baseRoles.slice(0, count);
     const originals = roles.map((_, index) => images[index]);
+    const expectedGroups = planMultiImageReferences(roles.map((role, index) => ({ role, index })), pro);
     const sentPrompts: string[] = [];
     for (const concise of [false, true]) {
       let calls = 0;
       let recorded: GenerationRequestSnapshot | undefined;
       globalThis.fetch = async (url, init) => {
         calls++;
-        assert.equal(String(url), `https://gateway.example/v1beta/models/${pro}:generateContent`);
+        assert.equal(String(url), "https://gateway.example/v1beta/models/gemini-3-pro-image:generateContent");
         assert.equal(init?.method, "POST");
         const headers = new Headers(init?.headers);
         assert.equal(headers.get("authorization"), "Bearer test-only-contract-key");
         assert.equal(headers.get("content-type"), "application/json");
         const body = JSON.parse(String(init?.body));
         assert.equal(body.contents.length, 1);
+        assert.equal(body.contents[0].role, "user");
         const parts = body.contents[0].parts;
-        assert.equal(parts.length, Math.min(count, 6) + 1);
+        assert.equal(parts.length, expectedGroups.length + 1);
         assert.deepEqual(Object.keys(parts[0]), ["text"]);
         const prompt = parts[0].text as string;
         assert.equal(prompt, recorded?.prompt, "历史记录与真正发送的指令一致");
@@ -193,15 +242,18 @@ try {
         assert.match(prompt, /保持参考人物外观一致/);
         assert.match(prompt, /保留胸前印花/);
         assert.match(prompt, /参考图1：姿势/);
-        if (count === 7) assert.match(prompt, /参考图5拼图第1行第2列：袜子/);
-        for (const [index, part] of parts.slice(1).entries()) {
-          assert.deepEqual(Object.keys(part), ["inlineData"], "text 和 inlineData 绝不混合");
-          assert.ok(["image/png", "image/jpeg"].includes(part.inlineData.mimeType));
-          assert.ok(!part.inlineData.data.startsWith("data:"));
-          assert.equal(Buffer.from(part.inlineData.data, "base64").toString("base64"), part.inlineData.data);
-          if (index < 3 || count <= 6) assert.equal(part.inlineData.data, originals[index].split(",")[1]);
+        if (count === 7) {
+          assert.match(prompt, /参考图6：袜子/);
+          assert.match(prompt, /参考图7：帽子/);
         }
-        assert.deepEqual(body.generationConfig, { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "3:4", imageSize: "2K" } });
+        for (const [index, part] of parts.slice(1).entries()) {
+          assert.deepEqual(Object.keys(part), ["inline_data"], "text 和 inline_data 绝不混合");
+          assert.ok(["image/png", "image/jpeg"].includes(part.inline_data.mime_type));
+          assert.ok(!part.inline_data.data.startsWith("data:"));
+          assert.equal(Buffer.from(part.inline_data.data, "base64").toString("base64"), part.inline_data.data);
+          if (index < 3 || count <= 14) assert.equal(part.inline_data.data, originals[index].split(",")[1]);
+        }
+        assert.deepEqual(body.generationConfig, { responseModalities: ["IMAGE"], imageConfig: { imageSize: "2K" } });
         return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [
           { text: "完成" }, { inlineData: { mimeType: "image/png", data: images[0].split(",")[1] } },
         ] } }] });
@@ -223,4 +275,4 @@ try {
   if (originalBase === undefined) delete process.env.APIYI_BASE_URL; else process.env.APIYI_BASE_URL = originalBase;
   if (originalKey === undefined) delete process.env.APIYI_API_KEY; else process.env.APIYI_API_KEY = originalKey;
 }
-console.log("多图编辑换装：排序、六图边界、20图拼接、像素几何、模板复制/持久化、DAG与模拟模型请求通过（无付费调用）");
+console.log("多图编辑换装：排序、14图边界、20图拼接、像素几何、模板复制/持久化、DAG与模拟模型请求通过（无付费调用）");

@@ -1017,7 +1017,7 @@ async function main() {
       assert.doesNotMatch(typed.calls[0].request.prompt, /可能/);
       const prompt = typed.calls[0].request.prompt;
       assert.deepEqual(Array.from(prompt.matchAll(/^【([^】]+)】/gm), ([, section]) => section),
-        ['动作坐标约定', '姿势', '身份', '服装', '场景', '配饰与结构', '风格', '输出']);
+        ['姿势', '身份', '服装', '场景', '配饰与结构', '风格', '输出']);
       const poseSection = prompt.split('【姿势】')[1].split('【身份】')[0];
       assert.match(poseSection, /最终动作仅由姿势参考图中可见的动作几何决定/);
       assert.match(poseSection, /人物身份图、主穿搭图、场景图及配饰图均不提供动作依据/);

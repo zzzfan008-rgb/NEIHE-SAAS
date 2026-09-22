@@ -31,7 +31,7 @@
   "models": [
     {
       "id": "gemini-3-pro-image-preview",
-      "upstreamModelId": "gemini-3-pro-image-preview",
+      "upstreamModelId": "gemini-3-pro-image",
       "label": "Gemini 3 Pro Image",
       "channel": "official",
       "allowedNodeKinds": ["virtual-try-on"],

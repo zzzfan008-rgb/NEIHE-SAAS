@@ -228,7 +228,7 @@ function logProviderResponseShape(
     const parts = Array.isArray(content?.parts) ? content.parts : [];
     for (const partValue of parts.slice(0, 12)) {
       const part = record(partValue);
-      if (record(part?.inlineData)?.data !== undefined) partKinds.push("inlineData");
+      if ((record(part?.inlineData) ?? record(part?.inline_data))?.data !== undefined) partKinds.push("inlineData");
       else if (typeof part?.text === "string") partKinds.push("text");
       else if (part?.thoughtSignature !== undefined) partKinds.push("thoughtSignature");
       else partKinds.push("other");
@@ -519,10 +519,11 @@ async function parseGeminiImages(
         const text = part.text.replace(/\s+/g, " ").trim();
         if (text) texts.push(text.slice(0, 500));
       }
-      const inline = record(part?.inlineData);
+      const inline = record(part?.inlineData) ?? record(part?.inline_data);
       if (!inline || inline.data === undefined) continue;
-      const mime = typeof inline.mimeType === "string" && REFERENCE_MIMES.has(inline.mimeType)
-        ? inline.mimeType
+      const rawMime = inline.mimeType ?? inline.mime_type;
+      const mime = typeof rawMime === "string" && REFERENCE_MIMES.has(rawMime)
+        ? rawMime
         : undefined;
       if (!mime) throw new ProviderError("Gemini 返回了不支持的图片格式", 502, modelId, "invalid_response");
       images.push(await base64Image(inline.data, modelId, mime));
@@ -636,6 +637,36 @@ async function geminiReferenceParts(refs: string[], modelId: ImageModelId) {
   return parts;
 }
 
+type GeminiInlinePart = { inlineData: { mimeType: string; data: string } };
+
+/** The stable Pro route currently documents protobuf snake_case image fields. */
+function geminiGenerateContentBody(
+  modelId: ImageModelId,
+  prompt: string,
+  imageParts: GeminiInlinePart[],
+  options: ImageModelOptions,
+) {
+  const stablePro = modelId === "gemini-3-pro-image-preview";
+  const parts = stablePro
+    ? [
+        { text: prompt },
+        ...imageParts.map(({ inlineData }) => ({
+          inline_data: { mime_type: inlineData.mimeType, data: inlineData.data },
+        })),
+      ]
+    : [{ text: prompt }, ...imageParts];
+  const imageConfig = stablePro
+    ? { imageSize: options.imageSize }
+    : { aspectRatio: options.aspectRatio, imageSize: options.imageSize };
+  return {
+    imageConfig,
+    body: {
+      contents: [{ ...(stablePro ? { role: "user" } : {}), parts }],
+      generationConfig: { responseModalities: ["IMAGE"], imageConfig },
+    },
+  };
+}
+
 export async function validateApiyiRequest(
   modelId: ImageModelId,
   req: ImageGenRequest,
@@ -681,18 +712,15 @@ async function generate(modelId: ImageModelId, req: ImageGenRequest): Promise<Im
       }));
       return { images: await parseOpenAiImages(await readJson(response, modelId), modelId, { maxImages: 1 }), model: modelId };
     case "gemini-3-pro-image-preview":
-    case "gemini-3.1-flash-image":
+    case "gemini-3.1-flash-image": {
+      const request = geminiGenerateContentBody(modelId, req.prompt, [], options);
       response = await fetchApiyi(modelId, contract.generation.path, () => ({
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiyiApiKey()}` },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: req.prompt }] }],
-          generationConfig: { responseModalities: ["IMAGE"], imageConfig: {
-            aspectRatio: options.aspectRatio, imageSize: options.imageSize,
-          } },
-        }),
+        body: JSON.stringify(request.body),
       }));
       return { images: await parseGeminiImages(await readJson(response, modelId), modelId), model: modelId };
+    }
     case "flux-2-pro":
       response = await fetchApiyi(modelId, contract.generation.path, () => ({
         method: "POST",
@@ -771,11 +799,11 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
     case "gemini-3-pro-image-preview":
     case "gemini-3.1-flash-image": {
       const imageParts = await geminiReferenceParts(refs, modelId);
-      const parts = [{ text: req.prompt }, ...imageParts];
+      const request = geminiGenerateContentBody(modelId, req.prompt, imageParts, options);
       const requestSummary = {
         diagnosticId: randomUUID(), model: upstreamModelId(modelId),
         path: resolveContractPath(contract.edit.path, modelId),
-        imageConfig: { aspectRatio: options.aspectRatio, imageSize: options.imageSize },
+        imageConfig: request.imageConfig,
         responseModalities: ["IMAGE"], textPartCount: 1, imageCount: imageParts.length,
         promptCharacters: req.prompt.length,
         promptSha256: createHash("sha256").update(req.prompt).digest("hex"),
@@ -791,12 +819,7 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
       response = await fetchApiyi(modelId, contract.edit.path, () => ({
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiyiApiKey()}` },
-        body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: { responseModalities: ["IMAGE"], imageConfig: {
-            aspectRatio: options.aspectRatio, imageSize: options.imageSize,
-          } },
-        }),
+        body: JSON.stringify(request.body),
       }));
       const payload = await readJson(response, modelId);
       const rawRequestId = response.headers.get("x-request-id");

@@ -1745,6 +1745,22 @@ export function selectActiveProjectId(state: FlowState): string {
   return selectActiveDocument(state).projectId;
 }
 
+/** Runtime status is cleared on document reload; recover retry eligibility from this node's latest run. */
+export function selectCanRetryMultiImage(state: FlowState, nodeId: string): boolean {
+  const document = selectActiveDocument(state);
+  const data = document.nodes.find(node => node.id === nodeId)?.data;
+  if (document.readOnly || !data || data.kind !== "virtual-try-on" ||
+      data.workflowStage !== "scene-stabilize" || data.sceneInputMode !== "multi-reference-edit") return false;
+  if (data.status === "error") return true;
+  if (data.status !== "idle") return false;
+  const records = state.recentResults.filter(record =>
+    record.projectId === document.projectId && record.nodeId === nodeId);
+  if (records.some(record => isNodeRunActive(record.status) || record.status === "outcome_unknown")) return false;
+  const latest = records.reduce<RecentResult | undefined>((latest, record) =>
+    !latest || record.startedAt > latest.startedAt ? record : latest, undefined);
+  return latest?.status === "error";
+}
+
 export function selectActiveProjectName(state: FlowState): string {
   return selectActiveDocument(state).projectName;
 }
@@ -5974,9 +5990,7 @@ export const useFlowStore = create<FlowState>()(
           )
             return;
           const kind = node.data.kind;
-          if (options && (node.data.kind !== "virtual-try-on" ||
-            node.data.workflowStage !== "scene-stabilize" || node.data.sceneInputMode !== "multi-reference-edit" ||
-            node.data.status !== "error")) return;
+          if (options && !selectCanRetryMultiImage(initialState, id)) return;
           if (
             node.data.kind === "mask-redraw" &&
             node.data.executionMode === "bypass"

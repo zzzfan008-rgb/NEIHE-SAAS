@@ -1340,6 +1340,10 @@ await test("简化提示词拒绝无目标、下游执行、非法模式与旧�
     { multiImagePromptMode: "concise" },
     { multiImagePromptMode: "concise", onlyNodeId: "generate", includeDownstream: true },
     { multiImagePromptMode: "concise", onlyNodeId: "generate" },
+    { candidateReviewMode: "bad", onlyNodeId: "generate" },
+    { candidateReviewMode: "disabled" },
+    { candidateReviewMode: "disabled", onlyNodeId: "generate", includeDownstream: true },
+    { candidateReviewMode: "disabled", onlyNodeId: "generate" },
   ]) {
     const result = await request("/run-plan", "owner", { method: "POST", body: JSON.stringify({
       ...savedFlow, projectId: "concise-legacy", clientRequestId: "concise-invalid-request", ...override,
@@ -1360,7 +1364,7 @@ await test("多图简化仅进入本次运行，保留项目快照、权限和�
   assert.equal(save.status, 200, await save.text());
   const before = await queryOne<{ flow_json: string }>("SELECT flow_json FROM projects WHERE id = 'concise-multi'");
   const body = { ...savedFlow, projectId: "concise-multi", onlyNodeId: "stabilize", includeDownstream: false,
-    clientRequestId: "concise-valid-request", multiImagePromptMode: "concise" };
+    clientRequestId: "concise-valid-request", multiImagePromptMode: "concise", candidateReviewMode: "disabled" };
   for (const actor of ["other", "admin"] as const) {
     const denied = await request("/run-plan", actor, { method: "POST", body: JSON.stringify(body) });
     assert.equal(denied.status, 403, await denied.text());
@@ -1370,6 +1374,7 @@ await test("多图简化仅进入本次运行，保留项目快照、权限和�
   assert.equal(accepted.status, 202, result.error);
   const row = await queryOne<{ parameters_json: string }>("SELECT parameters_json FROM generation_runs WHERE id = $1", [result.runId]);
   assert.equal(JSON.parse(row!.parameters_json).multiImagePromptMode, "concise");
+  assert.equal(JSON.parse(row!.parameters_json).candidateReviewMode, "disabled");
   assert.deepEqual(await queryOne("SELECT flow_json FROM projects WHERE id = 'concise-multi'"), before);
   const replay = await request("/run-plan", "owner", { method: "POST", body: JSON.stringify(body) });
   assert.equal(replay.status, 202);
