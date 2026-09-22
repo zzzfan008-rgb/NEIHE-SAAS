@@ -28,11 +28,18 @@ for (const concise of [false, true]) {
     assert.match(prompt, /采用图3的场景、光照/);
     assert.match(prompt, /保留胸前印花和项链/);
     assert.match(prompt, /版型、颜色/);
+    assert.match(prompt, /针织组织、蕾丝、缝线/);
+    assert.match(prompt, /自然肤质、发丝/);
     assert.doesNotMatch(prompt, /换脸|身份替换|执行一次多图编辑换装/);
     if (angleControlled) assert.match(prompt, /姿势图控制关节动作，但不覆盖3D视角/);
-    else assert.match(prompt, /保持姿势参考的动作与左右关系，不镜像/);
+    else {
+      assert.match(prompt, /保持姿势参考的动作与左右关系，不镜像/);
+      assert.match(prompt, /取景以图1姿势参考为准/);
+      assert.doesNotMatch(prompt, /遵循下方的3D视角/);
+    }
   }
 }
+assert.doesNotMatch(multiImageTryOnPrompt("参考图1：姿势。参考图2：人物。参考图3：场景。参考图4：主穿搭。", "", false), /拼图|网格/);
 const baseRoles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
 const allRoles = [...MULTI_IMAGE_TRY_ON_ROLES, "detail", "detail", "detail", "detail"];
 for (const count of [4, 5, 6, 7, 14, 15, 20]) {
@@ -116,10 +123,30 @@ const immutable = JSON.stringify(validated);
 const recopy = copyMultiImageTryOnTemplate(validated);
 assert.equal(JSON.stringify(validated), immutable, "复制函数不修改来源");
 assert.equal(recopy.name, template.name);
+assert.equal(recopy.description, template.description);
+assert.equal(recopy.flow.nodes.find(node => node.id === "guide")?.data.text, validated.nodes.find(node => node.id === "guide")?.data.text);
+const templateAngle = validated.nodes.find(node => node.data.kind === "ti-angle")!;
+assert.equal(templateAngle.data.kind === "ti-angle" && templateAngle.data.angle.enabled, false);
+const enabledSource = structuredClone(validated);
+const sourceAngle = enabledSource.nodes.find(node => node.data.kind === "ti-angle")!;
+if (sourceAngle.data.kind !== "ti-angle") throw new Error("缺少TiAngel");
+sourceAngle.data.angle.enabled = true;
+const copiedAngle = copyMultiImageTryOnTemplate(enabledSource).flow.nodes.find(node => node.data.kind === "ti-angle")!;
+assert.equal(copiedAngle.data.kind === "ti-angle" && copiedAngle.data.angle.enabled, false, "新模板默认关闭");
+assert.equal(sourceAngle.data.angle.enabled, true, "源项目开启状态不能被改写");
+const restoredSource = validateAndMigrateFlow(documentSnapshotToPersistedWorkflow(createDocumentSnapshot({ projectName: "existing", ...enabledSource })));
+assert.equal(restoredSource.nodes.find(node => node.data.kind === "ti-angle")?.data.angle.enabled, true, "已有项目保存重开仍保留开启设置");
+const withoutAngle = { ...validated, nodes: validated.nodes.filter(node => node.data.kind !== "ti-angle"),
+  edges: validated.edges.filter(edge => edge.source !== templateAngle.id) };
+const addedAngleFlow = copyMultiImageTryOnTemplate(withoutAngle).flow;
+const addedAngle = addedAngleFlow.nodes.find(node => node.data.kind === "ti-angle")!;
+assert.equal(addedAngle.data.kind === "ti-angle" && addedAngle.data.angle.enabled, false);
+assert.ok(addedAngleFlow.edges.some(edge => edge.source === addedAngle.id && edge.targetHandle === "angle-direction"), "来源无TiAngel时新模板也提供可启用的节点");
 const persisted = documentSnapshotToPersistedWorkflow(createDocumentSnapshot({ projectName: template.name, ...validated }));
 const roundtrip = validateAndMigrateFlow(persisted);
 const data = roundtrip.nodes.find(node => node.id === "stabilize")!.data as VirtualTryOnNodeData;
 assert.equal(data.sceneInputMode, "multi-reference-edit");
+assert.equal(data.modelId, "gemini-3.1-flash-image");
 assert.deepEqual(inputPortSpecs(data).filter(port => port.required).map(port => port.id), ["pose", "person", "scene", "outfit"]);
 useFlowStore.getState().loadFlow({ ...roundtrip, projectName: template.name });
 assert.equal(selectActiveDocument(useFlowStore.getState()).nodes.find(node => node.id === "stabilize")!.data.sceneInputMode, "multi-reference-edit");
@@ -139,6 +166,8 @@ assert.equal(selectCanRetryMultiImage({ ...retryState, recentResults: [failedRec
   tabs: retryState.tabs.map(tab => tab.id === retryDocument.id ? { ...tab, readOnly: true } : tab) }, "stabilize"), false);
 
 const flow = structuredClone(roundtrip);
+const flowGeneration = flow.nodes.find(node => node.id === "stabilize")!;
+flowGeneration.data.modelId = pro;
 for (const node of flow.nodes) {
   if (node.data.kind === "image-input") {
     node.data.imageUrl = images[baseRoles.indexOf(node.id)] ?? images[8];
@@ -147,6 +176,11 @@ for (const node of flow.nodes) {
     }
   }
 }
+const disabledPlan = buildExecutionPlan(flow.nodes, flow.edges, { onlyNodeId: "stabilize", includeDownstream: false });
+assert.equal(disabledPlan.steps[0].params.angleControl, undefined, "TiAngel关闭时不发送拍摄指令");
+const flowAngle = flow.nodes.find(node => node.data.kind === "ti-angle")!;
+if (flowAngle.data.kind !== "ti-angle") throw new Error("缺少TiAngel");
+flowAngle.data.angle.enabled = true;
 const plan = buildExecutionPlan(flow.nodes, flow.edges, { onlyNodeId: "stabilize", includeDownstream: false });
 assert.doesNotThrow(() => assertPlanInputs(plan, flow.edges), "原图数量可以超过模型有效参数图数量");
 assert.ok(plan.steps[0].params.angleControl, "拍摄设置继续进入执行参数");
@@ -158,6 +192,46 @@ assert.throws(() => assertPlanInputs(flashPlan, flow.edges), /at most/, "Flash�
 const oldFetch = globalThis.fetch;
 globalThis.fetch = async () => { throw new Error("禁止网络：测试不能调用真实模型"); };
 try {
+  // Compile the connected TiAngel through the real DAG for both supported Gemini paths.
+  for (const modelId of [pro, "gemini-3.1-flash-image"] as const) {
+    for (const enabled of [false, true]) {
+      const angleFlow = structuredClone(roundtrip);
+      angleFlow.nodes = angleFlow.nodes.filter(node => ["pose", "person", "scene", "outfit", "stabilize"].includes(node.id) || node.data.kind === "ti-angle");
+      const ids = new Set(angleFlow.nodes.map(node => node.id));
+      angleFlow.edges = angleFlow.edges.filter(edge => ids.has(edge.source) && ids.has(edge.target));
+      for (const node of angleFlow.nodes) {
+        if (node.data.kind === "image-input") node.data.imageUrl = images[baseRoles.indexOf(node.id)];
+        if (node.data.kind === "virtual-try-on") node.data.modelId = modelId;
+        if (node.data.kind === "ti-angle") node.data.angle.enabled = enabled;
+      }
+      const anglePlan = buildExecutionPlan(angleFlow.nodes, angleFlow.edges, { onlyNodeId: "stabilize", includeDownstream: false });
+      assert.doesNotThrow(() => assertPlanInputs(anglePlan, angleFlow.edges));
+      const step = anglePlan.steps[0];
+      const control = step.params.angleControl as { text: string; targetModelId: string } | undefined;
+      assert.equal(Boolean(control), enabled);
+      if (control) assert.equal(control.targetModelId, modelId);
+      let calls = 0;
+      await executeStep(step, images.slice(0, 4), () => ({ id: modelId,
+        edit: async request => {
+          calls++;
+          assert.deepEqual(request.referenceImages, images.slice(0, 4), "TiAngel不新增图片或改变图序");
+          assert.match(request.prompt, /针织组织、蕾丝、缝线/);
+          if (control) {
+            assert.ok(request.prompt.includes(control.text));
+            assert.match(request.prompt, /姿势图控制关节动作，但不覆盖3D视角/);
+            assert.doesNotMatch(request.prompt, /取景以图1姿势参考为准/);
+          } else {
+            assert.match(request.prompt, /取景以图1姿势参考为准/);
+            assert.doesNotMatch(request.prompt, /3D视角指令|FUJIFILM/);
+          }
+          return { images: [images[0]], model: modelId };
+        }, generate: async () => { throw new Error("不能生成人物中间图"); },
+      }), { referenceRoles: baseRoles.slice(0, 4),
+        candidateSelector: async () => ({ selectedIndex: 0, scores: [], model: "mock", providerRequests: 0, allHardFail: false }),
+      });
+      assert.equal(calls, 1, "TiAngel开关不追加生图请求");
+    }
+  }
   for (const roles of [baseRoles.slice(0, 5), baseRoles.slice(0, 6), baseRoles, allRoles]) {
     const sourceImages = roles.map(role => images[allRoles.indexOf(role)]);
     const shuffledRoles = [...roles].reverse();
@@ -175,7 +249,7 @@ try {
       return { images: [images[0]], model: pro };
     };
     const result = await executeStep({ nodeId: "stabilize", kind: "virtual-try-on", inputImages: shuffledImages,
-      params: { ...data, sceneFraming: "scene" } }, shuffledImages,
+      params: { ...data, modelId: pro, sceneFraming: "scene" } }, shuffledImages,
     () => ({ id: pro, edit, generate: async () => { throw new Error("必须多图编辑，不得文生图"); } }), {
       referenceRoles: shuffledRoles,
       sceneAnalyzer: async () => { throw new Error("不得先分析重建场景"); },
@@ -259,7 +333,7 @@ try {
         ] } }] });
       };
       await executeStep({ nodeId: "stabilize", kind: "virtual-try-on", inputImages: [...originals].reverse(),
-        params: { ...data, prompt: "保留胸前印花", sceneFraming: "custom", aspectRatio: "3:4", imageSize: "2K",
+        params: { ...data, modelId: pro, prompt: "保留胸前印花", sceneFraming: "custom", aspectRatio: "3:4", imageSize: "2K",
           modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, ...(concise ? { multiImagePromptMode: "concise" } : {}) } },
       [...originals].reverse(), () => apiyiProviders[pro], {
         referenceRoles: [...roles].reverse(), onSceneRequestPrepared: async value => { recorded = value; },

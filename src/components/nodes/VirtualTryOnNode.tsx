@@ -158,10 +158,13 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         )}
 
         {data.workflowStage === "scene-stabilize" && <SceneStabilizeControls nodeId={id} data={data} />}
+        {multiImageEdit && /[（(]OTHER[）)]/.test(data.error ?? "") && <p className="text-[9px] leading-relaxed text-[var(--gc-node-muted)]" role="note">
+          服务方未说明具体触发原因，无法确定是哪张参考图或哪条要求导致拒绝。请结合服务方说明检查素材和要求。
+        </p>}
         {multiImageEdit && <p className="text-[9px] leading-relaxed text-[var(--gc-node-muted)]" aria-label="参考图传递策略">
           前三张：姿势、人物、场景。{data.modelId === "gemini-3-pro-image-preview"
-            ? `已连接 ${rawReferences.length} 张有效参考图 → ${new Set(numberedReferences.map(ref => ref.number)).size} 张传入；不超过 6 张直接传入，超过时按服装、鞋袜、配饰拼接。同编号表示同一张拼图。`
-            : "直接按编号传入，不执行 Pro 专用拼接；数量仍受所选模型上限约束。"}
+            ? `已连接 ${rawReferences.length} 张有效参考图 → ${new Set(numberedReferences.map(ref => ref.number)).size} 张传入；不超过 14 张直接传入，超过时优先拼接配饰，再按需拼接鞋袜、服装细节。同编号表示同一张拼图。`
+            : `已连接 ${rawReferences.length} 张有效参考图 → ${numberedReferences.length} 张传入；直接按编号传入，数量受所选模型上限约束。`}
         </p>}
 
         {!staged && <label className="block space-y-1">
@@ -220,7 +223,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
           <RunButton status={data.status} disabled={readOnly}
             onClick={() => void runNode(id, { multiImagePromptMode: "concise" })}
             label="使用简化提示词重试" />
-          <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">会发起新的生成请求，可能产生费用；仅本次简化提示词，参考图与拍摄参数不变，不保证生成成功。</p>
+          <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">会发起新的生成请求，可能产生费用；仅本次精简冗余说明，参考图、细节要求与拍摄参数不变。审核拒绝请查看服务方说明，简化不保证通过审核或生成成功。</p>
         </div>}
         {running && <Developing />}
         <ImageGrid images={data.outputImages} />
