@@ -22,12 +22,18 @@
 
 ## 响应
 
-- 遍历 candidates[].content.parts[]，收集所有包含 inlineData.data 的图片 part。
+- Pro / Flash 共用服务端 `processGeminiResponse(data)`：返回 `success` 判别结果，失败时提供 `errorType`、`userMessage`、`devMessage`，以及适用的 `blockReason` / `finishReason`。
+- 遍历 candidates[].content.parts[]，收集所有包含 inlineData.data 的图片 part；兼容 inline_data / mime_type。
 - 不得假设第一项 part 一定是图片；启用 TEXT 与 IMAGE 时可能出现文本或中间图片 part。
 - 仅返回最后一张有效图片，保留响应 MIME；持久化层再统一实际转码为 PNG。
 - 必须检查候选项、finishReason 和是否实际存在图片数据；HTTP 200 不等于成功出图。
 - inlineData.data 为纯 Base64，mimeType 决定保存格式。
-- 先检查 candidatesTokenCount=0，再处理 finishReason。IMAGE_SAFETY 由现有 Worker 最多自动重试两次，供应商层仅发送一次请求。
+- 先收集文本，不能因同一 part 带 thoughtSignature 丢弃拒绝说明。存在明确 blockReason / 非 STOP 的 finishReason 时保留具体分类；可用的 API 文本优先作为用户说明。
+- 没有明确拦截时，有效图片成功返回；无图片但有文本返回 TEXT_RESPONSE，保留 apiText 和辅助 detectedType。图片仍经过 Base64、MIME 和实际解码校验，Provider 对外仍只返回最后一张终稿。
+- 没有有效输出或明确原因且 candidatesTokenCount 严格为数字 0 时，按当前 API易集成约定返回 ZERO_CANDIDATES_TOKEN 和内容审核拒绝提示；不能覆盖实际图片、文本或明确结束原因。缺失 token 统计不等于 0。
+- candidates 缺失 / 为空、parts 缺失 / 为空、未知空响应分别返回 NO_CANDIDATES、NO_PARTS、UNKNOWN，均提供可操作说明。
+- 根据本次供应商反馈，OTHER 显示 Gemini 内容审核拒绝，不猜测具体违规类别。IMAGE_SAFETY 的原有 Worker 有限重试策略不变，OTHER 和纯文本拒绝不自动改写或重发。
+- rawResponse 仅供服务端解析调用方使用，不能序列化进日志、浏览器响应或运行记录；诊断只保留白名单元数据和 errorType，不保存完整正文、图片或签名。
 
 ## 部署
 

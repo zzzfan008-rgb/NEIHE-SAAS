@@ -12,7 +12,7 @@ import { config } from "../server/config";
 import { deleteStoredImage, saveVideoUploadDataUrl } from "../server/lib/fileStore";
 import { compositeMaskedEdit, validateMaskForSource } from "../server/lib/maskProcessing";
 import { createRateLimitMiddleware } from "../server/lib/rateLimit";
-import { apiyiProviders } from "../server/providers/apiyi";
+import { apiyiProviders, processGeminiResponse } from "../server/providers/apiyi";
 import {
   AcceptedVideoTaskPersistenceError,
   generateApiYiVideo,
@@ -868,7 +868,7 @@ async function main(): Promise<void> {
       }
     });
 
-    await test("Gemini 不将零输出推断为安全拦截，保留明确审核原因和最后一张终稿", async () => {
+    await test("Gemini 零输出按约定报告审核拒绝，保留明确原因和最后一张终稿", async () => {
       const responses: unknown[] = [
         {
           candidates: null,
@@ -908,8 +908,9 @@ async function main(): Promise<void> {
         await assert.rejects(
           invoke,
           (error: unknown) => error instanceof ProviderError &&
-            error.category === "invalid_response" &&
-            !error.message.includes("安全审核") &&
+            error.category === "content_refused" &&
+            error.message.includes("内容审核") &&
+            error.diagnostic?.includes('"errorType":"ZERO_CANDIDATES_TOKEN"') === true &&
             error.diagnostic?.includes('"candidatesTokenCount":0') === true,
         );
         await assert.rejects(
@@ -929,11 +930,11 @@ async function main(): Promise<void> {
       }
     });
 
-    await test("Gemini promptFeedback 原因优先于零 token，OTHER 不误报 SAFETY", async () => {
+    await test("Gemini promptFeedback 原因优先于零 token，OTHER 显示审核拒绝并保留原始原因", async () => {
       for (const [reason, expected] of [
         ["SAFETY", /安全审核.*SAFETY/],
         ["BLOCKLIST", /屏蔽词.*BLOCKLIST/],
-        ["OTHER", /OTHER.*未说明具体原因/],
+        ["OTHER", /内容审核.*OTHER/],
         ["PROHIBITED_CONTENT", /禁止内容.*PROHIBITED_CONTENT/],
         ["UNRECOGNIZED", /未说明具体原因/],
         ["constructor", /未说明具体原因/],
@@ -982,6 +983,162 @@ async function main(): Promise<void> {
       try {
         const result = await apiyiProviders["gemini-3-pro-image-preview"].edit({ prompt: "服装展示", referenceImages: [white], modelOptions: { aspectRatio: "3:4", imageSize: "2K" } });
         assert.deepEqual(result.images, [white], "token 统计异常不能覆盖实际有效图片");
+      } finally { restoreFetch(); }
+    });
+
+    await test("Gemini 结构化解析区分零 token、无候选、无 parts 与空结果", async () => {
+      const cases: Array<[unknown, string]> = [
+        [null, "INVALID_RESPONSE"],
+        [[], "INVALID_RESPONSE"],
+        [{ usageMetadata: { candidatesTokenCount: 0 } }, "ZERO_CANDIDATES_TOKEN"],
+        [{ candidates: null, usageMetadata: { candidatesTokenCount: 0 } }, "ZERO_CANDIDATES_TOKEN"],
+        [{ candidates: [], usageMetadata: { candidatesTokenCount: 0 } }, "ZERO_CANDIDATES_TOKEN"],
+        [{ candidates: [{ content: { parts: [] } }], usageMetadata: { candidatesTokenCount: 0 } }, "ZERO_CANDIDATES_TOKEN"],
+        [{}, "NO_CANDIDATES"],
+        [{ candidates: [] }, "NO_CANDIDATES"],
+        [{ candidates: null, usageMetadata: { candidatesTokenCount: "0" } }, "NO_CANDIDATES"],
+        [{ candidates: [null] }, "NO_PARTS"],
+        [{ candidates: [{ finishReason: "STOP" }] }, "NO_PARTS"],
+        [{ candidates: [{ content: { parts: [] } }] }, "NO_PARTS"],
+        [{ candidates: [{ content: { parts: "invalid" } }] }, "NO_PARTS"],
+        [{ candidates: [{ content: { parts: [null, {}, { thoughtSignature: "signature" }] } }] }, "UNKNOWN"],
+        [{ candidates: [{ content: { parts: [{ text: white }, { text: "   " }] } }] }, "UNKNOWN"],
+      ];
+      for (const [payload, expected] of cases) {
+        const result = await processGeminiResponse(payload);
+        assert.equal(result.success, false);
+        if (result.success) throw new Error("expected failure");
+        assert.equal(result.errorType, expected);
+        assert.equal(result.rawResponse, payload);
+        assert.ok(result.userMessage.length > 0 && result.devMessage.length > 0);
+        assert.ok(!result.userMessage.includes("未知错误"));
+        assert.ok(!result.userMessage.includes(white.split(",")[1]));
+      }
+    });
+
+    await test("Gemini 明确结束原因不被零 token 覆盖", async () => {
+      for (const [reason, category, expected] of [
+        ["PROHIBITED_CONTENT", "content_refused", /安全/],
+        ["IMAGE_PROHIBITED_CONTENT", "content_refused", /安全/],
+        ["SAFETY", "content_refused", /安全/],
+        ["IMAGE_SAFETY", "image_safety", /图片安全/],
+        ["BLOCKLIST", "content_refused", /屏蔽词/],
+        ["RECITATION", "content_refused", /版权/],
+        ["IMAGE_RECITATION", "content_refused", /版权/],
+        ["NO_IMAGE", "invalid_response", /未能生成图片/],
+        ["IMAGE_OTHER", "invalid_response", /未能生成图片/],
+        ["OTHER", "content_refused", /内容审核.*OTHER/],
+        ["MAX_TOKENS", "invalid_request", /长度超出/],
+        ["UNRECOGNIZED", "invalid_response", /重试/],
+        ["constructor", "invalid_response", /重试/],
+      ] as const) {
+        const result = await processGeminiResponse({
+          candidates: [{ finishReason: reason, content: { parts: [] } }],
+          usageMetadata: { candidatesTokenCount: 0 },
+        });
+        assert.equal(result.success, false);
+        if (result.success) throw new Error("expected failure");
+        assert.equal(result.errorType, "FINISH_REASON");
+        assert.equal(result.finishReason, reason);
+        assert.equal(result.category, category);
+        assert.match(result.userMessage, expected);
+      }
+    });
+
+    await test("Gemini thoughtSignature 不丢弃拒绝文本，原文优先于通用说明", async () => {
+      const apiText = "我不能完成这次修改，因为涉及安全策略。\n请更换参考素材。";
+      for (const finishReason of ["STOP", "OTHER"]) {
+        const result = await processGeminiResponse({
+          candidates: [{ finishReason, content: { parts: [
+            { text: apiText, thoughtSignature: "PRIVATE_SIGNATURE" },
+          ] } }],
+          usageMetadata: { candidatesTokenCount: 0 },
+        });
+        assert.equal(result.success, false);
+        if (result.success) throw new Error("expected failure");
+        assert.equal(result.errorType, finishReason === "STOP" ? "TEXT_RESPONSE" : "FINISH_REASON");
+        assert.equal(result.userMessage, apiText);
+        assert.equal(result.apiText, apiText);
+        assert.equal(result.detectedType, "SAFETY");
+      }
+      for (const [text, expected] of [
+        ["I cannot reproduce this copyrighted content.", "COPYRIGHT"],
+        ["我不能完成这次修改。", "REFUSAL"],
+        ["请补充需要修改的区域。", "OTHER"],
+      ]) {
+        const result = await processGeminiResponse({ candidates: [{ content: { parts: [{ text }] } }] });
+        assert.equal(result.success, false);
+        if (result.success) throw new Error("expected failure");
+        assert.equal(result.errorType, "TEXT_RESPONSE");
+        assert.equal(result.detectedType, expected);
+        assert.equal(result.userMessage, text);
+      }
+    });
+
+    await test("Gemini 解析兼容两种图片字段，保留附带文本且有效图片优先于异常统计", async () => {
+      const result = await processGeminiResponse({
+        candidates: [null, { finishReason: "STOP", content: { parts: [
+          { text: "第一段", thoughtSignature: "signature" },
+          { inlineData: { mimeType: "image/png", data: white.split(",")[1] } },
+        ] } }, { finishReason: "STOP", content: { parts: [
+          { text: blue },
+          { text: "第二段" },
+          { inline_data: { mime_type: "image/png", data: blue.split(",")[1] }, thoughtSignature: "signature" },
+        ] } }],
+        usageMetadata: { candidatesTokenCount: 0 },
+      });
+      assert.deepEqual(result, { success: true, images: [white, blue], texts: ["第一段", "第二段"] });
+    });
+
+    await test("Gemini 结构化失败保留图片校验与上游错误分类", async () => {
+      for (const inlineData of [
+        { mimeType: "image/png", data: "invalid" },
+        { mimeType: "image/jpeg", data: white.split(",")[1] },
+        { mimeType: "text/plain", data: white.split(",")[1] },
+      ]) {
+        const result = await processGeminiResponse({ candidates: [{ content: { parts: [{ inlineData }] } }] });
+        assert.equal(result.success, false);
+        if (result.success) throw new Error("expected failure");
+        assert.equal(result.errorType, "INVALID_RESPONSE");
+        assert.equal(result.category, "invalid_response");
+        assert.equal(result.status, 502);
+      }
+      const result = await processGeminiResponse({ error: { code: 401, message: "invalid API key" } });
+      assert.equal(result.success, false);
+      if (result.success) throw new Error("expected failure");
+      assert.equal(result.errorType, "PROVIDER_ERROR");
+      assert.equal(result.category, "gateway_authentication");
+      assert.equal(result.status, 401);
+    });
+
+    await test("Gemini Pro 与 Flash 生成和编辑均展示原始拒绝文本，不向诊断复制正文或签名", async () => {
+      const apiText = "我不能完成这次修改。\n请更换参考素材。";
+      let calls = 0;
+      const restoreFetch = installFetchMock(() => {
+        calls++;
+        return Response.json({ candidates: [{ finishReason: "OTHER", content: { parts: [
+          { text: apiText, thoughtSignature: "PRIVATE_SIGNATURE" },
+        ] } }] });
+      });
+      try {
+        for (const model of ["gemini-3-pro-image-preview", "gemini-3.1-flash-image"] as const) {
+          for (const method of ["generate", "edit"] as const) {
+            await assert.rejects(() => apiyiProviders[model][method]({
+              prompt: "服装展示", referenceImages: method === "edit" ? [white] : undefined,
+              modelOptions: { imageSize: "2K", aspectRatio: "3:4" },
+            }), (error: unknown) => {
+              assert.ok(error instanceof ProviderError);
+              assert.equal(error.message, apiText);
+              assert.equal(error.category, "content_refused");
+              assert.equal(JSON.parse(error.diagnostic!).errorType, "FINISH_REASON");
+              assert.ok(!error.diagnostic!.includes("PRIVATE_SIGNATURE"));
+              assert.ok(!error.diagnostic!.includes("我不能完成"));
+              assert.ok(!Object.hasOwn(error, "rawResponse"));
+              return true;
+            });
+          }
+        }
+        assert.equal(calls, 4, "审核拒绝不会在供应商层重发");
       } finally { restoreFetch(); }
     });
 

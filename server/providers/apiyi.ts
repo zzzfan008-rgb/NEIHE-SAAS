@@ -25,6 +25,7 @@ import {
   parseDataUrl,
   ProviderError,
   providerErrorFromMessage,
+  type ProviderErrorCategory,
   toDataUrl,
 } from "./base";
 
@@ -457,128 +458,176 @@ function geminiResponseDiagnostic(payload: unknown) {
   };
 }
 
-async function parseGeminiImages(
-  payload: unknown, modelId: ImageModelId, context: Record<string, unknown> = {},
-): Promise<string[]> {
-  const body = record(payload);
-  if (!body) throw new ProviderError("Gemini 响应格式无效", 502, modelId, "invalid_response");
-  throwEmbeddedError(body, modelId);
+type GeminiResponseErrorType =
+  | "PROMPT_BLOCKED" | "ZERO_CANDIDATES_TOKEN" | "NO_CANDIDATES" | "FINISH_REASON"
+  | "NO_PARTS" | "TEXT_RESPONSE" | "UNKNOWN" | "INVALID_RESPONSE" | "PROVIDER_ERROR";
+type GeminiTextType = "SAFETY" | "COPYRIGHT" | "REFUSAL" | "OTHER";
 
-  const usage = record(body.usageMetadata);
-  const candidatesTokenCount = typeof usage?.candidatesTokenCount === "number"
-    ? usage.candidatesTokenCount
-    : undefined;
-  const promptFeedback = record(body.promptFeedback);
-  const promptBlockReason = typeof promptFeedback?.blockReason === "string"
-    ? promptFeedback.blockReason
-    : undefined;
-  const candidates = Array.isArray(body.candidates) ? body.candidates : [];
-  const images: string[] = [];
-  const texts: string[] = [];
-  const finishReasons: string[] = [];
+interface GeminiResponseFailure {
+  success: false;
+  errorType: GeminiResponseErrorType;
+  userMessage: string;
+  devMessage: string;
+  /** Server-only: never serialize this field into logs, run records or HTTP responses. */
+  rawResponse: unknown;
+  status: number;
+  category: ProviderErrorCategory;
+  blockReason?: string;
+  finishReason?: string;
+  detectedType?: GeminiTextType;
+  apiText?: string;
+}
 
-  const diagnostic = () => JSON.stringify({
-    ...geminiResponseDiagnostic(body),
-    topLevelKeys: Object.keys(body).sort(),
-    candidateCount: candidates.length,
-    candidatesTokenCount: candidatesTokenCount ?? null,
-    promptBlockReason: promptBlockReason ?? null,
-    finishReasons,
-    ...context,
+export type GeminiResponseResult =
+  | { success: true; images: string[]; texts: string[] }
+  | GeminiResponseFailure;
+
+function detectContentType(text: string): GeminiTextType {
+  // A text hint only, not a verdict about the user's content or a retry decision.
+  if (/版权|著作权|copyright|recitation/i.test(text)) return "COPYRIGHT";
+  if (/安全|审核|政策|违规|safety|policy|moderation|prohibited/i.test(text)) return "SAFETY";
+  if (/不能|无法|拒绝|不支持|cannot|can't|unable|refus|not allowed/i.test(text)) return "REFUSAL";
+  return "OTHER";
+}
+
+/** Parse the APIyi Gemini response without losing refusal text or exposing the raw body. */
+export async function processGeminiResponse(
+  data: unknown, modelId: ImageModelId = "gemini-3-pro-image-preview",
+): Promise<GeminiResponseResult> {
+  const failure = (
+    errorType: GeminiResponseErrorType, userMessage: string, devMessage: string,
+    details: Partial<Pick<GeminiResponseFailure,
+      "status" | "category" | "blockReason" | "finishReason" | "detectedType" | "apiText">> = {},
+  ): GeminiResponseFailure => ({
+    success: false, errorType, userMessage, devMessage, rawResponse: data,
+    status: 502, category: "invalid_response", ...details,
   });
+  const body = record(data);
+  if (!body) return failure("INVALID_RESPONSE", "Gemini 响应格式无效，请稍后重试", "response is not an object");
+  try {
+    throwEmbeddedError(body, modelId);
+  } catch (error) {
+    if (!(error instanceof ProviderError)) throw error;
+    return failure("PROVIDER_ERROR", error.message, "Gemini returned an error object", {
+      status: error.status ?? 502, category: error.category,
+    });
+  }
 
-  if (promptBlockReason && promptBlockReason !== "BLOCK_REASON_UNSPECIFIED") {
-    // Token counts describe usage, not moderation. Only explicit feedback identifies a block.
+  const candidates = Array.isArray(body.candidates) ? body.candidates : [];
+  const texts: string[] = [];
+  const inlineImages: Record<string, unknown>[] = [];
+  const finishReasons: string[] = [];
+  let partCount = 0;
+  for (const value of candidates) {
+    const candidate = record(value);
+    if (typeof candidate?.finishReason === "string" && candidate.finishReason) finishReasons.push(candidate.finishReason);
+    const content = record(candidate?.content);
+    const parts = Array.isArray(content?.parts) ? content.parts : [];
+    partCount += parts.length;
+    for (const value of parts) {
+      const part = record(value);
+      // thoughtSignature can accompany normal text/images; it is not a reason to skip a part.
+      const text = typeof part?.text === "string" ? part.text.trim() : "";
+      if (text && !text.startsWith("data:image/")) texts.push(text);
+      const inline = record(part?.inlineData) ?? record(part?.inline_data);
+      if (inline?.data !== undefined) inlineImages.push(inline);
+    }
+  }
+  const apiText = texts.length ? texts.join("\n") : undefined;
+  const textDetails = apiText ? { apiText, detectedType: detectContentType(apiText) } : {};
+  const promptBlockReason = record(body.promptFeedback)?.blockReason;
+  if (typeof promptBlockReason === "string" && promptBlockReason && promptBlockReason !== "BLOCK_REASON_UNSPECIFIED") {
     const messages: Record<string, string> = {
       SAFETY: "本次请求未通过 AI 安全审核（SAFETY），请检查提示词或参考图片",
       BLOCKLIST: "本次请求命中服务方屏蔽词规则（BLOCKLIST），请检查提示词",
       PROHIBITED_CONTENT: "本次请求被服务方禁止内容规则拦截（PROHIBITED_CONTENT），请检查参考内容",
-      OTHER: "服务方阻止了本次请求（OTHER），未说明具体原因；不能据此判定为安全违规",
+      // Supplier confirmed moderation for this APIyi route; do not invent a specific policy category.
+      OTHER: "本次请求未通过 Gemini 内容审核（OTHER），请修改提示词或参考图片后重试",
     };
-    throw new ProviderError(
-      Object.hasOwn(messages, promptBlockReason) ? messages[promptBlockReason] : "服务方阻止了本次请求，未说明具体原因，请联系管理员核查",
-      422, modelId, "content_refused", diagnostic(),
-    );
-  }
-  if (!candidates.length) {
-    throw new ProviderError(
-      "AI 服务响应缺少候选结果，请稍后重试",
-      502, modelId, "invalid_response", diagnostic(),
-    );
+    const message = Object.hasOwn(messages, promptBlockReason)
+      ? messages[promptBlockReason] : "服务方阻止了本次请求，未说明具体原因，请联系管理员核查";
+    return failure("PROMPT_BLOCKED", apiText ?? message, `promptFeedback.blockReason: ${promptBlockReason}`, {
+      status: 422, category: "content_refused", blockReason: promptBlockReason, ...textDetails,
+    });
   }
 
-  for (const candidateValue of candidates) {
-    const candidate = record(candidateValue);
-    if (!candidate) continue;
-    if (typeof candidate.finishReason === "string") finishReasons.push(candidate.finishReason);
-    const content = record(candidate.content);
-    const parts = Array.isArray(content?.parts) ? content.parts : [];
-    for (const partValue of parts) {
-      const part = record(partValue);
-      if (typeof part?.text === "string" && !part.text.startsWith("data:image/")) {
-        const text = part.text.replace(/\s+/g, " ").trim();
-        if (text) texts.push(text.slice(0, 500));
-      }
-      const inline = record(part?.inlineData) ?? record(part?.inline_data);
-      if (!inline || inline.data === undefined) continue;
-      const rawMime = inline.mimeType ?? inline.mime_type;
-      const mime = typeof rawMime === "string" && REFERENCE_MIMES.has(rawMime)
-        ? rawMime
-        : undefined;
-      if (!mime) throw new ProviderError("Gemini 返回了不支持的图片格式", 502, modelId, "invalid_response");
+  const finishReason = finishReasons.find((reason) => reason !== "STOP");
+  if (finishReason) {
+    const messages: Record<string, string> = {
+      PROHIBITED_CONTENT: "内容违反安全策略，已被拒绝处理，请调整提示词或参考图片",
+      IMAGE_PROHIBITED_CONTENT: "内容违反安全策略，已被拒绝处理，请调整提示词或参考图片",
+      SAFETY: "内容触发了安全过滤器，请调整提示词或参考图片",
+      IMAGE_SAFETY: "AI 图片安全审核暂时未通过，系统将按上限自动重试",
+      BLOCKLIST: "生成被服务方屏蔽词规则拦截（BLOCKLIST），请检查提示词",
+      RECITATION: "生成内容可能涉及版权限制，请调整参考内容后重试",
+      IMAGE_RECITATION: "生成内容可能涉及版权限制，请调整参考内容后重试",
+      NO_IMAGE: "未能生成图片，请调整提示词后重试",
+      IMAGE_OTHER: "未能生成图片，请调整提示词后重试",
+      OTHER: "本次请求未通过 Gemini 内容审核（OTHER），请修改提示词或参考图片后重试",
+      MAX_TOKENS: "生成内容长度超出模型限制，请简化提示词后重试",
+    };
+    const refused = ["PROHIBITED_CONTENT", "IMAGE_PROHIBITED_CONTENT", "SAFETY", "BLOCKLIST", "RECITATION", "IMAGE_RECITATION", "OTHER"].includes(finishReason);
+    const category: ProviderErrorCategory = finishReason === "IMAGE_SAFETY" ? "image_safety"
+      : refused ? "content_refused" : finishReason === "MAX_TOKENS" ? "invalid_request" : "invalid_response";
+    const message = Object.hasOwn(messages, finishReason) ? messages[finishReason] : "AI 未能完成图片生成，请调整提示词后重试";
+    return failure("FINISH_REASON", apiText ?? message, `finishReason: ${finishReason}`, {
+      finishReason, category, status: category === "invalid_request" ? 400 : category === "invalid_response" ? 502 : 422,
+      ...textDetails,
+    });
+  }
+
+  const images: string[] = [];
+  for (const inline of inlineImages) {
+    const mime = inline.mimeType ?? inline.mime_type;
+    if (typeof mime !== "string" || !REFERENCE_MIMES.has(mime)) {
+      return failure("INVALID_RESPONSE", "Gemini 返回了不支持的图片格式，请重试", "invalid inline image MIME");
+    }
+    try {
       images.push(await base64Image(inline.data, modelId, mime));
+    } catch (error) {
+      if (!(error instanceof ProviderError)) throw error;
+      return failure("INVALID_RESPONSE", error.message, "inline image validation failed");
     }
   }
-
-  const abnormalFinishReason = finishReasons.find((reason) => reason !== "STOP");
-  if (abnormalFinishReason) {
-    if (abnormalFinishReason === "IMAGE_SAFETY") {
-      throw new ProviderError(
-        "AI 图片安全审核暂时未通过，系统将按上限自动重试",
-        422, modelId, "image_safety", diagnostic(),
-      );
-    }
-    if (["SAFETY", "PROHIBITED_CONTENT", "IMAGE_PROHIBITED_CONTENT"].includes(abnormalFinishReason)) {
-      throw new ProviderError(
-        "本次请求未通过 AI 安全审核，请调整提示词或参考图片后重试",
-        422, modelId, "content_refused", diagnostic(),
-      );
-    }
-    if (abnormalFinishReason === "BLOCKLIST") {
-      throw new ProviderError(
-        "生成被服务方屏蔽词规则拦截（BLOCKLIST），请检查提示词",
-        422, modelId, "content_refused", diagnostic(),
-      );
-    }
-    if (["RECITATION", "IMAGE_RECITATION"].includes(abnormalFinishReason)) {
-      throw new ProviderError(
-        "生成内容可能涉及版权限制，请调整参考内容后重试",
-        422, modelId, "content_refused", diagnostic(),
-      );
-    }
-    if (abnormalFinishReason === "MAX_TOKENS") {
-      throw new ProviderError(
-        "生成内容长度超出模型限制，请简化提示词后重试",
-        400, modelId, "invalid_request", diagnostic(),
-      );
-    }
-    throw new ProviderError(
-      "AI 未能完成图片生成，请调整提示词后重试",
-      502, modelId, "invalid_response", diagnostic(),
+  // Valid output/explicit feedback takes precedence over the supplier's zero-token heuristic.
+  if (images.length) return { success: true, images, texts };
+  if (apiText) {
+    return failure("TEXT_RESPONSE", apiText, "text response without an image", {
+      status: 422, category: "content_refused", ...textDetails,
+    });
+  }
+  if (record(body.usageMetadata)?.candidatesTokenCount === 0) {
+    return failure(
+      "ZERO_CANDIDATES_TOKEN", "您的请求在内容审核阶段被拒绝，请修改提示词或参考图片后重试",
+      "candidatesTokenCount: 0 with no output - APIyi moderation heuristic",
+      { status: 422, category: "content_refused" },
     );
   }
+  if (!candidates.length) return failure("NO_CANDIDATES", "AI 服务响应缺少候选结果，请稍后重试", "candidates is missing or empty");
+  if (!partCount) return failure("NO_PARTS", "生成失败，AI 服务未返回内容，请重试", "candidate.content.parts is missing or empty");
+  return failure("UNKNOWN", "生成失败，未找到图片或文字说明，请检查提示词后重试", "no image data or text response");
+}
 
-  if (images.length) return [images.at(-1)!];
-  if (texts.length) {
-    throw new ProviderError(
-      texts.join("\n").slice(0, 500),
-      422, modelId, "content_refused", diagnostic(),
-    );
-  }
-  throw new ProviderError(
-    "AI 响应中没有可用的图片或文字说明，请稍后重试",
-    502, modelId, "invalid_response", diagnostic(),
-  );
+async function parseGeminiImages(
+  payload: unknown, modelId: ImageModelId, context: Record<string, unknown> = {},
+): Promise<string[]> {
+  const result = await processGeminiResponse(payload, modelId);
+  if (result.success) return [result.images.at(-1)!];
+  const body = record(payload);
+  const feedback = geminiResponseDiagnostic(payload);
+  // Deliberately omit rawResponse, apiText, signatures and devMessage from logging/persistence.
+  const diagnostic = JSON.stringify({
+    ...feedback,
+    errorType: result.errorType,
+    topLevelKeys: Object.keys(body ?? {}).sort(),
+    candidateCount: Array.isArray(body?.candidates) ? body.candidates.length : 0,
+    candidatesTokenCount: typeof record(body?.usageMetadata)?.candidatesTokenCount === "number"
+      ? record(body?.usageMetadata)!.candidatesTokenCount : null,
+    promptBlockReason: feedback.promptFeedback?.blockReason ?? null,
+    finishReasons: feedback.candidateFeedback.map((candidate) => candidate.finishReason).filter(Boolean),
+    ...context,
+  });
+  throw new ProviderError(result.userMessage, result.status, modelId, result.category, diagnostic);
 }
 
 async function geminiInlineData(

@@ -22,7 +22,9 @@
 
 现场日志是 `promptFeedback.blockReason=OTHER`，没有候选图片、候选 token 为 0。供应商提供的成功样例使用正式 `gemini-3-pro-image` 路由、`role: "user"`、snake_case 图片字段和七张独立图片；适配器已据此对齐，同时取消七图场景下不必要的鞋袜拼接。
 
-现在优先使用明确的 blockReason：SAFETY、BLOCKLIST、PROHIBITED_CONTENT 分别说明；OTHER 提示服务方未说明具体原因。单独零 token 不能判断违规，也不覆盖有效图片。已有 IMAGE_SAFETY 行为保持不变；OTHER 不自动改写或重发。
+用户后续与供应商沟通确认：本组 OTHER 是 Gemini 内容审核拒绝，停止真实生图探针。解析器据此显示审核拒绝，并保留原始 OTHER，不猜测触发了哪一条具体规则。SAFETY、BLOCKLIST、PROHIBITED_CONTENT 仍分别说明；IMAGE_SAFETY 原有策略不变，OTHER 不自动改写或重发。
+
+新增服务端 `processGeminiResponse(data)` 并接入 Pro / Flash 的生成与编辑路径。明确反馈优先；先收集 parts 中的文本，带 thoughtSignature 的拒绝文本不丢弃。无图时优先展示 API 文本，无文本时按结束原因给出说明；无明确原因且无输出的数字零 token 按当前接口处理约定返回 ZERO_CANDIDATES_TOKEN。有效图片不因异常 token 统计被覆盖。rawResponse 只留在服务端解析结果，不写入日志、HTTP 响应或用户运行记录。
 
 第一阶段提示词采用“保持参考人物外观一致”等中性职责描述。失败节点增加手动简化重试，仅去除冗余说明，保留原图、角色映射、用户要求和拍摄设置。按钮明确新请求可能收费且不保证成功。
 
@@ -30,11 +32,11 @@
 
 ## 验证范围
 
-- Provider 回归覆盖各 blockReason、零 token 以及有效图片与异常统计并存。
+- Provider 回归覆盖各 blockReason / finishReason、零 token、无候选、空 parts、带签名的拒绝文本、损坏图片，以及有效图片与异常统计并存；断言 Pro / Flash 的生成与编辑入口均使用结构化解析且不泄露原始响应。
 - 多图测试从执行器到真实适配器截获模拟 HTTP JSON，覆盖 4/5/6/7/14/15/20 张原图与普通/简化模式；检查独立 parts、排序、Base64、正式端点、输出配置与单次图片编辑。
 - 授权测试覆盖运行参数、快照不变、跨用户拒绝、幂等重放与同编号不同模式冲突。
 - 桌面浏览器测试覆盖失败入口、当前请求与普通请求区分、未知结果不显示简化入口、按钮几何；模拟提交失败，不访问真实 AI。
-- 这些验证不证明线上模型一定能生成，也不能进一步确定 OTHER 的内部原因。未获授权，不发送付费探针。
+- 本轮解析验证只使用本地模拟响应，不证明线上模型一定能生成。审核原因来自用户转述的供应商确认，不从 OTHER 猜测具体违规类别；不再发送付费探针。
 
 ## 核对资料
 
@@ -45,7 +47,7 @@
 - [API易错误处理指南](https://docs.apiyi.com/api-capabilities/gemini-image-error-handling)
 - [Google GenerateContent / BlockReason 定义](https://ai.google.dev/api/generate-content)
 
-API易错误处理页将零候选 token 作为审核启发式；此处采用更保守的错误报告：统计不是拦截原因，以明确反馈为准，OTHER 不等价于 SAFETY。
+API易错误处理页将零候选 token 作为审核启发式；当前实现按用户指定的接口处理约定采用它，同时保留“明确反馈和实际输出优先”的例外。这里的 OTHER 文案针对本次供应商确认的集成问题，不将它改写成 Google 的 SAFETY 枚举，也不把零 token 视为所有 Gemini 接口通用的审核证明。
 
 ## 首次验证与部署记录（提交前）
 
