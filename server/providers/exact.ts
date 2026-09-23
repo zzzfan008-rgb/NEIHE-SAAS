@@ -43,6 +43,8 @@ export async function generateExactImages(
   const failures: string[] = [];
   let model = provider.id;
   let providerRequests = 0;
+  let providerRequestId: string | undefined;
+  let providerDiagnostic: ImageGenResult["providerDiagnostic"];
   let firstError: unknown;
   const maxRequests = target;
 
@@ -58,6 +60,8 @@ export async function generateExactImages(
         ? await provider.edit(current)
         : await provider.generate(current);
       model = result.model;
+      providerRequestId = result.providerRequestId;
+      providerDiagnostic = result.providerDiagnostic;
       const accepted = result.images
         .map((image, index) => ({ image, providerOutputSize: result.providerOutputSizes?.[index] ?? null }))
         .filter((item) => Boolean(item.image))
@@ -87,6 +91,8 @@ export async function generateExactImages(
     images,
     model,
     providerRequests,
+    providerRequestId,
+    providerDiagnostic,
     failures,
     providerOutputSizes: providerOutputSizes.some((size) => size !== null) ? providerOutputSizes : undefined,
   };

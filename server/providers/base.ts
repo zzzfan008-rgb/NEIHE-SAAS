@@ -49,6 +49,8 @@ function providerDispatcher(totalTimeoutMs: number, minimumResponseTimeoutMs = 1
 }
 
 export class ProviderError extends Error {
+  blockReason?: string;
+  finishReason?: string;
   constructor(
     message: string,
     public readonly status?: number,

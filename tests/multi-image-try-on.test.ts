@@ -199,7 +199,7 @@ const flowAngle = flow.nodes.find(node => node.data.kind === "ti-angle")!;
 if (flowAngle.data.kind !== "ti-angle") throw new Error("缺少TiAngel");
 flowAngle.data.angle.enabled = true;
 const plan = buildExecutionPlan(flow.nodes, flow.edges, { onlyNodeId: "stabilize", includeDownstream: false });
-assert.throws(() => assertPlanInputs(plan, flow.edges), /已改用 Gemini 3.1 Flash Image/, "多图编辑换装已放弃 Pro，服务端拒绝 Pro 计划");
+assert.doesNotThrow(() => assertPlanInputs(plan, flow.edges), "多图编辑换装允许 Pro 并保留原有图源上限");
 assert.ok(plan.steps[0].params.angleControl, "拍摄设置继续进入执行参数");
 const missingPosePlan = { ...plan, steps: plan.steps.map(step => ({
   ...step,
@@ -341,12 +341,15 @@ try {
           assert.match(prompt, /参考图6：袜子/);
           assert.match(prompt, /参考图7：帽子/);
         }
-        for (const [index, part] of parts.slice(1).entries()) {
+        for (const part of parts.slice(1)) {
           assert.deepEqual(Object.keys(part), ["inline_data"], "text 和 inline_data 绝不混合");
           assert.ok(["image/png", "image/jpeg"].includes(part.inline_data.mime_type));
           assert.ok(!part.inline_data.data.startsWith("data:"));
           assert.equal(Buffer.from(part.inline_data.data, "base64").toString("base64"), part.inline_data.data);
-          if (index < 3 || count <= 14) assert.equal(part.inline_data.data, originals[index].split(",")[1]);
+          const sent = Buffer.from(part.inline_data.data, "base64");
+          assert.ok(["image/png", "image/jpeg"].includes(part.inline_data.mime_type), "不透明单图转 JPEG，带透明缝隙的拼图保留 PNG");
+          const metadata = await sharp(sent).metadata();
+          assert.ok(Math.max(metadata.width!, metadata.height!) <= 2048);
         }
         assert.deepEqual(body.generationConfig, { responseModalities: ["IMAGE"], imageConfig: { imageSize: "2K" } });
         return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [

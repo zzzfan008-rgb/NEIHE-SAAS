@@ -822,7 +822,7 @@ async function main(): Promise<void> {
         const editBody = jsonBody(captures[1].init) as { contents: Array<{ parts: Array<Record<string, unknown>> }> };
         const parts = editBody.contents[0].parts;
         assert.deepEqual(parts[0], { text: "改图" });
-        assert.equal((parts[1].inlineData as { mimeType: string }).mimeType, "image/png");
+        assert.equal((parts[1].inlineData as { mimeType: string }).mimeType, "image/jpeg");
       } finally {
         restoreFetch();
       }
@@ -856,7 +856,7 @@ async function main(): Promise<void> {
         for (const part of contents[0].parts.slice(1)) {
           assert.equal(Object.hasOwn(part, "inlineData"), false);
           const inline = part.inline_data as { mime_type: string; data: string };
-          assert.equal(inline.mime_type, "image/png");
+          assert.equal(inline.mime_type, "image/jpeg");
           assert.ok(inline.data.length > 0);
         }
         assert.deepEqual(capturedBody?.generationConfig, {
@@ -965,7 +965,7 @@ async function main(): Promise<void> {
             assert.equal(diagnostic.requestSummary.model, "gemini-3-pro-image");
             assert.deepEqual(diagnostic.requestSummary.imageConfig, { imageSize: "2K" });
             assert.equal(diagnostic.requestSummary.images[0].index, 1);
-            assert.equal(diagnostic.requestSummary.images[0].mimeType, "image/png");
+            assert.equal(diagnostic.requestSummary.images[0].mimeType, "image/jpeg");
             assert.ok(diagnostic.requestSummary.images[0].bytes > 0);
             assert.ok(diagnostic.requestSummary.images[0].width > 0);
             assert.ok(!error.diagnostic!.includes("PRIVATE_RESPONSE_TEXT"));
@@ -1288,7 +1288,7 @@ async function main(): Promise<void> {
           modelOptions: { aspectRatio: "1:1", imageSize: "1K" },
         });
         assert.deepEqual(sent[0], { text: "preserve garment details" });
-        assert.equal(sent[1].inlineData?.data, white.split(",")[1], "小图保持原始字节");
+        assert.notEqual(sent[1].inlineData?.data, white.split(",")[1], "小图也须重编码");
         let total = 0;
         for (const [index, part] of sent.slice(1).entries()) {
           assert.equal(part.text, undefined);
@@ -1298,7 +1298,7 @@ async function main(): Promise<void> {
           const info = await sharp(buffer).metadata();
           assert.ok(Math.max(info.width!, info.height!) <= 2048);
           if (index > 0) {
-            assert.equal(inline.mimeType, index % 2 === 1 ? "image/png" : "image/jpeg");
+            assert.equal(inline.mimeType, "image/jpeg", "不透明的 PNG/JPEG 均转换为 JPEG");
             assert.ok(Math.abs(info.width! / info.height! - 2500 / 1200) < 0.02);
           }
         }
@@ -1307,10 +1307,10 @@ async function main(): Promise<void> {
         const failure = mock.method(sharp.prototype, "resize", () => { throw new Error("test compression failure"); });
         try {
           const fallback = `data:image/jpeg;base64,${jpeg.toString("base64")}`;
-          await apiyiProviders["gemini-3.1-flash-image"].edit({
-            prompt: "fallback", referenceImages: [fallback], modelOptions: { aspectRatio: "1:1", imageSize: "1K" },
-          });
-          assert.equal(sent[1].inlineData?.data, jpeg.toString("base64"));
+          await assert.rejects(() => apiyiProviders["gemini-3.1-flash-image"].edit({
+            prompt: "conversion failure", referenceImages: [fallback], modelOptions: { aspectRatio: "1:1", imageSize: "1K" },
+          }), (error: unknown) => error instanceof ProviderError && error.category === "invalid_request",
+          "预处理失败不允许向上游发送未净化原图");
           await assert.rejects(() => apiyiProviders["gemini-3.1-flash-image"].edit({
             prompt: "oversized fallback", referenceImages: Array(4).fill(fallback),
             modelOptions: { aspectRatio: "1:1", imageSize: "1K" },

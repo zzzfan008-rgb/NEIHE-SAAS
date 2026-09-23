@@ -60,7 +60,7 @@ try {
   assert.match(requests.at(-1)!.url, /gemini-3-pro-image:generateContent$/);
   const proBody = JSON.parse(requests.at(-1)!.body as string);
   assert.equal(proBody.contents[0].role, 'user');
-  assert.equal(proBody.contents[0].parts[1].inline_data.mime_type, 'image/png');
+  assert.equal(proBody.contents[0].parts[1].inline_data.mime_type, 'image/jpeg');
   assert.deepEqual(proBody.generationConfig.imageConfig, { imageSize: '1K' });
 } finally { globalThis.fetch = originalFetch; }
 console.log('First-round model identity, options, persistence and provider routing passed (mock only)');

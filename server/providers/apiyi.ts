@@ -627,55 +627,55 @@ async function parseGeminiImages(
     finishReasons: feedback.candidateFeedback.map((candidate) => candidate.finishReason).filter(Boolean),
     ...context,
   });
-  throw new ProviderError(result.userMessage, result.status, modelId, result.category, diagnostic);
+  const error = new ProviderError(result.userMessage, result.status, modelId, result.category, diagnostic);
+  error.blockReason = result.blockReason;
+  error.finishReason = result.finishReason;
+  throw error;
 }
 
 async function geminiInlineData(
   dataUrl: string,
   modelId: ImageModelId,
   targetBytes = GEMINI_COMPRESSION_THRESHOLD,
+  encode: { quality?: number; longEdge?: number } = {},
 ): Promise<{ inlineData: { mimeType: string; data: string } }> {
   const parsed = parsedReference(dataUrl, modelId);
-  if (parsed.buffer.length <= targetBytes && parsed.mime !== "image/webp") {
-    return { inlineData: { mimeType: parsed.mime, data: parsed.base64 } };
-  }
   try {
-    const mimeType = parsed.mime === "image/jpeg" ? "image/jpeg" : "image/png";
-    const converted = await withImageProcessingSlot(async () => {
-      let longEdge = 2048;
+    return await withImageProcessingSlot(async () => {
+      const inputOptions = { limitInputPixels: PROVIDER_RESPONSE_PIXEL_LIMIT, failOn: "error" as const };
+      const metadata = await sharp(parsed.buffer, inputOptions).metadata();
+      const transparent = metadata.hasAlpha && (await sharp(parsed.buffer, inputOptions)
+        .extractChannel("alpha").stats()).channels[0].min < 255;
+      const mimeType = transparent ? "image/png" : "image/jpeg";
+      let longEdge = encode.longEdge ?? 2048;
       let buffer = parsed.buffer;
       for (let attempt = 0; attempt < 8; attempt += 1) {
-        const pipeline = sharp(parsed.buffer, { limitInputPixels: PROVIDER_RESPONSE_PIXEL_LIMIT })
-          .rotate().resize({ width: longEdge, height: longEdge, fit: "inside", withoutEnlargement: true });
-        // PNG has no JPEG-style quality parameter; keep it lossless and reduce dimensions if needed.
-        buffer = await (mimeType === "image/jpeg"
-          ? pipeline.jpeg({ quality: 90, chromaSubsampling: "4:4:4" })
-          : pipeline.png({ compressionLevel: 9 })).toBuffer();
-        if (buffer.length <= targetBytes) break;
-        const metadata = await sharp(buffer).metadata();
-        longEdge = Math.max(1, Math.floor(Math.max(metadata.width ?? 1, metadata.height ?? 1)
+        const pipeline = sharp(parsed.buffer, inputOptions)
+          .rotate().resize({ width: longEdge, height: longEdge, fit: "inside", withoutEnlargement: true })
+          .toColourspace("srgb");
+        buffer = await (transparent
+          ? pipeline.png({ compressionLevel: 9 })
+          : pipeline.jpeg({ quality: encode.quality ?? 92, chromaSubsampling: "4:4:4", mozjpeg: true })).toBuffer();
+        if (buffer.length <= targetBytes) return { inlineData: { mimeType, data: buffer.toString("base64") } };
+        const resized = await sharp(buffer).metadata();
+        longEdge = Math.max(1, Math.floor(Math.max(resized.width ?? 1, resized.height ?? 1)
           * Math.min(0.85, Math.sqrt(targetBytes / buffer.length) * 0.95)));
       }
-      return buffer;
+      throw new ProviderError("Gemini 参考图压缩后仍超出体积限制，请缩小原图", 400, modelId, "invalid_request");
     });
-    return { inlineData: { mimeType, data: converted.toString("base64") } };
   } catch (error) {
-    if (parsed.mime === "image/webp") {
-      throw new ProviderError("Gemini 参考图转换失败，请使用 PNG 或 JPEG", 400, modelId, "invalid_request");
-    }
-    // Compression failure alone must not discard a valid reference.
-    void error;
-    return { inlineData: { mimeType: parsed.mime, data: parsed.base64 } };
+    if (error instanceof ProviderError) throw error;
+    throw new ProviderError("Gemini 参考图标准化失败，请使用有效的 PNG、JPEG 或 WebP 图片", 400, modelId, "invalid_request");
   }
 }
 
-async function geminiReferenceParts(refs: string[], modelId: ImageModelId) {
-  let parts = await Promise.all(refs.map((ref) => geminiInlineData(ref, modelId)));
+async function geminiReferenceParts(refs: string[], modelId: ImageModelId, encode: { quality?: number; longEdge?: number } = {}) {
+  let parts = await Promise.all(refs.map((ref) => geminiInlineData(ref, modelId, GEMINI_COMPRESSION_THRESHOLD, encode)));
   const byteCount = () => parts.reduce((total, part) => total + Buffer.byteLength(part.inlineData.data, "base64"), 0);
   if (byteCount() > GEMINI_TOTAL_REFERENCE_BYTES) {
     const budgetPerImage = Math.floor(GEMINI_TOTAL_REFERENCE_BYTES / refs.length);
     parts = await Promise.all(parts.map((part) => geminiInlineData(
-      `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`, modelId, budgetPerImage,
+      `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`, modelId, budgetPerImage, encode,
     )));
   }
   if (parts.some((part) => Buffer.byteLength(part.inlineData.data, "base64") >= GEMINI_MAX_REFERENCE_BYTES)
@@ -847,7 +847,7 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
     }
     case "gemini-3-pro-image-preview":
     case "gemini-3.1-flash-image": {
-      const imageParts = await geminiReferenceParts(refs, modelId);
+      const imageParts = await geminiReferenceParts(refs, modelId, req.referenceEncoding);
       const request = geminiGenerateContentBody(modelId, req.prompt, imageParts, options);
       const requestSummary = {
         diagnosticId: randomUUID(), model: upstreamModelId(modelId),
@@ -877,7 +877,11 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
         upstreamRequestId: rawRequestId && /^[\w.:-]{1,160}$/.test(rawRequestId) && !/sk-/i.test(rawRequestId) ? rawRequestId : null,
       };
       console.info("[ai-gemini-edit-response]", JSON.stringify({ ...context, ...geminiResponseDiagnostic(payload) }));
-      return { images: await parseGeminiImages(payload, modelId, context), model: modelId };
+      const providerRequestId = context.upstreamRequestId ?? undefined;
+      return {
+        images: await parseGeminiImages(payload, modelId, context), model: modelId, providerRequestId,
+        providerDiagnostic: { requestId: context.upstreamRequestId, images: requestSummary.images },
+      };
     }
     case "flux-2-pro": {
       const adaptedRefs = await Promise.all(refs.map(adaptFluxReference));

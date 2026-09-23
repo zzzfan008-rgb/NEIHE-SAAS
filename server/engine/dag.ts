@@ -302,7 +302,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     }
     if (step.kind === "virtual-try-on") {
       if (multiImageEdit) {
-        if (modelId !== "gemini-3.1-flash-image") throw new DagError("多图编辑换装已改用 Gemini 3.1 Flash Image，请在节点设置中切换模型");
+        if (modelId !== "gemini-3.1-flash-image" && modelId !== "gemini-3-pro-image-preview") throw new DagError("多图编辑换装仅支持 Gemini 3 Pro Image 或 Gemini 3.1 Flash Image");
         const error = multiImageReferenceError((step.upstream ?? []).flatMap(upstream =>
           (executingNodeIds.has(upstream.nodeId) ? ["__runtime_output__"] : upstream.images)
             .map(() => upstream.targetHandle ?? "")));

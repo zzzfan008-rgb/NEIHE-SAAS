@@ -559,6 +559,8 @@ export interface ImageGenRequest {
   prompt: string;
   /** 参考图（dataURL 数组，按连线顺序；上限由节点与模型契约共同决定）。 */
   referenceImages?: string[];
+  /** Server-owned Gemini OTHER retry encoding. Not a user-configurable model option. */
+  referenceEncoding?: { quality: 88; longEdge: 2027 };
   aspectRatio?: string;
   batchSize?: number;
   /** 业务输出档位：保持比例，2K/4K 分别将最终图片长边处理为 2048/4096 像素。 */
@@ -578,6 +580,11 @@ export interface ImageGenResult {
     estimatedUsd: number;
   };
   providerRequestId?: string;
+  /** 服务端排查元数据：上游请求号与逐图尺寸/hash，仅持久化到执行记录，不返回浏览器。 */
+  providerDiagnostic?: {
+    requestId?: string | null;
+    images?: Array<{ index: number; mimeType: string; bytes: number; width?: number; height?: number; sha256: string }>;
+  };
   images: string[]; // dataURL 或可访问 URL
   model: string;
   usageNote?: string;

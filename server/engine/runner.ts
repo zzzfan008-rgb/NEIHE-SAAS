@@ -1254,6 +1254,8 @@ async function generateIndependentTryOnCandidates(
   return {
     images: successful.flatMap((result) => result.images),
     model: successful.at(-1)?.model ?? provider.id,
+    providerRequestId: successful.at(-1)?.providerRequestId,
+    providerDiagnostic: successful.at(-1)?.providerDiagnostic,
     providerRequests: successful.reduce(
       (sum, result) => sum + result.providerRequests,
       0,
@@ -2125,7 +2127,35 @@ export async function executeStep(
               generationOptions,
             );
       } catch (error) {
-        if (
+        if (multiImageEdit && error instanceof ProviderError) {
+          if (error.category === "content_refused" && error.blockReason === "OTHER") {
+            try {
+              result = await generateIndependentTryOnCandidates(
+                provider,
+                { ...request, referenceEncoding: { quality: 88, longEdge: 2027 } },
+                candidateCount,
+                generationOptions,
+              );
+            } catch (retryError) {
+              throw new ProviderError(
+                "Gemini 3 Pro 输入图审核未通过（OTHER），请手动切换到 Gemini 3.1 Flash Image，或重新导出参考图后重试",
+                422, modelId, "content_refused",
+                retryError instanceof ProviderError ? retryError.diagnostic : undefined,
+              );
+            }
+          } else if (error.category === "invalid_response" && error.finishReason === "NO_IMAGE") {
+            const imageOnlyPrompt = `${request.prompt}\n只输出最终图片，不要输出文字`;
+            usedPrompt = imageOnlyPrompt;
+            result = await generateIndependentTryOnCandidates(
+              provider,
+              { ...request, prompt: imageOnlyPrompt },
+              candidateCount,
+              generationOptions,
+            );
+          } else {
+            throw error;
+          }
+        } else if (
           !(
             isStagedTryOn &&
             step.params.workflowStage === "garment-refine" &&
@@ -2135,32 +2165,33 @@ export async function executeStep(
           )
         ) {
           throw error;
+        } else {
+          safetyFallbackUsed = true;
+          const safeBasePrompt = stagedVirtualTryOnPrompt(
+            step.params.workflowStage as "scene-stabilize" | "garment-refine",
+            referenceRoles,
+            safeExtra,
+            promptParams,
+            sceneDescription,
+            Boolean(angleControlText),
+          );
+          const safePrompt = angleControlText
+            ? `${safeBasePrompt}。${angleControlText}`
+            : safeBasePrompt;
+          usedPrompt = safePrompt;
+          if (sceneReferenceManifest) {
+            await options.onSceneRequestPrepared?.({
+              prompt: safePrompt,
+              references: sceneReferenceManifest,
+            });
+          }
+          result = await generateIndependentTryOnCandidates(
+            provider,
+            { ...request, prompt: safePrompt },
+            candidateCount,
+            generationOptions,
+          );
         }
-        safetyFallbackUsed = true;
-        const safeBasePrompt = stagedVirtualTryOnPrompt(
-          step.params.workflowStage as "scene-stabilize" | "garment-refine",
-          referenceRoles,
-          safeExtra,
-          promptParams,
-          sceneDescription,
-          Boolean(angleControlText),
-        );
-        const safePrompt = angleControlText
-          ? `${safeBasePrompt}。${angleControlText}`
-          : safeBasePrompt;
-        usedPrompt = safePrompt;
-        if (sceneReferenceManifest) {
-          await options.onSceneRequestPrepared?.({
-            prompt: safePrompt,
-            references: sceneReferenceManifest,
-          });
-        }
-        result = await generateIndependentTryOnCandidates(
-          provider,
-          { ...request, prompt: safePrompt },
-          candidateCount,
-          generationOptions,
-        );
       }
       const providerImages =
         step.kind === "mask-redraw"
@@ -2212,6 +2243,9 @@ export async function executeStep(
             "所有候选均未通过自动评审，请核对姿势与穿搭；已保留全部结果";
         }
       }
+      const providerExecutionMeta = result.providerRequestId || result.providerDiagnostic
+        ? { provider: { requestId: result.providerRequestId, images: result.providerDiagnostic?.images } }
+        : undefined;
       return {
         images,
         model: result.model,
@@ -2233,6 +2267,7 @@ export async function executeStep(
             : candidateSelection,
         executionMeta: isStagedTryOn
           ? {
+              ...(providerExecutionMeta ?? {}),
               tryOn: {
                 stage: step.params.workflowStage,
                 qualityMode: step.params.qualityMode,

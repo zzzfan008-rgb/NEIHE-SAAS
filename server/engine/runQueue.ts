@@ -800,6 +800,23 @@ function isRetryableProviderError(error: unknown): error is ProviderError {
   );
 }
 
+function providerFailureMeta(error: unknown): Record<string, unknown> | undefined {
+  if (!(error instanceof ProviderError) || !error.diagnostic) return undefined;
+  let diagnostic: unknown;
+  try { diagnostic = JSON.parse(error.diagnostic); } catch { return undefined; }
+  const detail = typeof diagnostic === "object" && diagnostic !== null && !Array.isArray(diagnostic)
+    ? diagnostic as Record<string, unknown>
+    : {};
+  return {
+    providerError: {
+      category: error.category,
+      blockReason: error.blockReason ?? null,
+      finishReason: error.finishReason ?? null,
+      diagnostic: detail,
+    },
+  };
+}
+
 function outcomeUnknownMessage(message: string): string {
   return message.includes("API易消耗记录") ? message : `${message}；${OUTCOME_UNKNOWN_GUIDANCE}`;
 }
@@ -848,6 +865,7 @@ async function terminateRun(
   status: "failed" | "outcome_unknown" | "cancelled",
   message: string,
   finishedAt: number,
+  executionMeta?: Record<string, unknown>,
 ): Promise<void> {
   const run = await lockRun(client, row.run_id);
   if (!run || isTerminalRunStatus(run.status)) return;
@@ -856,8 +874,10 @@ async function terminateRun(
       last_error = $2, updated_at = $3 WHERE id = $4
   `, [status, message, finishedAt, row.id]);
   await client.query(`
-    UPDATE generation_run_steps SET status = $1, error = $2, finished_at = $3 WHERE id = $4
-  `, [status, message, finishedAt, row.step_id]);
+    UPDATE generation_run_steps SET status = $1, error = $2, finished_at = $3,
+      execution_meta_json = CASE WHEN $4::text IS NOT NULL THEN $4::text ELSE execution_meta_json END
+    WHERE id = $5
+  `, [status, message, finishedAt, executionMeta ? JSON.stringify(executionMeta) : null, row.step_id]);
   await client.query(`
     UPDATE generation_jobs SET status = 'cancelled', worker_id = NULL, lease_expires_at = NULL,
       last_error = $1, updated_at = $2
@@ -975,7 +995,7 @@ async function handleJobError(
       await terminateRun(client, row, "outcome_unknown", outcomeUnknownMessage(message), now);
       return;
     }
-    await terminateRun(client, row, "failed", message, now);
+    await terminateRun(client, row, "failed", message, now, providerFailureMeta(error));
   });
 }
 
