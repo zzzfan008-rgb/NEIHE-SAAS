@@ -1,0 +1,174 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "一键换装 · 三阶段生成架构",
+    "locale": "zh-CN",
+    "animation": "none",
+    "quality_profile": "showcase",
+    "legend": { "mode": "hidden" },
+    "views": [
+      {
+        "id": "main-flow",
+        "label": "三阶段主链",
+        "focus": ["identity_pose", "compose", "stabilize", "select", "refine", "result"],
+        "note": "从人物身份与姿势合成，到场景化定版，再到服装结构精修。"
+      },
+      {
+        "id": "input-contract",
+        "label": "输入与约束",
+        "focus": ["identity_pose", "outfit_refs", "angle", "compose", "stabilize"],
+        "note": "查看人物、穿搭、配饰和 3D 视角如何进入不同生成阶段。"
+      },
+      {
+        "id": "repair-loop",
+        "label": "精修与结果回流",
+        "focus": ["select", "refine", "detail", "result"],
+        "note": "查看用户选择、局部蒙版重绘和 Results 历史记录。"
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "sources", "label": "输入与选择" },
+    { "id": "constraints", "label": "视角约束" },
+    { "id": "generation", "label": "三阶段生成" },
+    { "id": "support", "label": "结果与可选修复" }
+  ],
+  "phases": [
+    { "id": "prepare", "label": "参考准备", "fromCol": 0, "toCol": 1 },
+    { "id": "stage-one", "label": "阶段 1 · 身份/姿势合成", "fromCol": 2, "toCol": 2, "variant": "emphasis" },
+    { "id": "stage-two", "label": "阶段 2 · 场景化定版", "fromCol": 3, "toCol": 3, "variant": "emphasis" },
+    { "id": "stage-three", "label": "阶段 3 · 服装精修", "fromCol": 4, "toCol": 4, "variant": "emphasis" },
+    { "id": "finish", "label": "输出与局部修复", "fromCol": 5, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "main-generation-chain", "label": "主生成链", "lane": "generation", "fromCol": 1, "toCol": 4, "variant": "emphasis" },
+    { "id": "optional-repair-branch", "label": "可选精修分支", "lane": "support", "fromCol": 3, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["identity_pose", "compose", "stabilize", "select", "refine", "result"],
+  "semanticChecks": {
+    "allowedRoots": ["identity_pose", "outfit_refs", "angle"],
+    "allowedTerminals": ["result", "detail"],
+    "requiredEdges": [
+      { "from": "identity_pose", "to": "compose" },
+      { "from": "compose", "to": "stabilize" },
+      { "from": "stabilize", "to": "select" },
+      { "from": "select", "to": "refine" },
+      { "from": "refine", "to": "result" }
+    ],
+    "requiredPaths": [
+      { "from": "identity_pose", "to": "result" },
+      { "from": "outfit_refs", "to": "refine" }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "identity_pose",
+      "lane": "sources",
+      "col": 0,
+      "type": "external",
+      "label": "人物身份 + 姿势/场景",
+      "sublabel": "身份 + 姿势场景",
+      "width": 176,
+      "yOffset": 0
+    },
+    {
+      "id": "outfit_refs",
+      "lane": "sources",
+      "col": 1,
+      "type": "external",
+      "label": "主穿搭 + 配饰参考",
+      "sublabel": "主穿搭必需；配饰按类别可选",
+      "width": 176,
+      "yOffset": 0
+    },
+    {
+      "id": "angle",
+      "lane": "constraints",
+      "col": 1,
+      "type": "frontend",
+      "label": "3D 视角约束",
+      "sublabel": "相机角度约束",
+      "tag": "可选",
+      "width": 166,
+      "yOffset": 0
+    },
+    {
+      "id": "compose",
+      "lane": "generation",
+      "col": 1,
+      "type": "backend",
+      "label": "阶段 1 · 身份/姿势合成",
+      "sublabel": "AI 改款 · Gemini 3.1 Flash Image",
+      "tag": "人物基准",
+      "width": 184,
+      "yOffset": 0
+    },
+    {
+      "id": "stabilize",
+      "lane": "generation",
+      "col": 2,
+      "type": "backend",
+      "label": "阶段 2 · 场景化定版",
+      "sublabel": "Virtual Try-On · Gemini 3 Pro Image",
+      "tag": "第一轮候选",
+      "width": 184,
+      "yOffset": 0
+    },
+    {
+      "id": "select",
+      "lane": "support",
+      "col": 3,
+      "type": "frontend",
+      "label": "选择第一轮基准",
+      "sublabel": "用户从结果 1/2/3 中选定后继续",
+      "tag": "人工确认",
+      "width": 176,
+      "yOffset": 0
+    },
+    {
+      "id": "refine",
+      "lane": "generation",
+      "col": 4,
+      "type": "backend",
+      "label": "阶段 3 · 服装结构精修",
+      "sublabel": "Virtual Try-On · GPT Image 2.5",
+      "tag": "锁定人物与场景",
+      "width": 190,
+      "yOffset": 0
+    },
+    {
+      "id": "detail",
+      "lane": "support",
+      "col": 4,
+      "type": "backend",
+      "label": "可选 · 蒙版局部重绘",
+      "sublabel": "GPT Image 2.5 · 局部修复",
+      "tag": "局部修复",
+      "width": 190,
+      "yOffset": 0
+    },
+    {
+      "id": "result",
+      "lane": "support",
+      "col": 5,
+      "type": "frontend",
+      "label": "最终结果 / Results",
+      "sublabel": "查看、对比、下载、继续处理与历史",
+      "width": 176,
+      "yOffset": 0
+    }
+  ],
+  "edges": [
+    { "id": "identity-to-compose", "from": "identity_pose", "to": "compose", "label": "身份 + 姿势/场景", "role": "main" },
+    { "id": "compose-to-stabilize", "from": "compose", "to": "stabilize", "label": "人物基准", "role": "main" },
+    { "id": "outfit-to-stabilize", "from": "outfit_refs", "to": "stabilize", "label": "主穿搭 + 配饰", "role": "branch" },
+    { "id": "angle-to-stabilize", "from": "angle", "to": "stabilize", "label": "3D 视角文本", "role": "branch" },
+    { "id": "stabilize-to-select", "from": "stabilize", "to": "select", "label": "候选结果 1/2/3", "role": "main" },
+    { "id": "select-to-refine", "from": "select", "to": "refine", "label": "用户选定基准", "role": "main" },
+    { "id": "outfit-to-refine", "from": "outfit_refs", "to": "refine", "label": "主穿搭 / 面料参考", "role": "branch" },
+    { "id": "refine-to-result", "from": "refine", "to": "result", "label": "精修结果", "role": "main" },
+    { "id": "refine-to-detail", "from": "refine", "to": "detail", "label": "精修结果 + 服装上下文", "role": "branch", "variant": "dashed" },
+    { "id": "detail-to-result", "from": "detail", "to": "result", "role": "branch", "variant": "dashed" }
+  ]
+}

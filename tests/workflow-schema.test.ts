@@ -1041,12 +1041,15 @@ async function main() {
       const builtinDir = path.join(dir, "templates", "builtin");
       const existingPath = path.join(builtinDir, "builtin-sketch-recolor.json");
       const stagedPath = path.join(builtinDir, "builtin-tool-one-click-try-on.json");
-      const staged = JSON.parse(fs.readFileSync(stagedPath, "utf-8")) as { flow: { nodes: Array<{ id: string }> } };
+      const staged = JSON.parse(fs.readFileSync(stagedPath, "utf-8")) as { flow: { nodes: Array<{ id: string; data?: Record<string, unknown> }> } };
       staged.flow.nodes = staged.flow.nodes.filter((node) => node.id !== "socks");
+      const staleRefine = staged.flow.nodes.find((node) => node.id === "refine");
+      if (staleRefine?.data) staleRefine.data.garmentCategory = "knit";
       fs.writeFileSync(stagedPath, JSON.stringify(staged, null, 2), "utf-8");
       ensureBuiltinTemplates();
-      const refreshedStaged = JSON.parse(fs.readFileSync(stagedPath, "utf-8")) as { flow: { nodes: Array<{ id: string }> } };
+      const refreshedStaged = JSON.parse(fs.readFileSync(stagedPath, "utf-8")) as { flow: { nodes: Array<{ id: string; data?: Record<string, unknown> }> } };
       assert.ok(refreshedStaged.flow.nodes.some((node) => node.id === "socks"), "已有一键换装模板应补齐袜子参考图节点");
+      assert.equal(refreshedStaged.flow.nodes.find((node) => node.id === "refine")?.data?.garmentCategory, undefined, "已有一键换装模板应刷新为服装品类自动判断");
       const oldModelTemplate = JSON.parse(fs.readFileSync(stagedPath, "utf-8"));
       const oldFirstRound = oldModelTemplate.flow.nodes.find((node: { id: string }) => node.id === "stabilize");
       oldFirstRound.data.modelId = "gemini-3.1-flash-image";

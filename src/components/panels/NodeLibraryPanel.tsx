@@ -33,7 +33,8 @@ export function nodeLibraryClickPosition(
   nodes: readonly FlowNode[],
   selectedNodeId: string | null,
 ): { x: number; y: number } {
-  const anchor = nodes.find((node) => node.id === selectedNodeId) ?? nodes.at(-1);
+  const anchor =
+    nodes.find((node) => node.id === selectedNodeId) ?? nodes.at(-1);
   if (!anchor) return { x: 0, y: 0 };
   return { x: anchor.position.x + 380, y: anchor.position.y };
 }
@@ -77,7 +78,8 @@ function NodeList() {
       tabId: useFlowStore.getState().activeTabId,
       nodeId,
       fitView: false,
-      activateFilePicker: kind === "image-input" || kind === "background-extract",
+      activateFilePicker:
+        kind === "image-input" || kind === "background-extract",
       selectText: kind !== "image-input" && kind !== "result",
     });
   };
@@ -104,7 +106,9 @@ function NodeList() {
               title={`点击添加${spec.title}，或拖拽到画布指定位置`}
               className="h-auto w-full cursor-grab select-none flex-col items-start gap-1 rounded-lg p-2.5 text-left whitespace-normal text-[var(--gc-node-text)] hover:bg-[var(--gc-node-inner-hover)] hover:text-[var(--gc-node-text)] active:cursor-grabbing"
             >
-              <span className="text-xs font-medium text-[var(--gc-node-text)]">{spec.title}</span>
+              <span className="text-xs font-medium text-[var(--gc-node-text)]">
+                {spec.title}
+              </span>
               <span className="text-[10px] leading-relaxed text-[var(--gc-node-muted)]">
                 {spec.description}
               </span>

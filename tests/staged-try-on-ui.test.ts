@@ -54,6 +54,10 @@ assert.match(stagedNode, /className=\{staged \? "gc-staged-output-handle" : unde
 for (const field of ["garmentCategory", "materialSpec", "constructionSpec", "imageSize", "modelId"]) {
   assert.match(inspector, new RegExp(field), `完整分步设置“${field}”必须位于固定右侧属性面板`);
 }
+for (const label of ["服装品类（选填）", "材料/面料规格（选填）", "结构/制作工艺（选填）", "自动判断"]) {
+  assert.match(inspector, new RegExp(label.replace(/[（）/]/g, "\\$&")), `第二轮属性面板必须显示“${label}”`);
+}
+assert.doesNotMatch(stagedNode, /missingRefineSpec/, "第二轮属性留空不得阻止节点运行");
 assert.doesNotMatch(stagedNode, /materialEdit|constructionEdit/, "节点卡片不得继续承载完整面料与工艺编辑表单");
 
 console.log("通过分步换装 UI 源码契约测试");

@@ -574,16 +574,16 @@ async function main() {
     );
     assert.throws(() => assertPlanInputs(stalePlan, stageTwoEdges), /重新确认|确认已失效/);
 
-    const missingMaterial: FlowNode = {
+    const optionalSpecifications: FlowNode = {
       ...refine,
       data: { ...refine.data, garmentCategory: undefined, materialSpec: "", constructionSpec: "" },
     };
-    const missingMaterialPlan = buildExecutionPlan(
-      [approvedStage, approval, outfit, material, detail, missingMaterial],
+    const optionalSpecificationsPlan = buildExecutionPlan(
+      [approvedStage, approval, outfit, material, detail, optionalSpecifications],
       stageTwoEdges,
       { onlyNodeId: refine.id, includeDownstream: false },
     );
-    assert.doesNotThrow(() => assertPlanInputs(missingMaterialPlan, stageTwoEdges));
+    assert.doesNotThrow(() => assertPlanInputs(optionalSpecificationsPlan, stageTwoEdges));
   });
 
   await ok("局部修改在入队前拒绝会占满引导图名额的 8 张用户参考图", () => {
@@ -1160,15 +1160,21 @@ async function main() {
     assert.match(stageTwo.calls[0].request.prompt, /目标商品上已经存在的金属装饰图案与五金必须保持原有位置、比例和外观/);
     assert.match(stageTwo.calls[0].request.prompt, /羊毛双股纱，中等厚度/);
     assert.match(stageTwo.calls[0].request.prompt, /12GG，平针衣身/);
-    const inferred = await runRecordedAiStep(
+    const inferredStageTwo = await runRecordedAiStep(
       "virtual-try-on",
-      { workflowStage: "garment-refine", prompt: "", imageSize: "2K", modelId: "gpt-image-2",
-        modelOptions: { quality: "medium" }, approvedBaselineRef: SEED_DATA_URL,
-        materialSpec: "", constructionSpec: "" },
-      [SEED_DATA_URL, SECOND_DATA_URL], undefined, ["baseline", "outfit"],
+      {
+        workflowStage: "garment-refine", prompt: "", imageSize: "2K", modelId: "gpt-image-2",
+        modelOptions: { quality: "medium" },
+        materialSpec: "", constructionSpec: "",
+      },
+      [SEED_DATA_URL, SECOND_DATA_URL],
+      undefined,
+      ["baseline", "outfit"],
     );
-    assert.match(inferred.calls[0].request.prompt, /服装品类：未指定/);
-    assert.match(inferred.calls[0].request.prompt, /不虚构精确纤维成分、克重/);
+    assert.match(inferredStageTwo.calls[0].request.prompt, /服装品类：未指定；根据主穿搭图/);
+    assert.match(inferredStageTwo.calls[0].request.prompt, /不虚构精确纤维成分、克重/);
+    assert.match(inferredStageTwo.calls[0].request.prompt, /不虚构不可见的机号、密度或工艺参数/);
+    assert.doesNotMatch(inferredStageTwo.calls[0].request.prompt, /材料规格：。|结构工艺：。/);
 
     const descriptiveReferencePrompt = "图3上用红色框圈住的地方是裤子的款型细节必须还原，红色方框不参与重绘，图4是上衣的领口款型和面料特写";
     const descriptiveReferences = await runRecordedAiStep(
