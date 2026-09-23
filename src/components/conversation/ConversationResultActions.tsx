@@ -3,9 +3,12 @@ import { OPEN_COMPARE_EVENT } from "@/lib/overlayEvents";
 import { conversationSourceForOutput, type ImageConversationSourceSelection } from "@/lib/imageConversationInputs";
 import { requestCanvasLanding } from "@/lib/canvasLanding";
 import {
+  recentResultsPatch,
   selectActiveCompareIds,
+  trimRecentResults,
   useFlowStore,
   type DocumentTarget,
+  type RecentResult,
 } from "@/store/flowStore";
 import type { ImageConversationOutputView } from "@/types/imageConversation";
 
@@ -38,9 +41,34 @@ export function ConversationResultActions({
   ));
   const compareSelected = resultRecord ? compareIds.includes(resultRecord.id) : false;
 
+  // Older outputs may have dropped out of the capped recentResults list; inject a transient
+  // record so the compare overlay can still show them. It is trimmed with recentResults and
+  // never persisted, so it disappears on the next reload.
+  const ensureComparableRecord = (): RecentResult | undefined => {
+    if (!output.imageRef) return undefined;
+    const record: RecentResult = {
+      id: output.generationOutputId ?? output.id,
+      image: output.imageRef,
+      nodeId: "image-conversation-result",
+      nodeLabel: "对话修改结果",
+      kind: "image-conversation",
+      projectId: output.projectId,
+      ownerId: output.ownerId,
+      prompt: output.prompt ?? undefined,
+      startedAt: Date.parse(output.createdAt),
+      status: "success",
+    };
+    useFlowStore.setState((state) => recentResultsPatch(state, trimRecentResults([
+      record,
+      ...state.recentResults.filter((existing) => existing.id !== record.id),
+    ])));
+    return record;
+  };
+
   const toggleCompare = () => {
-    if (!resultRecord) return;
-    useFlowStore.getState().toggleCompareId(resultRecord.id);
+    const record = resultRecord ?? ensureComparableRecord();
+    if (!record) return;
+    useFlowStore.getState().toggleCompareId(record.id);
     if (!compareSelected && compareIds.length >= 1) {
       window.dispatchEvent(new CustomEvent(OPEN_COMPARE_EVENT));
     }
@@ -69,7 +97,7 @@ export function ConversationResultActions({
         className="w-full min-w-0 justify-center"
         render={<a href={output.imageRef} download="garment-conversation-result.png">下载</a>}
       />
-      <Button type="button" variant="ghost" size="xs" className="w-full min-w-0 justify-center" onClick={toggleCompare} disabled={!resultRecord} aria-pressed={compareSelected}>
+      <Button type="button" variant="ghost" size="xs" className="w-full min-w-0 justify-center" onClick={toggleCompare} aria-pressed={compareSelected}>
         {compareSelected ? "取消对比" : "对比"}
       </Button>
       <Button type="button" variant="ghost" size="xs" className="w-full min-w-0 justify-center" onClick={() => onContinue(selection)}>

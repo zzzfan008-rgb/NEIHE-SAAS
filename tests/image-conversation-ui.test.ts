@@ -136,6 +136,8 @@ assert.match(composerSource, /draggable=\{mode === "fusion"/);
 assert.match(composerSource, /onReorderInputs/);
 assert.match(resultActionsSource, /作为参考/);
 assert.match(resultActionsSource, /conversationSourceForOutput/);
+assert.match(resultActionsSource, /ensureComparableRecord/);
+assert.match(resultActionsSource, /recentResultsPatch/);
 assert.match(historySource, /ConversationResultActions/);
 assert.match(historySource, /可能产生额外费用/);
 assert.match(historySource, /核对结果/);
