@@ -65,7 +65,10 @@ type SelectedCanvasSource = ImageConversationSourceSelection;
 
 const EMPTY_TARGET_STATE = createImageConversationTargetState();
 
-export function ConversationPanel({ openRequest = 0 }: { openRequest?: number }) {
+export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onCollapse }: {
+  intent?: { seq: number; wasOpen: boolean };
+  onCollapse?: () => void;
+}) {
   const selection = useFlowStore(useShallow((state) => ({
     ...selectActiveDocumentTarget(state),
     nodes: selectActiveNodes(state),
@@ -215,24 +218,52 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
   };
 
   useEffect(() => {
-    if (!openRequest) return;
-    if (selectedSources.length > 1) {
+    if (!intent.seq) return;
+    if (!intent.wasOpen) {
+      // Open path: multi-select shows the chooser; a single source loads/switches; none shows the empty state.
+      if (selectedSources.length > 1) {
+        setPendingSourceSwitch(null);
+        setPendingSourceChoices(selectedSources);
+        return;
+      }
       setPendingSourceSwitch(null);
-      setPendingSourceChoices(selectedSources);
+      setPendingSourceChoices(null);
+      if (selectedSources.length !== 1) return;
+      const requestedTarget = target;
+      const source = selectedSources[0];
+      let cancelled = false;
+      void activateConversationFromSource(requestedTarget, source, () => cancelled);
+      return () => {
+        cancelled = true;
+      };
+    }
+    // Re-click while open: switch to a different conversation, otherwise collapse.
+    if (selectedSources.length !== 1) {
+      onCollapse?.();
       return;
     }
-    setPendingSourceSwitch(null);
-    setPendingSourceChoices(null);
-    if (selectedSources.length !== 1) return;
-    const requestedTarget = target;
     const source = selectedSources[0];
     let cancelled = false;
-    void activateConversationFromSource(requestedTarget, source, () => cancelled);
+    void (async () => {
+      try {
+        const resolved = await resolveImageConversation(target, source.sourceRef);
+        if (cancelled) return;
+        const currentId = getImageConversationTargetState(useImageConversationStore.getState(), target)?.conversation?.id ?? null;
+        if (resolved && resolved.id === currentId) {
+          onCollapse?.();
+          return;
+        }
+        await activateConversationFromSource(target, source, () => cancelled);
+      } catch {
+        if (cancelled) return;
+        await activateConversationFromSource(target, source, () => cancelled);
+      }
+    })();
     return () => {
       cancelled = true;
     };
     // Deliberately only reacts to the explicit Dock-open request. Ordinary canvas selection must not load history.
-  }, [openRequest]);
+  }, [intent.seq]);
 
   useEffect(() => {
     setPendingSourceChoices(null);
@@ -274,7 +305,7 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
   }, [activeRound, targetKey, targetState.conversation?.id]);
 
   const patchDraft = (patch: Partial<ImageConversationModeDraft>) => updateDraft(target, mode, patch);
-
+  const syncDerivedParameters = useImageConversationStore((state) => state.syncDerivedParameters);
   const updateBaseAspectRatio = (aspectRatio: string) => {
     const latestState = getImageConversationTargetState(useImageConversationStore.getState(), target);
     const latestMode = latestState?.mode ?? mode;
@@ -282,7 +313,7 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
     const parameters = latestDraft.parameters ?? { ...DEFAULT_IMAGE_CONVERSATION_PARAMETERS };
     if (parameters.aspectRatioMode === "fixed") return;
     if (parameters.aspectRatio === aspectRatio && parameters.aspectRatioMode === "follow") return;
-    updateDraft(target, latestMode, {
+    syncDerivedParameters(target, latestMode, {
       parameters: { ...parameters, aspectRatio, aspectRatioMode: "follow" },
     });
   };
@@ -465,6 +496,19 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
     if (index < 0 || nextIndex < 0 || nextIndex >= draft.inputs.length) return;
     const next = [...draft.inputs];
     [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    const reordered = reindexConversationInputs(next);
+    patchDraft({
+      inputs: reordered,
+      sourceResultId: sourceResultIdFromReference(reordered[0]?.sourceRef),
+    });
+  };
+
+  const reorderInputs = (fromIndex: number, toIndex: number) => {
+    if (mode !== "fusion") return;
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= draft.inputs.length || toIndex >= draft.inputs.length) return;
+    const next = [...draft.inputs];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
     const reordered = reindexConversationInputs(next);
     patchDraft({
       inputs: reordered,
@@ -763,6 +807,7 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
             onDraftChange={patchDraft}
             onRemoveInput={removeInput}
             onMoveInput={moveInput}
+            onReorderInputs={reorderInputs}
             onAddInput={addInput}
             onUpload={() => openUpload("input")}
             onBaseAspectRatioChange={updateBaseAspectRatio}

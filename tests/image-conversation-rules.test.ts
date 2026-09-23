@@ -110,6 +110,10 @@ expectThrows(
     ]),
   "mask accepts at most six references",
 );
+expectThrows(
+  () => validateInputManifest("fusion", [imageInput("base", 5), imageInput("reference", 1)]),
+  "ordinals must match array order",
+);
 
 assert.equal(validateConversationDraft(draft()), true);
 expectThrows(

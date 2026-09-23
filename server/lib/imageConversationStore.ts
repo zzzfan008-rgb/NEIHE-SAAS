@@ -4,7 +4,6 @@ import type { PoolClient } from "pg";
 import {
   validateInputManifest,
   validateImageConversationParameters,
-  validateOutputCount,
 } from "../../src/lib/imageConversationRules";
 import type {
   ConversationImageInput,
@@ -590,7 +589,8 @@ export async function createImageConversationRound(
   if (!input.prompt.trim()) throw new Error("conversation prompt is required");
   if (!Array.isArray(input.inputManifest)) throw new Error("conversation input manifest is required");
   const inputManifest = validateInputManifest(input.mode, input.inputManifest);
-  const parameters = validateParameters(input.parameters);
+  const parameters = { ...input.parameters };
+  validateImageConversationParameters(input.mode, parameters as unknown as ImageConversationParameters);
 
   const fingerprint = requestFingerprint({
     mode: input.mode,
@@ -1166,19 +1166,6 @@ function normalizeSource(
   return { sourceRef, sourceKind: inferred };
 }
 
-function validateParameters(value: Record<string, unknown>): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("conversation parameters are required");
-  }
-  if (typeof value.modelId !== "string" || !value.modelId.trim()) {
-    throw new Error("conversation model is required");
-  }
-  if (typeof value.quality !== "string" || !value.quality.trim()) {
-    throw new Error("conversation quality is required");
-  }
-  validateOutputCount(value.outputCount);
-  return { ...value };
-}
 
 async function findConversation(
   client: PoolClient,

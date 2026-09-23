@@ -427,6 +427,21 @@ await test("unsupported conversation parameters are rejected before planning", a
   assert.equal(plannerCalls, callsBefore);
 });
 
+await test("direct round creation rejects non-whitelisted conversation parameters", async () => {
+  const rejected = await request(`/image-conversations/${conversationId}/rounds`, "owner", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId: "api-conversation-project",
+      clientRequestId: "api-direct-invalid-model",
+      mode: "single",
+      inputManifest: [{ role: "base", ordinal: 0, sourceRef }],
+      prompt: "直接创建轮次",
+      parameters: { modelId: "gpt-image-2", quality: "medium", outputCount: 1, size: "2K" },
+    }),
+  });
+  assert.equal(rejected.status, 400);
+});
+
 function planningBody(id: string) {
   return {
     projectId: "api-conversation-project", clientRequestId: id, mode: "single",

@@ -274,7 +274,8 @@ function Workspace() {
   const closeViewer = useFlowStore((state) => state.closeViewer);
   const clearCompare = useFlowStore((state) => state.clearCompare);
   const [compareOpen, setCompareOpen] = useState(false);
-  const [conversationOpenRequest, setConversationOpenRequest] = useState(0);
+  const [conversationIntent, setConversationIntent] = useState<{ seq: number; wasOpen: boolean }>({ seq: 0, wasOpen: false });
+  const [conversationCloseRequest, setConversationCloseRequest] = useState(0);
   const [assetPickerRequest, setAssetPickerRequest] = useState<AssetPickerRequest | null>(null);
   const [generationRecordResultId, setGenerationRecordResultId] = useState<string | null>(null);
   const [toolLaunchError, setToolLaunchError] = useState<string | null>(null);
@@ -477,8 +478,14 @@ function Workspace() {
         inspector={(
           <InspectorPanel view="properties" className="h-full w-full border-0" />
         )}
-        onConversationOpen={() => setConversationOpenRequest((value) => value + 1)}
-        conversation={<ConversationPanel openRequest={conversationOpenRequest} />}
+        onConversationClick={(wasOpen) => setConversationIntent((state) => ({ seq: state.seq + 1, wasOpen }))}
+        conversationCloseRequest={conversationCloseRequest}
+        conversation={(
+          <ConversationPanel
+            intent={conversationIntent}
+            onCollapse={() => setConversationCloseRequest((value) => value + 1)}
+          />
+        )}
         results={(
           <ResultsPanel
             hasMore={historyHasMore}

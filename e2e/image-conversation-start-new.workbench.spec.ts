@@ -101,15 +101,8 @@ test("start-new upload creates an independent conversation and preserves the ori
   expect(afterStartNew.sourceRef).toMatch(/^\/api\/files\/[A-Za-z0-9_-]+\.png$/);
 
   await page.getByRole("button", { name: "对话修改", exact: true }).click();
-  await expect(panel).toBeHidden();
-  const restoreResponse = page.waitForResponse((response) => (
-    response.request().method() === "GET" &&
-    new URL(response.url()).pathname === "/api/image-conversations/resolve" &&
-    new URL(response.url()).searchParams.get("sourceRef") === originalFile.url
-  ));
-  await page.getByRole("button", { name: "对话修改", exact: true }).click();
-  const restoredResponse = await restoreResponse;
-  expect(restoredResponse.ok(), await restoredResponse.text()).toBeTruthy();
+  // 已展开时点击且所指图片（原底图）属于另一对话：按 §2 切换而非收起，直接恢复原对话草稿。
+  await expect(panel).toBeVisible();
   await expect(prompt).toHaveValue("原对话未发送草稿");
 
   const restored = await page.evaluate(async () => {

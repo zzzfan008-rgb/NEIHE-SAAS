@@ -46,6 +46,11 @@ export interface ImageConversationStore {
     mode: ImageConversationMode,
     patch: Partial<ImageConversationModeDraft>,
   ) => void;
+  syncDerivedParameters: (
+    target: DocumentTarget,
+    mode: ImageConversationMode,
+    patch: Partial<ImageConversationModeDraft>,
+  ) => void;
   replaceDraft: (
     target: DocumentTarget,
     mode: ImageConversationMode,
@@ -195,6 +200,22 @@ export const useImageConversationStore = create<ImageConversationStore>((set) =>
       [conversationDraftKey(current.conversation)]: { ...current.draftDirty, [mode]: true },
     },
     error: null,
+  }))),
+  syncDerivedParameters: (target, mode, patch) => set((state) => updateTargetState(state, target, (current) => ({
+    ...current,
+    modeDrafts: {
+      ...current.modeDrafts,
+      [mode]: { ...current.modeDrafts[mode], ...patch, mode },
+    },
+    // Derived parameters (e.g. the base image's default aspect ratio) are not user edits,
+    // so they must not set draftDirty or the spurious "replace base" confirmation would fire.
+    draftsByConversation: {
+      ...current.draftsByConversation,
+      [conversationDraftKey(current.conversation)]: {
+        ...current.modeDrafts,
+        [mode]: { ...current.modeDrafts[mode], ...patch, mode },
+      },
+    },
   }))),
   replaceDraft: (target, mode, draft, dirty = false) => set((state) => updateTargetState(state, target, (current) => ({
     ...current,

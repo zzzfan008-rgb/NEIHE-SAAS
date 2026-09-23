@@ -16,7 +16,8 @@ const RESULTS_FLYOUT_PANEL_ID = "workbench-results-flyout";
 interface WorkbenchShellProps {
   inspector: ReactNode;
   conversation: ReactNode;
-  onConversationOpen?: () => void;
+  onConversationClick?: (wasOpen: boolean) => void;
+  conversationCloseRequest?: number;
   results: ReactNode;
   children: ReactNode;
 }
@@ -25,7 +26,7 @@ interface WorkbenchShellProps {
  * Single-mounted canvas and context trees with a five-group floating tool rail.
  * The retired node library has been replaced by the discoverable tool flyouts.
  */
-export function WorkbenchShell({ inspector, conversation, onConversationOpen, results, children }: WorkbenchShellProps) {
+export function WorkbenchShell({ inspector, conversation, onConversationClick, conversationCloseRequest, results, children }: WorkbenchShellProps) {
   const [state, dispatch] = useReducer(workbenchUiReducer, INITIAL_WORKBENCH_UI_STATE);
   const inspectorButtonRef = useRef<HTMLButtonElement>(null);
   const conversationButtonRef = useRef<HTMLButtonElement>(null);
@@ -54,6 +55,13 @@ export function WorkbenchShell({ inspector, conversation, onConversationOpen, re
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [state.conversationDockOpen, state.rightDockOpen]);
+
+  // The panel decides whether a click while open means "switch" (stay open) or "collapse";
+  // this request closes the conversation dock without re-triggering the button handler.
+  useEffect(() => {
+    if (!conversationCloseRequest) return;
+    dispatch({ type: "close-conversation-dock" });
+  }, [conversationCloseRequest]);
 
   useEffect(() => {
     const currentDock = state.conversationDockOpen
@@ -199,8 +207,9 @@ export function WorkbenchShell({ inspector, conversation, onConversationOpen, re
                 aria-controls={INSPECTOR_PANEL_ID}
                 aria-expanded={state.conversationDockOpen}
                 onClick={() => {
-                  if (!state.conversationDockOpen) onConversationOpen?.();
-                  dispatch({ type: "toggle-conversation-dock" });
+                  const wasOpen = state.conversationDockOpen;
+                  onConversationClick?.(wasOpen);
+                  if (!wasOpen) dispatch({ type: "toggle-conversation-dock" });
                 }}
                 className="gc-panel absolute right-2 top-12 z-40 bg-[var(--gc-panel)] text-[var(--gc-text-muted)] shadow-lg ring-1 ring-[var(--gc-border)] hover:bg-[var(--gc-panel-hover)] hover:text-[var(--gc-accent)]"
               >

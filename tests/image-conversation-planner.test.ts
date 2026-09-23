@@ -4,8 +4,11 @@ import { ProviderError } from "../server/providers/base";
 import {
   ImageConversationPlanner,
   ImageConversationPlannerError,
+  MAX_CONVERSATION_PROMPT_LENGTH,
+  MAX_REQUIREMENTS_JSON_BYTES,
   type ImageConversationPlannerRequest,
   parseImageConversationPlan,
+  validatePlannerInput,
 } from "../server/lib/imageConversationPlanner";
 import type { ImageConversationPlannerInput } from "../server/lib/imageConversationPlanner";
 
@@ -198,4 +201,9 @@ try {
   });
 }
 
+
+// P2-3：用户 prompt 与 requirements 必须有长度/体积上限（与同模块其它字段一致）。
+assert.throws(() => validatePlannerInput({ ...input, prompt: "x".repeat(MAX_CONVERSATION_PROMPT_LENGTH + 1) }), /too long/);
+assert.throws(() => validatePlannerInput({ ...input, effectiveRequirements: { blob: "x".repeat(MAX_REQUIREMENTS_JSON_BYTES + 1) } }), /too large/);
+assert.equal(validatePlannerInput({ ...input, prompt: "y".repeat(MAX_CONVERSATION_PROMPT_LENGTH) }), true);
 console.log("image-conversation-planner: ok");

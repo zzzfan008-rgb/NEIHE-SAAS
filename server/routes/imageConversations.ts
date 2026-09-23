@@ -8,6 +8,8 @@ import {
 import {
   ImageConversationPlanner,
   ImageConversationPlannerError,
+  MAX_CONVERSATION_PROMPT_LENGTH,
+  MAX_REQUIREMENTS_JSON_BYTES,
 } from "../lib/imageConversationPlanner";
 import { apiYiImageConversationPlannerModel } from "../providers/imageConversationPlanner";
 import {
@@ -26,6 +28,7 @@ import {
 } from "../lib/imageConversationStore";
 import { reconcileImageConversationRun } from "../engine/imageConversationReconciliation";
 import { ActiveRunLimitError } from "../engine/runQueue";
+import { ImageReferenceAccessError } from "../lib/imageReferenceAccess";
 import type {
   ConversationImageInput,
   ImageConversationMode,
@@ -194,6 +197,7 @@ imageConversationsRouter.post("/:conversationId/rounds/plan", asyncHandler(async
   let inputManifest = body.inputManifest;
   let prompt = requiredBodyString(body.prompt);
   let parameters = recordBody(body.parameters);
+  const incrementalRequirements = recordBody(body.incrementalRequirements) ?? {};
   const clarificationRoundId = optionalNullableString(body.clarificationRoundId);
   const clarificationAnswer = optionalNullableString(body.clarificationAnswer);
   if (
@@ -205,6 +209,14 @@ imageConversationsRouter.post("/:conversationId/rounds/plan", asyncHandler(async
   }
   if (clarificationRoundId && !clarificationAnswer) {
     res.status(400).json({ requestSettled: true, error: "clarificationAnswer is required" });
+    return;
+  }
+  if (prompt.length > MAX_CONVERSATION_PROMPT_LENGTH) {
+    res.status(400).json({ requestSettled: true, error: "prompt is too long" });
+    return;
+  }
+  if (JSON.stringify(incrementalRequirements).length > MAX_REQUIREMENTS_JSON_BYTES) {
+    res.status(400).json({ requestSettled: true, error: "incrementalRequirements is too large" });
     return;
   }
   const identity = { ownerId: user.id, projectId, conversationId: req.params.conversationId, clientRequestId };
@@ -319,7 +331,7 @@ imageConversationsRouter.post("/:conversationId/rounds/plan", asyncHandler(async
       prompt,
       parameters,
       effectiveRequirements: sourceContext.effectiveRequirements,
-      incrementalRequirements: recordBody(body.incrementalRequirements) ?? {},
+      incrementalRequirements,
       maskRef,
       plan,
       clarificationRoundId: clarificationRoundId ?? undefined,
@@ -351,6 +363,12 @@ imageConversationsRouter.post("/:conversationId/rounds/plan", asyncHandler(async
     }
     if (error instanceof ImageConversationExecutionError) {
       await finish(400, { error: error.message });
+      return;
+    }
+    if (error instanceof ImageReferenceAccessError) {
+      // A reference became inaccessible during apply; nothing was committed, so this is a
+      // deterministic failure (not a recoverable one) and must settle the reservation.
+      await finish(403, { error: error.message });
       return;
     }
     if (error instanceof ImageConversationAccessError) await finish(404, { error: "image conversation not found" });

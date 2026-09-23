@@ -11,6 +11,7 @@ import {
   resolveImageConversation,
 } from "../server/lib/imageConversationStore";
 import { migrateImageConversations } from "../server/lib/imageConversationMigration";
+import { reserveImageConversationRequest } from "../server/lib/imageConversationRequests";
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "garment-canvas-image-conversation-storage-"));
 process.env.DATA_DIR = temp;
@@ -163,7 +164,7 @@ await test("round snapshots and concrete output relations survive a fresh read",
     sourceResultId: null,
     inputManifest: inputManifest(),
     prompt: "保持背景，把袖子缩短",
-    parameters: { modelId: "sunburst", quality: "medium", outputCount: 1, size: "2K" },
+    parameters: { modelId: "gpt-image-2.5-sunburst", quality: "medium", outputCount: 1, size: "2K" },
     effectiveRequirements: { background: "unchanged" },
     incrementalRequirements: { sleeve: "shorter" },
     status: "draft",
@@ -177,7 +178,7 @@ await test("round snapshots and concrete output relations survive a fresh read",
     sourceResultId: null,
     inputManifest: inputManifest(),
     prompt: "保持背景，把袖子缩短",
-    parameters: { modelId: "sunburst", quality: "medium", outputCount: 1, size: "2K" },
+    parameters: { modelId: "gpt-image-2.5-sunburst", quality: "medium", outputCount: 1, size: "2K" },
     effectiveRequirements: { background: "unchanged" },
     incrementalRequirements: { sleeve: "shorter" },
     status: "draft",
@@ -235,7 +236,7 @@ await test("asset input snapshots resolve an authorized preview after a fresh re
     sourceResultId: null,
     inputManifest: inputManifest(assetSource),
     prompt: "保留素材纹理",
-    parameters: { modelId: "sunburst", quality: "medium", outputCount: 1, size: "2K" },
+    parameters: { modelId: "gpt-image-2.5-sunburst", quality: "medium", outputCount: 1, size: "2K" },
     status: "draft",
   });
   const loaded = await getImageConversation(ownerId, projectA, conversation.id);
@@ -277,6 +278,31 @@ await test("project deletion cascades conversation history without exposing a de
     [conversation.id],
   );
   assert.equal(rows[0]?.count, "0");
+});
+
+await test("stale planning reservations are reclaimed instead of blocking the conversation", async () => {
+  const conversation = await createOrResolveImageConversation({
+    ownerId, projectId: projectA, sourceRef: sourceA, sourceKind: "file",
+  });
+  // Simulate a worker that reserved but died before settling: backdate the pending row past the TTL.
+  await database.query(`
+    INSERT INTO image_conversation_requests (owner_id, project_id, conversation_id, client_request_id, fingerprint, created_at)
+    VALUES ($1, $2, $3, $4, 'stale', now() - interval '10 minutes')
+  `, [ownerId, projectA, conversation.id, "stale-request"]);
+  const fresh = await reserveImageConversationRequest(
+    { ownerId, projectId: projectA, conversationId: conversation.id, clientRequestId: "fresh-request" },
+    { prompt: "test" },
+  );
+  assert.equal(fresh.kind, "reserved", "过期的孤儿预约不应阻塞新请求");
+  // The same clientRequestId can also be re-reserved once its stale row is reclaimed.
+  await database.query(`
+    UPDATE image_conversation_requests SET created_at = now() - interval '10 minutes' WHERE client_request_id = 'fresh-request'
+  `);
+  const reReserved = await reserveImageConversationRequest(
+    { ownerId, projectId: projectA, conversationId: conversation.id, clientRequestId: "fresh-request" },
+    { prompt: "test" },
+  );
+  assert.equal(reReserved.kind, "reserved");
 });
 
 console.log(`image-conversation-storage: ${passed} passed`);

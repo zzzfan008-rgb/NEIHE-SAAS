@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { createLatestMaskLoadGuard } from "@/lib/maskUpload";
 import { adaptiveMaskExpansionRadius, adaptiveMaskFeatherRadius } from "@/lib/maskGeometry";
@@ -31,6 +31,21 @@ export function MaskEditor({ source, initialMask, onSave, onClose }: MaskEditorP
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Escape dismisses this full-screen layer first, without letting it fall through to the
+  // WorkbenchShell dock-close listener. `onClose` is kept in a ref so the capture listener
+  // is registered once instead of churning during brush re-renders.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!savingRef.current) onCloseRef.current();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
   const renderOverlay = () => {
     const mask = maskRef.current;
     const overlay = overlayRef.current;

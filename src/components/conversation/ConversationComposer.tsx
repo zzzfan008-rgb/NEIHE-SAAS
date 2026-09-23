@@ -33,6 +33,7 @@ interface ConversationComposerProps {
   onDraftChange: (patch: Partial<ImageConversationModeDraft>) => void;
   onRemoveInput: (ordinal: number) => void;
   onMoveInput: (ordinal: number, direction: "up" | "down") => void;
+  onReorderInputs: (fromIndex: number, toIndex: number) => void;
   onAddInput: () => void;
   onUpload: () => void;
   onBaseAspectRatioChange: (aspectRatio: string) => void;
@@ -51,6 +52,7 @@ export function ConversationComposer({
   onDraftChange,
   onRemoveInput,
   onMoveInput,
+  onReorderInputs,
   onAddInput,
   onUpload,
   onBaseAspectRatioChange,
@@ -58,6 +60,7 @@ export function ConversationComposer({
   onSubmit,
 }: ConversationComposerProps) {
   const baseImage = useRef<HTMLImageElement>(null);
+  const dragIndex = useRef<number | null>(null);
   const parameters = draft.parameters ?? DEFAULT_IMAGE_CONVERSATION_PARAMETERS;
   const capabilities = getImageConversationModelCapabilities(parameters.modelId);
   const availableModels = getImageConversationModelsForMode(mode);
@@ -87,7 +90,31 @@ export function ConversationComposer({
           <p className="self-center text-[11px] text-[var(--gc-text-muted)]">尚未选择图片；发送前需要一张底图。</p>
         ) : (
           draft.inputs.map((input, index) => (
-            <div key={`${input.sourceRef}-${input.ordinal}`} className="group relative flex w-16 shrink-0 flex-col gap-1">
+            <div
+              key={`${input.sourceRef}-${input.ordinal}`}
+              className="group relative flex w-16 shrink-0 flex-col gap-1"
+              draggable={mode === "fusion" && !inputDisabled}
+              onDragStart={(event) => {
+                if (mode !== "fusion" || inputDisabled) return;
+                dragIndex.current = index;
+                event.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={(event) => {
+                if (mode !== "fusion" || dragIndex.current === null) return;
+                event.preventDefault();
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (mode !== "fusion" || dragIndex.current === null || dragIndex.current === index) {
+                  dragIndex.current = null;
+                  return;
+                }
+                const from = dragIndex.current;
+                dragIndex.current = null;
+                onReorderInputs(from, index);
+              }}
+              onDragEnd={() => { dragIndex.current = null; }}
+            >
               <div className="relative overflow-hidden rounded-md border border-[var(--gc-border)] bg-[var(--gc-panel)]">
                 <img
                   ref={index === 0 ? baseImage : undefined}

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createImageConversationTargetState,
+  DEFAULT_IMAGE_CONVERSATION_PARAMETERS,
   getImageConversationTargetState,
   imageConversationTargetKey,
   useImageConversationStore,
@@ -65,6 +66,16 @@ assert.equal(resolvedDraftState?.modeDrafts.single.prompt, "单图要求");
 assert.equal(resolvedDraftState?.modeDrafts.fusion.prompt, "融合要求");
 assert.equal(resolvedDraftState?.draftDirty.single, true);
 assert.equal(resolvedDraftState?.draftDirty.fusion, true);
+
+// P2-5：派生参数（底图默认比例）写入不得把草稿标记为已编辑，避免误弹「更换当前模式底图？」。
+const derivedEpoch = { tabId: "tab-a", projectId: "project-a", documentEpoch: 77 } as const;
+store.ensureTarget(derivedEpoch);
+store.syncDerivedParameters(derivedEpoch, "single", {
+  parameters: { ...DEFAULT_IMAGE_CONVERSATION_PARAMETERS, aspectRatio: "3:4", aspectRatioMode: "follow" },
+});
+const derivedState = getImageConversationTargetState(useImageConversationStore.getState(), derivedEpoch)!;
+assert.equal(derivedState.modeDrafts.single.parameters?.aspectRatio, "3:4");
+assert.equal(derivedState.draftDirty.single, false, "派生参数写入不得置 draftDirty");
 console.log("  ✓ 异步建立图片对话时保留尚未提交的未绑定模式草稿");
 
 const testRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -78,6 +89,7 @@ const resultActionsSource = fs.readFileSync(
   "utf8",
 );
 const overlayEventsSource = fs.readFileSync(path.resolve(testRoot, "../src/lib/overlayEvents.ts"), "utf8");
+const maskEditorSource = fs.readFileSync(path.resolve(testRoot, "../src/components/nodes/MaskEditor.tsx"), "utf8");
 
 assert.match(storeSource, /DocumentTarget/);
 assert.doesNotMatch(storeSource, /DocumentSnapshot|sessionStorage|localStorage|persist\(/);
@@ -120,6 +132,8 @@ assert.match(composerSource, /getImageConversationModelsForMode/);
 assert.match(composerSource, /availableModels\.map/);
 assert.match(composerSource, /xhigh/);
 assert.match(composerSource, /capabilities\?\.sizes/);
+assert.match(composerSource, /draggable=\{mode === "fusion"/);
+assert.match(composerSource, /onReorderInputs/);
 assert.match(resultActionsSource, /作为参考/);
 assert.match(resultActionsSource, /conversationSourceForOutput/);
 assert.match(historySource, /ConversationResultActions/);
@@ -132,6 +146,9 @@ assert.match(historySource, /基于第 .*轮结果/);
 assert.match(historySource, /Collapsible/);
 assert.match(historySource, /本轮参数/);
 assert.match(overlayEventsSource, /mode: "conversation"/);
+assert.match(maskEditorSource, /event\.key !== "Escape"/);
+assert.match(maskEditorSource, /stopImmediatePropagation\(\)/);
+assert.match(maskEditorSource, /addEventListener\("keydown", onKeyDown, true\)/);
 assert.match(overlayEventsSource, /purpose: "base" \| "reference"/);
 console.log("  ✓ 异步客户端和 UI 回写按 DocumentTarget 绑定，未进入 flowStore/DocumentSnapshot/sessionStorage，IME 与键盘边界已声明");
 

@@ -61,6 +61,8 @@ const MAX_LABEL_LENGTH = 160;
 const MAX_INSTRUCTION_LENGTH = 12_000;
 const MAX_QUESTION_LENGTH = 2_000;
 const MAX_MESSAGE_LENGTH = 2_000;
+export const MAX_CONVERSATION_PROMPT_LENGTH = 12_000;
+export const MAX_REQUIREMENTS_JSON_BYTES = 64 * 1024;
 const FORBIDDEN_CONTROL_KEYS = new Set([
   "ownerId",
   "projectId",
@@ -108,6 +110,7 @@ export class ImageConversationPlanner {
 export function validatePlannerInput(input: ImageConversationPlannerInput): true {
   if (!input || typeof input !== "object") throw new Error("planner input is required");
   if (typeof input.prompt !== "string" || !input.prompt.trim()) throw new Error("planner prompt is required");
+  if (input.prompt.length > MAX_CONVERSATION_PROMPT_LENGTH) throw new Error("planner prompt is too long");
   if (input.clarificationAnswer !== undefined && (
     typeof input.clarificationAnswer !== "string" ||
     !input.clarificationAnswer.trim() ||
@@ -124,6 +127,8 @@ export function validatePlannerInput(input: ImageConversationPlannerInput): true
     throw new Error("planner quality is required");
   }
   if (!isPlainRecord(input.effectiveRequirements)) throw new Error("planner requirements are invalid");
+  if (JSON.stringify(input.effectiveRequirements).length > MAX_REQUIREMENTS_JSON_BYTES)
+    throw new Error("planner requirements are too large");
   return true;
 }
 

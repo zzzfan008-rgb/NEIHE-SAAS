@@ -78,14 +78,14 @@ export function validateInputManifest(
     throw new Error("only the first conversation input can be the base image");
   }
 
-  const ordinals = new Set<number>();
-  for (const input of inputs) {
-    if (ordinals.has(input.ordinal)) {
-      throw new Error("conversation input ordinals must be unique");
+  // The ordinal is positional, not client-authored: the server must not trust a
+  // manifest whose ordinals disagree with array order (they are persisted and
+  // re-read with `ORDER BY ordinal`).
+  inputs.forEach((input, index) => {
+    if (input.ordinal !== index) {
+      throw new Error("conversation input ordinals must match their order");
     }
-    ordinals.add(input.ordinal);
-  }
-
+  });
   return inputs;
 }
 

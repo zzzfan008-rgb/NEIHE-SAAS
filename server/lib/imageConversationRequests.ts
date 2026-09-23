@@ -9,6 +9,9 @@ export interface PlanningRequestIdentity {
   clientRequestId: string;
 }
 type CachedResponse = { status: number; body: Record<string, unknown> };
+
+/** Reservations older than this are treated as orphaned (their worker is long gone). */
+const PLANNING_RESERVATION_TTL_MS = 5 * 60 * 1000;
 type Reservation = { kind: "reserved" } | { kind: "pending" } | ({ kind: "settled" } & CachedResponse);
 
 export async function pendingImageConversationRequestIds(identity: PlanningRequestIdentity): Promise<string[]> {
@@ -37,6 +40,15 @@ export async function reserveImageConversationRequest(
       "SELECT active,deleted_at FROM users WHERE id=$1 FOR UPDATE", [identity.ownerId], client,
     );
     if (!owner || owner.active !== 1 || owner.deleted_at !== null) throw new ImageConversationAccessError();
+    // Crash recovery: a reservation whose planner/apply died before settling leaves no recoverable
+    // round/clarification. Once it is older than the planning TTL it can be reclaimed so the
+    // conversation is not permanently blocked (otherwise the pending check below returns forever).
+    await client.query(`
+      DELETE FROM image_conversation_requests
+      WHERE owner_id = $1 AND response_status IS NULL
+        AND (conversation_id = $2 OR client_request_id = $3)
+        AND created_at < now() - ($4 || ' milliseconds')::interval
+    `, [identity.ownerId, identity.conversationId, identity.clientRequestId, String(PLANNING_RESERVATION_TTL_MS)]);
     const existing = await queryOne<{
       fingerprint: string; project_id: string; conversation_id: string;
       response_status: number | null; response_body: Record<string, unknown> | null;
