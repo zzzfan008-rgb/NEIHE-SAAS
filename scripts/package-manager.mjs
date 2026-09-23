@@ -18,6 +18,10 @@ export function resolvePackageManager(env = process.env) {
   const execPath = env.npm_execpath?.trim();
   if (execPath) {
     const kind = packageManagerKind(env, execPath);
+    // Standalone package managers (e.g. pnpm 12) are executables, not Node scripts.
+    if (!/\.(?:c|m)?js$/i.test(execPath)) {
+      return { kind, command: execPath, prefix: [] };
+    }
     return {
       kind,
       command: process.execPath,

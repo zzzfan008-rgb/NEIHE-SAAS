@@ -25,6 +25,7 @@ import {
   resolveImageConversationContext,
 } from "../lib/imageConversationStore";
 import { reconcileImageConversationRun } from "../engine/imageConversationReconciliation";
+import { ActiveRunLimitError } from "../engine/runQueue";
 import type {
   ConversationImageInput,
   ImageConversationMode,
@@ -337,6 +338,11 @@ imageConversationsRouter.post("/:conversationId/rounds/plan", asyncHandler(async
         error: error.message,
         code: error.code,
       });
+      return;
+    }
+    if (error instanceof ActiveRunLimitError) {
+      // Enqueue rolled back the entire round; unlike a connection failure this is settled.
+      await finish(429, { code: "active_run_limit", error: error.message });
       return;
     }
     if (error instanceof ImageConversationExecutionConflictError) {

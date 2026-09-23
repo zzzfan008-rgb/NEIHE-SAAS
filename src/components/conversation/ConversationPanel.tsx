@@ -129,9 +129,17 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
   const clarificationAnswer = clarification
     ? targetState.clarificationAnswers[clarification.id] ?? ""
     : "";
+  const requestDraft: ImageConversationModeDraft = clarificationRound ? {
+    mode: clarificationRound.mode,
+    prompt: clarificationRound.prompt,
+    inputs: clarificationRound.inputManifest,
+    parameters: imageConversationParametersFromRecord(clarificationRound.parameters),
+    sourceResultId: clarificationRound.sourceResultId ?? undefined,
+    maskSourceRef: clarificationRound.maskRef ?? undefined,
+  } : draft;
   const sourceRef = targetState.conversation?.sourceRef ?? draft.inputs[0]?.sourceRef ?? null;
   const hasSource = draft.inputs.length > 0;
-  const validationError = getDraftValidationError(mode, draft);
+  const validationError = getDraftValidationError(requestDraft.mode, requestDraft);
   const clarificationError = clarification && !clarificationAnswer.trim()
     ? "请先回答澄清问题。"
     : null;
@@ -472,7 +480,7 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
     let conversationId = initialState?.conversation?.id ?? null;
     const version = activationVersion.current;
     const pending = conversationId ? initialState?.pendingSubmissions[conversationId] : undefined;
-    const errorMessage = getDraftValidationError(mode, draft);
+    const errorMessage = getDraftValidationError(requestDraft.mode, requestDraft);
     if (errorMessage && !pending) {
       setError(target, errorMessage);
       return;
@@ -485,9 +493,9 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
       setError(target, clarificationError);
       return;
     }
-    const inputManifest = buildConversationInputManifest(draft);
-    const parameters = draft.parameters ?? { ...DEFAULT_IMAGE_CONVERSATION_PARAMETERS };
-    const sourceResultId = draft.sourceResultId
+    const inputManifest = buildConversationInputManifest(requestDraft);
+    const parameters = requestDraft.parameters ?? { ...DEFAULT_IMAGE_CONVERSATION_PARAMETERS };
+    const sourceResultId = requestDraft.sourceResultId
       ?? sourceResultIdFromReference(inputManifest[0]?.sourceRef)
       ?? null;
     setSending(target, true);
@@ -502,16 +510,16 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
       if (!isCurrentConversation(requestedTarget, conversationId, version)) return;
       if (!conversationId) setConversation(requestedTarget, conversation);
       conversationId = conversation.id;
-      const submission = pending ?? { draft: structuredClone(draft), request: {
+      const submission = pending ?? { draft: structuredClone(requestDraft), request: {
         clientRequestId: createImageConversationRequestId(),
-        mode,
+        mode: requestDraft.mode,
         inputManifest,
-        prompt: draft.prompt,
+        prompt: requestDraft.prompt,
         parameters,
         sourceResultId,
         effectiveRequirements: {},
         incrementalRequirements: {},
-        maskRef: mode === "mask" ? draft.maskSourceRef ?? null : null,
+        maskRef: requestDraft.mode === "mask" ? requestDraft.maskSourceRef ?? null : null,
         ...(clarification
           ? {
               clarificationRoundId: clarification.roundId,
@@ -523,10 +531,14 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
       const planned = await planImageConversationRound(requestedTarget, conversation.id, submission.request);
       syncImageConversationResults({ ...conversation, rounds: [planned.round] });
       store.setPendingSubmission(requestedTarget, conversation.id, null);
-      store.markSubmitted(requestedTarget, conversation.id, submission.draft);
-      if (!isCurrentConversation(requestedTarget, conversation.id, version)) return;
-      // Install the accepted round before the optional refresh so a lost GET cannot enable another submission.
-      const latestConversation = getImageConversationTargetState(useImageConversationStore.getState(), requestedTarget)?.conversation ?? conversation;
+      if (!submission.request.clarificationRoundId) store.markSubmitted(requestedTarget, conversation.id, submission.draft);
+      const requestedTab = useFlowStore.getState().tabs.find((tab) => tab.id === requestedTarget.tabId);
+      if (!requestedTab || !documentTargetsMatch(requestedTarget, {
+        tabId: requestedTab.id, projectId: requestedTab.projectId, documentEpoch: requestedTab.documentEpoch,
+      })) return;
+      const latestConversation = getImageConversationTargetState(useImageConversationStore.getState(), requestedTarget)?.conversation;
+      if (latestConversation?.id !== conversation.id) return;
+      // Cache accepted work for the original live document even when another tab is active.
       setConversation(requestedTarget, {
         ...latestConversation,
         rounds: [...latestConversation.rounds.filter((round) => round.id !== planned.round.id), planned.round].sort((a, b) => a.ordinal - b.ordinal),
@@ -534,6 +546,7 @@ export function ConversationPanel({ openRequest = 0 }: { openRequest?: number })
       if (clarification && getImageConversationTargetState(useImageConversationStore.getState(), requestedTarget)?.clarificationAnswers[clarification.id] === submission.request.clarificationAnswer) {
         setClarificationAnswer(requestedTarget, clarification.id, "");
       }
+      if (!isCurrentConversation(requestedTarget, conversation.id, version)) return;
       const refreshed = await getImageConversation(requestedTarget, conversation.id);
       if (!isCurrentConversation(requestedTarget, conversation.id, version)) return;
       setConversation(requestedTarget, refreshed);

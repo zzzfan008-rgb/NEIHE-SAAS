@@ -9,6 +9,11 @@ import { assetsRouter } from "../server/routes/assets";
 import { ImageConversationPlanner, type ImageConversationPlannerRequest } from "../server/lib/imageConversationPlanner";
 import { reconcileImageConversationRun } from "../server/engine/imageConversationReconciliation";
 import { resetPostgresTestDatabase } from "./postgresTestDatabase";
+import { ACTIVE_RUN_LIMIT } from "../server/lib/generationLimits";
+import { authRouter } from "../server/routes/auth";
+import { createSession, SESSION_COOKIE } from "../server/lib/auth";
+import { reserveImageConversationRequest, settleImageConversationRequest } from "../server/lib/imageConversationRequests";
+import { ImageConversationAccessError } from "../server/lib/imageConversationStore";
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "garment-canvas-image-conversation-api-"));
 process.env.DATA_DIR = temp;
@@ -71,6 +76,7 @@ app.locals.imageConversationPlanner = new ImageConversationPlanner({
   },
 });
 app.use("/image-conversations", imageConversationsRouter);
+app.use("/auth", authRouter);
 app.use("/assets", assetsRouter);
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve, reject) => {
@@ -485,6 +491,42 @@ await test("planner failures are terminal cached responses", async () => {
   assert.equal(plannerCalls, calls + 1);
 });
 
+await test("capacity rollback settles reservations, replays without spending and permits a fresh request", async () => {
+  const view = await (await request("/image-conversations", "owner", { method: "POST",
+    body: JSON.stringify({ projectId: "api-conversation-project", sourceRef, startNew: true }),
+  })).json() as { id: string };
+  const current = await database.queryOne<{ count: number }>(`SELECT COUNT(*)::int AS count FROM generation_runs
+    WHERE owner_id=$1 AND deleted_at IS NULL AND plan_json IS NOT NULL
+      AND status IN ('queued','running','retry_wait','cancel_requested')`, [users.owner.id]);
+  // Leave one slot: the first intent queues, the second exceeds capacity and must roll both back.
+  await database.query(`INSERT INTO generation_runs
+    (id,owner_id,node_id,node_label,kind,status,started_at,plan_json)
+    SELECT 'capacity-fixture-' || n, $1, 'capacity', 'capacity', 'image-gen', 'queued', 0, '{}'
+    FROM generate_series(1,$2::int) n`, [users.owner.id, ACTIVE_RUN_LIMIT - 1 - current!.count]);
+  const plan = { kind: "ready", outputCount: 2, intents: [1, 2].map((ordinal) => ({
+    ordinal, label: `效果${ordinal}`, instruction: `修改${ordinal}`, requirements: {},
+  })) };
+  const body = planningBody("capacity-plan");
+  const calls = plannerCalls;
+  try {
+    plannerResponses.push(plan);
+    const failed = await postPlan(body, view.id);
+    assert.equal(failed.status, 429);
+    assert.equal((await failed.json() as { requestSettled: boolean }).requestSettled, true);
+    assert.equal((await database.queryOne<{ count: number }>(
+      "SELECT COUNT(*)::int AS count FROM image_conversation_rounds WHERE conversation_id=$1", [view.id]))?.count, 0);
+    const replay = await postPlan(body, view.id);
+    assert.equal(replay.status, 429);
+    assert.equal(plannerCalls, calls + 1, "same request must not invoke the planner again");
+  } finally {
+    await database.query("DELETE FROM generation_runs WHERE id LIKE 'capacity-fixture-%'");
+  }
+  plannerResponses.push(plan);
+  const accepted = await postPlan({ ...body, clientRequestId: "capacity-plan-after-release" }, view.id);
+  assert.equal(accepted.status, 202, await accepted.text());
+  assert.equal(plannerCalls, calls + 2);
+});
+
 await test("multiple clarifications preserve original snapshot and all question-answer pairs", async () => {
   const body = planningBody("multi-clarification");
   plannerResponses.push({ kind: "clarification", reason: "ambiguous_requirement", question: "颜色用蓝色吗？" });
@@ -505,6 +547,88 @@ await test("multiple clarifications preserve original snapshot and all question-
     { question: "颜色用蓝色吗？", answer: "是" },
     { question: "保留背景吗？", answer: "是" },
   ]);
+});
+
+await test("account transfer preserves conversation history, outputs, request replay and ownership boundaries", async () => {
+  const admin = await database.queryOne<{ id: string }>("SELECT id FROM users WHERE account_id=$1", [process.env.INITIAL_ADMIN_ACCOUNT_ID]);
+  await database.query("UPDATE users SET must_change_password=0 WHERE id=$1", [admin!.id]);
+  const adminSession = await createSession(admin!.id);
+  await createSession(users.owner.id);
+  const transfer = () => request(`/auth/users/${users.owner.id}`, "owner", { method: "DELETE",
+    headers: { cookie: `${SESSION_COOKIE}=${adminSession.token}` }, body: JSON.stringify({ transferToUserId: users.other.id }),
+  });
+  const identity = { ownerId: users.owner.id, projectId: "api-conversation-project", conversationId, clientRequestId: "transfer-pending" };
+  await reserveImageConversationRequest(identity, planningBody(identity.clientRequestId));
+  assert.equal((await transfer()).status, 409, "in-flight planner must finish before ownership changes");
+  await settleImageConversationRequest(identity, { status: 422, body: { error: "test end", requestSettled: true } });
+  const stillOwner = async () => {
+    assert.equal((await database.queryOne<{ active: number }>("SELECT active FROM users WHERE id=$1", [users.owner.id]))?.active, 1);
+    assert.equal((await database.queryOne<{ owner_id: string }>("SELECT owner_id FROM projects WHERE id='api-conversation-project'"))?.owner_id, users.owner.id);
+    assert.ok(await database.queryOne("SELECT 1 FROM sessions WHERE user_id=$1", [users.owner.id]));
+  };
+  await stillOwner();
+  // A receiver with real, independently owned history can share a client request identifier.
+  await database.query("INSERT INTO files(id,owner_id,source_type,created_at) VALUES ('transfer-other.png',$1,'upload',$2)", [users.other.id, now]);
+  const otherBody = { ...planningBody("api-conversation-round-1"), projectId: "api-conversation-other-project",
+    inputManifest: [{ role: "base", ordinal: 0, sourceRef: "/api/files/transfer-other.png" }] };
+  const otherView = await (await request("/image-conversations", "other", { method: "POST", body: JSON.stringify({
+    projectId: otherBody.projectId, sourceRef: "/api/files/transfer-other.png",
+  }) })).json() as { id: string };
+  const otherRound = await request(`/image-conversations/${otherView.id}/rounds`, "other", { method: "POST", body: JSON.stringify(otherBody) });
+  assert.equal(otherRound.status, 201);
+  assert.equal((await transfer()).status, 409, "round idempotency collisions must not discard history");
+  await stillOwner();
+  await database.query("DELETE FROM image_conversation_rounds WHERE conversation_id=$1", [otherView.id]);
+  plannerResponses.push({ kind: "ready", outputCount: 1, intents: [{ ordinal: 1, label: "接收方", instruction: "修改", requirements: {} }] });
+  assert.equal((await postPlan({ ...otherBody, clientRequestId: "receiver-plan" }, otherView.id, "other")).status, 202);
+  const sourceAttempt = await database.queryOne<{ client_request_id: string; generation_run_id: string }>(
+    "SELECT client_request_id,generation_run_id FROM image_conversation_attempts WHERE owner_id=$1 AND conversation_id=$2 LIMIT 1", [users.owner.id, conversationId]);
+  const receiverAttempt = await database.queryOne<{ id: string; client_request_id: string }>(
+    "SELECT id,client_request_id FROM image_conversation_attempts WHERE owner_id=$1 LIMIT 1", [users.other.id]);
+  await database.query("UPDATE image_conversation_attempts SET client_request_id=$1 WHERE id=$2", [sourceAttempt!.client_request_id, receiverAttempt!.id]);
+  assert.equal((await transfer()).status, 409, "attempt collisions must not rewrite retry identity");
+  await stillOwner();
+  await database.query("UPDATE image_conversation_attempts SET client_request_id=$1 WHERE id=$2", [receiverAttempt!.client_request_id, receiverAttempt!.id]);
+  const collision = { ...identity, ownerId: users.other.id, projectId: otherBody.projectId, conversationId: otherView.id, clientRequestId: "multi-clarification" };
+  await reserveImageConversationRequest(collision, { ...otherBody, clientRequestId: collision.clientRequestId });
+  await settleImageConversationRequest(collision, { status: 422, body: { error: "fixture" } });
+  assert.equal((await transfer()).status, 409, "request-cache collisions must retain fingerprints");
+  await stillOwner();
+  await database.query("DELETE FROM image_conversation_requests WHERE owner_id=$1 AND client_request_id=$2", [users.other.id, collision.clientRequestId]);
+  await database.query("INSERT INTO generation_outputs(id,run_id,image,status,created_at) VALUES ('transfer-output',$1,$2,'success',0)", [sourceAttempt!.generation_run_id, sourceRef]);
+  await database.query("UPDATE generation_runs SET status='succeeded',successful_count=1 WHERE id=$1", [sourceAttempt!.generation_run_id]);
+  await reconcileImageConversationRun(sourceAttempt!.generation_run_id);
+  const tables = ["image_conversations", "image_conversation_sources", "image_conversation_rounds", "image_conversation_intents",
+    "image_conversation_attempts", "image_conversation_outputs", "image_conversation_clarifications", "image_conversation_requests"] as const;
+  const rowsBefore = new Map<string, Array<{ id: string }>>();
+  for (const table of tables) {
+    const key = table === "image_conversation_requests" ? "client_request_id" : "id";
+    const rows = await database.query<{ id: string }>(`SELECT ${key} AS id FROM ${table} WHERE owner_id=$1`, [users.owner.id]);
+    assert.ok(rows.length > 0, `${table} has transfer coverage`);
+    rowsBefore.set(table, rows);
+  }
+  const moved = await transfer();
+  assert.equal(moved.status, 200, await moved.text());
+  for (const table of tables) {
+    const key = table === "image_conversation_requests" ? "client_request_id" : "id";
+    const rows = await database.query<{ owner_id: string }>(`SELECT owner_id FROM ${table} WHERE ${key}=ANY($1::text[])`, [rowsBefore.get(table)!.map((row) => row.id)]);
+    assert.ok(rows.every((row) => row.owner_id === users.other.id), `${table} must transfer without changing IDs`);
+  }
+  const historyPath = `/image-conversations/${conversationId}?projectId=api-conversation-project`;
+  const history = await request(historyPath, "other");
+  assert.equal(history.status, 200);
+  const historyBody = await history.json() as { rounds: Array<{ effectiveRequirements: object; clarification: unknown }>; outputs: unknown[] };
+  assert.ok(historyBody.rounds.some((round) => round.clarification));
+  assert.ok(historyBody.outputs.length);
+  assert.ok(historyBody.rounds.some((round) => Object.keys(round.effectiveRequirements).length));
+  assert.equal((await request(historyPath, "owner")).status, 404);
+  assert.equal(await database.queryOne("SELECT 1 FROM sessions WHERE user_id=$1", [users.owner.id]), undefined);
+  await assert.rejects(() => reserveImageConversationRequest({ ...identity, clientRequestId: "late-owner-request" }, {}), ImageConversationAccessError);
+  const calls = plannerCalls;
+  const replay = await postPlan(planningBody("multi-clarification"), conversationId, "other");
+  assert.equal(replay.status, 200);
+  assert.equal((await replay.json() as { round: { ownerId: string } }).round.ownerId, users.other.id);
+  assert.equal(plannerCalls, calls, "transferred cache replay must not call the planner");
 });
 
 await new Promise<void>((resolve, reject) => {

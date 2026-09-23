@@ -17,6 +17,7 @@ import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { acquireTestLock, createComposeProjectName } from "../scripts/test-with-postgres.mjs";
+import { packageManagerCommand, resolvePackageManager } from "../scripts/package-manager.mjs";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const runnerPath = join(repoRoot, "scripts/test-with-postgres.mjs");
@@ -147,6 +148,32 @@ try {
   }
 } finally {
   rmSync(symlinkTestRoot, { recursive: true, force: true });
+}
+
+const managerTestRoot = mkdtempSync(join(tmpdir(), "garment-canvas-package-manager-"));
+try {
+  for (const name of ["npm-cli.js", "pnpm.cjs", "pnpm.mjs"]) {
+    const entry = join(managerTestRoot, name);
+    writeFileSync(entry, 'console.log(JSON.stringify(process.argv.slice(2)));\n');
+    const env = { npm_execpath: entry, npm_config_user_agent: name.startsWith("pnpm") ? "pnpm/11" : "npm/10" };
+    const manager = packageManagerCommand(["run", "test:suite"], env);
+    assert.equal(manager.command, process.execPath, "JS managers must use the current Node runtime");
+    assert.deepEqual(manager.args, [entry, "run", "test:suite"]);
+    const result = spawnSync(manager.command, manager.args, { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), ["run", "test:suite"]);
+  }
+  // Node is a harmless native executable stand-in; no package downloads or scripts are run.
+  const nativeEntry = join(managerTestRoot, "pnpm-native with spaces");
+  symlinkSync(process.execPath, nativeEntry);
+  const env = { npm_execpath: nativeEntry, npm_config_user_agent: "pnpm/12.5.1" };
+  const manager = packageManagerCommand(["-e", 'console.log("native-started")'], env);
+  const result = spawnSync(manager.command, manager.args, { encoding: "utf8" });
+  assert.equal(result.status, 0, "native managers must execute directly rather than be parsed as JS");
+  assert.equal(result.stdout.trim(), "native-started");
+  assert.deepEqual(resolvePackageManager(env), { kind: "pnpm", command: nativeEntry, prefix: [] });
+} finally {
+  rmSync(managerTestRoot, { recursive: true, force: true });
 }
 
 console.log("test runner isolation tests passed");

@@ -562,6 +562,17 @@ authRouter.delete("/users/:id", requireAdmin, asyncHandler(async (req, res) => {
       if (activeRuns > 0) return { status: "active_runs" as const };
     }
     if (transferToUserId) {
+      const pendingPlanning = (await client.query(`SELECT 1 FROM image_conversation_requests
+        WHERE owner_id=$1 AND response_status IS NULL LIMIT 1`, [req.params.id])).rows.length > 0;
+      if (pendingPlanning) return { status: "pending_conversation_planning" as const };
+      // Reconciliation locks conversation before round/attempt/run; use the same order.
+      await client.query("SELECT id FROM image_conversations WHERE owner_id=$1 ORDER BY id FOR UPDATE", [req.params.id]);
+      for (const table of ["image_conversation_rounds", "image_conversation_attempts", "image_conversation_requests"] as const) {
+        const collision = (await client.query(`SELECT 1 FROM ${table} source
+          JOIN ${table} target ON target.client_request_id=source.client_request_id
+          WHERE source.owner_id=$1 AND target.owner_id=$2 LIMIT 1`, [req.params.id, transferToUserId])).rows.length > 0;
+        if (collision) return { status: "conversation_request_conflict" as const };
+      }
       for (const table of ["projects", "assets"] as const) {
         await client.query(`UPDATE ${table} SET owner_id = $1 WHERE owner_id = $2`, [transferToUserId, req.params.id]);
       }
@@ -609,6 +620,16 @@ authRouter.delete("/users/:id", requireAdmin, asyncHandler(async (req, res) => {
         "UPDATE files SET owner_id = $1 WHERE owner_id = $2",
         [transferToUserId, req.params.id],
       );
+      for (const table of [
+        "image_conversations", "image_conversation_sources", "image_conversation_rounds",
+        "image_conversation_intents", "image_conversation_attempts", "image_conversation_outputs",
+        "image_conversation_clarifications", "image_conversation_requests",
+      ] as const) {
+        await client.query(`UPDATE ${table} SET owner_id=$1 WHERE owner_id=$2`, [transferToUserId, req.params.id]);
+      }
+      await client.query(`UPDATE image_conversation_requests
+        SET response_body=jsonb_set(response_body, '{round,ownerId}', to_jsonb($1::text))
+        WHERE owner_id=$1 AND response_body->'round'->>'ownerId'=$2`, [transferToUserId, req.params.id]);
     } else {
       await client.query(
         "UPDATE projects SET deleted_at = $1, purge_after = $2 WHERE owner_id = $3 AND deleted_at IS NULL",
@@ -659,6 +680,14 @@ authRouter.delete("/users/:id", requireAdmin, asyncHandler(async (req, res) => {
   }
   if (outcome.status === "active_material_analysis") {
     res.status(409).json({ error: "账号仍有进行中的材质分析，请等待完成或恢复结果后再操作" });
+    return;
+  }
+  if (outcome.status === "pending_conversation_planning") {
+    res.status(409).json({ error: "账号仍有未结算的图片对话规划，请等待完成或恢复结果后再转移" });
+    return;
+  }
+  if (outcome.status === "conversation_request_conflict") {
+    res.status(409).json({ error: "双方图片对话请求标识冲突，未转移任何对话数据，请联系管理员处理" });
     return;
   }
   if (outcome.status === "active_limit") {

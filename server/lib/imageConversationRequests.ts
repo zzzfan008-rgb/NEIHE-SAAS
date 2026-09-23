@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { query, queryOne, transaction } from "./database";
-import { ImageConversationConflictError } from "./imageConversationStore";
+import { ImageConversationAccessError, ImageConversationConflictError } from "./imageConversationStore";
 
 export interface PlanningRequestIdentity {
   ownerId: string;
@@ -33,7 +33,10 @@ export async function reserveImageConversationRequest(
 ): Promise<Reservation> {
   const fingerprint = createHash("sha256").update(JSON.stringify(canonical(payload))).digest("hex");
   return transaction(async (client) => {
-    await client.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [identity.ownerId]);
+    const owner = await queryOne<{ active: number; deleted_at: string | null }>(
+      "SELECT active,deleted_at FROM users WHERE id=$1 FOR UPDATE", [identity.ownerId], client,
+    );
+    if (!owner || owner.active !== 1 || owner.deleted_at !== null) throw new ImageConversationAccessError();
     const existing = await queryOne<{
       fingerprint: string; project_id: string; conversation_id: string;
       response_status: number | null; response_body: Record<string, unknown> | null;

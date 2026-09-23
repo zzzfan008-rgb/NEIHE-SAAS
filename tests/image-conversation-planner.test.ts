@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { ApiYiImageConversationPlannerModel } from "../server/providers/imageConversationPlanner";
+import { ProviderError } from "../server/providers/base";
 import {
   ImageConversationPlanner,
   ImageConversationPlannerError,
@@ -116,5 +118,84 @@ const timeoutPlanner = new ImageConversationPlanner({
 await assert.rejects(() => timeoutPlanner.plan(input), (error: unknown) => (
   error instanceof ImageConversationPlannerError && error.code === "timeout"
 ));
+
+const originalFetch = globalThis.fetch;
+const originalConsoleError = console.error;
+const envKeys = ["APIYI_API_KEY", "APIYI_BASE_URL", "IMAGE_CONVERSATION_PLANNER_MODEL"] as const;
+const originalEnv = envKeys.map((key) => process.env[key]);
+const diagnostics: unknown[][] = [];
+const fakeKey = "private-token-for-planner-diagnostic-test";
+let providerCalls = 0;
+try {
+  process.env.APIYI_API_KEY = fakeKey;
+  process.env.APIYI_BASE_URL = "https://planner.invalid";
+  process.env.IMAGE_CONVERSATION_PLANNER_MODEL = "test-planner";
+  console.error = (...args: unknown[]) => { diagnostics.push(args); };
+  globalThis.fetch = async () => {
+    providerCalls += 1;
+    return new Response(JSON.stringify({ error: {
+      message: `Unsupported temperature; ${fakeKey} sk-secret-test https://private.invalid/path data:image/png;base64,AAAA`,
+      type: "invalid_request_error", code: "unsupported_value", param: "temperature",
+    } }), { status: 400 });
+  };
+  const adapter = new ApiYiImageConversationPlannerModel();
+  const failingPlanner = new ImageConversationPlanner(adapter);
+  await assert.rejects(() => failingPlanner.plan(input), (error: unknown) => {
+    assert.ok(error instanceof ImageConversationPlannerError);
+    assert.equal(error.code, "model_error");
+    assert.equal(error.message, "image conversation planner failed");
+    assert.ok(error.cause instanceof ProviderError);
+    assert.equal(error.cause.status, 400);
+    return true;
+  });
+  assert.equal(providerCalls, 1, "diagnostics must not retry the paid request");
+  assert.equal(diagnostics.length, 1, "provider failure must produce one diagnostic");
+  assert.equal(diagnostics[0][0], "[image-conversation-planner-failure]");
+  const diagnostic = JSON.parse(String(diagnostics[0][1]));
+  assert.equal(diagnostic.model, "test-planner");
+  assert.equal(diagnostic.status, 400);
+  assert.equal(diagnostic.category, "invalid_request");
+  assert.match(diagnostic.diagnostic, /unsupported_value/);
+  assert.match(diagnostic.diagnostic, /temperature/);
+  const logged = JSON.stringify(diagnostics);
+  for (const secret of [fakeKey, "sk-secret-test", "https://private.invalid", "data:image/png", input.prompt]) {
+    assert.ok(!logged.includes(secret), "logs must not contain credentials, URLs, images or request prompts");
+  }
+  diagnostics.length = 0;
+  globalThis.fetch = async () => new Response("not JSON", { status: 200 });
+  await assert.rejects(() => failingPlanner.plan(input), ImageConversationPlannerError);
+  assert.equal(diagnostics.length, 1);
+  assert.equal(JSON.parse(String(diagnostics[0][1])).errorType, "SyntaxError");
+  diagnostics.length = 0;
+  let gatewayCalls = 0;
+  let wireBody: { response_format: { type: string }; messages: Array<{ role: string; content: string }> } | undefined;
+  globalThis.fetch = async (_url, init) => {
+    gatewayCalls += 1;
+    wireBody = JSON.parse(String(init?.body));
+    // Some gateways validate Responses input separately from system instructions.
+    const userMessage = wireBody!.messages.find((message) => message.role === "user")!;
+    if (!/\bjson\b/i.test(userMessage.content)) {
+      return new Response(JSON.stringify({ error: {
+        message: "Response input messages must contain the word 'json' to use json_object.",
+        type: "invalid_request_error", param: "input",
+      } }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(ready(1, ["综合修改"])) } }] }));
+  };
+  assert.deepEqual(await failingPlanner.plan(input), ready(1, ["综合修改"]));
+  assert.equal(gatewayCalls, 1);
+  assert.equal(diagnostics.length, 0);
+  assert.equal(wireBody!.response_format.type, "json_object");
+  assert.equal(wireBody!.messages[0].content, combined.seen!.systemPrompt);
+  const userContent = wireBody!.messages[1].content;
+  assert.deepEqual(JSON.parse(userContent.slice(userContent.indexOf("\n") + 1)), input, "JSON mode instruction must not modify the input snapshot");
+} finally {
+  globalThis.fetch = originalFetch;
+  console.error = originalConsoleError;
+  envKeys.forEach((key, index) => {
+    if (originalEnv[index] === undefined) delete process.env[key];
+    else process.env[key] = originalEnv[index];
+  });
+}
 
 console.log("image-conversation-planner: ok");

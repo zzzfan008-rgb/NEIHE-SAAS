@@ -101,6 +101,118 @@ test("late planning completion cannot select its old conversation", async ({ pag
   await expect(panel.getByRole("textbox", { name: "对话修改指令" })).toHaveValue("conversation B draft");
 });
 
+test("accepted round is cached for the initiating tab and resumes polling when returning", async ({ page }) => {
+  const view = conversation();
+  const panel = await open(page, { [view.id]: view });
+  let release: (() => void) | undefined;
+  let historyReads = 0;
+  await page.route(/\/api\/image-conversations\/fix-conversation\?/, (route) => {
+    historyReads += 1;
+    return route.fulfill({ json: view });
+  });
+  await page.route("**/api/image-conversations/*/rounds/plan", async (route) => {
+    await new Promise<void>((resolve) => { release = resolve; });
+    view.rounds = [{ ...round(view, route.request().postDataJSON().clientRequestId), status: "queued" }];
+    await route.fulfill({ status: 202, json: { kind: "ready", round: view.rounds[0] } });
+  });
+  await panel.getByRole("textbox", { name: "对话修改指令" }).fill("submitted");
+  await panel.getByRole("button", { name: "发送", exact: true }).click();
+  await expect.poll(() => Boolean(release)).toBe(true);
+  const originalTarget = await page.evaluate(async () => {
+    const path = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocumentTarget } = await import(path);
+    const state = useFlowStore.getState(), target = selectActiveDocumentTarget(state);
+    const original = state.tabs.find((tab: { id: string }) => tab.id === target.tabId);
+    useFlowStore.setState({ tabs: [...state.tabs, { ...original, id: "second-tab", projectId: "second-project", nodes: [], selectedNodeIds: [] }], activeTabId: "second-tab" });
+    return target;
+  });
+  release!();
+  await expect.poll(() => page.evaluate(async (target) => {
+    const path = "/src/store/imageConversationStore.ts";
+    const { useImageConversationStore, getImageConversationTargetState } = await import(path);
+    return getImageConversationTargetState(useImageConversationStore.getState(), target)?.conversation?.rounds[0]?.status;
+  }, originalTarget)).toBe("queued");
+  expect((await state(page)).conversation).toBeNull();
+  const readsBefore = historyReads;
+  await page.evaluate(async (target) => {
+    const path = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(path);
+    useFlowStore.setState({ activeTabId: target.tabId });
+  }, originalTarget);
+  await expect.poll(() => historyReads).toBeGreaterThan(readsBefore);
+  await expect(panel.getByRole("button", { name: "发送", exact: true })).toBeDisabled();
+});
+
+test("late planning acceptance cannot write into a replaced document epoch", async ({ page }) => {
+  const view = conversation();
+  const panel = await open(page, { [view.id]: view });
+  let release: (() => void) | undefined;
+  await page.route("**/api/image-conversations/*/rounds/plan", async (route) => {
+    await new Promise<void>((resolve) => { release = resolve; });
+    await route.fulfill({ json: { kind: "ready", round: { ...round(view, route.request().postDataJSON().clientRequestId), status: "queued" } } });
+  });
+  await panel.getByRole("textbox", { name: "对话修改指令" }).fill("submitted");
+  await panel.getByRole("button", { name: "发送", exact: true }).click();
+  await expect.poll(() => Boolean(release)).toBe(true);
+  const originalTarget = await page.evaluate(async () => {
+    const path = "/src/store/flowStore.ts";
+    const { useFlowStore, selectActiveDocumentTarget } = await import(path);
+    const target = selectActiveDocumentTarget(useFlowStore.getState());
+    useFlowStore.getState().loadFlow({ projectId: "replacement-project", projectName: "替换", nodes: [], edges: [], markDirty: false });
+    return target;
+  });
+  release!();
+  await expect.poll(() => page.evaluate(async (target) => {
+    const path = "/src/store/imageConversationStore.ts";
+    const { useImageConversationStore, getImageConversationTargetState } = await import(path);
+    return getImageConversationTargetState(useImageConversationStore.getState(), target)?.sending;
+  }, originalTarget)).toBe(false);
+  expect((await state(page)).conversation).toBeNull();
+});
+
+for (const nextMode of ["single", "mask"] as const) {
+  test(`clarification uses original round with an empty ${nextMode} next draft`, async ({ page }) => {
+    const view = conversation();
+    const panel = await open(page, { [view.id]: view });
+    const requests: Array<Record<string, unknown>> = [];
+    let release: (() => void) | undefined;
+    await page.route("**/api/image-conversations/*/rounds/plan", async (route) => {
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      if (requests.length === 1) {
+        await new Promise<void>((resolve) => { release = resolve; });
+        const pending = round(view, body.clientRequestId);
+        pending.prompt = "original submitted prompt";
+        pending.status = "clarification_required";
+        pending.clarification = { id: "fix-clarification", roundId: pending.id, question: "保留背景吗？", reason: "ambiguous_requirement", requestedCount: null, specifiedIntentCount: null, status: "open", responses: [], createdAt: now, updatedAt: now };
+        view.rounds = [pending];
+      } else {
+        view.rounds = [{ ...view.rounds[0], status: "succeeded", clarification: { ...view.rounds[0].clarification!, status: "resolved" } }];
+      }
+      await route.fulfill({ json: { kind: requests.length === 1 ? "clarification" : "ready", round: view.rounds[0] } });
+    });
+    await panel.getByRole("textbox", { name: "对话修改指令" }).fill("original submitted prompt");
+    await panel.getByRole("button", { name: "发送", exact: true }).click();
+    await expect.poll(() => Boolean(release)).toBe(true);
+    await panel.getByRole("textbox", { name: "对话修改指令" }).fill("");
+    if (nextMode === "mask") await panel.getByRole("tab", { name: "局部重绘" }).click();
+    release!();
+    const answer = panel.getByRole("textbox", { name: "澄清补充回答" });
+    await expect(answer).toBeVisible();
+    await answer.fill("保留");
+    await expect(panel.getByRole("button", { name: "提交补充", exact: true })).toBeEnabled();
+    await answer.press("Control+Enter");
+    await expect.poll(() => requests.length).toBe(2);
+    expect(requests[1]).toMatchObject({ prompt: "original submitted prompt", mode: "single",
+      inputManifest: view.rounds[0].inputManifest, parameters: view.rounds[0].parameters,
+      clarificationRoundId: "fix-round", clarificationAnswer: "保留" });
+    await expect.poll(async () => (await state(page)).sending).toBe(false);
+    expect((await state(page)).mode).toBe(nextMode);
+    expect((await state(page)).modeDrafts.single.prompt).toBe("");
+    expect((await state(page)).draftDirty.single).toBe(true);
+  });
+}
+
 test("selected result becomes the next base and appears in global compare immediately", async ({ page }) => {
   const view = conversation();
   const completed = round(view, "completed-request");
