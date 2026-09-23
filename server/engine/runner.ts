@@ -493,7 +493,7 @@ function frozenAngleControlPrompt(
     );
   }
   if (!control.config.enabled) return undefined;
-  return `受控相机视角（TiAngelNode，适配器版本 1）：${control.text.trim()} 该约束只改变最终观察视角，不改变人物身份、姿势、服装、场景或光照；不得将画面 roll 理解为身体侧倾。若用户补充文字、场景分析、姿势分析或风格要求与本段冲突，以本段为准。`;
+  return `受控相机视角（TiAngelNode，适配器版本 1）：${control.text.trim()} 该约束只改变最终观察视角，不改变人物身份、姿势、服装、场景或光照；不得将画面 roll 理解为身体侧倾。若本视角描述与上方姿势要求冲突，以上方姿势要求为准，仅调整观察角度，不改变姿势；若与其他补充要求冲突，以本段为准。`;
 }
 
 const SCENE_STABILIZE_REFERENCE_ORDER = [
@@ -1972,7 +1972,7 @@ export async function executeStep(
           ? frozenAngleControlPrompt(step.params, modelId)
           : undefined;
       const basePrompt = multiImageEdit
-        ? multiImageTryOnPrompt(multiImageReferenceMap, extra, Boolean(angleControlText), step.params.multiImagePromptMode === "concise", step.params.poseReferenceType)
+        ? multiImageTryOnPrompt(multiImageReferenceMap, extra, Boolean(angleControlText), step.params.multiImagePromptMode === "concise", step.params.poseReferenceType, step.params.posePrompt)
         : step.kind === "sketch-optimize"
           ? sketchOptimizationPrompt(extra)
           : step.kind === "background-extract"
