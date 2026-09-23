@@ -58,3 +58,6 @@ test-*.png
 test-*.jpg
 shot-*.png
 button-animation-demos.html
+
+# 私有接口文档草稿，不入库
+doc/apimart 接口文档.md
