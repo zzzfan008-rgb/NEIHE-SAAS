@@ -37,6 +37,9 @@ export function WorkbenchShell({ inspector, conversation, onConversationClick, c
     if (!state.resultsFlyoutOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // Consume Escape so the dock-close listener below does not also fire on the same press.
+      event.preventDefault();
+      event.stopImmediatePropagation();
       dispatch({ type: "close-results-flyout" });
     };
     window.addEventListener("keydown", onKeyDown);
@@ -172,6 +175,7 @@ export function WorkbenchShell({ inspector, conversation, onConversationClick, c
           </div>
         </aside>
 
+        {!state.conversationDockOpen && (
         <Tooltip>
           <TooltipTrigger
             render={(
@@ -194,7 +198,9 @@ export function WorkbenchShell({ inspector, conversation, onConversationClick, c
           />
           <TooltipContent side="left">{state.rightDockOpen ? "收起属性" : "展开属性"}</TooltipContent>
         </Tooltip>
+        )}
 
+        {!state.conversationDockOpen && (
         <Tooltip>
           <TooltipTrigger
             render={(
@@ -217,8 +223,9 @@ export function WorkbenchShell({ inspector, conversation, onConversationClick, c
               </Button>
             )}
           />
-          <TooltipContent side="left">{state.conversationDockOpen ? "收起对话修改" : "打开对话修改"}</TooltipContent>
+          <TooltipContent side="left">打开对话修改</TooltipContent>
         </Tooltip>
+        )}
       </div>
     </TooltipProvider>
   );

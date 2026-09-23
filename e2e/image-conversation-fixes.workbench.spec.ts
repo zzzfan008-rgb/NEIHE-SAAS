@@ -256,7 +256,7 @@ test("accepted conversation run keeps streaming into global results after closin
   });
   await open(page, { [view.id]: view });
   await expect.poll(() => Boolean(release)).toBe(true);
-  await page.getByRole("button", { name: "对话修改", exact: true }).click();
+  await page.getByRole("button", { name: "关闭对话修改" }).click();
   await expect(page.getByTestId("image-conversation-panel")).not.toBeVisible();
   release!();
   await expect.poll(() => page.evaluate(async () => {

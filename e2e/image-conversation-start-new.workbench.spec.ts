@@ -100,9 +100,10 @@ test("start-new upload creates an independent conversation and preserves the ori
   });
   expect(afterStartNew.sourceRef).toMatch(/^\/api\/files\/[A-Za-z0-9_-]+\.png$/);
 
+  // 入口按钮在 dock 展开时隐藏，改为先关闭再重开：重开时按所指图片（原底图）恢复原对话草稿。
+  await page.getByRole("button", { name: "关闭对话修改" }).click();
+  await expect(panel).toBeHidden();
   await page.getByRole("button", { name: "对话修改", exact: true }).click();
-  // 已展开时点击且所指图片（原底图）属于另一对话：按 §2 切换而非收起，直接恢复原对话草稿。
-  await expect(panel).toBeVisible();
   await expect(prompt).toHaveValue("原对话未发送草稿");
 
   const restored = await page.evaluate(async () => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { AlertTriangleIcon, ImageIcon, MessageCircleIcon, UploadIcon } from "lucide-react";
+import { AlertTriangleIcon, ImageIcon, MessageCircleIcon, UploadIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -738,6 +738,16 @@ export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onColla
               {sourceRef ? `当前来源：${sourceLabel(sourceRef)}` : selectedSources.length > 0 ? `已选择 ${selectedSources.length} 张图片，等待指定底图` : "尚未选择底图"}
             </p>
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="关闭对话修改"
+            className="ml-auto shrink-0 text-[var(--gc-text-muted)] hover:text-[var(--gc-text)]"
+            onClick={() => onCollapse?.()}
+          >
+            <XIcon aria-hidden="true" />
+          </Button>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5 pl-6">
           <Button type="button" variant="ghost" size="xs" onClick={() => openUpload("new")} disabled={selection.readOnly || uploading}>

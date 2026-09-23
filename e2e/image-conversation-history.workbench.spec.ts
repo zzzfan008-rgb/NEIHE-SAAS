@@ -98,7 +98,7 @@ test("persisted conversation history restores snapshots and collapsed parameters
 
   // Re-opening the Dock must resolve the server history again instead of only
   // relying on the in-memory conversation store.
-  await page.getByRole("button", { name: "对话修改", exact: true }).click();
+  await page.getByRole("button", { name: "关闭对话修改" }).click();
   await expect(panel).toBeHidden();
   await page.getByRole("button", { name: "对话修改", exact: true }).click();
   await expect(history.getByText("第 1 轮 · 局部重绘")).toBeVisible();

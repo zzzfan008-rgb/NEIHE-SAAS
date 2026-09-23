@@ -67,7 +67,7 @@ export function ConversationHistory({
   }
 
   return (
-    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3" aria-label="对话修改历史">
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3" role="region" aria-label="对话修改历史">
       {conversation.rounds.map((round) => (
         <RoundCard
           key={round.id}

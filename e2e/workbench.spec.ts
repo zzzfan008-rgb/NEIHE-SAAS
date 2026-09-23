@@ -3539,8 +3539,8 @@ test("conversation edit dock preserves desktop geometry, focus, and mode drafts"
   const transformBefore = await viewportTransform.evaluate((element) => getComputedStyle(element).transform);
 
   await conversationToggle.click();
-  await expect(conversationToggle).toHaveAttribute("aria-expanded", "true");
-  await expect(propertyToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(conversationToggle).toBeHidden();
+  await expect(propertyToggle).toBeHidden();
   await expect(panel).toBeVisible();
   await expect(panel.getByRole("tab", { name: "单图修改" })).toBeVisible();
   await expect(panel.getByRole("tab", { name: "多图融合" })).toBeVisible();
@@ -3570,6 +3570,8 @@ test("conversation edit dock preserves desktop geometry, focus, and mode drafts"
   await panel.getByRole("tab", { name: "局部重绘" }).click();
   await expect(prompt).toHaveValue("蒙版草稿");
 
+  await page.getByRole("button", { name: "关闭对话修改" }).click();
+  await expect(panel).toBeHidden();
   await propertyToggle.click();
   await expect(propertyToggle).toHaveAttribute("aria-expanded", "true");
   await expect(conversationToggle).toHaveAttribute("aria-expanded", "false");
@@ -3578,8 +3580,8 @@ test("conversation edit dock preserves desktop geometry, focus, and mode drafts"
   await expect.poll(async () => viewportTransform.evaluate((element) => getComputedStyle(element).transform)).toBe(transformBefore);
 
   await conversationToggle.click();
-  await expect(conversationToggle).toHaveAttribute("aria-expanded", "true");
-  await expect(propertyToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(conversationToggle).toBeHidden();
+  await expect(propertyToggle).toBeHidden();
   await page.keyboard.press("Escape");
   await expect(conversationToggle).toHaveAttribute("aria-expanded", "false");
   await expect(conversationToggle).toBeFocused();
