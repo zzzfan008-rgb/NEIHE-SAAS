@@ -78,7 +78,7 @@ function Option({ label, value, items, disabled, onChange }: {
   return <div className="min-w-0 space-y-1">
     <span className="text-[10px] text-[var(--gc-text-muted)]">{label}</span>
     <Select value={value} disabled={disabled} onValueChange={next => { if (next) onChange(next); }}>
-      <SelectTrigger aria-label={label} className="h-8 w-full min-w-0 text-xs"><SelectValue>{items.find(([key]) => key === value)?.[1] ?? value}</SelectValue></SelectTrigger>
+      <SelectTrigger aria-label={label} className="nodrag nopan h-8 w-full min-w-0 text-xs"><SelectValue>{items.find(([key]) => key === value)?.[1] ?? value}</SelectValue></SelectTrigger>
       <SelectContent>{items.map(([key, text]) => <SelectItem key={key} value={key}>{text}</SelectItem>)}</SelectContent>
     </Select>
   </div>;

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   buildExecutionPlan,
   assertPlanInputs,
@@ -319,6 +322,14 @@ for (const kind of Object.keys(NODE_SPECS) as NodeKind[]) {
     else assert.ok(error, `${kind}.${port.id} 不应接受图片`);
   }
 }
+
+const testRoot = path.dirname(fileURLToPath(import.meta.url));
+const characterBoardSource = fs.readFileSync(
+  path.resolve(testRoot, "../src/components/nodes/CharacterBoardNode.tsx"),
+  "utf8",
+);
+// 画板规格下拉在 React Flow 节点内必须带 nodrag nopan，否则触发器点击被节点拖拽吞掉。
+assert.match(characterBoardSource, /画板规格[^\n]*nodrag nopan/, "画板规格下拉须带 nodrag nopan");
 console.log(
   "character-board: schema, fixed generation, image output and document boundary tests passed",
 );

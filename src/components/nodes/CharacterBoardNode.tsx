@@ -57,7 +57,7 @@ export function CharacterBoardNode({ id, data, selected }: NodeProps<Node<Charac
       <div className="min-w-0 space-y-1">
         <span className="text-[10px] text-[var(--gc-text-muted)]">画板规格</span>
         <Select value={boardLayout} disabled={disabled} onValueChange={(next) => { if (next) setBoardLayout(next as "2x2" | "1x3"); }}>
-          <SelectTrigger aria-label="画板规格" className="h-8 w-full min-w-0 text-xs"><SelectValue>{boardLayout === "1x3" ? "1×3 三视图" : "2×2 四视图"}</SelectValue></SelectTrigger>
+          <SelectTrigger aria-label="画板规格" className="nodrag nopan h-8 w-full min-w-0 text-xs"><SelectValue>{boardLayout === "1x3" ? "1×3 三视图" : "2×2 四视图"}</SelectValue></SelectTrigger>
           <SelectContent>
             <SelectItem value="2x2">2×2 四视图</SelectItem>
             <SelectItem value="1x3">1×3 三视图</SelectItem>
