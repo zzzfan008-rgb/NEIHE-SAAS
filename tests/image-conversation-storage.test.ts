@@ -8,6 +8,7 @@ import {
   createOrResolveImageConversation,
   getImageConversation,
   linkImageConversationOutput,
+  imageConversationClarificationFingerprint,
   resolveImageConversation,
 } from "../server/lib/imageConversationStore";
 import { migrateImageConversations } from "../server/lib/imageConversationMigration";
@@ -304,5 +305,15 @@ await test("stale planning reservations are reclaimed instead of blocking the co
   );
   assert.equal(reReserved.kind, "reserved");
 });
+
+// S1：澄清去重指纹必须同时覆盖问题与答案，避免不同问题同答案被误判为 replay。
+assert.equal(
+  imageConversationClarificationFingerprint("颜色用蓝色吗？", "是"),
+  imageConversationClarificationFingerprint("颜色用蓝色吗？", "是"),
+);
+assert.notEqual(
+  imageConversationClarificationFingerprint("颜色用蓝色吗？", "是"),
+  imageConversationClarificationFingerprint("保留背景吗？", "是"),
+);
 
 console.log(`image-conversation-storage: ${passed} passed`);

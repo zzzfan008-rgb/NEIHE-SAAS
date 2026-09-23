@@ -45,6 +45,10 @@ export async function reconcileImageConversationRun(runId: string): Promise<void
     `, [runId], client);
     if (!run) return;
     const attemptStatus = mapAttemptStatus(run.status);
+    // Already synced: the attempt, its outputs and derived statuses were persisted
+    // atomically with this status, so a read repair that would rewrite identical rows
+    // is skipped (terminal <-> unknown transitions still reconcile because they differ).
+    if (attemptStatus === attempt.status) return;
     await client.query(
       "UPDATE image_conversation_attempts SET status = $2, error = $3, updated_at = $4 WHERE id = $1",
       [attempt.id, attemptStatus, run.error, new Date().toISOString()],

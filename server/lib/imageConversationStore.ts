@@ -556,8 +556,8 @@ export async function resolveImageConversationContext(
   });
 }
 
-export function imageConversationClarificationFingerprint(answer: string): string {
-  return createHash("sha256").update(answer.trim()).digest("hex");
+export function imageConversationClarificationFingerprint(question: string, answer: string): string {
+  return createHash("sha256").update(`${question}\u0000${answer.trim()}`).digest("hex");
 }
 
 /** Every resource is checked before invoking the paid planner; enqueue checks again. */
@@ -744,7 +744,6 @@ export async function applyImageConversationPlan(
     throw new ImageConversationValidationError("clientRequestId is required");
   }
   const clarificationRoundId = input.clarificationRoundId;
-  const fingerprint = imageConversationClarificationFingerprint(answer);
   const result = await transaction(async (client) => {
     if (!await lockActiveOwner(client, input.ownerId)) throw new ImageConversationAccessError();
     await assertProjectAccess(client, input.ownerId, input.projectId);
@@ -763,6 +762,7 @@ export async function applyImageConversationPlan(
       FOR UPDATE
     `, [round.id, input.ownerId, input.projectId], client);
     if (!clarification) throw new ImageConversationAccessError();
+    const fingerprint = imageConversationClarificationFingerprint(clarification.question, answer);
     const responses = parseClarificationResponses(clarification.responses);
     const duplicate = responses.find((response) => response.clientRequestId === input.clientRequestId);
     if (duplicate && duplicate.fingerprint !== fingerprint) throw new ImageConversationConflictError();
