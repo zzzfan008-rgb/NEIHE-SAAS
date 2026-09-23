@@ -205,7 +205,8 @@ for (const prompt of [enhancedAngle.prompts[0], enhancedAngle.judgedPrompt]) {
   assert.match(prompt, /允许为目标镜头合理重建透视/);
   assert.match(prompt, /姿势引导只控制肢体动作及关节相对关系/);
   assert.match(prompt, /按目标相机角度合理投影/);
-  assert.match(prompt, /若用户补充文字、场景分析、姿势分析或风格要求与本段冲突，以本段为准/);
+  assert.match(prompt, /若本视角描述与上方姿势要求冲突，以上方姿势要求为准/);
+  assert.match(prompt, /若与其他补充要求冲突，以本段为准/);
   assert.match(prompt, /环绕角 45°/);
 }
 

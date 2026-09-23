@@ -26,8 +26,8 @@ for (const concise of [false, true]) {
     assert.match(prompt, /风格化的人物形象/);
     assert.match(prompt, /公众人物/);
     assert.match(prompt, /不复制参考图中任何真实可识别个人/);
-    assert.match(prompt, /参照图1.*头部朝向.*手部动作.*双腿弯曲/);
-    assert.match(prompt, /图1只提供动作几何参考/);
+    assert.match(prompt, /动作（最高优先级）.*身体朝向.*手部动作.*双腿弯曲/);
+    assert.match(prompt, /图1是唯一姿势锚点/);
     assert.match(prompt, /一律禁止进入成片/);
     assert.match(prompt, /采用图3的场景、光照/);
     assert.match(prompt, /保留胸前印花和项链/);
@@ -35,7 +35,7 @@ for (const concise of [false, true]) {
     assert.match(prompt, /针织组织、蕾丝、缝线/);
     assert.match(prompt, /体型、发型方向、肤色基调/);
     assert.doesNotMatch(prompt, /换脸|身份替换|执行一次多图编辑换装/);
-    if (angleControlled) assert.match(prompt, /姿势图控制关节动作，但不覆盖3D视角/);
+    if (angleControlled) assert.match(prompt, /在已逐关节1:1复刻的图1姿势基础上/);
     else {
       assert.match(prompt, /保持姿势参考的动作与左右关系，不镜像/);
       assert.match(prompt, /取景以图1姿势参考为准/);
@@ -51,9 +51,16 @@ assert.match(skeletonPrompt, /1:1复刻人物动作/);
 assert.match(skeletonPrompt, /骨骼线条与关键点不得渲染到成图/);
 assert.match(skeletonPrompt, /逐点对齐/);
 assert.doesNotMatch(skeletonPrompt, /参照图1提取身体朝向/);
-assert.match(multiImageTryOnPrompt(referenceMap, "", true, false, "skeleton"), /骨骼图控制关节动作/);
+assert.match(multiImageTryOnPrompt(referenceMap, "", true, false, "skeleton"), /在已逐关节1:1复刻的图1姿势基础上/);
 assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "skeleton"), /取景以场景图与构图需要为准/);
-assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /参照图1提取身体朝向/);
+assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /逐关节1:1复刻图1的动作/);
+const orderedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original");
+assert.ok(orderedPrompt.indexOf("动作（最高优先级）") < orderedPrompt.indexOf("人物：参考图2仅提供"), "姿势约束先于人物描述");
+const promptedPose = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "画面左腿交叉，肩线倾斜");
+assert.match(promptedPose, /用户确认的姿势描述：画面左腿交叉，肩线倾斜/);
+assert.match(promptedPose, /冲突时以图1可见几何为准/);
+assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original", ""), /用户确认的姿势描述/);
+assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /用户确认的姿势描述/);
 const baseRoles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
 const allRoles = [...MULTI_IMAGE_TRY_ON_ROLES, "detail", "detail", "detail", "detail"];
 for (const count of [4, 5, 6, 7, 14, 15, 20]) {
@@ -106,7 +113,10 @@ assert.ok(boundedSheet.buffer.length <= PROVIDER_TARGET_BYTES, "高细节配饰�
 assert.equal(boundedSheet.mime, "image/jpeg", "大拼图触发有界压缩，普通小拼图仍保持PNG");
 const packed = await prepareMultiImageTryOn(images, allRoles, images, pro);
 assert.equal(packed.referenceImages.length, 12);
-assert.deepEqual(packed.referenceImages.slice(0, 3), images.slice(0, 3), "前三张原图原样传递");
+assert.equal(packed.referenceImages[1], images[1], "人物原图原样传递");
+assert.equal(packed.referenceImages[2], images[2], "场景原图原样传递");
+const packedPose = await sharp(parseDataUrl(packed.referenceImages[0]).buffer).metadata();
+assert.equal(Math.max(packedPose.width!, packedPose.height!), 2048, "姿势参考放大到至少 2048 长边");
 assert.equal(packed.references.length, 20);
 assert.deepEqual(readMultiImageReferenceManifest(packed.references), packed.references);
 assert.equal(readMultiImageReferenceManifest([{ ...packed.references[0], number: 2 }, ...packed.references.slice(1)]), undefined);
@@ -235,11 +245,13 @@ try {
       await executeStep(step, images.slice(0, 4), () => ({ id: modelId,
         edit: async request => {
           calls++;
-          assert.deepEqual(request.referenceImages, images.slice(0, 4), "TiAngel不新增图片或改变图序");
+          assert.deepEqual(request.referenceImages.slice(1), images.slice(1, 4), "TiAngel不新增图片或改变非姿势图序");
+          const poseMeta = await sharp(parseDataUrl(request.referenceImages[0]).buffer).metadata();
+          assert.equal(Math.max(poseMeta.width!, poseMeta.height!), 2048, "姿势参考放大到至少 2048 长边");
           assert.match(request.prompt, /针织组织、蕾丝、缝线/);
           if (control) {
             assert.ok(request.prompt.includes(control.text));
-            assert.match(request.prompt, /姿势图控制关节动作，但不覆盖3D视角/);
+            assert.match(request.prompt, /在已逐关节1:1复刻的图1姿势基础上/);
             assert.doesNotMatch(request.prompt, /取景以图1姿势参考为准/);
           } else {
             assert.match(request.prompt, /取景以图1姿势参考为准/);
@@ -262,8 +274,10 @@ try {
     const edit = async (request: ImageGenRequest) => {
       calls++;
       assert.ok(request.referenceImages!.length <= 14);
-      assert.deepEqual(request.referenceImages!.slice(0, 3), sourceImages.slice(0, 3));
-      if (roles.length <= 14) assert.deepEqual(request.referenceImages, sourceImages);
+      assert.deepEqual(request.referenceImages!.slice(1, 3), sourceImages.slice(1, 3));
+      const proPose = await sharp(parseDataUrl(request.referenceImages![0]).buffer).metadata();
+      assert.equal(Math.max(proPose.width!, proPose.height!), 2048, "姿势参考放大到至少 2048 长边");
+      if (roles.length <= 14) assert.deepEqual(request.referenceImages!.slice(1), sourceImages.slice(1));
       assert.match(request.prompt, /输出一张完整的服装摄影照片/);
       assert.match(request.prompt, /针织组织、蕾丝、缝线/);
       assert.doesNotMatch(request.prompt, /不强求针目|完成第一轮场景化/);
@@ -285,6 +299,20 @@ try {
     assert.equal(recorded!.references.length, roles.length, "记录保留全部原图与参数编号映射");
     assert.deepEqual(recorded!.references.slice(0, 3).map(ref => ref.role), ["pose", "person", "scene"]);
   }
+  let posePromptCalls = 0;
+  await executeStep({ nodeId: "stabilize", kind: "virtual-try-on", inputImages: images.slice(0, 4),
+    params: { ...data, modelId: "gemini-3.1-flash-image", sceneFraming: "scene", posePrompt: "画面左腿交叉，肩线倾斜" } },
+  images.slice(0, 4), () => ({
+    id: "gemini-3.1-flash-image",
+    edit: async request => {
+      posePromptCalls++;
+      assert.match(request.prompt, /用户确认的姿势描述：画面左腿交叉，肩线倾斜/);
+      return { images: [images[0]], model: "gemini-3.1-flash-image" };
+    },
+    generate: async () => { throw new Error("必须多图编辑，不得文生图"); },
+  }), { referenceRoles: ["pose", "person", "scene", "outfit"],
+    candidateSelector: async () => ({ selectedIndex: 0, scores: [], model: "mock", providerRequests: 0, allHardFail: false }) });
+  assert.equal(posePromptCalls, 1, "反推姿势描述必须进入多图第一轮请求");
   let disabledReviewCalls = 0;
   const noReview = await executeStep({
     nodeId: "stabilize", kind: "virtual-try-on", inputImages: images.slice(0, 4),
