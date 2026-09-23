@@ -58,7 +58,9 @@ const orderedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "ori
 assert.ok(orderedPrompt.indexOf("动作（最高优先级）") < orderedPrompt.indexOf("人物：参考图2仅提供"), "姿势约束先于人物描述");
 const promptedPose = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "画面左腿交叉，肩线倾斜");
 assert.match(promptedPose, /用户确认的姿势描述：画面左腿交叉，肩线倾斜/);
-assert.match(promptedPose, /冲突时以图1可见几何为准/);
+assert.match(promptedPose, /肢体关节位置、弯曲、前后与承重以图1可见几何为准/);
+assert.match(promptedPose, /头部旋转、俯仰、视线方向与面部神态以文字描述为准/);
+assert.doesNotMatch(promptedPose, /冲突时以图1可见几何为准/);
 assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original", ""), /用户确认的姿势描述/);
 assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /用户确认的姿势描述/);
 const baseRoles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
