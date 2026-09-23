@@ -22,14 +22,16 @@ for (const concise of [false, true]) {
   for (const angleControlled of [false, true]) {
     const prompt = multiImageTryOnPrompt(referenceMap, "保留胸前印花和项链", angleControlled, concise);
     assert.ok(prompt.includes(referenceMap));
-    assert.match(prompt, /以参考图2中的人物为主体/);
-    assert.match(prompt, /保持参考人物外观一致/);
+    assert.match(prompt, /以参考图2提供的人物造型基调/);
+    assert.match(prompt, /风格化的人物形象/);
+    assert.match(prompt, /公众人物/);
+    assert.match(prompt, /不复制参考图中任何真实可识别个人/);
     assert.match(prompt, /参照图1.*头部朝向.*手部动作.*双腿弯曲/);
     assert.match(prompt, /采用图3的场景、光照/);
     assert.match(prompt, /保留胸前印花和项链/);
     assert.match(prompt, /版型、颜色/);
     assert.match(prompt, /针织组织、蕾丝、缝线/);
-    assert.match(prompt, /自然肤质、发丝/);
+    assert.match(prompt, /体型、发型方向、肤色基调/);
     assert.doesNotMatch(prompt, /换脸|身份替换|执行一次多图编辑换装/);
     if (angleControlled) assert.match(prompt, /姿势图控制关节动作，但不覆盖3D视角/);
     else {
@@ -313,7 +315,7 @@ try {
         const prompt = parts[0].text as string;
         assert.equal(prompt, recorded?.prompt, "历史记录与真正发送的指令一致");
         sentPrompts.push(prompt);
-        assert.match(prompt, /保持参考人物外观一致/);
+        assert.match(prompt, /风格化的人物形象/);
         assert.match(prompt, /保留胸前印花/);
         assert.match(prompt, /参考图1：姿势/);
         if (count === 7) {
