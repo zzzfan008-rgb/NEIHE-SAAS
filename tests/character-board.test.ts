@@ -107,6 +107,31 @@ assert.throws(() =>
   }),
 );
 
+// boardLayout 校验：合法 2x2/1x3 通过，非法值拒绝。
+const board13 = {
+  ...board,
+  data: { ...board.data, boardLayout: "1x3" },
+};
+const restored13 = validateAndMigrateFlow(
+  documentSnapshotToPersistedWorkflow(createDocumentSnapshot({
+    projectName: "人物板三视图",
+    nodes: [board13],
+    edges: [],
+  })),
+);
+assert.equal(restored13.nodes[0].data.boardLayout, "1x3");
+assert.throws(() =>
+  validateAndMigrateFlow({
+    ...restored,
+    nodes: [{ ...board, data: { ...board.data, boardLayout: "3x3" } }],
+  }),
+);
+const legacyMigrated = validateAndMigrateFlow({
+  ...documentSnapshotToPersistedWorkflow(snapshot),
+  schemaVersion: 0,
+});
+assert.equal(legacyMigrated.nodes[0].data.boardLayout, "2x2", "旧文档迁移默认 2×2");
+
 let request: ImageGenRequest | undefined;
 let model: string | undefined;
 const generate = async (value: ImageGenRequest) => {
@@ -153,6 +178,35 @@ assert.ok(
 );
 assert.ok(!request?.prompt.includes("保留上传照片的服装与配饰"));
 assert.ok(!request?.prompt.includes("FORGED"));
+
+// 1×3 三视图：画幅 21:9，提示词含三视图布局且不含 2×2 专属内容。
+async function boardRequest(params: Record<string, unknown>) {
+  let captured: ImageGenRequest | undefined;
+  const provider2 = { id: "apiyi", generate: async (value: ImageGenRequest) => { captured = value; return { images: [pixel], model: DEFAULT_GENERATION_MODEL_ID }; }, edit: async (value: ImageGenRequest) => { captured = value; return { images: [pixel], model: DEFAULT_GENERATION_MODEL_ID }; } } as AIProvider;
+  await executeStep({ ...plan.steps[0], params }, [pixel], () => provider2);
+  return captured;
+}
+const threeView = await boardRequest({ boardLayout: "1x3" });
+assert.equal(threeView?.aspectRatio, "21:9");
+assert.equal(threeView?.modelOptions?.size, "2048x864");
+for (const text of [
+  "1行3列（严格1×3三宫格）",
+  "21:9横版",
+  "左：正面全身",
+  "中：侧面全身",
+  "右：背面全身",
+  "原图表情",
+  "浅白色无图案背心",
+  "浅白色短裤",
+])
+  assert.ok(threeView?.prompt.includes(text));
+assert.ok(!threeView?.prompt.includes("左上：正面全身"));
+assert.ok(!threeView?.prompt.includes("右上：背面全身"));
+assert.ok(!threeView?.prompt.includes("面部特写"));
+assert.ok(!threeView?.prompt.includes("严格2×2四宫格"));
+const fallbackBoard = await boardRequest({});
+assert.equal(fallbackBoard?.aspectRatio, "3:4");
+assert.ok(fallbackBoard?.prompt.includes("严格2×2四宫格"));
 await assert.rejects(() => executeStep(plan.steps[0], [], () => provider));
 
 useFlowStore.getState().createBlankTab();
@@ -250,6 +304,8 @@ for (const kind of Object.keys(NODE_SPECS) as NodeKind[]) {
   const targetNode = selectActiveDocument(useFlowStore.getState()).nodes.find(
     (node) => node.id === id,
   )!;
+  if (kind === "character-board")
+    assert.equal((targetNode.data as { boardLayout?: string }).boardLayout, "2x2", "新人物板节点默认 2×2");
   for (const port of inputPortSpecs(targetNode.data)) {
     const error = connectionCompatibilityError({
       source: board,

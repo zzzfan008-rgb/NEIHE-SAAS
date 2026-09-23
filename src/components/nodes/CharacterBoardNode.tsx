@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Position, type Node, type NodeProps } from "@xyflow/react";
 import { UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFlowStore, selectActiveDocumentTarget, selectActiveReadOnly } from "@/store/flowStore";
 import { isNodeRunActive, type CharacterBoardNodeData } from "@/types/workflow";
 import { uploadCharacterBoardSource } from "@/lib/characterBoardUpload";
@@ -12,12 +13,21 @@ import { ImageGrid } from "./ImageGrid";
 export function CharacterBoardNode({ id, data, selected }: NodeProps<Node<CharacterBoardNodeData>>) {
   const readOnly = useFlowStore(selectActiveReadOnly);
   const runNode = useFlowStore((state) => state.runNode);
+  const updateNodeData = useFlowStore((state) => state.updateNodeData);
   const picker = useRef<HTMLInputElement>(null);
   const busy = useRef(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string>();
   const running = isNodeRunActive(data.status);
   const disabled = readOnly || running || uploading;
+  const boardLayout = data.boardLayout ?? "2x2";
+  const setBoardLayout = (next: "2x2" | "1x3") => {
+    if (disabled || next === boardLayout) return;
+    updateNodeData(id, { boardLayout: next, error: undefined });
+  };
+  const layoutHint = boardLayout === "1x3"
+    ? "正面全身 · 侧面全身 · 背面全身三视图，统一人物身份与表情。"
+    : "正面全身 · 背面全身 · 侧面全身 · 面部特写，统一人物身份与表情。";
   const upload = async (file?: File) => {
     if (!file || disabled || busy.current) return;
     const target = selectActiveDocumentTarget(useFlowStore.getState());
@@ -43,7 +53,17 @@ export function CharacterBoardNode({ id, data, selected }: NodeProps<Node<Charac
       <Button variant="outline" className="nodrag nopan w-full border-[var(--gc-node-border)] bg-[var(--gc-node-main)] text-[var(--gc-node-text)] hover:bg-[var(--gc-node-inner-hover)] hover:text-[var(--gc-node-text)]" disabled={disabled} onClick={() => picker.current?.click()}>
         <UploadIcon aria-hidden="true" />{uploading ? "上传中…" : data.sourceImage ? "替换模特图" : "上传模特图"}
       </Button>
-      <p className="text-[10px] leading-relaxed text-[var(--gc-node-muted)]">正面全身 · 背面全身 · 侧面全身 · 面部特写，统一人物身份与表情。</p>
+      <p className="text-[10px] leading-relaxed text-[var(--gc-node-muted)]">{layoutHint}</p>
+      <div className="min-w-0 space-y-1">
+        <span className="text-[10px] text-[var(--gc-text-muted)]">画板规格</span>
+        <Select value={boardLayout} disabled={disabled} onValueChange={(next) => { if (next) setBoardLayout(next as "2x2" | "1x3"); }}>
+          <SelectTrigger aria-label="画板规格" className="h-8 w-full min-w-0 text-xs"><SelectValue>{boardLayout === "1x3" ? "1×3 三视图" : "2×2 四视图"}</SelectValue></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="2x2">2×2 四视图</SelectItem>
+            <SelectItem value="1x3">1×3 三视图</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       {error && <p role="alert" className="text-xs text-red-500">{error}</p>}
       <RunButton status={data.status} label="生成人物板" disabled={disabled || !data.sourceImage} onClick={() => void runNode(id)} />
       {running && <Developing />}

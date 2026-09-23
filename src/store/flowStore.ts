@@ -1232,7 +1232,7 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
     case "image-input":
       return { ...base, kind, imageRole: "default" };
     case "character-board":
-      return { ...base, kind, outputImages: [] };
+      return { ...base, kind, outputImages: [], boardLayout: "2x2" };
     case "background-extract":
       return {
         ...base,

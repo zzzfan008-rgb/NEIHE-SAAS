@@ -197,6 +197,8 @@ export interface CharacterBoardNodeData extends BaseNodeData {
   /** 上传原图仅用于本节点生成，不作为输出传给下游。 */
   sourceImage?: string;
   outputImages: string[];
+  /** 画板规格：2×2 四视图（默认）或 1×3 三视图。 */
+  boardLayout?: "2x2" | "1x3";
 }
 
 export interface ImageInputAutoConnectTarget {

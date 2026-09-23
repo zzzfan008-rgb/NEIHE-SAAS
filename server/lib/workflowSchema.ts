@@ -398,7 +398,7 @@ function migrateNodeData(
     case "image-input":
       return { imageRole: "default", ...raw };
     case "character-board":
-      return { outputImages: [], ...raw };
+      return { outputImages: [], boardLayout: "2x2", ...raw };
     case "background-extract":
       return {
         prompt: "",
@@ -662,6 +662,8 @@ function validateData(
           "must be an uploaded local image reference",
         );
       }
+      if (raw.boardLayout !== undefined)
+        oneOf(raw.boardLayout, ["2x2", "1x3"] as const, `${path}.boardLayout`);
       imageReferenceArray(raw.outputImages, `${path}.outputImages`, 1);
       break;
     case "ai-styling": {

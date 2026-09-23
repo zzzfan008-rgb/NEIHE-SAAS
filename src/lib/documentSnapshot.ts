@@ -38,6 +38,7 @@ export type DocumentNodeData =
       label: string;
       sourceImage?: string;
       outputImages: string[];
+      boardLayout?: "2x2" | "1x3";
     }
   | {
       kind: "outfit-reference";
@@ -388,6 +389,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         label: data.label,
         ...(data.sourceImage ? { sourceImage: data.sourceImage } : {}),
         outputImages: [...data.outputImages],
+        ...(data.boardLayout ? { boardLayout: data.boardLayout } : {}),
       };
     case "outfit-reference":
       return {

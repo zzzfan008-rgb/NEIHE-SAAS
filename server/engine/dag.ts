@@ -839,16 +839,20 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
       };
     case "image-input":
       return { imageUrl: data.imageUrl, imageRole: data.imageRole };
-    case "character-board":
+    case "character-board": {
+      const boardLayout = data.boardLayout === "1x3" ? "1x3" : "2x2";
+      const aspectRatio = boardLayout === "1x3" ? "21:9" : "3:4";
       return {
         modelId: DEFAULT_GENERATION_MODEL_ID,
         modelOptions: defaultImageModelOptions(
           DEFAULT_GENERATION_MODEL_ID,
-          "3:4",
+          aspectRatio,
         ),
         batchSize: 1,
-        aspectRatio: "3:4",
+        aspectRatio,
+        boardLayout,
       };
+    }
     case "text-input":
       return { text: data.text };
     case "ti-angle":
