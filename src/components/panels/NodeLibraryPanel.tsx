@@ -8,8 +8,8 @@ import {
   useFlowStore,
   type FlowNode,
 } from "@/store/flowStore";
-import { DND_MIME } from "../CanvasFlow";
 import { cn } from "@/lib/utils";
+import { CANVAS_CREATION_MIME, serializeCanvasCreationDragPayload } from "@/lib/canvasCreation";
 import { requestCanvasLanding } from "@/lib/canvasLanding";
 
 const KIND_ORDER: NodeKind[] = [
@@ -28,6 +28,32 @@ const KIND_ORDER: NodeKind[] = [
   "mask-redraw",
   "result",
 ];
+
+interface LibraryEntry {
+  kind: NodeKind;
+  preset?: Record<string, unknown>;
+  title: string;
+  description: string;
+}
+
+/** 人物姿势参考：独立入口，创建 image-input 的姿势变体（poseReference: true）。 */
+const POSE_REFERENCE_ENTRY: LibraryEntry = {
+  kind: "image-input",
+  preset: { poseReference: true },
+  title: "人物姿势参考",
+  description: "上传人物照片，生成 DWPose 骨骼图与深度图，锁定换装动作",
+};
+
+function libraryEntries(): LibraryEntry[] {
+  const entries = KIND_ORDER.map((kind) => ({
+    kind,
+    title: NODE_SPECS[kind].title,
+    description: NODE_SPECS[kind].description,
+  }));
+  const imageInputIndex = entries.findIndex((entry) => entry.kind === "image-input");
+  entries.splice(imageInputIndex + 1, 0, POSE_REFERENCE_ENTRY);
+  return entries;
+}
 
 export function nodeLibraryClickPosition(
   nodes: readonly FlowNode[],
@@ -62,7 +88,7 @@ export function NodeLibraryPanel({ className }: { className?: string }) {
 }
 
 function NodeList() {
-  const addByClick = (kind: NodeKind) => {
+  const addByClick = (kind: NodeKind, preset?: Record<string, unknown>) => {
     const state = useFlowStore.getState();
     const position = nodeLibraryClickPosition(
       selectActiveNodes(state),
@@ -70,7 +96,7 @@ function NodeList() {
     );
     let nodeId: string | null = null;
     flushSync(() => {
-      nodeId = useFlowStore.getState().addNode(kind, position);
+      nodeId = useFlowStore.getState().addNode(kind, position, preset);
     });
     if (!nodeId) return;
     requestCanvasLanding({
@@ -84,11 +110,10 @@ function NodeList() {
 
   return (
     <div className="flex-1 space-y-2 overflow-y-auto p-3">
-      {KIND_ORDER.map((kind) => {
-        const spec = NODE_SPECS[kind];
+      {libraryEntries().map(({ kind, preset, title, description }) => {
         return (
           <Card
-            key={kind}
+            key={title}
             size="sm"
             className="gc-node-library-card gap-0 rounded-lg bg-[var(--gc-panel)] py-0 ring-1 ring-[var(--gc-border)] transition-shadow hover:ring-[var(--gc-accent)]"
           >
@@ -96,17 +121,17 @@ function NodeList() {
               type="button"
               variant="ghost"
               draggable
-              onClick={() => addByClick(kind)}
+              onClick={() => addByClick(kind, preset)}
               onDragStart={(event) => {
-                event.dataTransfer.setData(DND_MIME, kind);
+                event.dataTransfer.setData(CANVAS_CREATION_MIME, serializeCanvasCreationDragPayload({ type: "node", kind, ...(preset ? { preset } : {}) }));
                 event.dataTransfer.effectAllowed = "move";
               }}
-              title={`点击添加${spec.title}，或拖拽到画布指定位置`}
+              title={`点击添加${title}，或拖拽到画布指定位置`}
               className="h-auto w-full cursor-grab select-none flex-col items-start gap-1 rounded-lg p-2.5 text-left whitespace-normal text-[var(--gc-node-text)] hover:bg-[var(--gc-node-inner-hover)] hover:text-[var(--gc-node-text)] active:cursor-grabbing"
             >
-              <span className="text-xs font-medium text-[var(--gc-node-text)]">{spec.title}</span>
+              <span className="text-xs font-medium text-[var(--gc-node-text)]">{title}</span>
               <span className="text-[10px] leading-relaxed text-[var(--gc-node-muted)]">
-                {spec.description}
+                {description}
               </span>
             </Button>
           </Card>

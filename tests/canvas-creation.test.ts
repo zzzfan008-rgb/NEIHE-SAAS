@@ -12,6 +12,8 @@ console.log("画布创建意图测试");
 
 const textIntent: CanvasCreationIntent = { type: "node", kind: "text-input" };
 assert.deepEqual(parseCanvasCreationDragPayload(serializeCanvasCreationDragPayload(textIntent)), textIntent);
+const poseIntent: CanvasCreationIntent = { type: "node", kind: "image-input", preset: { poseReference: true } };
+assert.deepEqual(parseCanvasCreationDragPayload(serializeCanvasCreationDragPayload(poseIntent)), poseIntent, "拖拽姿势节点须保留预设");
 assert.equal(parseCanvasCreationDragPayload("not-json"), undefined);
 assert.equal(parseCanvasCreationDragPayload(JSON.stringify({ type: "node", kind: "unknown" })), undefined);
 

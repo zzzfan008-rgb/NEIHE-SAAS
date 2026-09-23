@@ -21,7 +21,8 @@
               "targetHandle": "pose"
             }
           ],
-          "status": "idle"
+          "status": "idle",
+          "poseReference": true
         }
       },
       {

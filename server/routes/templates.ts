@@ -121,7 +121,7 @@ function dualModelStagedTryOnTemplate(): WorkflowTemplate {
           id: "pose",
           type: "image-input",
           position: { x: -1400, y: -500 },
-          data: { kind: "image-input", label: "图 2 · 目标姿势与场景（必需）", status: "idle", imageRole: "reference" },
+          data: { kind: "image-input", label: "图 2 · 目标姿势与场景（必需）", status: "idle", imageRole: "reference", poseReference: true },
         },
         {
           id: "compose-person",
@@ -774,7 +774,7 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
       schemaVersion?: unknown;
       name?: unknown;
       flow?: {
-        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown; label?: unknown; modelId?: unknown; sceneInputMode?: unknown; referenceMode?: unknown; garmentCategory?: unknown; poseReference?: unknown; autoConnectTargets?: unknown } }>;
+        nodes?: Array<{ id?: unknown; type?: unknown; data?: { executionMode?: unknown; label?: unknown; modelId?: unknown; sceneInputMode?: unknown; referenceMode?: unknown; poseReference?: unknown; autoConnectTargets?: unknown; garmentCategory?: unknown } }>;
         edges?: Array<{ id?: unknown; source?: unknown; target?: unknown; targetHandle?: unknown }>;
       };
     };
@@ -810,6 +810,7 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
         || nodeById.get("pose")?.type !== "image-input"
         || nodeById.get("pose")?.data?.label !== "图 2 · 目标姿势与场景（必需）"
         || nodeById.get("pose")?.data?.autoConnectTargets !== undefined
+        || nodeById.get("pose")?.data?.poseReference !== true
         || ["upper-repair", "pants-repair", "accessory-repair", "logo-correct"].some((id) => nodeById.has(id));
     }
     if (templateId === "builtin-tool-fabric-replace") {

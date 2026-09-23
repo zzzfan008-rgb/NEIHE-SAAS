@@ -991,7 +991,7 @@ async function main() {
     );
     assert.equal(targetsFor("person"), undefined);
     assert.equal(targetsFor("pose"), undefined);
-    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "pose")?.data.poseReference, undefined);
+    assert.equal(stagedTryOn.flow.nodes.find((node) => node.id === "pose")?.data.poseReference, true, "一键换装模板姿势节点默认加载姿势参考能力");
     assert.deepEqual(targetsFor("outfit"), [
       { targetNodeId: "stabilize", targetHandle: "outfit" },
       { targetNodeId: "refine", targetHandle: "outfit" },

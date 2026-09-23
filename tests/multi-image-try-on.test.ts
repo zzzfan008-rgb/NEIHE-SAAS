@@ -124,6 +124,7 @@ await assert.rejects(prepareMultiImageTryOn(images, ["pose"], images, pro), /信
 const template = JSON.parse(fs.readFileSync(new URL("../templates/multi-image-try-on.workflow.json", import.meta.url), "utf8")) as WorkflowTemplate;
 const validated = validateAndMigrateFlow(template.flow);
 assert.equal(isDirectMultiImagePoseNode("pose", validated.nodes, validated.edges), true);
+assert.equal(validated.nodes.find(node => node.id === "pose")?.data.kind === "image-input" && validated.nodes.find(node => node.id === "pose")?.data.poseReference, true, "多图模板默认提供姿势参考节点");
 const legacyStage = { id: "legacy-stage", data: { kind: "virtual-try-on", workflowStage: "scene-stabilize" } };
 assert.equal(isDirectMultiImagePoseNode("pose", [...validated.nodes, legacyStage], [...validated.edges,
   { source: "pose", target: "legacy-stage", targetHandle: "pose" }]), false, "同图仍连接旧流程时保留旧提示词入口");
@@ -137,6 +138,8 @@ const immutable = JSON.stringify(validated);
 const recopy = copyMultiImageTryOnTemplate(validated);
 assert.equal(JSON.stringify(validated), immutable, "复制函数不修改来源");
 assert.equal(recopy.name, template.name);
+const copiedPose = recopy.flow.nodes.find(node => node.id === "pose");
+assert.equal(copiedPose?.data.kind === "image-input" && copiedPose.data.poseReference, true, "复制模板保留姿势参考功能");
 assert.equal(recopy.description, template.description);
 assert.equal(recopy.flow.nodes.find(node => node.id === "guide")?.data.text, validated.nodes.find(node => node.id === "guide")?.data.text);
 const templateAngle = validated.nodes.find(node => node.data.kind === "ti-angle")!;

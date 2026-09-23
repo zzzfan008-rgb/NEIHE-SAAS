@@ -34,7 +34,7 @@ export function copyMultiImageTryOnTemplate(source: PersistedWorkflow): Pick<Wor
         label: id === "person"
           ? `图 ${index + 1} · 人物（必需 · 虚构或授权）`
           : `${index < 3 ? `图 ${index + 1} · ` : ""}${id === "material" ? "面料 / 纱线" : MULTI_IMAGE_ROLE_LABELS[role]}（${required ? "必需" : "可选"}）`,
-        status: "idle", autoConnectTargets: [{ targetNodeId: generation.id, targetHandle: role }],
+        status: "idle", ...(role === "pose" ? { poseReference: true } : {}), autoConnectTargets: [{ targetNodeId: generation.id, targetHandle: role }],
       } });
     // Optional empty nodes stay unconnected; upload auto-connects them with the correct role.
     if (required) connect(id, generation.id, role);
