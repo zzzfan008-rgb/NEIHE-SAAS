@@ -233,16 +233,20 @@ export function normalizeProviderImageDataUrl(dataUrl: unknown): Promise<Normali
 export const PROVIDER_REFERENCE_LONG_EDGE = 2048;
 export const PROVIDER_REFERENCE_JPEG_QUALITY = 92;
 
-/** 参考图发送前统一预处理：sRGB → EXIF 摆正 → 长边 2048（不放大）→ JPEG q92 → 去元数据。透明像素压平为白底（参考图均为不透明素材，蒙版另行处理）。 */
+/** 参考图发送前统一预处理：sRGB → EXIF 摆正 → 长边 2048（不放大）→ 去元数据。不透明图转 JPEG q92，透明图保留 alpha 转 PNG（与 geminiInlineData / adaptFluxReference 一致）。 */
 export async function normalizeProviderReferenceImage(dataUrl: unknown, modelId = "reference"): Promise<string> {
   try {
     const validated = validateImageDataUrl(dataUrl);
-    const buffer = await withImageProcessingSlot(async () => {
-      return sharp(validated.buffer, {
+    const { buffer, mimeType } = await withImageProcessingSlot(async () => {
+      const inputOptions = {
         animated: false,
-        failOn: "error",
+        failOn: "error" as const,
         limitInputPixels: UPLOAD_MAX_INPUT_PIXELS,
-      })
+      };
+      const metadata = await sharp(validated.buffer, inputOptions).metadata();
+      const transparent = metadata.hasAlpha
+        && (await sharp(validated.buffer, inputOptions).extractChannel("alpha").stats()).channels[0].min < 255;
+      const pipeline = sharp(validated.buffer, inputOptions)
         .rotate()
         .toColourspace("srgb")
         .resize({
@@ -250,12 +254,15 @@ export async function normalizeProviderReferenceImage(dataUrl: unknown, modelId 
           height: PROVIDER_REFERENCE_LONG_EDGE,
           fit: "inside",
           withoutEnlargement: true,
-        })
-        .flatten({ background: "#ffffff" })
-        .jpeg({ quality: PROVIDER_REFERENCE_JPEG_QUALITY, chromaSubsampling: "4:4:4", mozjpeg: true })
+        });
+      const buffer = await (transparent
+        ? pipeline.png({ compressionLevel: 9 })
+        : pipeline.flatten({ background: "#ffffff" })
+          .jpeg({ quality: PROVIDER_REFERENCE_JPEG_QUALITY, chromaSubsampling: "4:4:4", mozjpeg: true }))
         .toBuffer();
+      return { buffer, mimeType: transparent ? "image/png" : "image/jpeg" };
     });
-    return toDataUrl(buffer.toString("base64"), "image/jpeg");
+    return toDataUrl(buffer.toString("base64"), mimeType);
   } catch (error) {
     if (error instanceof ProviderError) throw error;
     throw new ProviderError("参考图预处理失败，请使用标准 PNG、JPEG 或 WebP 图片", 400, modelId, "invalid_request", error instanceof Error ? error.message : String(error));
