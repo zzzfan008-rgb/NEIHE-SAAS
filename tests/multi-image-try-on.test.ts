@@ -44,6 +44,16 @@ for (const concise of [false, true]) {
   }
 }
 assert.doesNotMatch(multiImageTryOnPrompt("参考图1：姿势。参考图2：人物。参考图3：场景。参考图4：主穿搭。", "", false), /拼图|网格/);
+// 骨骼图姿势参考按 DWPose 语义编译：1:1 关节对齐，骨骼线条不渲染
+const skeletonPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "skeleton");
+assert.match(skeletonPrompt, /DWPose骨骼图/);
+assert.match(skeletonPrompt, /1:1复刻人物动作/);
+assert.match(skeletonPrompt, /骨骼线条与关键点不得渲染到成图/);
+assert.match(skeletonPrompt, /逐点对齐/);
+assert.doesNotMatch(skeletonPrompt, /参照图1提取身体朝向/);
+assert.match(multiImageTryOnPrompt(referenceMap, "", true, false, "skeleton"), /骨骼图控制关节动作/);
+assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "skeleton"), /取景以场景图与构图需要为准/);
+assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /参照图1提取身体朝向/);
 const baseRoles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
 const allRoles = [...MULTI_IMAGE_TRY_ON_ROLES, "detail", "detail", "detail", "detail"];
 for (const count of [4, 5, 6, 7, 14, 15, 20]) {

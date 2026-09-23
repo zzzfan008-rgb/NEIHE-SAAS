@@ -22,7 +22,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --from=production-dependencies /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server
+COPY --from=build /app/scripts/pose-tunnel.mjs ./scripts/pose-tunnel.mjs
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node
 EXPOSE 3002
-CMD ["node", "dist-server/index.js"]
+CMD ["sh", "-c", "node scripts/pose-tunnel.mjs & exec node dist-server/index.js"]
