@@ -33,6 +33,8 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
   const result = promptState?.result;
   const running = promptState?.status === 'running';
   const failed = promptState?.status === 'failed';
+  // 同图同规则命中磁盘缓存时，再点“重新反推”只会返回同一份结果，因此置为禁用态并说明。
+  const reInferUpToDate = result?.cacheHit === true;
   const writable = useFlowStore(s => {
     const tab = s.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch);
     return Boolean(tab && !tab.readOnly && tab.nodes.some(n => n.id === nodeId && n.data.kind === 'image-input' && n.data.imageUrl === source));
@@ -61,8 +63,8 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
           </DialogDescription>
         </DialogHeader>
 
-        <Button type="button" size="sm" variant="outline" disabled={!writable || running} onClick={() => setRetry(value => value + 1)}>
-          按新版规则重新反推
+        <Button type="button" size="sm" variant="outline" disabled={!writable || running || reInferUpToDate} onClick={() => setRetry(value => value + 1)}>
+          {reInferUpToDate ? "已按当前规则反推" : "按新版规则重新反推"}
         </Button>
 
         {running && (
