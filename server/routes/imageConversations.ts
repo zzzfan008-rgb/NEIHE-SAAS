@@ -168,18 +168,27 @@ imageConversationsRouter.post("/:conversationId/rounds", asyncHandler(async (req
     return;
   }
   try {
+    const sourceResultId = optionalNullableString(body.sourceResultId);
+    const manifest = inputManifest as ConversationImageInput[];
+    // Requirements are never client-authored: they are reconstructed from the persisted
+    // round/intent snapshot (or empty for a fresh source), so a direct POST cannot inject
+    // arbitrary control keys. The direct-create endpoint has no planner, so there are no
+    // incremental requirements to persist.
+    const context = await resolveImageConversationContext(
+      user.id, projectId, req.params.conversationId, sourceResultId, manifest,
+    );
     const round = await createImageConversationRound({
       ownerId: user.id,
       projectId,
       conversationId: req.params.conversationId,
       clientRequestId,
       mode,
-      sourceResultId: optionalNullableString(body.sourceResultId),
-      inputManifest: inputManifest as ConversationImageInput[],
+      sourceResultId,
+      inputManifest: manifest,
       prompt,
       parameters,
-      effectiveRequirements: recordBody(body.effectiveRequirements) ?? {},
-      incrementalRequirements: recordBody(body.incrementalRequirements) ?? {},
+      effectiveRequirements: context.effectiveRequirements,
+      incrementalRequirements: {},
       maskRef: optionalNullableString(body.maskRef),
     });
     res.status(201).json(serializeRound(round));

@@ -152,8 +152,12 @@ await test("history snapshots are readable but guessed identifiers and arbitrary
     }),
   });
   assert.equal(round.status, 201);
-  const roundBody = await round.json() as { id: string };
+  const roundBody = await round.json() as { id: string; effectiveRequirements: object; incrementalRequirements: object };
   assert.ok(roundBody.id);
+  // Requirements are server-derived, never client-authored: a fresh source has no branch
+  // context, so the injected requirements above must be ignored.
+  assert.deepEqual(roundBody.effectiveRequirements, {});
+  assert.deepEqual(roundBody.incrementalRequirements, {});
 
   const history = await request(
     `/image-conversations/${conversationId}?projectId=api-conversation-project`,
@@ -632,10 +636,10 @@ await test("account transfer preserves conversation history, outputs, request re
   const historyPath = `/image-conversations/${conversationId}?projectId=api-conversation-project`;
   const history = await request(historyPath, "other");
   assert.equal(history.status, 200);
-  const historyBody = await history.json() as { rounds: Array<{ effectiveRequirements: object; clarification: unknown }>; outputs: unknown[] };
+  const historyBody = await history.json() as { rounds: Array<{ effectiveRequirements: object; prompt: string; clarification: unknown }>; outputs: unknown[] };
   assert.ok(historyBody.rounds.some((round) => round.clarification));
   assert.ok(historyBody.outputs.length);
-  assert.ok(historyBody.rounds.some((round) => Object.keys(round.effectiveRequirements).length));
+  assert.ok(historyBody.rounds.some((round) => round.prompt === "把衣服改成黑色"));
   assert.equal((await request(historyPath, "owner")).status, 404);
   assert.equal(await database.queryOne("SELECT 1 FROM sessions WHERE user_id=$1", [users.owner.id]), undefined);
   await assert.rejects(() => reserveImageConversationRequest({ ...identity, clientRequestId: "late-owner-request" }, {}), ImageConversationAccessError);
