@@ -2,6 +2,7 @@ import sharp, { type Metadata, type OutputInfo } from "sharp";
 import contracts from "../../docs/ai/apiyi/model-contracts.json";
 import { withImageProcessingSlot } from "./imageProcessingLimit";
 import { ImageValidationError, validateImageDataUrl } from "./imageValidation";
+import { ProviderError, toDataUrl } from "../providers/base";
 
 const inputContract = contracts.inputNormalization;
 const uploadContract = contracts.uploadStorage;
@@ -227,4 +228,41 @@ export function normalizeUploadImageDataUrl(dataUrl: unknown): Promise<Normalize
 /** Provider 请求副本继续按模型输入契约收敛，不改写已保存的原始素材。 */
 export function normalizeProviderImageDataUrl(dataUrl: unknown): Promise<NormalizedUploadImage> {
   return processImageDataUrl(dataUrl, null, PROVIDER_TARGET_BYTES);
+}
+
+export const PROVIDER_REFERENCE_LONG_EDGE = 2048;
+export const PROVIDER_REFERENCE_JPEG_QUALITY = 92;
+
+/** 参考图发送前统一预处理：sRGB → EXIF 摆正 → 长边 2048（不放大）→ JPEG q92 → 去元数据。透明像素压平为白底（参考图均为不透明素材，蒙版另行处理）。 */
+export async function normalizeProviderReferenceImage(dataUrl: unknown, modelId = "reference"): Promise<string> {
+  try {
+    const validated = validateImageDataUrl(dataUrl);
+    const buffer = await withImageProcessingSlot(async () => {
+      return sharp(validated.buffer, {
+        animated: false,
+        failOn: "error",
+        limitInputPixels: UPLOAD_MAX_INPUT_PIXELS,
+      })
+        .rotate()
+        .toColourspace("srgb")
+        .resize({
+          width: PROVIDER_REFERENCE_LONG_EDGE,
+          height: PROVIDER_REFERENCE_LONG_EDGE,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .flatten({ background: "#ffffff" })
+        .jpeg({ quality: PROVIDER_REFERENCE_JPEG_QUALITY, chromaSubsampling: "4:4:4", mozjpeg: true })
+        .toBuffer();
+    });
+    return toDataUrl(buffer.toString("base64"), "image/jpeg");
+  } catch (error) {
+    if (error instanceof ProviderError) throw error;
+    throw new ProviderError("参考图预处理失败，请使用标准 PNG、JPEG 或 WebP 图片", 400, modelId, "invalid_request", error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** 所有参考图统一走同一预处理，不单独针对某张图。 */
+export async function normalizeProviderReferenceImages(refs: readonly string[], modelId?: string): Promise<string[]> {
+  return Promise.all(refs.map((ref) => normalizeProviderReferenceImage(ref, modelId)));
 }

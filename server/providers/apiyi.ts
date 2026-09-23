@@ -20,6 +20,7 @@ import { config } from "../config";
 import { validateMaskForSource } from "../lib/maskProcessing";
 import { detectImageMime, validateImageDataUrl } from "../lib/imageValidation";
 import { withImageProcessingSlot } from "../lib/imageProcessingLimit";
+import { normalizeProviderReferenceImages } from "../lib/uploadImageNormalization";
 import {
   fetchWithRetry,
   parseDataUrl,
@@ -810,12 +811,12 @@ async function edit(modelId: ImageModelId, req: ImageGenRequest): Promise<ImageG
   await validateApiyiRequest(modelId, req, "edit");
   const contract = getImageModelContract(modelId);
   const options = requestOptions(modelId, req);
-  const refs = req.referenceImages!;
+  const refs = await normalizeProviderReferenceImages(req.referenceImages!, modelId);
   let response: Response;
   switch (modelId) {
     case "gpt-image-2.5-flare":
     case "gpt-image-2.5-sunburst":
-      return gptImage25Result(modelId, { ...req, modelOptions: options }, "edit");
+      return gptImage25Result(modelId, { ...req, modelOptions: options, referenceImages: refs }, "edit");
     case "gpt-image-2": {
       response = await fetchApiyi(modelId, contract.edit.path, () => {
         const form = new FormData();

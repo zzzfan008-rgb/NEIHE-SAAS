@@ -1426,8 +1426,14 @@ async function main(): Promise<void> {
           model: "seedream-5-0-260128", prompt: "生成", size: "2K", response_format: "b64_json",
           watermark: false, sequential_image_generation: "disabled",
         });
-        assert.deepEqual(bodies[1], {
-          model: "seedream-5-0-260128", prompt: "融合", image: [white, blue], size: "3K",
+        const seedBody = bodies[1] as Record<string, unknown>;
+        assert.equal(Array.isArray(seedBody.image), true);
+        const seedImage = seedBody.image as string[];
+        assert.equal(seedImage.length, 2);
+        assert.ok(seedImage.every((ref) => ref.startsWith("data:image/jpeg;base64,")), "参考图统一预处理为 JPEG");
+        const { image: _seedImageIgnored, ...seedRest } = seedBody;
+        assert.deepEqual(seedRest, {
+          model: "seedream-5-0-260128", prompt: "融合", size: "3K",
           response_format: "b64_json", watermark: false, sequential_image_generation: "disabled",
         });
         assert.equal("n" in bodies[0], false);
