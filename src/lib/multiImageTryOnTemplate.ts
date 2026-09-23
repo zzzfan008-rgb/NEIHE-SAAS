@@ -69,12 +69,12 @@ export function copyMultiImageTryOnTemplate(source: PersistedWorkflow): Pick<Wor
   connect(repair.id, "repair-result", "references");
   nodes.push({ id: "guide", type: "text-input", position: { x: 2470, y: 700 }, data: {
     kind: "text-input", label: "两阶段使用说明", status: "idle",
-    text: "① 上传姿势、人物、场景、主穿搭原图；鞋袜、帽子、眼镜/墨镜、首饰等按需上传，自动连接对应用途。前三张参数固定为姿势、人物、场景。② 默认使用 Gemini Flash、2K 一次生成成片。TiAngel 默认关闭，姿势图控制动作与取景；可手动开启 TiAngel 指定拍摄视角，姿势图仍控制肢体动作。Flash 最多14张直接传入；可手动选择 Pro，超过14张时才按需分组拼接，最多20张原始素材。③ 成片满意即可结束。需要修改时，从结果中选择具体单张图片，连接到第二阶段的待修改底图，绘制并保存蒙版、填写修改要求，再单独运行。未选择底图或未保存蒙版时不执行修改。④ 过审与素材边界：人物请使用原创虚构角色或已获授权的模特形象，避免公众人物、名人、知名 IP 与未成年人的可识别形象；成片为风格化人物呈现，不保证照片级真人身份复刻。服装与配饰请使用无真实品牌标识、无文字水印的原创素材。审核拒绝时查看服务方说明，简化提示词不保证通过审核。",
+    text: "① 上传姿势、人物、场景、主穿搭原图；鞋袜、帽子、眼镜/墨镜、首饰等按需上传，自动连接对应用途。前三张参数固定为姿势、人物、场景。姿势图仅提供动作参考，建议使用面部不清晰或已裁切头部、人物占比小的照片；成片人物外貌只来自人物图。② 第一阶段固定使用 Gemini 3.1 Flash Image、2K 一次生成成片，该模型对人物换装审核宽松、成功率高，最多 14 张有效参考图直接传入。TiAngel 默认关闭，姿势图控制动作与取景；可手动开启 TiAngel 指定拍摄视角，姿势图仍控制肢体动作。③ 成片满意即可结束。需要修改时，从结果中选择具体单张图片，连接到第二阶段的待修改底图，绘制并保存蒙版、填写修改要求，再单独运行。未选择底图或未保存蒙版时不执行修改。④ 过审与素材边界：人物请使用原创虚构角色或已获授权的模特形象，避免公众人物、名人、知名 IP 与未成年人的可识别形象；成片为风格化人物呈现，不保证照片级真人身份复刻。服装与配饰请使用无真实品牌标识、无文字水印的原创素材。审核拒绝时查看服务方说明，简化提示词不保证通过审核。",
   } });
   const flow = documentSnapshotToPersistedWorkflow(createDocumentSnapshot({
     projectName: MULTI_IMAGE_TRY_ON_TEMPLATE_NAME, nodes, edges,
   }));
   return { name: MULTI_IMAGE_TRY_ON_TEMPLATE_NAME,
-    description: "原始多图一次编辑换装 → 用户选择成片后按需蒙版修改；人物为原创虚构或授权形象、风格化呈现，不做照片级真人身份复刻；默认 Gemini Flash，TiAngel 默认关闭、可手动开启；Pro 超过14张时按需分组拼接。",
+    description: "原始多图一次编辑换装 → 用户选择成片后按需蒙版修改；第一阶段固定 Gemini 3.1 Flash Image、2K 一次成片，审核宽松、成功率高，最多 14 张参考图直接传入；人物为原创虚构或授权形象、风格化呈现，不做照片级真人身份复刻；TiAngel 默认关闭、可手动开启。",
     flow: { ...flow, schemaVersion: WORKFLOW_SCHEMA_VERSION } };
 }

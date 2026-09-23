@@ -27,6 +27,8 @@ for (const concise of [false, true]) {
     assert.match(prompt, /公众人物/);
     assert.match(prompt, /不复制参考图中任何真实可识别个人/);
     assert.match(prompt, /参照图1.*头部朝向.*手部动作.*双腿弯曲/);
+    assert.match(prompt, /图1只提供动作几何参考/);
+    assert.match(prompt, /一律禁止进入成片/);
     assert.match(prompt, /采用图3的场景、光照/);
     assert.match(prompt, /保留胸前印花和项链/);
     assert.match(prompt, /版型、颜色/);
@@ -184,9 +186,13 @@ const flowAngle = flow.nodes.find(node => node.data.kind === "ti-angle")!;
 if (flowAngle.data.kind !== "ti-angle") throw new Error("缺少TiAngel");
 flowAngle.data.angle.enabled = true;
 const plan = buildExecutionPlan(flow.nodes, flow.edges, { onlyNodeId: "stabilize", includeDownstream: false });
-assert.doesNotThrow(() => assertPlanInputs(plan, flow.edges), "原图数量可以超过模型有效参数图数量");
+assert.throws(() => assertPlanInputs(plan, flow.edges), /已改用 Gemini 3.1 Flash Image/, "多图编辑换装已放弃 Pro，服务端拒绝 Pro 计划");
 assert.ok(plan.steps[0].params.angleControl, "拍摄设置继续进入执行参数");
-const missingPosePlan = { ...plan, steps: plan.steps.map(step => ({ ...step, upstream: step.upstream?.filter(ref => ref.targetHandle !== "pose") })) };
+const missingPosePlan = { ...plan, steps: plan.steps.map(step => ({
+  ...step,
+  params: { ...step.params, modelId: "gemini-3.1-flash-image" },
+  upstream: (step.upstream ?? []).filter(ref => ref.targetHandle !== "pose").slice(0, 13),
+})) };
 assert.throws(() => assertPlanInputs(missingPosePlan, flow.edges), /姿势/);
 const flashPlan = { ...plan, steps: plan.steps.map(step => ({ ...step, params: { ...step.params, modelId: "gemini-3.1-flash-image" } })) };
 assert.throws(() => assertPlanInputs(flashPlan, flow.edges), /at most/, "Flash原有限额不被Pro拼接特例绕过");
@@ -194,8 +200,8 @@ assert.throws(() => assertPlanInputs(flashPlan, flow.edges), /at most/, "Flash�
 const oldFetch = globalThis.fetch;
 globalThis.fetch = async () => { throw new Error("禁止网络：测试不能调用真实模型"); };
 try {
-  // Compile the connected TiAngel through the real DAG for both supported Gemini paths.
-  for (const modelId of [pro, "gemini-3.1-flash-image"] as const) {
+  // Compile the connected TiAngel through the real DAG for the supported Flash path.
+  for (const modelId of ["gemini-3.1-flash-image"] as const) {
     for (const enabled of [false, true]) {
       const angleFlow = structuredClone(roundtrip);
       angleFlow.nodes = angleFlow.nodes.filter(node => ["pose", "person", "scene", "outfit", "stabilize"].includes(node.id) || node.data.kind === "ti-angle");

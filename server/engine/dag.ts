@@ -302,7 +302,7 @@ export function assertPlanInputs(plan: ExecutionPlan, edges: FlowEdge[]): void {
     }
     if (step.kind === "virtual-try-on") {
       if (multiImageEdit) {
-        if (!isSceneStabilizeModelId(modelId)) throw new DagError("多图编辑换装所选模型不受支持");
+        if (modelId !== "gemini-3.1-flash-image") throw new DagError("多图编辑换装已改用 Gemini 3.1 Flash Image，请在节点设置中切换模型");
         const error = multiImageReferenceError((step.upstream ?? []).flatMap(upstream =>
           (executingNodeIds.has(upstream.nodeId) ? ["__runtime_output__"] : upstream.images)
             .map(() => upstream.targetHandle ?? "")));
