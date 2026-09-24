@@ -216,11 +216,11 @@ async function processImageDataUrl(
   }
 }
 
-/** 用户上传不超过 7 MiB 时原样保存；更大的图片才压缩到 7 MiB 内。 */
+/** 所有图像上传统一归一化：sRGB → EXIF 摆正 → 长边 2048（不放大）→ 不透明 JPEG q92 / 透明保留 PNG → 去元数据。 */
 export function normalizeUploadImageDataUrl(dataUrl: unknown): Promise<NormalizedUploadImage> {
   return processImageDataUrl(
     dataUrl,
-    UPLOAD_COMPRESSION_THRESHOLD_BYTES,
+    null,
     UPLOAD_COMPRESSED_TARGET_BYTES,
   );
 }

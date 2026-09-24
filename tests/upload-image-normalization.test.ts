@@ -111,7 +111,7 @@ async function startFilesServer(ownerId: string) {
 console.log("用户上传图片标准化回归测试");
 await initializeDatabase();
 
-await test("不超过 7 MiB 的 JPEG、PNG、WebP 与 GIF 保留原始字节和格式", async () => {
+await test("上传的 JPEG/PNG/WebP/GIF 统一归一化为 sRGB JPEG 并去元数据", async () => {
   const jpeg = await sharp({
     create: { width: 120, height: 80, channels: 3, background: "red" },
   })
@@ -143,13 +143,15 @@ await test("不超过 7 MiB 的 JPEG、PNG、WebP 与 GIF 保留原始字节和�
     ["image/gif", gif],
   ] as const) {
     const normalized = await normalizeUploadImageDataUrl(dataUrl(mime, buffer));
-    assert.equal(normalized.mimeType, mime);
-    assert.equal(normalized.byteLength, buffer.byteLength);
-    assert.deepEqual(normalized.buffer, buffer);
+    assert.equal(normalized.mimeType, "image/jpeg");
+    assert.notDeepEqual(normalized.buffer, buffer);
+    const metadata = await sharp(normalized.buffer).metadata();
+    assert.equal(metadata.space, "srgb");
+    assert.equal(metadata.exif, undefined);
   }
 });
 
-await test("7 MiB 以下的透明和不透明 PNG 都不重新编码", async () => {
+await test("上传 PNG：带透明保留 PNG，不透明转 JPEG", async () => {
   const transparent = await sharp({
     create: {
       width: 64,
@@ -171,20 +173,21 @@ await test("7 MiB 以下的透明和不透明 PNG 都不重新编码", async () 
     .png()
     .toBuffer();
 
-  const preserved = await normalizeUploadImageDataUrl(
+  const transparentNormalized = await normalizeUploadImageDataUrl(
     dataUrl("image/png", transparent),
   );
-  assert.equal(preserved.mimeType, "image/png");
-  assert.deepEqual(preserved.buffer, transparent);
+  assert.equal(transparentNormalized.mimeType, "image/png");
+  assert.notDeepEqual(transparentNormalized.buffer, transparent);
+  assert.equal((await sharp(transparentNormalized.buffer).metadata()).hasAlpha, true);
 
-  const opaque = await normalizeUploadImageDataUrl(
+  const opaqueNormalized = await normalizeUploadImageDataUrl(
     dataUrl("image/png", opaqueAlpha),
   );
-  assert.equal(opaque.mimeType, "image/png");
-  assert.deepEqual(opaque.buffer, opaqueAlpha);
+  assert.equal(opaqueNormalized.mimeType, "image/jpeg");
+  assert.notDeepEqual(opaqueNormalized.buffer, opaqueAlpha);
 });
 
-await test("7 MiB 以下保留 EXIF 和超过 4096 的原始像素", async () => {
+await test("上传统一按 EXIF 摆正并把长边限制到 2048", async () => {
   const oriented = await sharp({
     create: { width: 300, height: 500, channels: 3, background: "navy" },
   })
@@ -200,9 +203,9 @@ await test("7 MiB 以下保留 EXIF 和超过 4096 的原始像素", async () =>
   );
   assert.equal(
     (await sharp(normalizedOriented.buffer).metadata()).orientation,
-    6,
+    undefined,
   );
-  assert.deepEqual(normalizedOriented.buffer, oriented);
+  assert.notDeepEqual(normalizedOriented.buffer, oriented);
 
   const large = await sharp({
     create: { width: 5000, height: 1000, channels: 3, background: "white" },
@@ -212,11 +215,11 @@ await test("7 MiB 以下保留 EXIF 和超过 4096 的原始像素", async () =>
   const normalizedLarge = await normalizeUploadImageDataUrl(
     dataUrl("image/jpeg", large),
   );
-  assert.equal(Math.max(normalizedLarge.width, normalizedLarge.height), 5000);
-  assert.deepEqual(normalizedLarge.buffer, large);
+  assert.equal(Math.max(normalizedLarge.width, normalizedLarge.height), UPLOAD_MAX_LONG_EDGE);
+  assert.notDeepEqual(normalizedLarge.buffer, large);
 });
 
-await test("超过 7 MiB 才压缩并将结果控制在 7 MiB 内", async () => {
+await test("大图归一化后仍控制在 7 MiB 内", async () => {
   const width = 1700;
   const height = 1500;
   const noisy = await sharp(randomBytes(width * height * 3), {
@@ -296,8 +299,8 @@ await test("上传接口仅在标准化与数据库写入都成功后返回 URL"
       normalized: boolean;
     };
     assert.equal(body.normalized, true);
-    assert.equal(body.mimeType, "image/webp");
-    assert.deepEqual(fs.readFileSync(path.join(uploadsDir(), body.id)), source);
+    assert.equal(body.mimeType, "image/jpeg");
+    assert.notDeepEqual(fs.readFileSync(path.join(uploadsDir(), body.id)), source);
     assert.deepEqual([body.width, body.height], [96, 64]);
     assert.equal(
       fs.statSync(path.join(uploadsDir(), body.id)).size,
@@ -323,7 +326,7 @@ await test("上传接口仅在标准化与数据库写入都成功后返回 URL"
     const providerImage = validateImageDataUrl(providerReady);
     assert.equal(providerImage.mime, "image/jpeg");
     assert.ok(providerImage.buffer.byteLength <= PROVIDER_TARGET_BYTES);
-    assert.deepEqual(fs.readFileSync(path.join(uploadsDir(), body.id)), source);
+    assert.notDeepEqual(fs.readFileSync(path.join(uploadsDir(), body.id)), source);
 
     const maskBuffer = await editableMask(96, 64);
     const maskDataUrl = dataUrl("image/png", maskBuffer);
@@ -1134,7 +1137,7 @@ await test("前端未拿到 normalized:true 时不会把图片写入节点", () 
   );
 });
 
-await test("背景板生成使用原图尺寸而非 Provider 压缩副本", async () => {
+await test("上传归一化后，背景板生成使用归一化后的原始尺寸", async () => {
   const admin = await queryOne<{ id: string }>(
     "SELECT id FROM users WHERE account_id = 'normalization-admin'",
   );
@@ -1162,7 +1165,7 @@ await test("背景板生成使用原图尺寸而非 Provider 压缩副本", asyn
         const metadata = await sharp(
           validateImageDataUrl(request.referenceImages![0]).buffer,
         ).metadata();
-        assert.equal(metadata.width, 4096);
+        assert.equal(metadata.width, UPLOAD_MAX_LONG_EDGE);
         return { images: [request.referenceImages![0]], model: "stub" };
       },
     };
@@ -1179,8 +1182,11 @@ await test("背景板生成使用原图尺寸而非 Provider 压缩副本", asyn
     const metadata = await sharp(
       validateImageDataUrl(result.images[0]).buffer,
     ).metadata();
-    assert.deepEqual([metadata.width, metadata.height], [6000, 4000]);
-    assert.deepEqual(
+    const stored = await sharp(
+      fs.readFileSync(path.join(uploadsDir(), url.split("/").at(-1)!)),
+    ).metadata();
+    assert.deepEqual([metadata.width, metadata.height], [stored.width, stored.height]);
+    assert.notDeepEqual(
       fs.readFileSync(path.join(uploadsDir(), url.split("/").at(-1)!)),
       source,
     );

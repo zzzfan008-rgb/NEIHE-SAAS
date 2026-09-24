@@ -15,7 +15,7 @@
     "outputMimeTypes": ["image/png", "image/jpeg"],
     "maxInputBytes": 20971520,
     "maxInputPixels": 40000000,
-    "maxLongEdge": 4096,
+    "maxLongEdge": 2048,
     "targetBytes": 1500000,
     "jpegQuality": {"initial": 92, "minimum": 80},
     "animationPolicy": "first-frame",
