@@ -11,7 +11,6 @@ export const UPLOAD_MAX_INPUT_BYTES = inputContract.maxInputBytes;
 export const UPLOAD_MAX_INPUT_PIXELS = inputContract.maxInputPixels;
 export const UPLOAD_MAX_LONG_EDGE = inputContract.maxLongEdge;
 export const PROVIDER_TARGET_BYTES = inputContract.targetBytes;
-export const UPLOAD_COMPRESSION_THRESHOLD_BYTES = uploadContract.preserveAtOrBelowBytes;
 export const UPLOAD_COMPRESSED_TARGET_BYTES = uploadContract.compressAboveBytesTo;
 export const UPLOAD_JPEG_QUALITY = inputContract.jpegQuality.initial;
 export const UPLOAD_MIN_JPEG_QUALITY = inputContract.jpegQuality.minimum;
@@ -167,7 +166,6 @@ async function hasMeaningfulAlpha(buffer: Buffer, metadata: Metadata): Promise<b
 
 async function processImageDataUrl(
   dataUrl: unknown,
-  preserveAtOrBelowBytes: number | null,
   targetBytes: number,
 ): Promise<NormalizedUploadImage> {
   const validated = validateImageDataUrl(dataUrl, UPLOAD_MAX_INPUT_BYTES);
@@ -175,16 +173,6 @@ async function processImageDataUrl(
     return await withImageProcessingSlot(async () => {
       const metadata = await sharp(validated.buffer, SHARP_INPUT_OPTIONS).metadata();
       const oriented = orientedDimensions(metadata);
-      if (preserveAtOrBelowBytes !== null && validated.buffer.byteLength <= preserveAtOrBelowBytes) {
-        return {
-          buffer: validated.buffer,
-          mimeType: validated.mime,
-          width: oriented.width,
-          height: oriented.height,
-          byteLength: validated.buffer.byteLength,
-          normalized: true,
-        };
-      }
       const target = dimensionsWithinLongEdge(oriented.width, oriented.height);
       const transparent = await hasMeaningfulAlpha(validated.buffer, metadata);
       const encoded = transparent
@@ -218,16 +206,12 @@ async function processImageDataUrl(
 
 /** 所有图像上传统一归一化：sRGB → EXIF 摆正 → 长边 2048（不放大）→ 不透明 JPEG q92 / 透明保留 PNG → 去元数据。 */
 export function normalizeUploadImageDataUrl(dataUrl: unknown): Promise<NormalizedUploadImage> {
-  return processImageDataUrl(
-    dataUrl,
-    null,
-    UPLOAD_COMPRESSED_TARGET_BYTES,
-  );
+  return processImageDataUrl(dataUrl, UPLOAD_COMPRESSED_TARGET_BYTES);
 }
 
 /** Provider 请求副本继续按模型输入契约收敛，不改写已保存的原始素材。 */
 export function normalizeProviderImageDataUrl(dataUrl: unknown): Promise<NormalizedUploadImage> {
-  return processImageDataUrl(dataUrl, null, PROVIDER_TARGET_BYTES);
+  return processImageDataUrl(dataUrl, PROVIDER_TARGET_BYTES);
 }
 
 export const PROVIDER_REFERENCE_LONG_EDGE = 2048;

@@ -33,8 +33,8 @@ const { executeStep, resolveImageRefs } = await import(
 const { validateImageDataUrl } = await import("../server/lib/imageValidation");
 const {
   normalizeUploadImageDataUrl,
-  UPLOAD_COMPRESSION_THRESHOLD_BYTES,
   UPLOAD_MAX_LONG_EDGE,
+  UPLOAD_COMPRESSED_TARGET_BYTES,
   PROVIDER_TARGET_BYTES,
 } = await import("../server/lib/uploadImageNormalization");
 
@@ -231,8 +231,7 @@ await test("大图归一化后仍控制在 7 MiB 内", async () => {
   const normalized = await normalizeUploadImageDataUrl(
     dataUrl("image/png", noisy),
   );
-  assert.equal(UPLOAD_COMPRESSION_THRESHOLD_BYTES, 7 * 1024 * 1024);
-  assert.ok(normalized.byteLength <= UPLOAD_COMPRESSION_THRESHOLD_BYTES);
+  assert.ok(normalized.byteLength <= UPLOAD_COMPRESSED_TARGET_BYTES);
   assert.notDeepEqual(normalized.buffer, noisy);
   assert.ok(normalized.width <= width && normalized.height <= height);
 });

@@ -56,6 +56,7 @@ try {
       true,
       "transparency must not be flattened",
     );
+    assert.equal(transparentMetadata.exif, undefined);
     assert.deepEqual(
       [transparentMetadata.width, transparentMetadata.height],
       [12, 8],
