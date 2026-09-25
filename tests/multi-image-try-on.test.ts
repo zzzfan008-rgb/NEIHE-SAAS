@@ -57,12 +57,12 @@ assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), 
 const orderedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original");
 assert.ok(orderedPrompt.indexOf("动作（最高优先级）") < orderedPrompt.indexOf("人物：参考图2仅提供"), "姿势约束先于人物描述");
 const promptedPose = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "画面左腿交叉，肩线倾斜");
-assert.match(promptedPose, /用户确认的姿势描述：画面左腿交叉，肩线倾斜/);
-assert.match(promptedPose, /肢体关节位置、弯曲、前后与承重以图1可见几何为准/);
-assert.match(promptedPose, /头部旋转、俯仰、视线方向与面部神态以文字描述为准/);
-assert.doesNotMatch(promptedPose, /冲突时以图1可见几何为准/);
-assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original", ""), /用户确认的姿势描述/);
-assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /用户确认的姿势描述/);
+assert.match(promptedPose, /姿势补充描述（仅在图1无法判定的项目上参考）：画面左腿交叉，肩线倾斜/);
+assert.match(promptedPose, /身体朝向、肩髋倾斜、四肢弯曲、手脚位置与接触、双腿交叉与前后关系、重心与承重一律以图1可见几何为准/);
+assert.match(promptedPose, /仅图1无法判定的头部旋转、俯仰、视线方向与面部神态才参考该文字/);
+assert.match(promptedPose, /该文字中与图1可见几何冲突的部分全部忽略/);
+assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original", ""), /姿势补充描述/);
+assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /姿势补充描述/);
 const baseRoles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
 const allRoles = [...MULTI_IMAGE_TRY_ON_ROLES, "detail", "detail", "detail", "detail"];
 for (const count of [4, 5, 6, 7, 14, 15, 20]) {
@@ -308,7 +308,7 @@ try {
     id: "gemini-3.1-flash-image",
     edit: async request => {
       posePromptCalls++;
-      assert.match(request.prompt, /用户确认的姿势描述：画面左腿交叉，肩线倾斜/);
+      assert.match(request.prompt, /姿势补充描述（仅在图1无法判定的项目上参考）：画面左腿交叉，肩线倾斜/);
       return { images: [images[0]], model: "gemini-3.1-flash-image" };
     },
     generate: async () => { throw new Error("必须多图编辑，不得文生图"); },

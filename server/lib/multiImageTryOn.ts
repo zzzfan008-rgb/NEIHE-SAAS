@@ -95,7 +95,7 @@ export async function prepareMultiImageTryOn(
 export function multiImageTryOnPrompt(referenceMap: string, extra: string, angleControlled: boolean, concise = false, poseReferenceType?: unknown, posePrompt?: unknown): string {
   const skeleton = poseReferenceType === "skeleton";
   const posePromptClause = typeof posePrompt === "string" && posePrompt.trim()
-    ? `用户确认的姿势描述：${posePrompt.trim()}。肢体关节位置、弯曲、前后与承重以图1可见几何为准；头部旋转、俯仰、视线方向与面部神态以文字描述为准（骨骼关键点只给出头部中心位置，不表达旋转与俯仰）。`
+    ? `姿势补充描述（仅在图1无法判定的项目上参考）：${posePrompt.trim()}。身体朝向、肩髋倾斜、四肢弯曲、手脚位置与接触、双腿交叉与前后关系、重心与承重一律以图1可见几何为准；该文字中与图1可见几何冲突的部分全部忽略，"无法判断"表示该项没有约束。仅图1无法判定的头部旋转、俯仰、视线方向与面部神态才参考该文字。`
     : "";
   return [
     "以参考图2提供的人物造型基调，创作一位原创虚构模特的时尚服装摄影照片，展示下方指定的服装和配饰。人物为原创虚构角色或已获授权的模特形象，不代表、不映射任何真实在世或已故个人、公众人物或知名 IP 角色。",
