@@ -2301,6 +2301,328 @@ test("project center separates built-in and user templates and keeps template ac
   await expect(center.getByText(templateName)).toBeVisible();
 });
 
+test("project tab context menu renames, duplicates, saves, and templates the selected tab", async ({ page }, testInfo) => {
+  const projectId = `context-menu-${testInfo.project.name}`;
+  const originalName = "右键操作源画布";
+  const renamedName = "右键源画布已改名";
+  let projectSaveStatus = 200;
+  let savedProjectBody: Record<string, unknown> | undefined;
+  let savedTemplateBody: Record<string, unknown> | undefined;
+
+  await page.route("**/api/projects", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    savedProjectBody = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: projectSaveStatus, json: { ok: projectSaveStatus < 400, id: projectId } });
+  });
+  await page.route("**/api/templates", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    savedTemplateBody = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 201, json: { ok: true, id: "context-template" } });
+  });
+
+  await page.evaluate(async ({ projectId: seededProjectId, projectName }) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().openFlowTab({
+      projectId: seededProjectId,
+      projectName,
+      markDirty: true,
+      nodes: [
+        {
+          id: "context-source-text",
+          type: "text-input",
+          position: { x: 0, y: 0 },
+          data: { kind: "text-input", label: "来源说明", status: "idle", text: "只在来源画布的参数" },
+        },
+        {
+          id: "context-source-render",
+          type: "sketch-to-render",
+          position: { x: 420, y: 0 },
+          data: {
+            kind: "sketch-to-render",
+            label: "来源渲染",
+            status: "idle",
+            prompt: "原始提示词",
+            modelId: "gemini-3.1-flash-image",
+            modelOptions: { aspectRatio: "1:1", imageSize: "2K" },
+            aspectRatio: "1:1",
+            batchSize: 1,
+            outputImages: [],
+          },
+        },
+        {
+          id: "context-source-image",
+          type: "image-input",
+          position: { x: 0, y: 360 },
+          data: {
+            kind: "image-input",
+            label: "保留的图片",
+            status: "idle",
+            imageRole: "reference",
+            imageUrl: "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+          },
+        },
+      ],
+      edges: [{
+        id: "context-source-edge",
+        source: "context-source-text",
+        sourceHandle: "text",
+        target: "context-source-render",
+        targetHandle: "prompt",
+      }],
+    });
+  }, { projectId, projectName: originalName });
+
+  const nav = page.getByRole("navigation", { name: "项目画布页签" });
+  const sourceTab = nav.getByTitle(`${originalName} · 双击重命名`);
+  await expect(sourceTab).toBeVisible();
+  await sourceTab.click({ button: "right" });
+  const menu = page.getByRole("menu", { name: `${originalName}页签操作` });
+  await expect(menu).toBeVisible();
+  const menuBounds = await menu.boundingBox();
+  const viewport = page.viewportSize();
+  expect(menuBounds).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  expect(menuBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(menuBounds!.y).toBeGreaterThanOrEqual(0);
+  expect(menuBounds!.x + menuBounds!.width).toBeLessThanOrEqual(viewport!.width);
+  expect(menuBounds!.y + menuBounds!.height).toBeLessThanOrEqual(viewport!.height);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(sourceTab).toBeFocused();
+
+  await sourceTab.dispatchEvent("contextmenu", {
+    button: 2,
+    clientX: viewport!.width - 1,
+    clientY: viewport!.height - 1,
+  });
+  await expect(menu).toBeVisible();
+  const edgeMenuBounds = await menu.boundingBox();
+  expect(edgeMenuBounds).not.toBeNull();
+  expect(edgeMenuBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(edgeMenuBounds!.y).toBeGreaterThanOrEqual(0);
+  expect(edgeMenuBounds!.x + edgeMenuBounds!.width).toBeLessThanOrEqual(viewport!.width);
+  expect(edgeMenuBounds!.y + edgeMenuBounds!.height).toBeLessThanOrEqual(viewport!.height);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+
+  await sourceTab.focus();
+  await page.keyboard.press("Shift+F10");
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: "重命名" }).click();
+  const renameInput = page.getByRole("textbox", { name: "项目名称" });
+  await renameInput.fill(renamedName);
+  await renameInput.press("Enter");
+  const renamedTab = nav.getByTitle(`${renamedName} · 双击重命名`);
+  await expect(renamedTab).toBeVisible();
+  await expect.poll(() => savedProjectBody?.name).toBe(renamedName);
+
+  await renamedTab.click({ button: "right" });
+  await page.getByRole("menu", { name: `${renamedName}页签操作` })
+    .getByRole("menuitem", { name: "复制" }).click();
+  const duplicateName = `${renamedName} - 副本`;
+  const duplicateTab = nav.getByTitle(`${duplicateName} · 双击重命名`);
+  await expect(duplicateTab).toBeVisible();
+  const duplicated = await page.evaluate(async ({ sourceProjectId, duplicateName }) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const source = state.tabs.find((tab: { projectId: string }) => tab.projectId === sourceProjectId)!;
+    const duplicate = state.tabs.find((tab: { projectName: string }) => tab.projectName === duplicateName)!;
+    state.updateNodeData("context-source-render", { prompt: "仅副本的提示词" });
+    return {
+      sourceId: source.id,
+      sourceProjectId: source.projectId,
+      duplicateId: duplicate.id,
+      duplicateProjectId: duplicate.projectId,
+      duplicateDirty: duplicate.dirty,
+      duplicateText: duplicate.nodes.find((node: { id: string }) => node.id === "context-source-text")?.data.text,
+      duplicateImage: duplicate.nodes.find((node: { id: string }) => node.id === "context-source-image")?.data.imageUrl,
+      duplicateEdge: duplicate.edges.find((edge: { id: string }) => edge.id === "context-source-edge"),
+    };
+  }, { sourceProjectId: projectId, duplicateName });
+  expect(duplicated.duplicateId).not.toBe(duplicated.sourceId);
+  expect(duplicated.duplicateProjectId).not.toBe(duplicated.sourceProjectId);
+  expect(duplicated.duplicateDirty).toBe(true);
+  expect(duplicated.duplicateText).toBe("只在来源画布的参数");
+  expect(duplicated.duplicateImage).toBe("data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=");
+  expect(duplicated.duplicateEdge).toMatchObject({
+    source: "context-source-text",
+    target: "context-source-render",
+    targetHandle: "prompt",
+  });
+
+  await renamedTab.click({ button: "right" });
+  await page.getByRole("menu", { name: `${renamedName}页签操作` })
+    .getByRole("menuitem", { name: "保存" }).click();
+  await expect(page.getByRole("status").filter({ hasText: `已保存“${renamedName}”` })).toBeVisible();
+  const savedFlow = savedProjectBody?.flow as { nodes: Array<{ id: string; data: Record<string, unknown> }> } | undefined;
+  expect(savedProjectBody?.id).toBe(projectId);
+  expect(savedFlow?.nodes.find((node) => node.id === "context-source-render")?.data.prompt).toBe("原始提示词");
+
+  projectSaveStatus = 500;
+  await renamedTab.click({ button: "right" });
+  await page.getByRole("menu", { name: `${renamedName}页签操作` })
+    .getByRole("menuitem", { name: "保存" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: `保存“${renamedName}”失败` })).toBeVisible();
+
+  await renamedTab.click({ button: "right" });
+  await page.getByRole("menu", { name: `${renamedName}页签操作` })
+    .getByRole("menuitem", { name: "另存至我的模板" }).click();
+  const templateDialog = page.getByRole("dialog", { name: "存为模板" });
+  await expect(templateDialog).toBeVisible();
+  await expect(templateDialog).toContainText("所选页签");
+  await templateDialog.getByRole("textbox", { name: "名称" }).fill("来源画布模板");
+  await templateDialog.getByRole("textbox", { name: "描述" }).fill("验证指定页签而非活动副本");
+  await templateDialog.getByRole("button", { name: "保存" }).click();
+  await expect(templateDialog).toBeHidden();
+  const templateFlow = savedTemplateBody?.flow as { nodes: Array<{ id: string; data: Record<string, unknown> }> } | undefined;
+  expect(savedTemplateBody?.name).toBe("来源画布模板");
+  expect(templateFlow?.nodes.find((node) => node.id === "context-source-render")?.data.prompt).toBe("原始提示词");
+  await expect(renamedTab).toBeFocused();
+});
+
+test("project tab copy duplicates project-bound masks and drawing content", async ({ page }, testInfo) => {
+  const sourceProjectId = `resource-source-${testInfo.project.name}`;
+  const copiedProjectId = `resource-copy-${testInfo.project.name}`;
+  let copyRequestBody: Record<string, unknown> | undefined;
+  let savedProjectBody: Record<string, unknown> | undefined;
+
+  await page.route("**/api/projects/copy", async (route) => {
+    copyRequestBody = route.request().postDataJSON() as Record<string, unknown>;
+    const sourceFlow = copyRequestBody.flow as {
+      nodes: Array<{ id: string; data: Record<string, unknown> }>;
+      edges: unknown[];
+    };
+    const copiedFlow = {
+      ...sourceFlow,
+      nodes: sourceFlow.nodes.map((node) => {
+        if (node.id === "resource-copy-mask") {
+          return { ...node, data: { ...node.data, mask: "/api/files/copied-mask.png" } };
+        }
+        if (node.id === "resource-copy-board") {
+          return { ...node, data: { ...node.data, contentRef: "draw_copied_board_version" } };
+        }
+        return node;
+      }),
+    };
+    await route.fulfill({ status: 201, json: { id: copiedProjectId, flow: copiedFlow } });
+  });
+  await page.route("**/api/projects", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    savedProjectBody = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, json: { ok: true, id: copiedProjectId } });
+  });
+  await page.route("**/api/drawing-boards/versions/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      json: {
+        contentRef: "draw_source_board_version",
+        sha256: "a".repeat(64),
+        createdAt: new Date().toISOString(),
+        document: {
+          version: 1,
+          canvas: { width: 1024, height: 768, background: "#FFFFFF" },
+          layers: [],
+        },
+      },
+    });
+  });
+
+  await page.evaluate(async ({ projectId }) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    useFlowStore.getState().openFlowTab({
+      projectId,
+      projectName: "含蒙版和画板的画布",
+      markDirty: true,
+      nodes: [
+        {
+          id: "resource-copy-mask",
+          type: "mask-redraw",
+          position: { x: 0, y: 0 },
+          data: {
+            kind: "mask-redraw",
+            label: "蒙版节点",
+            status: "idle",
+            prompt: "仅作复制测试",
+            mask: "/api/files/source-mask.png",
+            maskSourceRef: "/api/files/source-mask.png",
+            outputImages: [],
+            modelId: "gpt-image-2",
+            modelOptions: {},
+          },
+        },
+        {
+          id: "resource-copy-board",
+          type: "drawing-board",
+          position: { x: 320, y: 0 },
+          data: {
+            kind: "drawing-board",
+            label: "画板节点",
+            status: "idle",
+            boardVersion: 1,
+            width: 1024,
+            height: 768,
+            background: "#FFFFFF",
+            contentRef: "draw_source_board_version",
+            previewImageRef: "/api/files/source-preview.png",
+          },
+        },
+      ],
+      edges: [],
+    });
+  }, { projectId: sourceProjectId });
+
+  const nav = page.getByRole("navigation", { name: "项目画布页签" });
+  const sourceTab = nav.getByTitle("含蒙版和画板的画布 · 双击重命名");
+  await expect(sourceTab).toBeVisible();
+  await sourceTab.click({ button: "right" });
+  await page.getByRole("menu", { name: "含蒙版和画板的画布页签操作" })
+    .getByRole("menuitem", { name: "复制" }).click();
+
+  const copiedName = "含蒙版和画板的画布 - 副本";
+  const copiedTab = nav.getByTitle(`${copiedName} · 双击重命名`);
+  await expect(copiedTab).toBeVisible();
+  expect(copyRequestBody?.sourceProjectId).toBe(sourceProjectId);
+  const postedFlow = copyRequestBody?.flow as { nodes: Array<{ id: string; data: Record<string, unknown> }> } | undefined;
+  expect(postedFlow?.nodes.find((node) => node.id === "resource-copy-mask")?.data.mask).toBe("/api/files/source-mask.png");
+  expect(postedFlow?.nodes.find((node) => node.id === "resource-copy-board")?.data.contentRef).toBe("draw_source_board_version");
+
+  const refs = await page.evaluate(async ({ sourceProjectId, copiedProjectId, copiedName }) => {
+    const storeModulePath = "/src/store/flowStore.ts";
+    const { useFlowStore } = await import(storeModulePath);
+    const state = useFlowStore.getState();
+    const source = state.tabs.find((tab: ProjectTab) => tab.projectId === sourceProjectId)!;
+    const copied = state.tabs.find((tab: ProjectTab) => tab.projectName === copiedName)!;
+    return {
+      sourceProjectId: source.projectId,
+      copiedProjectId: copied.projectId,
+      copiedDirty: copied.dirty,
+      sourceMask: source.nodes.find((node: ProjectTab["nodes"][number]) => node.id === "resource-copy-mask")?.data.mask,
+      copiedMask: copied.nodes.find((node: ProjectTab["nodes"][number]) => node.id === "resource-copy-mask")?.data.mask,
+      sourceBoard: source.nodes.find((node: ProjectTab["nodes"][number]) => node.id === "resource-copy-board")?.data.contentRef,
+      copiedBoard: copied.nodes.find((node: ProjectTab["nodes"][number]) => node.id === "resource-copy-board")?.data.contentRef,
+      expectedProjectId: copiedProjectId,
+    };
+  }, { sourceProjectId, copiedProjectId, copiedName });
+  expect(refs.copiedProjectId).toBe(refs.expectedProjectId);
+  expect(refs.copiedProjectId).not.toBe(refs.sourceProjectId);
+  expect(refs.copiedDirty).toBe(true);
+  expect(refs.sourceMask).toBe("/api/files/source-mask.png");
+  expect(refs.copiedMask).toBe("/api/files/copied-mask.png");
+  expect(refs.sourceBoard).toBe("draw_source_board_version");
+  expect(refs.copiedBoard).toBe("draw_copied_board_version");
+
+  await copiedTab.click({ button: "right" });
+  await page.getByRole("menu", { name: `${copiedName}页签操作` })
+    .getByRole("menuitem", { name: "保存" }).click();
+  await expect.poll(() => savedProjectBody?.id).toBe(copiedProjectId);
+  const savedFlow = savedProjectBody?.flow as { nodes: Array<{ id: string; data: Record<string, unknown> }> } | undefined;
+  expect(savedFlow?.nodes.find((node) => node.id === "resource-copy-mask")?.data.mask).toBe("/api/files/copied-mask.png");
+  expect(savedFlow?.nodes.find((node) => node.id === "resource-copy-board")?.data.contentRef).toBe("draw_copied_board_version");
+});
+
 test("project center keeps projects usable when template loading fails", async ({ page }) => {
   await page.route("**/api/templates", async (route) => {
     if (route.request().method() === "GET") {
@@ -2843,7 +3165,64 @@ test("standalone asset library filters and reclassifies without changing canvas"
   for (const id of ids) await page.request.delete(`/api/assets/${id}`);
 });
 
-test("asset deletion resets pending pagination and restores focus on first deletion", async ({ page }) => {
+test("asset library supports name and time sorting in both directions", async ({ page }) => {
+  const assets = [
+    { id: "sort-ui-alpha", name: "alpha", createdAt: "2026-01-03T00:00:00.000Z" },
+    { id: "sort-ui-beta", name: "Beta", createdAt: "2026-01-02T00:00:00.000Z" },
+    { id: "sort-ui-gamma", name: "Gamma", createdAt: "2026-01-01T00:00:00.000Z" },
+  ].map((asset) => ({
+    ...asset,
+    category: "reference",
+    image: RESULTS_DENSITY_IMAGE,
+    thumbnail: RESULTS_DENSITY_IMAGE,
+    canManage: true,
+  }));
+  await page.route("**/api/assets?*", async (route) => {
+    const url = new URL(route.request().url());
+    const sortBy = url.searchParams.get("sortBy") ?? "createdAt";
+    const sortOrder = url.searchParams.get("sortOrder") ?? "desc";
+    const sorted = [...assets].sort((left, right) => {
+      const compared = sortBy === "name"
+        ? left.name.localeCompare(right.name)
+        : left.createdAt.localeCompare(right.createdAt);
+      return (sortOrder === "asc" ? compared : -compared) || left.id.localeCompare(right.id);
+    });
+    await route.fulfill({ json: sorted });
+  });
+
+  try {
+    await openFreshBlankProject(page);
+    const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+    await rail.getByRole("button", { name: "添加节点", exact: true }).click();
+    await page.getByRole("menu", { name: "添加节点" }).getByRole("menuitem", { name: /本地上传图片/ }).click();
+    const imageNode = page.locator(".react-flow__node").filter({ hasText: "图片上传" }).last();
+    await imageNode.getByRole("button", { name: "从素材库选择" }).click();
+    const picker = page.getByRole("dialog", { name: "从素材库选择" });
+    const cardNames = () => picker.locator("[data-asset-card-id] img").evaluateAll((images) => images.map((image) => image.getAttribute("alt")));
+    await expect(picker.locator("[data-asset-card-id]")).toHaveCount(3);
+
+    const sort = picker.getByRole("combobox", { name: "素材排序" });
+    await sort.click();
+    await page.getByRole("option", { name: "名称正序", exact: true }).click();
+    await expect.poll(cardNames).toEqual(["alpha", "Beta", "Gamma"]);
+
+    await sort.click();
+    await page.getByRole("option", { name: "名称倒序", exact: true }).click();
+    await expect.poll(cardNames).toEqual(["Gamma", "Beta", "alpha"]);
+
+    await sort.click();
+    await page.getByRole("option", { name: "时间正序", exact: true }).click();
+    await expect.poll(cardNames).toEqual(["Gamma", "Beta", "alpha"]);
+
+    await sort.click();
+    await page.getByRole("option", { name: "时间倒序", exact: true }).click();
+    await expect.poll(cardNames).toEqual(["alpha", "Beta", "Gamma"]);
+  } finally {
+    if (!page.isClosed()) await page.unroute("**/api/assets?*");
+  }
+});
+
+test("asset deletion resets pending scroll pagination and restores focus on first deletion", async ({ page }) => {
   let assets = Array.from({ length: 40 }, (_, index) => ({
     id: `pagination-${index + 1}`,
     name: `分页素材 ${index + 1}`,
@@ -2886,7 +3265,7 @@ test("asset deletion resets pending pagination and restores focus on first delet
     const picker = page.getByRole("dialog", { name: "从素材库选择" });
     const cards = picker.locator("[data-asset-card-id]");
     await expect(cards).toHaveCount(20);
-    await picker.getByRole("button", { name: "加载更多素材" }).click();
+    await picker.locator("[data-asset-load-sentinel]").scrollIntoViewIfNeeded();
     await expect.poll(() => pageStarted).toBe(true);
     await picker.getByRole("button", { name: "删除素材 分页素材 1", exact: true }).click();
     const confirmation = page.getByRole("alertdialog", { name: "删除素材" });
@@ -2896,9 +3275,8 @@ test("asset deletion resets pending pagination and restores focus on first delet
     await expect(picker.locator('[data-asset-card-id="pagination-21"]')).toHaveCount(1);
     releasePage();
     await expect.poll(() => pageFinished).toBe(true);
-    await picker.getByRole("button", { name: "加载更多素材" }).click();
     await expect(cards).toHaveCount(39);
-    await expect(picker.getByRole("button", { name: "加载更多素材" })).toHaveCount(0);
+    await expect(picker.getByText("已加载全部素材", { exact: true })).toBeVisible();
     expect(await cards.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-asset-card-id"))))
       .toEqual(assets.map((asset) => asset.id));
   } finally {

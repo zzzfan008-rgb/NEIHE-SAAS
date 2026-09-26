@@ -4,7 +4,7 @@ import type { PoolClient } from "pg";
 import { requestUser } from "../lib/auth";
 import { asyncHandler } from "../lib/asyncHandler";
 import { query, queryOne, transaction } from "../lib/database";
-import { deleteStoredImage } from "../lib/fileStore";
+import { deleteStoredImage, resolveToDataUrl, saveDataUrl } from "../lib/fileStore";
 import { validateAndMigrateFlow, WorkflowValidationError } from "../lib/workflowSchema";
 import { assertWorkflowPantoneReferences } from "../lib/workflowPantoneValidation";
 import {
@@ -40,6 +40,7 @@ interface ProjectMaskFileRef {
 
 const RETIRED_MASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const INITIAL_DRAFT_TRASH_RETENTION_MS = 15 * 24 * 60 * 60 * 1_000;
+const COPY_DRAFT_RETENTION_MS = 15 * 24 * 60 * 60 * 1_000;
 const PROJECT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_DRAFT_REVISION = 2_147_483_646;
 
@@ -309,7 +310,7 @@ projectsRouter.post("/", asyncHandler(async (req, res) => {
       const existing = await queryOne<{
         owner_id: string;
         deleted_at: string | null;
-        lifecycle: "initial_draft" | "saved";
+        lifecycle: "initial_draft" | "copy_draft" | "saved";
         draft_revision: number;
       }>(
         "SELECT owner_id, deleted_at, lifecycle, draft_revision FROM projects WHERE id = $1 FOR UPDATE",
@@ -347,6 +348,10 @@ projectsRouter.post("/", asyncHandler(async (req, res) => {
           SET name = excluded.name,
               flow_json = excluded.flow_json,
               lifecycle = 'saved',
+              purge_after = CASE
+                WHEN projects.lifecycle = 'copy_draft' THEN NULL
+                ELSE projects.purge_after
+              END,
               updated_at = excluded.updated_at
           WHERE projects.owner_id = excluded.owner_id
         RETURNING id
@@ -384,6 +389,192 @@ projectsRouter.post("/", asyncHandler(async (req, res) => {
   } catch (error) {
     res.status(error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : error instanceof DrawingBoardAccessError ? 409 : 500)
       .json({ error: error instanceof Error ? error.message : String(error) });
+  }
+}));
+
+/**
+ * 为未保存的本地页签复制项目级资源。copy_draft 行仅作为画板外键和资源
+ * 回收锚点，不出现在项目列表；正式保存时由 POST /api/projects 转为 saved。
+ */
+projectsRouter.post("/copy", asyncHandler(async (req, res) => {
+  const user = requestUser(req);
+  const { sourceProjectId, name, flow } = req.body as {
+    sourceProjectId?: unknown;
+    name?: unknown;
+    flow?: unknown;
+  };
+  if (
+    typeof sourceProjectId !== "string" || !PROJECT_ID_PATTERN.test(sourceProjectId) ||
+    typeof name !== "string" || !name.trim() || name.length > 200 || flow === undefined
+  ) {
+    res.status(400).json({ error: "sourceProjectId、name 和 flow 无效" });
+    return;
+  }
+
+  const copiedFileIds: string[] = [];
+  let committed = false;
+  try {
+    const sourceFlow = validateAndMigrateFlow(flow);
+    const maskRefs = projectMaskFileRefs(sourceFlow);
+    const boardNodes = sourceFlow.nodes.filter((node) => node.data.kind === "drawing-board");
+    if (maskRefs.length === 0 && !boardNodes.some((node) => node.data.kind === "drawing-board" && node.data.contentRef)) {
+      res.status(400).json({ error: "flow 不包含可复制的项目级资源" });
+      return;
+    }
+
+    const outcome = await transaction(async (client) => {
+      if (!await lockActiveOwner(client, user.id)) return { status: "owner_unavailable" as const };
+      await assertWorkflowPantoneReferences(sourceFlow, client);
+      await assertImageReferencesAccessible(sourceFlow, user.id, client, { fileLock: "update" });
+      await assertDrawingBoardReferences(client, user.id, sourceProjectId, sourceFlow);
+
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const purgeAfter = new Date(now.getTime() + COPY_DRAFT_RETENTION_MS).toISOString();
+      let targetProjectId: string | undefined;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const candidate = nanoid(10);
+        const occupied = await queryOne<{ occupied: number }>(`
+          SELECT 1 AS occupied FROM projects WHERE id = $1
+          UNION ALL
+          SELECT 1 AS occupied FROM files WHERE project_id = $1
+          LIMIT 1
+        `, [candidate], client);
+        if (!occupied) {
+          targetProjectId = candidate;
+          break;
+        }
+      }
+      if (!targetProjectId) return { status: "target_unavailable" as const };
+
+      const maskRows = maskRefs.length === 0 ? [] : (await client.query<{
+        id: string;
+        owner_id: string | null;
+        source_type: string;
+        project_id: string | null;
+        node_id: string | null;
+        mime_type: string | null;
+        width: number | null;
+        height: number | null;
+        byte_length: number | null;
+      }>(`
+        SELECT id, owner_id, source_type, project_id, node_id, mime_type,
+          width, height, byte_length
+        FROM files
+        WHERE id = ANY($1::text[])
+          AND (deleted_at IS NULL OR purge_after > $2)
+        ORDER BY id
+        FOR UPDATE
+      `, [maskRefs.map((ref) => ref.fileId), nowIso])).rows;
+      const maskRowsById = new Map(maskRows.map((row) => [row.id, row]));
+      for (const ref of maskRefs) {
+        const row = maskRowsById.get(ref.fileId);
+        if (
+          !ref.fileId.endsWith(".png") || !row || row.owner_id !== user.id ||
+          (row.source_type !== "mask-draft" && row.source_type !== "mask") ||
+          row.project_id !== sourceProjectId || row.node_id !== ref.nodeId ||
+          row.mime_type !== "image/png"
+        ) return { status: "resource_not_found" as const };
+      }
+      if (new Set(maskRefs.map((ref) => ref.fileId)).size !== maskRefs.length) {
+        return { status: "resource_not_found" as const };
+      }
+
+      const boardCopies: Array<{
+        sourceRef: string;
+        targetRef: string;
+        nodeId: string;
+        contentJson: string;
+        sha256: string;
+      }> = [];
+      for (const node of boardNodes) {
+        if (node.data.kind !== "drawing-board" || !node.data.contentRef) continue;
+        const version = await queryOne<{ content_json: string; sha256: string }>(`
+          SELECT content_json, sha256 FROM drawing_document_versions
+          WHERE id = $1 AND owner_id = $2 AND project_id = $3 AND node_id = $4
+          FOR KEY SHARE
+        `, [node.data.contentRef, user.id, sourceProjectId, node.id], client);
+        if (!version) return { status: "resource_not_found" as const };
+        boardCopies.push({
+          sourceRef: node.data.contentRef,
+          targetRef: `draw_${nanoid(20)}`,
+          nodeId: node.id,
+          contentJson: version.content_json,
+          sha256: version.sha256,
+        });
+      }
+
+      const maskUrls = new Map<string, string>();
+      for (const ref of maskRefs) {
+        const row = maskRowsById.get(ref.fileId)!;
+        const saved = saveDataUrl(resolveToDataUrl(`/api/files/${ref.fileId}`));
+        copiedFileIds.push(saved.id);
+        maskUrls.set(`/api/files/${ref.fileId}`, saved.url);
+        await client.query(`
+          INSERT INTO files (
+            id, owner_id, source_type, project_id, node_id,
+            mime_type, width, height, byte_length, normalized,
+            created_at, purge_after
+          ) VALUES ($1, $2, 'mask-draft', $3, $4, 'image/png', $5, $6, $7, FALSE, $8, $9)
+        `, [
+          saved.id, user.id, targetProjectId, ref.nodeId,
+          row.width, row.height, row.byte_length, nowIso, purgeAfter,
+        ]);
+      }
+      const boardRefs = new Map(boardCopies.map((copy) => [copy.sourceRef, copy.targetRef]));
+      const copiedFlow = validateAndMigrateFlow({
+        ...sourceFlow,
+        nodes: sourceFlow.nodes.map((node) => {
+          if (node.data.kind === "mask-redraw" && typeof node.data.mask === "string") {
+            const mask = maskUrls.get(node.data.mask);
+            return mask ? { ...node, data: { ...node.data, mask } } : node;
+          }
+          if (node.data.kind === "drawing-board" && node.data.contentRef) {
+            const contentRef = boardRefs.get(node.data.contentRef);
+            return contentRef ? { ...node, data: { ...node.data, contentRef } } : node;
+          }
+          return node;
+        }),
+      });
+
+      await client.query(`
+        INSERT INTO projects (
+          id, owner_id, name, flow_json, lifecycle, draft_revision,
+          updated_at, created_at, purge_after
+        ) VALUES ($1, $2, $3, $4, 'copy_draft', 0, $5, $5, $6)
+      `, [targetProjectId, user.id, name.trim(), JSON.stringify(copiedFlow), nowIso, purgeAfter]);
+      for (const copy of boardCopies) {
+        await client.query(`
+          INSERT INTO drawing_document_versions (
+            id, owner_id, project_id, node_id, version, content_json,
+            sha256, base_content_ref, created_at
+        ) VALUES ($1, $2, $3, $4, 1, $5, $6, NULL, $7)
+        `, [copy.targetRef, user.id, targetProjectId, copy.nodeId, copy.contentJson, copy.sha256, nowIso]);
+      }
+      await syncAssetRefs(client, targetProjectId, user.id, copiedFlow);
+      return { status: "copied" as const, targetProjectId, flow: copiedFlow };
+    });
+    committed = outcome.status === "copied";
+
+    if (outcome.status === "owner_unavailable") {
+      res.status(409).json({ error: "账号已停用或删除，不能复制项目资源" });
+      return;
+    }
+    if (outcome.status === "target_unavailable") {
+      res.status(503).json({ error: "暂时无法创建资源副本，请重试" });
+      return;
+    }
+    if (outcome.status === "resource_not_found") {
+      res.status(404).json({ error: "来源项目资源不存在或不可访问" });
+      return;
+    }
+    res.status(201).json({ id: outcome.targetProjectId, flow: outcome.flow });
+  } catch (error) {
+    if (!committed) copiedFileIds.forEach(deleteStoredImage);
+    const status = error instanceof WorkflowValidationError ? 400
+      : error instanceof ImageReferenceAccessError ? 403
+        : error instanceof DrawingBoardAccessError ? 409 : 500;
+    res.status(status).json({ error: error instanceof Error ? error.message : "项目资源复制失败" });
   }
 }));
 

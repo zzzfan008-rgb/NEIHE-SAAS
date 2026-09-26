@@ -264,11 +264,13 @@ export function SaveTemplateForm({
   onOpenChange,
   onSaved,
   finalFocusRef,
+  document,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
   finalFocusRef: RefObject<HTMLButtonElement | null>;
+  document?: { projectName: string; nodes: FlowNode[]; edges: Edge[] };
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -300,7 +302,8 @@ export function SaveTemplateForm({
     setError(null);
     const submissionVersion = ++submissionVersionRef.current;
     try {
-      const { projectName, nodes, edges } = selectActiveDocument(useFlowStore.getState());
+      const { projectName, nodes, edges } =
+        document ?? selectActiveDocument(useFlowStore.getState());
       const res = await fetch("/api/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -336,7 +339,7 @@ export function SaveTemplateForm({
         <div>
           <DialogTitle className="text-sm font-medium text-[var(--gc-text)]">存为模板</DialogTitle>
           <DialogDescription className="mt-1 text-[10px] text-[var(--gc-text-muted)]">
-            保存当前节点、连线和参数配置，供之后快速复用。
+            保存{document ? "所选页签" : "当前画布"}的节点、连线和参数配置，供之后快速复用。
           </DialogDescription>
         </div>
         <label className="block space-y-1">

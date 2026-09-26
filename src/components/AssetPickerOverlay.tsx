@@ -39,6 +39,13 @@ const CATEGORY_TABS = [
 type CategoryFilter = (typeof CATEGORY_TABS)[number][0];
 
 const PAGE_SIZE = 20;
+type AssetSortValue = "name:asc" | "name:desc" | "createdAt:asc" | "createdAt:desc";
+const ASSET_SORT_OPTIONS: ReadonlyArray<{ value: AssetSortValue; label: string }> = [
+  { value: "name:asc", label: "名称正序" },
+  { value: "name:desc", label: "名称倒序" },
+  { value: "createdAt:asc", label: "时间正序" },
+  { value: "createdAt:desc", label: "时间倒序" },
+];
 
 /** 素材库选择浮层：按分类筛选 + 名称搜索，选中后写回目标图片上传节点 */
 export function AssetPickerOverlay({
@@ -54,6 +61,7 @@ export function AssetPickerOverlay({
   const [category, setCategory] = useState<CategoryFilter>("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [sortValue, setSortValue] = useState<AssetSortValue>("createdAt:desc");
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -71,6 +79,9 @@ export function AssetPickerOverlay({
   const requestGeneration = useRef(0);
   const previewButtons = useRef(new Map<string, HTMLButtonElement>());
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const assetScrollRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const loadingMoreRef = useRef(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -78,6 +89,12 @@ export function AssetPickerOverlay({
   }, [search]);
 
   const load = useCallback(async (offset: number) => {
+    if (offset > 0) {
+      if (loadingMoreRef.current) return;
+      loadingMoreRef.current = true;
+    } else {
+      loadingMoreRef.current = false;
+    }
     const generation = offset === 0 ? requestGeneration.current + 1 : requestGeneration.current;
     if (offset === 0) {
       requestGeneration.current = generation;
@@ -88,6 +105,9 @@ export function AssetPickerOverlay({
     setError(null);
     try {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+      const [sortBy, sortOrder] = sortValue.split(":") as ["name" | "createdAt", "asc" | "desc"];
+      params.set("sortBy", sortBy);
+      params.set("sortOrder", sortOrder);
       if (category !== "all") params.set("category", category);
       if (debouncedSearch) params.set("search", debouncedSearch);
       const res = await fetch(`/api/assets?${params}`);
@@ -105,9 +125,10 @@ export function AssetPickerOverlay({
       if (generation !== requestGeneration.current) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      if (offset > 0) loadingMoreRef.current = false;
       if (generation === requestGeneration.current) setLoading(false);
     }
-  }, [category, debouncedSearch]);
+  }, [category, debouncedSearch, sortValue]);
 
   // 打开、切换分类或搜索词变化时都从第一页重新拉取
   useEffect(() => {
@@ -119,6 +140,21 @@ export function AssetPickerOverlay({
     requestGeneration.current += 1;
     setRefreshKey((value) => value + 1);
   };
+
+  useEffect(() => {
+    const root = assetScrollRef.current;
+    const sentinel = loadMoreSentinelRef.current;
+    if (!root || !sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting || loading || !hasMore || loadingMoreRef.current) return;
+        void load(assets.length);
+      },
+      { root, rootMargin: "160px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [assets.length, hasMore, load, loading]);
 
   useEffect(() => {
     if (!previewAssetId || viewer) return;
@@ -267,6 +303,14 @@ export function AssetPickerOverlay({
                 上传并分析
               </Button>
             )}
+            <Select value={sortValue} onValueChange={(value) => setSortValue(value as AssetSortValue)}>
+              <SelectTrigger size="sm" aria-label="素材排序" className="w-28 border-[var(--gc-border)] bg-[var(--gc-control)] text-[10px] text-[var(--gc-text)]">
+                <SelectValue>{ASSET_SORT_OPTIONS.find((option) => option.value === sortValue)?.label}</SelectValue>
+              </SelectTrigger>
+              <SelectContent positionerClassName="z-[70]" className="z-[70] border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]">
+                {ASSET_SORT_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
             <label className="ml-auto w-44">
               <span className="sr-only">搜索素材名称</span>
               <Input
@@ -280,7 +324,8 @@ export function AssetPickerOverlay({
             </label>
           </div>
 
-          <TabsContent value={category} className="min-h-0 flex-1 overflow-y-auto p-4">
+          <TabsContent value={category} className="min-h-0 flex-1 overflow-hidden p-0">
+            <div ref={assetScrollRef} data-asset-scroll-container className="h-full overflow-y-auto p-4">
             {categoryError && <p role="alert" className="mb-2 text-xs text-[var(--gc-text)]">分类保存失败：{categoryError}</p>}
             {error && (
               <div className="py-6 text-center">
@@ -388,7 +433,7 @@ export function AssetPickerOverlay({
                         <SelectTrigger size="sm" aria-label={`分类 ${asset.name}`} className="m-1 w-[calc(100%-0.5rem)] border-[var(--gc-border)] bg-[var(--gc-panel)] text-[10px] text-[var(--gc-text)]">
                           <SelectValue>{ASSET_CATEGORIES.find(([key]) => key === asset.category)?.[1] ?? "未分类"}</SelectValue>
                         </SelectTrigger>
-                        <SelectContent className="z-[70] border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]">
+                        <SelectContent positionerClassName="z-[70]" className="z-[70] border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]">
                           {ASSET_CATEGORIES.map(([key, label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}
                         </SelectContent>
                       </Select>
@@ -400,16 +445,19 @@ export function AssetPickerOverlay({
               </div>
             )}
             {hasMore && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void load(assets.length)}
-                disabled={loading}
-                className="mt-2.5 w-full border-dashed text-[10px]"
+              <div
+                ref={loadMoreSentinelRef}
+                data-asset-load-sentinel
+                aria-live="polite"
+                className="flex min-h-8 items-center justify-center text-[10px] text-[var(--gc-text-muted)]"
               >
-                {loading ? "加载中…" : "加载更多素材"}
-              </Button>
+                {loading ? "加载中…" : "继续向下滚动加载更多素材"}
+              </div>
             )}
+            {!hasMore && assets.length > 0 && !loading && (
+              <p aria-live="polite" className="py-3 text-center text-[10px] text-[var(--gc-text-muted)]">已加载全部素材</p>
+            )}
+            </div>
           </TabsContent>
           </Tabs>
         </DialogContent>
