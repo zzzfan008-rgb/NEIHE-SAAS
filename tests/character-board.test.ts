@@ -129,6 +129,29 @@ assert.throws(() =>
     nodes: [{ ...board, data: { ...board.data, boardLayout: "3x3" } }],
   }),
 );
+
+// 输出模型与输出规格：允许受支持模型与 1K/2K/4K，非法值拒绝。
+const sized = validateAndMigrateFlow(
+  documentSnapshotToPersistedWorkflow(createDocumentSnapshot({
+    projectName: "人物板输出规格",
+    nodes: [{ ...board, data: { ...board.data, modelId: "gemini-3.1-flash-image", outputSize: "4K" } }],
+    edges: [],
+  })),
+);
+assert.equal(sized.nodes[0].data.outputSize, "4K", "输出规格须往返持久化");
+assert.equal(sized.nodes[0].data.modelId, "gemini-3.1-flash-image", "输出模型须往返持久化");
+assert.throws(() =>
+  validateAndMigrateFlow({
+    ...restored,
+    nodes: [{ ...board, data: { ...board.data, outputSize: "8K" } }],
+  }),
+);
+assert.throws(() =>
+  validateAndMigrateFlow({
+    ...restored,
+    nodes: [{ ...board, data: { ...board.data, modelId: "gpt-image-2" } }],
+  }),
+);
 const legacyMigrated = validateAndMigrateFlow({
   ...documentSnapshotToPersistedWorkflow(snapshot),
   schemaVersion: 0,
@@ -210,6 +233,16 @@ assert.ok(!threeView?.prompt.includes("严格2×2四宫格"));
 const fallbackBoard = await boardRequest({});
 assert.equal(fallbackBoard?.aspectRatio, "3:4");
 assert.ok(fallbackBoard?.prompt.includes("严格2×2四宫格"));
+// 输出模型与规格接入生成：Gemini 走 imageSize，Flare 走像素尺寸。
+const geminiBoard = await boardRequest({ modelId: "gemini-3.1-flash-image", outputSize: "4K" });
+assert.equal(geminiBoard?.modelOptions?.imageSize, "4K", "Gemini 人物板须使用所选输出规格");
+assert.equal(geminiBoard?.modelOptions?.aspectRatio, "3:4");
+assert.equal(geminiBoard?.modelOptions?.size, undefined, "Gemini 走 imageSize，不使用像素尺寸");
+const fourKBoard = await boardRequest({ outputSize: "4K" });
+const twoKBoard = await boardRequest({});
+assert.notEqual(fourKBoard?.modelOptions?.size, twoKBoard?.modelOptions?.size, "4K 与 2K 像素尺寸须不同");
+const [fourKWidth, fourKHeight] = String(fourKBoard?.modelOptions?.size).split("x").map(Number);
+assert.ok(fourKWidth > 2048 && fourKHeight > 2048, "4K 人物板长边须大于 2K");
 await assert.rejects(() => executeStep(plan.steps[0], [], () => provider));
 
 useFlowStore.getState().createBlankTab();
@@ -307,8 +340,12 @@ for (const kind of Object.keys(NODE_SPECS) as NodeKind[]) {
   const targetNode = selectActiveDocument(useFlowStore.getState()).nodes.find(
     (node) => node.id === id,
   )!;
-  if (kind === "character-board")
-    assert.equal((targetNode.data as { boardLayout?: string }).boardLayout, "2x2", "新人物板节点默认 2×2");
+  if (kind === "character-board") {
+    const boardData = targetNode.data as { boardLayout?: string; modelId?: string; outputSize?: string };
+    assert.equal(boardData.boardLayout, "2x2", "新人物板节点默认 2×2");
+    assert.equal(boardData.modelId, DEFAULT_GENERATION_MODEL_ID, "新人物板节点默认 GPT-Image 2.5 Flare");
+    assert.equal(boardData.outputSize, "2K", "新人物板节点默认 2K");
+  }
   for (const port of inputPortSpecs(targetNode.data)) {
     const error = connectionCompatibilityError({
       source: board,
@@ -330,6 +367,8 @@ const characterBoardSource = fs.readFileSync(
 );
 // 画板规格下拉在 React Flow 节点内必须带 nodrag nopan，否则触发器点击被节点拖拽吞掉。
 assert.match(characterBoardSource, /画板规格[^\n]*nodrag nopan/, "画板规格下拉须带 nodrag nopan");
+assert.match(characterBoardSource, /输出尺寸[^\n]*nodrag nopan/, "输出尺寸下拉须带 nodrag nopan");
+assert.match(characterBoardSource, /图像模型[^\n]*nodrag nopan/, "图像模型下拉须带 nodrag nopan");
 console.log(
   "character-board: schema, fixed generation, image output and document boundary tests passed",
 );

@@ -15,6 +15,9 @@ import { analyzePoseReference, DEEPSEEK_POSE_MODEL, type PoseAnalysisOptions, ty
 import { config } from '../config';
 import { ProviderError } from '../providers/base';
 import { isPoseReferenceNode, type PoseOutfitReferenceRecord, type PoseOutfitReferenceStatus, type PoseReferenceKind, type PoseReferenceRecord } from '../../src/types/poseReference';
+import { renderPoseDocument } from '../lib/poseEditing';
+import { isPoseDocumentBoundToImage, validatePoseDocument } from '../../src/lib/poseTopology';
+import type { PoseDocumentV1 } from '../../src/types/poseDocument';
 import type { ExecutionPlan } from '../../src/types/workflow';
 import { DEFAULT_GENERATION_MODEL_ID } from '../../src/types/imageModels';
 import { POSE_OUTFIT_REFERENCE_PROMPT } from '../engine/runner';
@@ -123,7 +126,7 @@ function poseOutfitRecord(
 }
 
 function configuration(kind: PoseReferenceKind, depthFingerprint?: string): string {
-  const values: string[] = kind === 'skeleton' ? ['dwpose-v1',process.env.POSE_SERVICE_URL ?? '',process.env.POSE_MODEL_REVISION ?? '1a7144101628d69ee7a3768d1ee3a094070dc388'] :
+  const values: string[] = kind === 'skeleton' ? ['dwpose-v2-structured',process.env.POSE_SERVICE_URL ?? '',process.env.POSE_MODEL_REVISION ?? '1a7144101628d69ee7a3768d1ee3a094070dc388'] :
     ['depth-v1', process.env.DEPTH_SERVICE_URL ?? '', process.env.DEPTH_INPUT_SIZE ?? '518', process.env.DEPTH_MODEL_REVISION ?? 'vitl-official-v1'];
   const fingerprinted = Boolean(depthFingerprint);
   if (depthFingerprint) values.push('analysis-source-depth-v1', depthFingerprint);
@@ -131,7 +134,7 @@ function configuration(kind: PoseReferenceKind, depthFingerprint?: string): stri
   return fingerprinted ? `depth-source-v1:${hash}` : hash;
 }
 
-async function authorizeProjectAndSource(owner: string, input: PoseReferenceInput, client: PoolClient): Promise<{name: string}> {
+async function authorizeProjectAndSource(owner: string, input: PoseReferenceInput, client: PoolClient): Promise<{name: string; poseDocument?: PoseDocumentV1}> {
   const project = await queryOne<{flow_json:string; name:string}>(`SELECT p.flow_json,p.name FROM projects p JOIN users u ON u.id=p.owner_id
     WHERE p.id=$1 AND p.owner_id=$2 AND p.deleted_at IS NULL AND p.lifecycle='saved'
       AND u.active=1 AND u.deleted_at IS NULL FOR SHARE OF p,u`,[input.projectId,owner],client);
@@ -142,10 +145,13 @@ async function authorizeProjectAndSource(owner: string, input: PoseReferenceInpu
     throw new RequestError(409,'姿势参考图已变化，请保存当前项目后重试');
   }
   await assertImageReferencesAccessible([input.source],owner,client);
-  return {name:project.name};
+  const poseDocument = isPoseDocumentBoundToImage(node.data.poseDocument, input.source)
+    ? node.data.poseDocument
+    : undefined;
+  return {name:project.name, ...(poseDocument ? {poseDocument} : {})};
 }
 
-async function resolveAnalysisSource(owner: string, input: PoseReferenceInput, kind: PoseReferenceKind, client: PoolClient): Promise<ResolvedAnalysisSource> {
+async function resolveAnalysisSource(owner: string, input: PoseReferenceInput, kind: PoseReferenceKind, client: PoolClient, linkedPoseDocument?: PoseDocumentV1): Promise<ResolvedAnalysisSource> {
   if (input.analysisSourceKind === 'depth') {
     if (kind !== 'skeleton' || !input.analysisSourceRecordId) throw new RequestError(400,'深度图只能作为 DWPose 骨骼图的来源');
     const depth = await queryOne<{source:string; result:unknown}>(`SELECT source,result FROM pose_references
@@ -163,7 +169,7 @@ async function resolveAnalysisSource(owner: string, input: PoseReferenceInput, k
   }
   if (input.analysisSourceRecordId) throw new RequestError(400,'姿势分析来源参数无效');
   await assertImageReferencesAccessible([input.analysisSource],owner,client);
-  if (input.analysisSource !== input.source) {
+  if (input.analysisSource !== input.source && linkedPoseDocument?.source.analysisImage !== input.analysisSource) {
     const derived = await queryOne(`SELECT o.id FROM generation_outputs o JOIN generation_runs r ON r.id=o.run_id
       WHERE r.owner_id=$1 AND r.project_id=$2 AND r.node_id=$3 AND r.kind=$4
       AND r.reference_images_json=$5 AND r.deleted_at IS NULL AND o.status='success' AND o.image=$6
@@ -276,6 +282,30 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer; analyze
       res.json({records});
     } catch(error) { handleError(error,res); }
   }));
+  router.post('/render',asyncHandler(async(req,res)=>{
+    try {
+      const input=parseInput(req.body ?? {});
+      let poseDocument: PoseDocumentV1;
+      try {
+        poseDocument=validatePoseDocument(req.body?.poseDocument);
+      } catch (error) {
+        throw new RequestError(400,error instanceof Error?error.message:'姿势编辑稿无效');
+      }
+      const result=await transaction(async(client)=>{
+        const owner=requestUser(req).id;
+        const authorization=await authorizeProjectAndSource(owner,input,client);
+        const resolved=await resolveAnalysisSource(owner,input,'skeleton',client,authorization.poseDocument);
+        if (poseDocument.source.analysisImage!==resolved.source ||
+            (poseDocument.imageBinding!==null && poseDocument.imageBinding!==input.source)) {
+          throw new RequestError(409,'姿势编辑稿来源与当前参考图不一致');
+        }
+        return renderPoseDocument(poseDocument);
+      });
+      res.setHeader('Cache-Control','no-store');
+      res.json(result);
+    } catch(error) { handleError(error,res); }
+  }));
+
   router.post('/analyze',asyncHandler(async(req,res)=>{
     try {
       const input=parsePosePromptInput(req.body ?? {});

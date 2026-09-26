@@ -57,7 +57,7 @@ test("第一轮参考编号随连线和实际图片更新且不溢出角色框",
     return { width: box.width, inside: label.left >= box.left && label.right <= box.right + 1 && label.bottom <= box.bottom + 1,
       overflow: number.scrollWidth > number.clientWidth + 1 };
   }));
-  expect(geometry).toHaveLength(11);
+  expect(geometry).toHaveLength(12);
   expect(geometry.every(row => row.width > 0 && row.inside && !row.overflow)).toBe(true);
   // Two additional identity references must receive their own model indices.
   await page.evaluate(async image => {

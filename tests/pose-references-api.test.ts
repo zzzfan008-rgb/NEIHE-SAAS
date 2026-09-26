@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import sharp from 'sharp';
+import type { PoseDocumentV1, PosePersonV1 } from '../src/types/poseDocument';
 import type { AddressInfo } from 'node:net';
 import { resetPostgresTestDatabase } from './postgresTestDatabase';
 
@@ -60,6 +61,24 @@ const body = {projectId:'project',nodeId:'pose',source:stored.url,kind:'depth',r
 const req = (method: string, data: unknown = body, user='owner') => fetch(base+'/api/pose-references'+(method==='GET'?'?'+new URLSearchParams({projectId:'project',nodeId:'pose',source:stored.url}):''),{method,headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},...(method==='POST'?{body:JSON.stringify(data)}:{})});
 const analyzeBody = {projectId:'project',nodeId:'pose',source:stored.url};
 const analyzeReq = (data: unknown = analyzeBody, user='owner') => fetch(base+'/api/pose-references/analyze',{method:'POST',headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},body:JSON.stringify(data)});
+const manualPoint = {x:15,y:20,confidence:1,origin:'manual' as const};
+const renderPerson: PosePersonV1 = {
+  id:'00000000-0000-4000-8000-000000000001',topology:'coco-wholebody-133',neck:manualPoint,midHip:manualPoint,
+  body:Array.from({length:17},()=>null),feet:Array.from({length:6},()=>null),face:Array.from({length:70},()=>null),faceTopology:'face68',
+  hands:{left:Array.from({length:21},()=>null),right:Array.from({length:21},()=>null)},
+};
+renderPerson.body[5]={...manualPoint,x:10,y:12};
+renderPerson.body[6]={...manualPoint,x:20,y:12};
+renderPerson.body[11]={...manualPoint,x:12,y:30};
+renderPerson.body[12]={...manualPoint,x:18,y:30};
+const renderDocument: PoseDocumentV1 = {
+  version:1,canvas:{width:30,height:50},people:[renderPerson],
+  source:{analysisImage:stored.url,kind:'image',model:'manual'},imageBinding:stored.url,
+};
+const renderBody = {...analyzeBody,poseDocument:renderDocument};
+const renderReq = (data: unknown = renderBody, user='owner') => fetch(base+'/api/pose-references/render',{
+  method:'POST',headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},body:JSON.stringify(data),
+});
 const outfitBody = {projectId:'project',nodeId:'pose',source:stored.url,requestId:'outfit-request-123'};
 const outfitReq = (method: string, data: unknown = outfitBody, user='owner') => fetch(base+'/api/pose-references/outfit'+(method==='GET'?'?'+new URLSearchParams({projectId:'project',nodeId:'pose',source:stored.url}):''),{method,headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},...(method==='POST'?{body:JSON.stringify(data)}:{})});
 try {
@@ -82,6 +101,36 @@ try {
   assert.equal((await analyzeReq({...analyzeBody,provider:'deepseek',apiKey:'test-deepseek-key'},'other')).status,404);
   assert.equal((await analyzeReq(analyzeBody,'other')).status,404);
   assert.equal((await analyzeReq({...analyzeBody,analysisSource:'https://example.com/pose.png'})).status,400);
+  assert.equal((await renderReq(renderBody,'none')).status,401,'pose rendering must require authentication');
+  assert.equal((await renderReq(renderBody,'other')).status,404,'pose rendering must enforce project ownership');
+  const renderedResponse=await renderReq();
+  assert.equal(renderedResponse.status,200,'manual pose documents must render without invoking inference');
+  const rendered=await renderedResponse.json();
+  assert.ok(rendered.image.startsWith('data:image/png;base64,'));
+  assert.equal(rendered.poseDocument.imageBinding,null);
+  const renderedMetadata=await sharp(Buffer.from(rendered.image.split(',')[1],'base64')).metadata();
+  assert.deepEqual({width:renderedMetadata.width,height:renderedMetadata.height,format:renderedMetadata.format},{width:30,height:50,format:'png'});
+  const appliedImage=saveDataUrl(depthPng);
+  await query("INSERT INTO files(id,owner_id,created_at) VALUES($1,'owner',$2)", [appliedImage.id,now]);
+  const persistedPoseDocument={...renderDocument,imageBinding:appliedImage.url};
+  const appliedFlow=structuredClone(flow);
+  const appliedNode=appliedFlow.nodes[0];
+  appliedNode.data.imageUrl=appliedImage.url;
+  appliedNode.data.poseDocument=persistedPoseDocument;
+  appliedNode.data.poseReferenceSource={kind:'skeleton',image:appliedImage.url,neutralSource:stored.url};
+  await query('UPDATE projects SET flow_json=$1 WHERE id=$2',[JSON.stringify(appliedFlow),'project']);
+  const reapplied=await renderReq({...analyzeBody,source:appliedImage.url,analysisSource:stored.url,poseDocument:persistedPoseDocument});
+  assert.equal(reapplied.status,200,'已保存的骨骼节点必须能用其绑定的原始分析图再次渲染');
+  const unlinkedFlow=structuredClone(appliedFlow);
+  delete unlinkedFlow.nodes[0].data.poseDocument;
+  delete unlinkedFlow.nodes[0].data.poseReferenceSource;
+  await query('UPDATE projects SET flow_json=$1 WHERE id=$2',[JSON.stringify(unlinkedFlow),'project']);
+  const unlinked=await renderReq({...analyzeBody,source:appliedImage.url,analysisSource:stored.url,poseDocument:persistedPoseDocument});
+  assert.equal(unlinked.status,404,'渲染不得接受未由当前骨骼文档关联的任意分析图');
+  await query('UPDATE projects SET flow_json=$1 WHERE id=$2',[JSON.stringify(flow),'project']);
+  assert.equal(calls,0,'local skeleton rendering must not call the inference provider');
+  assert.equal((await renderReq({...renderBody,poseDocument:{...renderDocument,source:{...renderDocument.source,analysisImage:'/api/files/another.png'}}})).status,409);
+  assert.equal((await renderReq({...renderBody,poseDocument:{...renderDocument,imageBinding:'https://example.com/image.png'}})).status,400);
   assert.equal((await req('POST',body,'none')).status,401);
   assert.equal((await req('POST',body,'other')).status,404);
   const first = await req('POST');
@@ -208,6 +257,7 @@ try {
   let finishWorker: (()=>void)|undefined;
   const workerWait=new Promise<void>(r=>{finishWorker=r;});
   globalThis.fetch=async(url,init)=>{
+    if(String(url)==='http://127.0.0.1:8767/pose/v1') return new Response(null,{status:404});
     if(String(url)==='http://127.0.0.1:8767/pose') {
       await workerWait;
       return new Response(Buffer.from(png.split(',')[1],'base64'),{headers:{'content-type':'image/png','x-pose-model':'dwpose-wholebody','x-pose-checkpoint':'a'.repeat(64)}});

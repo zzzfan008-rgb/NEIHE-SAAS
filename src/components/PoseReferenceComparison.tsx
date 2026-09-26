@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
@@ -15,11 +15,35 @@ import {
 import { useFlowStore, type DocumentTarget } from '../store/flowStore';
 import type { PoseReferenceCanvasKind, PoseReferenceKind } from '../types/poseReference';
 
+import { PoseEditorDialog } from './pose/PoseEditorDialog';
+import { createEmptyPoseDocument } from '../lib/poseEditorModel';
+import { isPoseDocumentBoundToImage, poseDocumentFromDWPose, validatePoseDocument } from '../lib/poseTopology';
+import type { PoseDocumentV1 } from '../types/poseDocument';
 type ComparisonPanel = {
   id: PoseReferenceCanvasKind;
   label: string;
   image?: string;
 };
+
+type PoseEditorSession = {
+  id: string;
+  document: PoseDocumentV1;
+  analysisSource: string;
+  analysisSourceKind: 'image' | 'depth';
+  analysisSourceRecordId?: string;
+  documentKey: string;
+  inputSource: string;
+  editRevision: string;
+};
+
+function readImageDimensions(source: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => reject(new Error('无法读取原图尺寸'));
+    image.src = source;
+  });
+}
 
 export default function PoseReferenceComparison({ target, nodeId, source, readOnly, onClose, triggerRef }: {
   target: DocumentTarget;
@@ -54,6 +78,13 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
   const skeletonAnalysisSourceRecordId = useDepthForSkeleton ? depthRecord!.id : undefined;
   const skeletonReferenceKey = poseReferenceKey(target, nodeId, skeletonAnalysisSource, skeletonAnalysisSourceRecordId);
   const skeletonState = usePoseReferenceRuntime(s => s.entries[skeletonReferenceKey] ?? EMPTY_POSE_STATE);
+  const skeletonRecord = skeletonState.records.skeleton;
+  const [poseEditorSession, setPoseEditorSession] = useState<PoseEditorSession | null>(null);
+  const poseEditorSessionRef = useRef<PoseEditorSession | null>(null);
+  const [openingPoseEditor, setOpeningPoseEditor] = useState(false);
+  const [poseEditorOpenError, setPoseEditorOpenError] = useState<string | null>(null);
+  const poseEditorTriggerRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => () => { poseEditorSessionRef.current = null; }, []);
   const running = neutralOutfitPending ||
     Object.values(referenceState.records).some(record => record?.status === 'running') ||
     Object.values(referenceState.busy).some(Boolean) ||
@@ -92,6 +123,141 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
       kind === 'skeleton' ? skeletonAnalysisSource : analysisSource,
       kind === 'skeleton' ? skeletonAnalysisSourceRecordId : undefined,
     );
+
+  const openPoseEditor = async () => {
+    if (readOnly || openingPoseEditor) return;
+    setOpeningPoseEditor(true);
+    setPoseEditorOpenError(null);
+    try {
+      const tab = useFlowStore.getState().tabs.find(candidate => candidate.id === stableTarget.tabId && candidate.projectId === stableTarget.projectId && candidate.documentEpoch === stableTarget.documentEpoch);
+      const origin = tab?.nodes.find(candidate => candidate.id === nodeId);
+      if (!tab || tab.readOnly || !origin || origin.data.kind !== 'image-input' || origin.data.imageUrl !== source) {
+        throw new Error('文档已变化，请关闭后重新打开编辑器');
+      }
+      const editRevision = JSON.stringify(origin.data.poseDocument ?? null);
+      const storedDocument = isPoseDocumentBoundToImage(origin.data.poseDocument, source)
+        ? structuredClone(origin.data.poseDocument)
+        : undefined;
+      let analysisSource = storedDocument?.source.analysisImage ?? skeletonAnalysisSource;
+      let analysisSourceKind: 'image' | 'depth' = storedDocument ? 'image' : useDepthForSkeleton ? 'depth' : 'image';
+      let analysisSourceRecordId = storedDocument ? undefined : useDepthForSkeleton ? skeletonAnalysisSourceRecordId : undefined;
+      let document: PoseDocumentV1;
+      if (storedDocument) {
+        document = storedDocument;
+      } else {
+        const pose = skeletonRecord?.result?.pose;
+        if (skeletonRecord?.result && pose) {
+          const result = skeletonRecord.result;
+          document = poseDocumentFromDWPose(pose, {
+            source: {
+              analysisImage: skeletonAnalysisSource,
+              kind: analysisSourceKind,
+              model: typeof result.model === 'string' ? result.model : 'dwpose-wholebody',
+              ...(typeof result.checkpoint === 'string' && /^[a-f0-9]{64}$/.test(result.checkpoint) ? { checkpoint: result.checkpoint } : {}),
+              ...(skeletonRecord.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(skeletonRecord.id) ? { recordId: skeletonRecord.id } : {}),
+            },
+            imageBinding: source,
+          });
+        } else {
+          const dimensions = await readImageDimensions(source);
+          const emptyDocument = createEmptyPoseDocument({ image: skeletonAnalysisSource, ...dimensions });
+          document = validatePoseDocument({
+            ...emptyDocument,
+            source: {
+              analysisImage: skeletonAnalysisSource,
+              kind: analysisSourceKind === 'depth' ? 'depth' : 'manual',
+              model: 'manual',
+              ...(analysisSourceRecordId ? { recordId: analysisSourceRecordId } : {}),
+            },
+            imageBinding: source,
+          });
+        }
+      }
+      const session: PoseEditorSession = {
+        id: globalThis.crypto.randomUUID(),
+        documentKey: key,
+        inputSource: source,
+        document,
+        analysisSource,
+        analysisSourceKind,
+        ...(analysisSourceRecordId ? { analysisSourceRecordId } : {}),
+        editRevision,
+      };
+      poseEditorSessionRef.current = session;
+      setPoseEditorSession(session);
+    } catch (error) {
+      setPoseEditorOpenError(error instanceof Error ? error.message : '无法打开2D姿势编辑器');
+    } finally {
+      setOpeningPoseEditor(false);
+    }
+  };
+
+  const saveEditedPose = async (document: PoseDocumentV1, mode: 'apply' | 'save-as') => {
+    const session = poseEditorSessionRef.current;
+    if (!session) throw new Error('姿势编辑会话已失效');
+    if (session.documentKey !== key || session.inputSource !== source) {
+      throw new Error('当前文档已切换，请关闭后重新编辑');
+    }
+    const stillCurrent = () => {
+      const currentSession = poseEditorSessionRef.current;
+      const tab = useFlowStore.getState().tabs.find(candidate => candidate.id === stableTarget.tabId && candidate.projectId === stableTarget.projectId && candidate.documentEpoch === stableTarget.documentEpoch);
+      const origin = tab?.nodes.find(candidate => candidate.id === nodeId);
+      return currentSession?.id === session.id && currentSession.editRevision === session.editRevision &&
+        Boolean(tab && !tab.readOnly && origin?.data.kind === 'image-input' && origin.data.imageUrl === source &&
+          JSON.stringify(origin.data.poseDocument ?? null) === session.editRevision);
+    };
+    if (!stillCurrent()) throw new Error('文档已变化，请关闭后重新打开编辑器');
+    const poseDocument = validatePoseDocument(document);
+    if (poseDocument.imageBinding !== source) throw new Error('姿势编辑稿已不属于当前人物图片');
+    const renderResponse = await fetch('/api/pose-references/render', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(30_000),
+      body: JSON.stringify({
+        projectId: stableTarget.projectId,
+        nodeId,
+        source,
+        analysisSource: session.analysisSource,
+        analysisSourceKind: session.analysisSourceKind,
+        ...(session.analysisSourceRecordId ? { analysisSourceRecordId: session.analysisSourceRecordId } : {}),
+        poseDocument,
+      }),
+    });
+    const rendered = await renderResponse.json().catch(() => null) as { image?: unknown; poseDocument?: unknown; error?: unknown } | null;
+    if (!renderResponse.ok || typeof rendered?.image !== 'string' || !rendered.image.startsWith('data:image/png;base64,')) {
+      throw new Error(typeof rendered?.error === 'string' ? rendered.error : '姿势渲染失败');
+    }
+    const renderedPoseDocument = validatePoseDocument(rendered.poseDocument);
+    if (!stillCurrent()) throw new Error('文档已变化，姿势图片未保存');
+    const fileResponse = await fetch('/api/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(30_000),
+      body: JSON.stringify({ dataUrl: rendered.image }),
+    });
+    const file = await fileResponse.json().catch(() => null) as { url?: unknown; error?: unknown } | null;
+    if (!fileResponse.ok || typeof file?.url !== 'string' || !/^\/api\/files\/[\w.-]+$/.test(file.url)) {
+      throw new Error(typeof file?.error === 'string' ? file.error : '姿势图片保存失败');
+    }
+    if (!stillCurrent()) throw new Error('文档已变化，姿势图片未应用');
+    const savedPoseDocument = validatePoseDocument({ ...renderedPoseDocument, imageBinding: file.url });
+    const label = savedPoseDocument.source.kind === 'manual' ? '手绘2D姿势骨架' : '编辑后的DWPose骨骼图';
+    const neutralSource = savedPoseDocument.source.kind !== 'depth' && savedPoseDocument.source.analysisImage !== source
+      ? savedPoseDocument.source.analysisImage
+      : undefined;
+    if (mode === 'apply') {
+      const applied = useFlowStore.getState().applyPoseDocumentToImageInput(
+        stableTarget, nodeId, source, file.url, savedPoseDocument, session.editRevision,
+      );
+      if (!applied) throw new Error('文档已变化，未应用姿势图片');
+    } else {
+      const addedNodeId = useFlowStore.getState().addPoseReferenceImageNode(
+        stableTarget, nodeId, source, file.url, label, 'skeleton', neutralSource, savedPoseDocument, session.editRevision,
+      );
+      if (!addedNodeId) throw new Error('文档已变化，未添加姿势图片');
+    }
+  };
+
   const panels: ComparisonPanel[] = [
     { id: 'original', label: '原图', image: source },
     { id: 'skeleton', label: '骨骼图', image: skeletonState.records.skeleton?.result?.image },
@@ -107,7 +273,8 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
     : panels.filter((panel) => !zoom || zoom === panel.id);
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <>
+      <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent
         aria-describedby="pose-comparison-description"
         finalFocus={triggerRef}
@@ -296,6 +463,20 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
                     </Button>
                   )}
                 </div>
+                {panel.id === 'skeleton' && !readOnly && (
+                  <>
+                    <Button
+                      ref={poseEditorTriggerRef}
+                      size="xs"
+                      variant="outline"
+                      disabled={openingPoseEditor || running}
+                      onClick={() => void openPoseEditor()}
+                    >
+                      {openingPoseEditor ? '准备编辑器…' : skeletonRecord?.result?.pose ? '编辑2D骨架' : '手绘2D骨架'}
+                    </Button>
+                    {poseEditorOpenError && <p role="alert" className="mt-2 w-full text-xs text-red-600">{poseEditorOpenError}</p>}
+                  </>
+                )}
 
                 {panelState.addErrors?.[panel.id] && <p role="alert" className="mt-2 text-xs text-red-600">{panelState.addErrors[panel.id]}</p>}
                 {panelState.added?.[panel.id] && <p role="status" className="mt-2 text-xs">已添加到画布，请手动连线。</p>}
@@ -362,5 +543,17 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
         </div>
       </DialogContent>
     </Dialog>
+      {poseEditorSession && (
+        <PoseEditorDialog
+          key={poseEditorSession.id}
+          open
+          source={source}
+          initialDocument={poseEditorSession.document}
+          onSave={saveEditedPose}
+          onClose={() => { poseEditorSessionRef.current = null; setPoseEditorSession(null); }}
+          triggerRef={poseEditorTriggerRef}
+        />
+      )}
+    </>
   );
 }

@@ -1,4 +1,5 @@
 """Local DWPose ONNX worker. No diffusion model, gateway, or network inference."""
+import base64
 import hashlib
 import hmac
 import json
@@ -6,6 +7,9 @@ import os
 from pathlib import Path
 import sys
 import threading
+import math
+from dataclasses import dataclass
+from numbers import Real
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import cv2
@@ -27,6 +31,53 @@ MODEL = 'dwpose-wholebody'
 
 class NoPersonError(ValueError):
     pass
+
+@dataclass(frozen=True)
+class PoseInference:
+    image_png: bytes
+    width: int
+    height: int
+    people: list[dict]
+
+
+class InvalidPoseOutputError(RuntimeError):
+    pass
+
+
+def normalize_people(points, scores, width, height):
+    """Convert one ONNX inference into bounded, normalized COCO-WholeBody points."""
+    points = points.tolist() if callable(getattr(points, 'tolist', None)) else points
+    scores = scores.tolist() if callable(getattr(scores, 'tolist', None)) else scores
+    if type(width) is not int or type(height) is not int or not 1 <= width <= 8192 or not 1 <= height <= 8192:
+        raise InvalidPoseOutputError('Invalid inference canvas')
+    if not isinstance(points, (list, tuple)) or not 1 <= len(points) <= 8 or not isinstance(scores, (list, tuple)) or len(scores) != len(points):
+        raise InvalidPoseOutputError('Invalid person count')
+    people = []
+    for person_points, person_scores in zip(points, scores):
+        person_points = person_points.tolist() if callable(getattr(person_points, 'tolist', None)) else person_points
+        person_scores = person_scores.tolist() if callable(getattr(person_scores, 'tolist', None)) else person_scores
+        if not isinstance(person_points, (list, tuple)) or len(person_points) != 133 or not isinstance(person_scores, (list, tuple)) or len(person_scores) != 133:
+            raise InvalidPoseOutputError('Expected exactly 133 keypoints per person')
+        keypoints = []
+        for point, raw_confidence in zip(person_points, person_scores):
+            if isinstance(raw_confidence, bool) or not isinstance(raw_confidence, Real):
+                raise InvalidPoseOutputError('Invalid keypoint confidence')
+            confidence = float(raw_confidence)
+            if not math.isfinite(confidence) or not 0 <= confidence <= 1:
+                raise InvalidPoseOutputError('Invalid keypoint confidence')
+            if confidence == 0:
+                keypoints.append(None)
+                continue
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                raise InvalidPoseOutputError('Invalid keypoint coordinates')
+            if any(isinstance(value, bool) or not isinstance(value, Real) for value in point):
+                raise InvalidPoseOutputError('Invalid keypoint coordinates')
+            x, y = (float(value) for value in point)
+            if not math.isfinite(x) or not math.isfinite(y) or not 0 <= x < width or not 0 <= y < height:
+                raise InvalidPoseOutputError('Keypoint outside inference canvas')
+            keypoints.append({'x': x / width, 'y': y / height, 'confidence': confidence})
+        people.append({'keypoints': keypoints})
+    return people
 
 
 def verify_file(path):
@@ -116,7 +167,10 @@ def load_predictor(source, models):
         if len(boxes) > 8:
             raise ValueError('Too many people; crop the reference')
         points, scores = inference_pose(pose, boxes, image)
-        return draw_pose(image.shape, points, scores)
+        height, width = image.shape[:2]
+        people = normalize_people(points, scores, width, height)
+        image_png = draw_pose(image.shape, points, scores)
+        return PoseInference(image_png=image_png, width=width, height=height, people=people)
 
     return predict
 
@@ -147,9 +201,10 @@ def make_handler(predict, token, checkpoint):
             if not hmac.compare_digest(supplied, ('Bearer ' + token).encode('ascii')):
                 self.reply(401, b'{"error":"Unauthorized"}')
                 return
-            if self.path != '/pose':
+            if self.path not in ('/pose', '/pose/v1'):
                 self.reply(404, b'{"error":"Not found"}')
                 return
+            structured = self.path == '/pose/v1'
             if not slot.acquire(blocking=False):
                 self.reply(429, b'{"error":"Pose worker busy"}')
                 return
@@ -161,7 +216,29 @@ def make_handler(predict, token, checkpoint):
                 payload = json.loads(self.rfile.read(size))
                 if not isinstance(payload, dict):
                     raise ValueError('Expected object')
-                self.reply(200, predict(decode_image(payload.get('image'))), 'image/png')
+                prediction = predict(decode_image(payload.get('image')))
+                if structured:
+                    image_png = prediction.image_png
+                    if not isinstance(image_png, (bytes, bytearray)) or len(image_png) > 20 * 1024 * 1024:
+                        raise InvalidPoseOutputError('Invalid rendered PNG')
+                    response = {
+                        'schemaVersion': 1,
+                        'model': MODEL,
+                        'checkpoint': checkpoint,
+                        'width': prediction.width,
+                        'height': prediction.height,
+                        'imagePngBase64': base64.b64encode(image_png).decode('ascii'),
+                        'people': prediction.people,
+                    }
+                    body = json.dumps(response, separators=(',', ':'), allow_nan=False).encode('utf-8')
+                    if len(body) > MAX_BODY:
+                        raise InvalidPoseOutputError('Structured response too large')
+                    self.reply(200, body)
+                else:
+                    image_png = prediction if isinstance(prediction, (bytes, bytearray)) else prediction.image_png
+                    if not isinstance(image_png, (bytes, bytearray)):
+                        raise InvalidPoseOutputError('Invalid rendered PNG')
+                    self.reply(200, bytes(image_png), 'image/png')
             except NoPersonError:
                 self.reply(422, b'{"error":"No person detected"}')
             except (ValueError, TypeError, OSError):

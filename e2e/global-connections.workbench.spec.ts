@@ -181,7 +181,7 @@ test("背景板与姿势图片可通过第一轮通用图片入口真实拖线",
   });
 
   const stage = page.locator('.react-flow__node[data-id="global-stage"]');
-  const globalInput = stage.locator(".gc-global-image-input-handle");
+  const globalInput = stage.getByLabel("通用图片输入，连接后选择用途");
   await page.getByRole("button", { name: "适应画布", exact: true }).click();
   await expect(globalInput).toHaveCount(1);
   await expect(globalInput).toBeVisible();

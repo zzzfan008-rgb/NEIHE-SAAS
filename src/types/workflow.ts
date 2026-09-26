@@ -168,6 +168,8 @@ export interface ImageInputNodeData extends BaseNodeData {
   poseReference?: boolean;
   poseReferenceSource?: import('./poseReference').PoseReferenceSource;
   /** Editable pose description, valid only for posePromptImage. */
+  /** 仅当 imageBinding 与当前 imageUrl 一致时持久化的结构化姿势。 */
+  poseDocument?: import('./poseDocument').PoseDocumentV1;
   posePrompt?: string;
   posePromptImage?: string;
   /** dataURL 或 /api/files/xxx 路径 */
@@ -199,6 +201,10 @@ export interface CharacterBoardNodeData extends BaseNodeData {
   outputImages: string[];
   /** 画板规格：2×2 四视图（默认）或 1×3 三视图。 */
   boardLayout?: "2x2" | "1x3";
+  /** 输出模型；缺省为 GPT-Image 2.5 Flare，可选 Gemini 3.1 Flash Image 获得真 1K/2K/4K。 */
+  modelId?: GenerationImageModelId;
+  /** 输出规格：1K/2K/4K；Gemini 语义下为长边，Flare 下映射为像素尺寸。 */
+  outputSize?: "1K" | "2K" | "4K";
 }
 
 export interface ImageInputAutoConnectTarget {

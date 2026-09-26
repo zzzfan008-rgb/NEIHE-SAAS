@@ -298,7 +298,7 @@ export function CanvasFlow() {
 
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
-      setCompactMinimap(entry.contentRect.width < 760);
+      setCompactMinimap(window.innerWidth <= 1024 || entry.contentRect.width < 760);
     });
 
     observer.observe(container);

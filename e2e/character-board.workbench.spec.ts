@@ -15,6 +15,11 @@ test("人物板：侧栏创建、上传、生成、失败保留及图像输出",
   await node.getByLabel("上传人物板模特图").setInputFiles({ name: "model.png", mimeType: "image/png", buffer: image });
   await expect(node.getByAltText("人物板原始模特图")).toBeVisible();
   await expect(generate).toBeEnabled();
+  const minimap = page.locator(".react-flow__minimap");
+  const expectedMinimapWidth = page.viewportSize()?.width === 1024 ? 128 : 200;
+  const expectedMinimapHeight = expectedMinimapWidth === 128 ? 96 : 150;
+  await expect(minimap).toHaveCSS("width", `${expectedMinimapWidth}px`);
+  await expect(minimap).toHaveCSS("height", `${expectedMinimapHeight}px`);
   let calls = 0;
   let nodeId = "";
   let output = "";

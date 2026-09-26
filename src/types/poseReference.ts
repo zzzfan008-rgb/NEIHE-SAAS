@@ -21,12 +21,18 @@ export function validPoseReferenceSource(value: unknown, image: unknown): value 
         typeof source.neutralSource === 'string' &&
         /^\/api\/files\/[\w.-]+$/.test(source.neutralSource)));
 }
+export interface DWPoseKeypointV1 { x: number; y: number; confidence: number }
+export interface DWPosePoseV1 {
+  schemaVersion: 1;
+  canvas: { width: number; height: number };
+  people: Array<{ keypoints: Array<DWPoseKeypointV1 | null> }>;
+}
 export interface PoseReferenceRecord {
   id: string;
   kind: PoseReferenceKind;
   source: string;
   status: 'running' | 'succeeded' | 'failed' | 'outcome_unknown';
-  result?: { image: string; model: string; checkpoint?: string; convention?: string; inputSize?: number };
+  result?: { image: string; model: string; checkpoint?: string; convention?: string; inputSize?: number; pose?: DWPosePoseV1 | null };
   error?: string;
 }
 

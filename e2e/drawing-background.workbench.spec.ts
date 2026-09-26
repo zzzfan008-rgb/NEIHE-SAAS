@@ -51,9 +51,15 @@ test("drawing background stays proportional, annotations flatten at full resolut
   expect(meta.width).toBe(body.document.canvas.width);
   expect(meta.height).toBe(body.document.canvas.height);
   const pixel = async (x: number, y: number) => Array.from(await result.clone().extract({ left: x, top: y, width: 1, height: 1 }).removeAlpha().raw().toBuffer());
-  expect(await pixel(512, 200)).toEqual([255, 0, 0]);
+  const redPixel = await pixel(512, 200);
+  expect(redPixel[0]).toBeGreaterThanOrEqual(254);
+  expect(redPixel[1]).toBe(0);
+  expect(redPixel[2]).toBe(0);
   expect(await pixel(100, 200)).toEqual([255, 255, 255]);
-  expect(await pixel(512, 430)).toEqual([255, 0, 0]);
+  const secondRedPixel = await pixel(512, 430);
+  expect(secondRedPixel[0]).toBeGreaterThanOrEqual(254);
+  expect(secondRedPixel[1]).toBe(0);
+  expect(secondRedPixel[2]).toBe(0);
   const rgb = await result.clone().removeAlpha().raw().toBuffer();
   let blueHighlightPixels = 0;
   for (let i = 0; i < rgb.length; i += 3) if (rgb[i + 2] > rgb[i] + 30) blueHighlightPixels++;

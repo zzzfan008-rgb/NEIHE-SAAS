@@ -40,7 +40,7 @@ test("两阶段模板独立保存、角色编号、14图直传边界和桌面布
   await expect(node.getByLabel("图像模型", { exact: true })).not.toContainText("旧配置兼容");
   await node.getByLabel("图像模型", { exact: true }).click();
   await expect(page.getByRole("option", { name: /Gemini 3.1 Flash/i })).toBeVisible();
-  await expect(page.getByRole("option", { name: /Gemini 3 Pro/i })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: /Gemini 3 Pro/i })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(node.getByLabel("参考图传递策略")).toContainText("最多 14 张直接传入");
   for (const [role, number] of Object.entries({ pose: 1, person: 2, scene: 3, outfit: 4, shoes: 5, socks: 6, hat: 7 })) {

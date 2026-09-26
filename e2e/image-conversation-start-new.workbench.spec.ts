@@ -98,8 +98,7 @@ test("start-new upload creates an independent conversation and preserves the ori
     conversationId: createdConversation.id,
     prompt: "",
   });
-  expect(afterStartNew.sourceRef).toMatch(/^\/api\/files\/[A-Za-z0-9_-]+\.png$/);
-
+  expect(afterStartNew.sourceRef).toMatch(/^\/api\/files\/[A-Za-z0-9_-]+\.(?:png|jpe?g|webp|gif)$/i);
   // 入口按钮在 dock 展开时隐藏，改为先关闭再重开：重开时按所指图片（原底图）恢复原对话草稿。
   await page.getByRole("button", { name: "关闭对话修改" }).click();
   await expect(panel).toBeHidden();

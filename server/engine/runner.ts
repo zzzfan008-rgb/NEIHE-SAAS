@@ -1357,6 +1357,10 @@ export async function executeStep(
         throw new Error("请上传一张模特图后生成人物板");
       const poseOutfitOnly = step.params.poseOutfitOnly === true;
       const boardLayout = step.params.boardLayout === "1x3" ? "1x3" : "2x2";
+      const modelId = isImageModelId(step.params.modelId) && isModelAllowedForNode(step.params.modelId, "character-board")
+        ? step.params.modelId
+        : DEFAULT_GENERATION_MODEL_ID;
+      const imageSize = step.params.outputSize === "1K" || step.params.outputSize === "4K" ? step.params.outputSize : "2K";
       const prompt = poseOutfitOnly
         ? step.params.poseOutfitVersion === "leggings-v1"
           ? POSE_OUTFIT_REFERENCE_PROMPT
@@ -1366,17 +1370,17 @@ export async function executeStep(
       const aspectRatio = poseOutfitOnly
         ? await poseReferenceAspectRatio(referenceImages[0])
         : boardLayout === "1x3" ? "21:9" : "3:4";
+      const [aspectWidth, aspectHeight] = aspectRatio.split(":").map(Number);
       const result = await generateExactImages(
-        resolveProvider(DEFAULT_GENERATION_MODEL_ID),
+        resolveProvider(modelId),
         {
           prompt,
           referenceImages,
           batchSize: 1,
           aspectRatio,
-          modelOptions: defaultImageModelOptions(
-            DEFAULT_GENERATION_MODEL_ID,
-            aspectRatio,
-          ),
+          modelOptions: modelId.startsWith("gemini-")
+            ? { aspectRatio, imageSize }
+            : { size: gptOutputSize(aspectWidth, aspectHeight, imageSize === "4K" ? "4K" : "2K"), quality: "medium" },
         },
         1,
         {

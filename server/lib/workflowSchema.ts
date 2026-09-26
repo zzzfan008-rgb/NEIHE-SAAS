@@ -15,6 +15,7 @@ import {
   createDocumentSnapshot,
   documentSnapshotToPersistedWorkflow,
 } from "../../src/lib/documentSnapshot";
+import { validatePoseDocument } from '../../src/lib/poseTopology';
 import { isLocalImageReference, validateImageDataUrl } from "./imageValidation";
 import { isLocalMediaReference } from "./fileStore";
 import {
@@ -664,6 +665,12 @@ function validateData(
       }
       if (raw.boardLayout !== undefined)
         oneOf(raw.boardLayout, ["2x2", "1x3"] as const, `${path}.boardLayout`);
+      if (raw.modelId !== undefined) {
+        if (!isImageModelId(raw.modelId) || !isModelAllowedForNode(raw.modelId, "character-board"))
+          fail(`${path}.modelId`, `${String(raw.modelId)} is not allowed for character-board`);
+      }
+      if (raw.outputSize !== undefined)
+        oneOf(raw.outputSize, ["1K", "2K", "4K"] as const, `${path}.outputSize`);
       imageReferenceArray(raw.outputImages, `${path}.outputImages`, 1);
       break;
     case "ai-styling": {
@@ -721,6 +728,15 @@ function validateData(
             fail(`${path}.poseReferenceSource.neutralSource`, 'must be a local image reference');
         }
         if (source.image !== raw.imageUrl) delete raw.poseReferenceSource;
+      }
+      if (raw.poseDocument !== undefined) {
+        let poseDocument: ReturnType<typeof validatePoseDocument>;
+        try {
+          poseDocument = validatePoseDocument(raw.poseDocument);
+        } catch (error) {
+          fail(`${path}.poseDocument`, error instanceof Error ? error.message : 'must be a valid pose document');
+        }
+        if (poseDocument.imageBinding !== raw.imageUrl) delete raw.poseDocument;
       }
       if (raw.autoConnectTargets !== undefined) {
         if (

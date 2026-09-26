@@ -1,4 +1,5 @@
 import { posePromptForImage, validPoseReferenceSource } from '../types/poseReference';
+import { isPoseDocumentBoundToImage } from './poseTopology';
 import {
   isSceneStabilizeModelId,
   MASK_REDRAW_MODEL_ID,
@@ -39,6 +40,8 @@ export type DocumentNodeData =
       sourceImage?: string;
       outputImages: string[];
       boardLayout?: "2x2" | "1x3";
+      modelId?: GenerationImageModelId;
+      outputSize?: "1K" | "2K" | "4K";
     }
   | {
       kind: "outfit-reference";
@@ -66,6 +69,7 @@ export type DocumentNodeData =
       posePrompt?: string;
       posePromptImage?: string;
       poseReferenceSource?: import('../types/poseReference').PoseReferenceSource;
+      poseDocument?: import('../types/poseDocument').PoseDocumentV1;
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
       imageUrl?: string;
       imageConversationSourceRef?: string;
@@ -390,6 +394,8 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         ...(data.sourceImage ? { sourceImage: data.sourceImage } : {}),
         outputImages: [...data.outputImages],
         ...(data.boardLayout ? { boardLayout: data.boardLayout } : {}),
+        ...(data.modelId ? { modelId: data.modelId } : {}),
+        ...(data.outputSize ? { outputSize: data.outputSize } : {}),
       };
     case "outfit-reference":
       return {
@@ -436,6 +442,9 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
               ...optionalString("neutralSource", data.poseReferenceSource.neutralSource) } }
           : {}),
         ...optionalString("imageUrl", data.imageUrl),
+        ...(isPoseDocumentBoundToImage(data.poseDocument, data.imageUrl)
+          ? { poseDocument: structuredClone(data.poseDocument) }
+          : {}),
         ...(validImageConversationSourceRef(data.imageConversationSourceRef)
           ? { imageConversationSourceRef: data.imageConversationSourceRef }
           : {}),

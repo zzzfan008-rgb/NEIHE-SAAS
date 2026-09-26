@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { invalidateStylingRequest } from "./stylingRequestVersions";
 import { temporal } from "zundo";
 import { posePromptForImage, validPoseReferenceSource } from '../types/poseReference';
+import { isPoseDocumentBoundToImage, validatePoseDocument } from '../lib/poseTopology';
 import { readMultiImageReferenceManifest } from '../lib/multiImageTryOn';
 import {
   applyNodeChanges,
@@ -268,7 +269,8 @@ export interface FlowState {
   ) => string | null;
   /** 复制/粘贴等调用方已有完整节点时，仍通过此入口维护 revision/dirty。 */
   addExistingNode: (node: FlowNode) => void;
-  addPoseReferenceImageNode: (target: DocumentTarget, nodeId: string, source: string, image: string, label: string, kind?: import('../types/poseReference').PoseReferenceCanvasKind, neutralSource?: string) => string | null;
+  addPoseReferenceImageNode: (target: DocumentTarget, nodeId: string, source: string, image: string, label: string, kind?: import('../types/poseReference').PoseReferenceCanvasKind, neutralSource?: string, poseDocument?: import('../types/poseDocument').PoseDocumentV1, expectedEditRevision?: string) => string | null;
+  applyPoseDocumentToImageInput: (target: DocumentTarget, nodeId: string, source: string, image: string, poseDocument: import('../types/poseDocument').PoseDocumentV1, expectedEditRevision: string) => boolean;
   /** 画板会话完成时只提交一次项目历史；异步结果必须仍匹配原 DocumentTarget。 */
   commitDrawingBoard: (
     target: DocumentTarget,
@@ -1232,7 +1234,7 @@ function defaultNodeData(kind: NodeKind): WorkflowNodeData {
     case "image-input":
       return { ...base, kind, imageRole: "default" };
     case "character-board":
-      return { ...base, kind, outputImages: [], boardLayout: "2x2" };
+      return { ...base, kind, outputImages: [], boardLayout: "2x2", modelId: DEFAULT_GENERATION_MODEL_ID, outputSize: "2K" };
     case "background-extract":
       return {
         ...base,
@@ -1706,6 +1708,17 @@ const POSE_REFERENCE_PLACEMENT_OFFSETS = [
       return Math.abs(left.y) - Math.abs(right.y) || left.y - right.y;
     }),
 ];
+
+function normalizePoseBoundImageInputData(data: ImageInputNodeData): ImageInputNodeData {
+  if (!isPoseDocumentBoundToImage(data.poseDocument, data.imageUrl)) delete data.poseDocument;
+  if (!validPoseReferenceSource(data.poseReferenceSource, data.imageUrl)) delete data.poseReferenceSource;
+  if (posePromptForImage(data) === undefined) {
+    delete data.posePrompt;
+    delete data.posePromptImage;
+  }
+  return data;
+}
+
 
 function poseReferenceImagePosition(nodes: readonly FlowNode[], origin: FlowNode) {
   const freeOffset = POSE_REFERENCE_PLACEMENT_OFFSETS.find((offset) => !nodes.some((node) =>
@@ -2787,7 +2800,7 @@ function normalizeSessionNode(value: unknown): FlowNode | undefined {
           ? input.imageRole
           : "default";
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
-      if (!validPoseReferenceSource(input.poseReferenceSource, input.imageUrl)) delete data.poseReferenceSource;
+      normalizePoseBoundImageInputData(data as unknown as ImageInputNodeData);
       break;
     case "background-extract":
       if (typeof input.imageUrl !== "string") delete data.imageUrl;
@@ -5742,17 +5755,71 @@ export const useFlowStore = create<FlowState>()(
           });
         },
 
-        addPoseReferenceImageNode: (target, nodeId, source, image, label, kind, neutralSource) => {
+        applyPoseDocumentToImageInput: (target, nodeId, source, image, poseDocument, expectedEditRevision) => {
+          const tab = documentForTarget(get(), target);
+          if (!tab || tab.readOnly || !/^\/api\/files\/[\w.-]+$/.test(image)) return false;
+          const origin = tab.nodes.find(node => node.id === nodeId && node.data.kind === 'image-input');
+          if (!origin || origin.data.imageUrl !== source || JSON.stringify(origin.data.poseDocument ?? null) !== expectedEditRevision) return false;
+          let persistedPoseDocument: ReturnType<typeof validatePoseDocument>;
+          try {
+            persistedPoseDocument = structuredClone(validatePoseDocument(poseDocument));
+          } catch {
+            return false;
+          }
+          if (persistedPoseDocument.imageBinding !== image) return false;
+          let applied = false;
+          const changed = commitDocumentMutationForTarget(set, target, current => {
+            if (current.readOnly) return {};
+            const currentNode = current.nodes.find(node => node.id === nodeId && node.data.kind === 'image-input');
+            if (!currentNode || currentNode.data.kind !== 'image-input' || currentNode.data.imageUrl !== source ||
+                JSON.stringify(currentNode.data.poseDocument ?? null) !== expectedEditRevision) return {};
+            const data: ImageInputNodeData = {
+              ...currentNode.data,
+              imageUrl: image,
+              poseDocument: persistedPoseDocument,
+              poseReferenceSource: {
+                kind: 'skeleton',
+                image,
+                ...(persistedPoseDocument.source.analysisImage !== image
+                  ? { neutralSource: persistedPoseDocument.source.analysisImage }
+                  : {}),
+              },
+              posePrompt: undefined,
+              posePromptImage: undefined,
+              status: 'success',
+              error: undefined,
+            };
+            if (currentNode.data.imageUrl !== image) {
+              delete data.imageConversationSourceRef;
+              delete data.imageConversationId;
+            }
+            normalizePoseBoundImageInputData(data);
+            applied = true;
+            return { nodes: current.nodes.map(node => node.id === nodeId ? { ...node, data } : node) };
+          });
+          return Boolean(changed && applied);
+        },
+        addPoseReferenceImageNode: (target, nodeId, source, image, label, kind, neutralSource, poseDocument, expectedEditRevision) => {
           const tab = documentForTarget(get(), target);
           if (!tab || tab.readOnly) return null;
           const origin = tab.nodes.find(n => n.id === nodeId && n.data.kind === "image-input" && n.data.imageUrl === source);
           if (!origin || !/^\/api\/files\/[\w.-]+$/.test(image)) return null;
+          if (expectedEditRevision !== undefined && JSON.stringify(origin.data.poseDocument ?? null) !== expectedEditRevision) return null;
+          let persistedPoseDocument: ReturnType<typeof validatePoseDocument> | undefined;
+          if (poseDocument !== undefined) {
+            try {
+              persistedPoseDocument = structuredClone(validatePoseDocument(poseDocument));
+            } catch {
+              return null;
+            }
+            if (persistedPoseDocument.imageBinding !== image) return null;
+          }
           const provenance = kind ? { kind, image, ...(neutralSource ? { neutralSource } : {}) } : undefined;
           if (provenance && !validPoseReferenceSource(provenance, image)) return null;
           const id = nanoid(8);
           const position = poseReferenceImagePosition(tab.nodes, origin);
           const node: FlowNode = { id, type: "image-input", position,
-            data: { ...defaultNodeData("image-input"), label, imageRole: "reference", imageUrl: image, status: "success", ...(provenance ? { poseReferenceSource: provenance } : {}) } as ImageInputNodeData };
+            data: { ...defaultNodeData("image-input"), label, imageRole: "reference", imageUrl: image, status: "success", ...(provenance ? { poseReferenceSource: provenance } : {}), ...(persistedPoseDocument ? { poseDocument: persistedPoseDocument } : {}) } as ImageInputNodeData };
           // Keep comparison open and preserve selection; never create an edge.
           const changed = commitDocumentMutationForTarget(set, target, current => ({ nodes: [...current.nodes, node] }));
           return changed ? id : null;
@@ -5906,7 +5973,11 @@ export const useFlowStore = create<FlowState>()(
                 node.id === id
                   ? {
                       ...node,
-                      data: { ...node.data, ...patch } as WorkflowNodeData,
+                      data: (() => {
+                        const data = { ...node.data, ...patch } as WorkflowNodeData;
+                        if (data.kind === 'image-input') normalizePoseBoundImageInputData(data);
+                        return data;
+                      })(),
                     }
                   : node.data.kind === "ai-styling" && dependentIds.has(node.id)
                     ? {
@@ -5952,6 +6023,7 @@ export const useFlowStore = create<FlowState>()(
                         delete data.imageConversationSourceRef;
                         delete data.imageConversationId;
                       }
+                      normalizePoseBoundImageInputData(data as ImageInputNodeData);
                       return data;
                     })(),
                   }

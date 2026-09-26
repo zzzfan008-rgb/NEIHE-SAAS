@@ -5,10 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFlowStore, selectActiveDocumentTarget, selectActiveReadOnly } from "@/store/flowStore";
 import { isNodeRunActive, type CharacterBoardNodeData } from "@/types/workflow";
+import { imageModelLabel } from "@/types/imageModels";
 import { uploadCharacterBoardSource } from "@/lib/characterBoardUpload";
 import { NodeHandle } from "./NodeHandle";
 import { NodeFrame, RunButton, Developing } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
+
+const CHARACTER_BOARD_MODEL_IDS = ["gpt-image-2.5-flare", "gemini-3.1-flash-image"] as const;
 
 export function CharacterBoardNode({ id, data, selected }: NodeProps<Node<CharacterBoardNodeData>>) {
   const readOnly = useFlowStore(selectActiveReadOnly);
@@ -24,6 +27,19 @@ export function CharacterBoardNode({ id, data, selected }: NodeProps<Node<Charac
   const setBoardLayout = (next: "2x2" | "1x3") => {
     if (disabled || next === boardLayout) return;
     updateNodeData(id, { boardLayout: next, error: undefined });
+  };
+  const modelId = data.modelId ?? "gpt-image-2.5-flare";
+  const imageSize = data.outputSize ?? "2K";
+  const gemini = modelId.startsWith("gemini-");
+  const sizeOptions = gemini ? ["1K", "2K", "4K"] : ["2K", "4K"];
+  const setModelId = (next: "gpt-image-2.5-flare" | "gemini-3.1-flash-image") => {
+    if (disabled || next === modelId) return;
+    const nextImageSize = imageSize === "1K" && !next.startsWith("gemini-") ? "2K" : imageSize;
+    updateNodeData(id, { modelId: next, outputSize: nextImageSize, error: undefined });
+  };
+  const setImageSize = (next: "1K" | "2K" | "4K") => {
+    if (disabled || next === imageSize) return;
+    updateNodeData(id, { outputSize: next, error: undefined });
   };
   const layoutHint = boardLayout === "1x3"
     ? "正面全身 · 侧面全身 · 背面全身三视图，统一人物身份与表情。"
@@ -55,14 +71,34 @@ export function CharacterBoardNode({ id, data, selected }: NodeProps<Node<Charac
       </Button>
       <p className="text-[10px] leading-relaxed text-[var(--gc-node-muted)]">{layoutHint}</p>
       <div className="min-w-0 space-y-1">
-        <span className="text-[10px] text-[var(--gc-text-muted)]">画板规格</span>
-        <Select value={boardLayout} disabled={disabled} onValueChange={(next) => { if (next) setBoardLayout(next as "2x2" | "1x3"); }}>
-          <SelectTrigger aria-label="画板规格" className="nodrag nopan h-8 w-full min-w-0 text-xs"><SelectValue>{boardLayout === "1x3" ? "1×3 三视图" : "2×2 四视图"}</SelectValue></SelectTrigger>
+        <span className="text-[10px] text-[var(--gc-text-muted)]">图像模型</span>
+        <Select value={modelId} disabled={disabled} onValueChange={(next) => { if (next === "gpt-image-2.5-flare" || next === "gemini-3.1-flash-image") setModelId(next); }}>
+          <SelectTrigger aria-label="图像模型" className="nodrag nopan h-8 w-full min-w-0 text-xs"><SelectValue>{imageModelLabel(modelId)}</SelectValue></SelectTrigger>
           <SelectContent>
-            <SelectItem value="2x2">2×2 四视图</SelectItem>
-            <SelectItem value="1x3">1×3 三视图</SelectItem>
+            {CHARACTER_BOARD_MODEL_IDS.map((id) => <SelectItem key={id} value={id}>{imageModelLabel(id)}</SelectItem>)}
           </SelectContent>
         </Select>
+      </div>
+      <div className="grid min-w-0 grid-cols-2 gap-2">
+        <div className="min-w-0 space-y-1">
+          <span className="text-[10px] text-[var(--gc-text-muted)]">画板规格</span>
+          <Select value={boardLayout} disabled={disabled} onValueChange={(next) => { if (next) setBoardLayout(next as "2x2" | "1x3"); }}>
+            <SelectTrigger aria-label="画板规格" className="nodrag nopan h-8 w-full min-w-0 text-xs"><SelectValue>{boardLayout === "1x3" ? "1×3 三视图" : "2×2 四视图"}</SelectValue></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="2x2">2×2 四视图</SelectItem>
+              <SelectItem value="1x3">1×3 三视图</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="min-w-0 space-y-1">
+          <span className="text-[10px] text-[var(--gc-text-muted)]">输出尺寸</span>
+          <Select value={imageSize} disabled={disabled} onValueChange={(next) => { if (next === "1K" || next === "2K" || next === "4K") setImageSize(next); }}>
+            <SelectTrigger aria-label="输出尺寸" className="nodrag nopan h-8 w-full min-w-0 text-xs"><SelectValue>{imageSize}</SelectValue></SelectTrigger>
+            <SelectContent>
+              {sizeOptions.map((size) => <SelectItem key={size} value={size}>{size}{size === "2K" ? "（默认）" : ""}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       {error && <p role="alert" className="text-xs text-red-500">{error}</p>}
       <RunButton status={data.status} label="生成人物板" disabled={disabled || !data.sourceImage} onClick={() => void runNode(id)} />
