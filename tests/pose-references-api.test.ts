@@ -30,6 +30,7 @@ const flow = {nodes:[{id:'pose',type:'image-input',position:{x:0,y:0},data:{kind
 await query("INSERT INTO projects(id,owner_id,name,flow_json,created_at,updated_at,lifecycle) VALUES('project','owner','test',$1,$2,$2,'saved')",[JSON.stringify(flow),now]);
 let calls = 0;
 let promptCalls = 0;
+let promptOptions: import('../server/lib/poseAnalysis').PoseAnalysisOptions | undefined;
 let release: (()=>void) | undefined;
 let delayed = new Promise<void>(resolve=>{release=resolve;});
 const app = express();
@@ -43,7 +44,8 @@ const router = fs.existsSync('server/routes/poseReferences.ts')
         if (kind === 'skeleton' && image === png) throw new Error('private provider detail');
         return {image: kind === 'depth' ? depthPng : png, model: kind === 'skeleton' ? 'test-skeleton' : 'test-depth'};
       },
-      analyzePosePrompt: async (image: string) => {
+      analyzePosePrompt: async (image: string, options) => {
+        promptOptions = options;
         promptCalls++;
         assert.equal(image,png);
         return {prompt:'身体姿势：肩线左高右低；手部姿势：右手靠近髋部；头部姿势：头部向画面右侧旋转；视线方向：朝向画面右上方。',providerRequests:1,model:'test-pose-analysis',cacheHit:false};
@@ -70,6 +72,14 @@ try {
   assert.equal(prompt.providerRequests,1);
   assert.equal(prompt.cacheHit,false);
   assert.equal(promptCalls,1);
+  assert.equal((await analyzeReq({...analyzeBody,provider:'unknown'})).status,400);
+  assert.equal((await analyzeReq({...analyzeBody,provider:'deepseek'})).status,400);
+  assert.equal(promptCalls,1, 'Invalid options must not call a model');
+  const deepseekResponse=await analyzeReq({...analyzeBody,provider:'deepseek',apiKey:'test-deepseek-key',ownerId:'forged-owner'});
+  assert.equal(deepseekResponse.status,200);
+  assert.deepEqual(promptOptions,{provider:'deepseek',apiKey:'test-deepseek-key',ownerId:'owner'});
+  assert.ok(!(await deepseekResponse.text()).includes('test-deepseek-key'));
+  assert.equal((await analyzeReq({...analyzeBody,provider:'deepseek',apiKey:'test-deepseek-key'},'other')).status,404);
   assert.equal((await analyzeReq(analyzeBody,'other')).status,404);
   assert.equal((await analyzeReq({...analyzeBody,analysisSource:'https://example.com/pose.png'})).status,400);
   assert.equal((await req('POST',body,'none')).status,401);

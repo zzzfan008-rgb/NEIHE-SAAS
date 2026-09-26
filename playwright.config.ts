@@ -94,7 +94,7 @@ export default defineConfig({
     },
     {
       name: "desktop-1024",
-      testMatch: /(workbench|ui-audit)\.spec\.ts/,
+      testMatch: /(workbench|ui-audit|pose-prompt)\.spec\.ts/,
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
@@ -104,7 +104,7 @@ export default defineConfig({
     },
     {
       name: "desktop-1280",
-      testMatch: /(workbench|ui-audit)\.spec\.ts/,
+      testMatch: /(workbench|ui-audit|pose-prompt)\.spec\.ts/,
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
@@ -114,7 +114,7 @@ export default defineConfig({
     },
     {
       name: "desktop-1440",
-      testMatch: /(workbench|ui-audit)\.spec\.ts/,
+      testMatch: /(workbench|ui-audit|pose-prompt)\.spec\.ts/,
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],

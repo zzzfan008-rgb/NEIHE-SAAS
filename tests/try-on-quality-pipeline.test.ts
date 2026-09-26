@@ -81,7 +81,9 @@ assert.throws(
 
 const originalFetch = globalThis.fetch;
 const originalKey = process.env.APIYI_API_KEY;
+const originalBase = process.env.APIYI_BASE_URL;
 process.env.APIYI_API_KEY = "test-only-key";
+process.env.APIYI_BASE_URL = "https://api.apiyi.test";
 const image = `data:image/png;base64,${(await sharp({ create: { width: 1600, height: 2400, channels: 3, background: "white" } }).png().toBuffer()).toString("base64")}`;
 let calls = 0;
 let marked = 0;
@@ -473,5 +475,7 @@ try {
   globalThis.fetch = originalFetch;
   if (originalKey === undefined) delete process.env.APIYI_API_KEY;
   else process.env.APIYI_API_KEY = originalKey;
+  if (originalBase === undefined) delete process.env.APIYI_BASE_URL;
+  else process.env.APIYI_BASE_URL = originalBase;
 }
 console.log("通过一键换装质量流水线契约测试");

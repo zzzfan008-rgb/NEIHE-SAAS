@@ -108,7 +108,39 @@ try {
     text: JSON.stringify({ ...ANALYSIS, facialExpression: undefined }),
   }] } }] }), { status: 200 });
   await assert.rejects(analyzePoseReference('data:image/png;base64,AQ=='), /facialExpression 无效/);
-  console.log("姿势分析测试通过：原图隔离、中性引导图、结构过滤与缓存均有效");
+  let deepseekCalls = 0;
+  const deepseekOptions = { provider: 'deepseek' as const, ownerId: 'owner-a', apiKey: 'test-only-deepseek-key' };
+  globalThis.fetch = async (url, init) => {
+    deepseekCalls++;
+    assert.equal(url, 'https://api.deepseek.com/chat/completions');
+    assert.equal(new Headers(init?.headers).get('Authorization'), `Bearer ${deepseekOptions.apiKey}`);
+    const request = JSON.parse(String(init?.body));
+    assert.equal(request.model, 'deepseek-v4-flash-vision-exp');
+    assert.deepEqual(request.messages[0].content[1], { type: 'image_url', image_url: { url: IMAGE, detail: 'original' } });
+    assert.equal(request.response_format.type, 'json_object');
+    return Response.json({ choices: [{ message: { content: JSON.stringify(ANALYSIS) } }] });
+  };
+  const deepseek = await analyzePoseReference(IMAGE, deepseekOptions);
+  assert.equal(deepseek.cacheHit, false, 'Gemini cache must not satisfy DeepSeek');
+  assert.equal(deepseek.model, 'deepseek-v4-flash-vision-exp');
+  assert.equal((await analyzePoseReference(IMAGE, deepseekOptions)).cacheHit, true);
+  assert.equal(deepseekCalls, 1);
+  await analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'owner-b' });
+  assert.equal(deepseekCalls, 2, 'Accounts must not share BYOK results');
+  await assert.rejects(analyzePoseReference(IMAGE, { ...deepseekOptions, apiKey: '' }), /API Key/);
+  globalThis.fetch = async () => new Response(deepseekOptions.apiKey, { status: 401 });
+  await assert.rejects(analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'invalid-key' }), error => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /API Key 无效/);
+    assert.ok(!JSON.stringify(error).includes(deepseekOptions.apiKey));
+    return true;
+  });
+  globalThis.fetch = async () => Response.json({ choices: [{ message: { content: JSON.stringify({ ...ANALYSIS, bodyPose: deepseekOptions.apiKey }) } }] });
+  await assert.rejects(analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'echo-secret' }), /格式无效/);
+  for (const name of fs.readdirSync(path.join(temp, 'pose-analysis-cache'))) {
+    assert.ok(!fs.readFileSync(path.join(temp, 'pose-analysis-cache', name), 'utf8').includes(deepseekOptions.apiKey));
+  }
+  console.log("姿势分析测试通过：Gemini/DeepSeek、Base64、账户缓存隔离、密钥脱敏与结构验证");
 } finally {
   globalThis.fetch = originalFetch;
   fs.rmSync(temp, { recursive: true, force: true });

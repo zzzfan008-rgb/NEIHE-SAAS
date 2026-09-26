@@ -11,7 +11,7 @@ import { isLocalImageReference, validateImageDataUrl } from '../lib/imageValidat
 import { resolveToDataUrl } from '../lib/fileStore';
 import { analyzeDWPoseReference } from '../lib/dwposeAnalysis';
 import { analyzeDepthReference } from '../lib/depthAnalysis';
-import { analyzePoseReference, type PoseAnalysisResult } from '../lib/poseAnalysis';
+import { analyzePoseReference, DEEPSEEK_POSE_MODEL, type PoseAnalysisOptions, type PoseAnalysisResult } from '../lib/poseAnalysis';
 import { config } from '../config';
 import { ProviderError } from '../providers/base';
 import { isPoseReferenceNode, type PoseOutfitReferenceRecord, type PoseOutfitReferenceStatus, type PoseReferenceKind, type PoseReferenceRecord } from '../../src/types/poseReference';
@@ -54,7 +54,7 @@ interface PoseOutfitRow {
   provider_output_size: string | null;
 }
 type Analyzer = (image: string, kind: PoseReferenceKind, markProvider: () => Promise<void>) => Promise<NonNullable<PoseReferenceRecord['result']>>;
-type PosePromptAnalyzer = (image: string) => Promise<Pick<PoseAnalysisResult,'prompt'|'providerRequests'|'model'|'cacheHit'>>;
+type PosePromptAnalyzer = (image: string, options?: PoseAnalysisOptions) => Promise<Pick<PoseAnalysisResult,'prompt'|'providerRequests'|'model'|'cacheHit'>>;
 class RequestError extends Error { constructor(public status: number, message: string) { super(message); } }
 const record = (row: Row): PoseReferenceRecord => ({id:row.id,kind:row.kind,source:row.source,status:row.status,...(row.result?{result:row.result}:{}),...(row.error?{error:row.error}:{})});
 const POSE_OUTFIT_REFERENCE_KIND = 'pose-reference-outfit';
@@ -279,6 +279,10 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer; analyze
   router.post('/analyze',asyncHandler(async(req,res)=>{
     try {
       const input=parsePosePromptInput(req.body ?? {});
+      const provider = req.body.provider ?? 'gemini';
+      if (provider !== 'gemini' && provider !== 'deepseek') throw new RequestError(400,'不支持的姿势反推模型');
+      const apiKey = typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '';
+      if (provider === 'deepseek' && !/^[\x21-\x7e]{8,512}$/.test(apiKey)) throw new RequestError(400,'请填写有效的 DeepSeek API Key');
       const image=await transaction(async(client)=>{
         const owner=requestUser(req).id;
         await authorizeProjectAndSource(owner,input,client);
@@ -286,10 +290,16 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer; analyze
         validateImageDataUrl(dataUrl);
         return dataUrl;
       });
-      const result=posePromptResult(await (options.analyzePosePrompt??(async(dataUrl)=>analyzePoseReference(dataUrl)))(image));
+      const result=posePromptResult(await (options.analyzePosePrompt??analyzePoseReference)(image,
+        provider === 'deepseek' ? { provider, apiKey, ownerId: requestUser(req).id } : undefined));
       res.setHeader('Cache-Control','no-store');
       res.json(result);
-    } catch(error) { handleError(error,res); }
+    } catch(error) {
+      // DeepSeek adapter emits only fixed, sanitized messages, never upstream bodies.
+      if (error instanceof ProviderError && error.providerId === DEEPSEEK_POSE_MODEL) {
+        res.status(error.status ?? 502).json({error:error.message});
+      } else handleError(error,res);
+    }
   }));
   router.post('/',asyncHandler(async(req,res)=>{
     try {

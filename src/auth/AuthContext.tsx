@@ -16,6 +16,7 @@ import { suspendProjectTabSessionPersistence } from "@/lib/tabSessionStorage";
 import { didRestoreProjectTabSessionWorkspace } from "@/lib/workspaceRestoreState";
 import { browserDrawingDraftStore } from "@/lib/drawingDraftStore";
 import { useCustomColors } from "@/store/customColors";
+import { clearPoseCredential } from "@/lib/poseCredentials";
 
 export interface CurrentUser {
   id: string;
@@ -133,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authenticatedUserId.current = null;
       useCustomColors.getState().bindOwner(null);
       if (change.type === "logout" && user?.id) {
+        clearPoseCredential(user.id);
         void browserDrawingDraftStore().clearOwner(user.id).catch(() => undefined);
       }
       clearSessionEndNotice(window.sessionStorage);
@@ -148,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     const ownerId = authenticatedUserId.current;
+    clearPoseCredential(ownerId);
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     if (ownerId) await browserDrawingDraftStore().clearOwner(ownerId).catch(() => undefined);
     refreshSequence.current += 1;

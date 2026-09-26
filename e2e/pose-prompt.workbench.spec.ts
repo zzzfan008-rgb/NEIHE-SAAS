@@ -1,7 +1,10 @@
 import sharp from 'sharp';
 import { expect, test } from './fixtures';
 
+test.use({ storageState: { cookies: [], origins: [] } });
+
 test('connected pose text is editable, source-bound and preserved through save/load', async ({ page }, testInfo) => {
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { user: { id: 'pose-test-user', accountId: 'pose-test-user', displayName: '姿势测试', role: 'user', mustChangePassword: false } } }));
   const png = await sharp({ create: { width: 300, height: 300, channels: 3, background: '#869ca7' } }).png().toBuffer();
   await page.route('**/api/files/pose-*.png', r => r.fulfill({ contentType: 'image/png', body: png }));
   let calls = 0;
@@ -9,7 +12,8 @@ test('connected pose text is editable, source-bound and preserved through save/l
     calls++;
     await route.fulfill({ json: { prompt: '画面左腿交叉，肩线倾斜。', model: 'mock-vision', providerRequests: 0, cacheHit: true } });
   });
-  await page.goto('/e2e/fixtures/node-geometry.html');
+  await page.goto('/e2e/fixtures/node-geometry.html?auth=1');
+  await expect(page.getByText('拖动图片内部四角体验等比缩放 · 隔离演示，不写入正式项目')).toBeVisible();
   await page.evaluate(async () => {
     const module = '/src/store/flowStore.ts';
     const { useFlowStore } = await import(module);
@@ -57,7 +61,7 @@ test('connected pose text is editable, source-bound and preserved through save/l
   await inference.click();
   const dialog = page.getByRole('dialog', { name: '反推人物姿势', exact: true });
   await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText('用户修订：画面右手贴近髋部。');
-  await dialog.getByRole('button', { name: '按新版规则重新反推', exact: true }).click();
+  await dialog.getByRole('button', { name: '开始反推', exact: true }).click();
   await expect(dialog.locator('[data-pose-prompt="candidate"]')).toHaveText('画面左腿交叉，肩线倾斜。');
   await expect(page.locator('#pose-prompt-pose')).toHaveValue('用户修订：画面右手贴近髋部。');
   const dialogBox = await dialog.boundingBox();

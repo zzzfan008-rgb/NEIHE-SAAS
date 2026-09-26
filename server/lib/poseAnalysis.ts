@@ -41,6 +41,9 @@ export interface PoseAnalysisResult {
 
 export interface PoseAnalysisOptions {
   beforeProviderCall?: (providerRequest: number) => void | Promise<void>;
+  provider?: 'gemini' | 'deepseek';
+  apiKey?: string;
+  ownerId?: string;
 }
 
 export type PoseAnalyzer = (
@@ -55,6 +58,45 @@ interface PoseAnalysisCacheEntry {
 }
 
 const inFlight = new Map<string, Promise<PoseAnalysisResult>>();
+export const DEEPSEEK_POSE_MODEL = 'deepseek-v4-flash-vision-exp';
+
+async function requestDeepSeekPose(imageDataUrl: string, apiKey: string): Promise<PoseAnalysis> {
+  let response: Response;
+  try {
+    response = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(120_000),
+      body: JSON.stringify({
+        model: DEEPSEEK_POSE_MODEL,
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: ANALYSIS_INSTRUCTION },
+          { type: 'image_url', image_url: { url: imageDataUrl, detail: 'original' } },
+        ] }],
+        response_format: { type: 'json_object' },
+        thinking: { type: 'disabled' },
+      }),
+    });
+  } catch {
+    // Never surface transport errors that may contain a user-supplied secret.
+    throw new ProviderError('DeepSeek 请求中断或超时，请检查后重试；重试可能产生费用', 502, DEEPSEEK_POSE_MODEL, 'outcome_unknown');
+  }
+  if (!response.ok) {
+    const message = response.status === 401 || response.status === 403 ? 'DeepSeek API Key 无效或无权访问，请检查密钥'
+      : response.status === 402 ? 'DeepSeek 账户余额不足'
+      : response.status === 429 ? 'DeepSeek 请求频率受限，请稍后重试' : 'DeepSeek 服务请求失败，请稍后重试';
+    // Provider response bodies can echo request data; do not return or log them.
+    throw new ProviderError(message, 502, DEEPSEEK_POSE_MODEL, 'invalid_response');
+  }
+  try {
+    const payload = await response.json();
+    const text = payload?.choices?.[0]?.message?.content;
+    if (typeof text !== 'string' || text.includes(apiKey)) throw new Error('Invalid response');
+    return parseAnalysis(JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')));
+  } catch {
+    throw new ProviderError('DeepSeek 返回的姿势描述格式无效，请重试', 502, DEEPSEEK_POSE_MODEL, 'invalid_response');
+  }
+}
 const FORBIDDEN_POSE_CONTENT = /人物身份|五官外观|肤色|发型|体型|服装|衣服|上衣|衬衫|毛衣|外套|夹克|西装|裤|裙|鞋|靴|包袋|手提包|背包|帽|戒指|耳环|耳坠|手镯|手链|项链|腰带|眼镜|首饰|配饰|品牌|文字|背景|场景|建筑|家具|道具|\b(?:identity|facial features|skin tone|hairstyle|body type|clothing|garment|shirt|jacket|suit|pants|trousers|skirt|shoes?|boots?|handbag|backpack|hat|ring|earrings?|bracelet|necklace|belt|glasses|jewelry|accessor(?:y|ies)|brand|text|background|scene|building|furniture|prop)\b/iu;
 
 const ANALYSIS_INSTRUCTION = `你是人物姿态与可见神态解析器。将主要人物的可见动作转写成可供图像生成与编辑模型执行的中文描述，保持原有动作，不美化或重新设计姿势。
@@ -256,6 +298,11 @@ async function analyzeUncached(
   }
   const { mime, base64 } = parseDataUrl(imageDataUrl);
   await options?.beforeProviderCall?.(1);
+  if (options?.provider === 'deepseek') {
+    const analysis = await requestDeepSeekPose(imageDataUrl, options.apiKey!);
+    await writeCache(filePath, { schemaVersion: POSE_ANALYSIS_SCHEMA_VERSION, model, analysis });
+    return { guideImage: await renderPoseGuide(imageDataUrl, analysis), prompt: analysisPrompt(analysis), providerRequests: 1, model, cacheHit: false };
+  }
   const response = await fetchWithRetry(
     `${config.apiyiBaseUrl()}/v1beta/models/${model}:generateContent`,
     () => ({
@@ -283,9 +330,15 @@ async function analyzeUncached(
 }
 
 export const analyzePoseReference: PoseAnalyzer = async (imageDataUrl, options) => {
-  const model = validateModel(config.poseAnalysisModel());
+  const deepseek = options?.provider === 'deepseek';
+  if (deepseek && (!options.ownerId || !options.apiKey || !/^[\x21-\x7e]{8,512}$/.test(options.apiKey))) {
+    throw new ProviderError('请填写有效的 DeepSeek API Key', 400, DEEPSEEK_POSE_MODEL, 'invalid_request');
+  }
+  const model = deepseek ? DEEPSEEK_POSE_MODEL : validateModel(config.poseAnalysisModel());
   const { mime, buffer } = parseDataUrl(imageDataUrl);
-  const key = cacheKey(model, mime, buffer);
+  // BYOK cache and in-flight work are isolated by account and credential, not just model.
+  const cacheModel = deepseek ? `${model}:${options!.ownerId}:${createHash('sha256').update(options!.apiKey!).digest('hex')}` : model;
+  const key = cacheKey(cacheModel, mime, buffer);
   const filePath = path.join(config.dataDir(), "pose-analysis-cache", `${key}.json`);
   const existing = inFlight.get(key);
   if (existing) {

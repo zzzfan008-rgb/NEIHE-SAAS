@@ -113,8 +113,18 @@ export async function generatePoseReference(target:DocumentTarget,nodeId:string,
   } finally { patch(key,s=>({...s,busy:{...s.busy,[kind]:false}})); }
 }
 
-export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,source:string,retry=false) {
-  const key=poseReferenceKey(target,nodeId,source);
+export interface PosePromptRequestOptions {
+  provider: 'gemini' | 'deepseek';
+  apiKey?: string;
+  ownerId?: string;
+  candidateOnly?: boolean;
+}
+export function posePromptRuntimeKey(target:DocumentTarget,nodeId:string,source:string,provider:'gemini'|'deepseek'='gemini',ownerId='') {
+  const base=poseReferenceKey(target,nodeId,source);
+  return provider==='gemini' ? base : JSON.stringify([base,provider,ownerId]);
+}
+export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,source:string,retry=false,options?:PosePromptRequestOptions) {
+  const key=posePromptRuntimeKey(target,nodeId,source,options?.provider,options?.ownerId);
   const state=usePoseReferenceRuntime.getState().entries[key];
   if (!current(target,nodeId,source) || state?.posePrompt?.status==='running') return;
   const sourceData = useFlowStore.getState().tabs.find(t=>t.id===target.tabId)?.nodes.find(n=>n.id===nodeId)?.data;
@@ -122,6 +132,7 @@ export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,sour
   // Saved user text (including an intentionally empty draft) wins over analysis/cache.
   if (posePromptForImage(sourceData) !== undefined && !retry) return;
   const adopt = (result: PosePromptInferenceResult) => {
+    if (options?.candidateOnly || options?.provider==='deepseek') return;
     const latest = useFlowStore.getState().tabs.find(t=>t.id===target.tabId)?.nodes.find(n=>n.id===nodeId)?.data;
     if (current(target,nodeId,source,true) && latest?.kind === 'image-input' &&
         posePromptForImage(latest) === undefined && posePromptForImage(sourceData) === undefined) {
@@ -141,7 +152,8 @@ export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,sour
     if (tab?.readOnly===false && !await useFlowStore.getState().saveProjectInTab(target)) throw new Error('项目保存失败，请先保存后重试');
     if (!current(target,nodeId,source)) return;
     const value=await response(await fetch('/api/pose-references/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
-      signal:AbortSignal.timeout(30_000),body:JSON.stringify({projectId:target.projectId,nodeId,source})}));
+      signal:AbortSignal.timeout(130_000),body:JSON.stringify({projectId:target.projectId,nodeId,source,
+        ...(options?.provider==='deepseek'?{provider:'deepseek',apiKey:options.apiKey}: {})})}));
     const result=validatePosePrompt(value);
     if (current(target,nodeId,source)&&(promptVersions.get(key)??0)===version) {
       adopt(result);

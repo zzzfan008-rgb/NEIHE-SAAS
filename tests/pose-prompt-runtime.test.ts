@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { useFlowStore, selectActiveDocumentTarget, updateCoalescedTextEdit, flushActiveTextEdit } from '../src/store/flowStore';
-import { analyzePosePrompt, poseReferenceKey, usePoseReferenceRuntime } from '../src/store/poseReferenceRuntime';
+import { analyzePosePrompt, poseReferenceKey, posePromptRuntimeKey, usePoseReferenceRuntime } from '../src/store/poseReferenceRuntime';
 
 const source = '/api/files/pose.png';
 const nodes = [{
@@ -139,6 +139,19 @@ try {
   resolve!(Response.json({ prompt: '改名后仍接收', model: 'test', providerRequests: 0, cacheHit: true }));
   await renameRequest;
   assert.equal(useFlowStore.getState().tabs.find(t => t.id === renameTarget.tabId)!.nodes[0].data.posePrompt, '改名后仍接收');
+  const beforeDeepseek = useFlowStore.getState().tabs.find(t => t.id === renameTarget.tabId)!.nodes[0].data.posePrompt;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.provider, 'deepseek');
+    assert.equal(body.apiKey, 'test-deepseek-secret');
+    assert.equal(body.ownerId, undefined, 'Server must derive owner from authentication');
+    return Response.json({ prompt: 'DeepSeek 候选', model: 'deepseek-v4-flash-vision-exp', providerRequests: 1, cacheHit: false });
+  };
+  await analyzePosePrompt(renameTarget, 'pose', source, true, { provider: 'deepseek', apiKey: 'test-deepseek-secret', ownerId: 'owner', candidateOnly: true });
+  assert.equal(useFlowStore.getState().tabs.find(t => t.id === renameTarget.tabId)!.nodes[0].data.posePrompt, beforeDeepseek);
+  assert.equal(usePoseReferenceRuntime.getState().entries[posePromptRuntimeKey(renameTarget, 'pose', source, 'deepseek', 'owner')].posePrompt?.result?.prompt, 'DeepSeek 候选');
+  assert.notEqual(posePromptRuntimeKey(renameTarget, 'pose', source, 'deepseek', 'owner'), posePromptRuntimeKey(renameTarget, 'pose', source, 'deepseek', 'other'));
+  assert.ok(!JSON.stringify(usePoseReferenceRuntime.getState()).includes('test-deepseek-secret'));
 } finally {
   globalThis.fetch = originalFetch;
   useFlowStore.setState({ saveProjectInTab: originalSave });

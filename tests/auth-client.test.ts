@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readPoseCredential, savePoseCredential, clearPoseCredential } from '../src/lib/poseCredentials';
 import { readFileSync } from "node:fs";
 import {
   isProjectTabSessionPersistenceSuspended,
@@ -34,6 +35,28 @@ function memoryStorage(initial: Record<string, string> = {}) {
 }
 
 console.log("客户端会话失效体验回归测试");
+
+const oldWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+try {
+  const localStorage = memoryStorage();
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage } });
+  assert.equal(savePoseCredential('user-a', 'test-key-a'), true);
+  assert.equal(savePoseCredential('user-b', 'test-key-b'), true);
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage } });
+  assert.equal(readPoseCredential('user-a'), 'test-key-a', 'Refresh keeps the account credential');
+  assert.equal(readPoseCredential('user-b'), 'test-key-b');
+  assert.equal(readPoseCredential('user-c'), '');
+  clearPoseCredential('user-a');
+  assert.equal(readPoseCredential('user-a'), '');
+  assert.equal(readPoseCredential('user-b'), 'test-key-b', 'Logout clears only its owner');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { get localStorage() { throw new Error('blocked'); } } });
+  assert.equal(savePoseCredential('user-a', 'test-key'), false);
+  assert.equal(readPoseCredential('user-a'), '');
+  clearPoseCredential('user-a');
+} finally {
+  if (oldWindow) Object.defineProperty(globalThis, 'window', oldWindow);
+  else Reflect.deleteProperty(globalThis, 'window');
+}
 
 assert.equal(sessionEndReasonFromCode("SESSION_REPLACED"), "replaced");
 assert.equal(sessionEndReasonFromCode("UNAUTHENTICATED"), null);
