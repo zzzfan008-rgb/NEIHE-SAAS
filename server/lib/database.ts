@@ -763,6 +763,19 @@ async function migrate(): Promise<void> {
     if (!applied.has(26)) await migrateImageConversationStartNew(client);
     if (!applied.has(27)) await migrateImageConversationRequests(client);
 
+    if (!applied.has(28)) {
+      await client.query(`
+        ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_lifecycle_check;
+        ALTER TABLE projects
+          ADD CONSTRAINT projects_lifecycle_check
+          CHECK (lifecycle IN ('initial_draft','copy_draft','saved'));
+      `);
+      await client.query(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (28, $1, $2)",
+        ["project_resource_copy_drafts", new Date().toISOString()],
+      );
+    }
+
     // SQLite can be restored after an empty database has already applied migration 17.
     if (!applied.has(17) || imported !== undefined) {
       await client.query(`

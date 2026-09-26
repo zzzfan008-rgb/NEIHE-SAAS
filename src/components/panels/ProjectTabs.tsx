@@ -1,16 +1,34 @@
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { LoaderCircleIcon, PlusIcon, SaveIcon } from "lucide-react";
+import { nanoid } from "nanoid";
+import {
+  BookmarkPlusIcon,
+  CopyIcon,
+  LoaderCircleIcon,
+  PencilIcon,
+  PlusIcon,
+  SaveIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
+import { createDocumentSnapshot, documentSnapshotToPersistedWorkflow } from "@/lib/documentSnapshot";
 import {
   flushActiveTextEdit,
   projectTabLifecycle,
   useFlowStore,
+  type FlowNode,
   type ProjectTab,
 } from "@/store/flowStore";
 import { useGenerationSafetyBlockReason } from "@/store/generationSafety";
 import { isNodeRunActive } from "@/types/workflow";
 import { useInitialDraftWorkspace } from "@/initialDraft/InitialDraftWorkspace";
+import { SaveTemplateForm } from "./TemplatesDock";
 
 const loadProjectCenter = () => import("./ProjectCenter");
 const LazyProjectCenter = lazy(() => loadProjectCenter().then((module) => ({
@@ -21,17 +39,41 @@ function hasRunningNode(tab: ProjectTab): boolean {
   return tab.nodes.some((node) => isNodeRunActive(node.data.status));
 }
 
+function needsProjectResourceCopy(tab: ProjectTab): boolean {
+  return tab.nodes.some((node) =>
+    (node.data.kind === "mask-redraw" && Boolean(node.data.mask?.startsWith("/api/files/"))) ||
+    (node.data.kind === "drawing-board" && Boolean(node.data.contentRef)),
+  );
+}
+
+type OperationFeedback = {
+  tone: "pending" | "success" | "error";
+  message: string;
+};
+
 export function ProjectTabs() {
   const tabs = useFlowStore((state) => state.tabs);
   const activeTabId = useFlowStore((state) => state.activeTabId);
   const switchTab = useFlowStore((state) => state.switchTab);
   const closeTab = useFlowStore((state) => state.closeTab);
+  const openFlowTab = useFlowStore((state) => state.openFlowTab);
   const saveProject = useFlowStore((state) => state.saveProject);
   const [projectCenterOpen, setProjectCenterOpen] = useState(false);
   const [projectCenterRequested, setProjectCenterRequested] = useState(false);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [renameError, setRenameError] = useState<string | null>(null);
+  const [savingTabId, setSavingTabId] = useState<string | null>(null);
+  const [copyingTabId, setCopyingTabId] = useState<string | null>(null);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateTarget, setTemplateTarget] = useState<{
+    projectName: string;
+    nodes: FlowNode[];
+    edges: ProjectTab["edges"];
+  } | undefined>();
+  const [operationFeedback, setOperationFeedback] = useState<OperationFeedback | null>(null);
   const editingInputRef = useRef<HTMLInputElement>(null);
+  const tabLabelRefs = useRef(new Map<string, HTMLButtonElement>());
+  const templateFinalFocusRef = useRef<HTMLButtonElement | null>(null);
   const renameComposingRef = useRef(false);
   const projectNameEdit = useCoalescedTextEdit(
     editingTabId === activeTabId ? { kind: "project-name" } : null,
@@ -47,6 +89,12 @@ export function ProjectTabs() {
     });
     return () => cancelAnimationFrame(frame);
   }, [editingTabId]);
+
+  useEffect(() => {
+    if (!operationFeedback || operationFeedback.tone === "pending") return;
+    const timeout = window.setTimeout(() => setOperationFeedback(null), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [operationFeedback]);
 
   const finishRename = async (persist: boolean) => {
     if (renameComposingRef.current) return;
@@ -88,6 +136,96 @@ export function ProjectTabs() {
       event.preventDefault();
       void finishRename(true);
     }
+  };
+
+  const duplicateTab = async (tabId: string) => {
+    flushActiveTextEdit();
+    const source = useFlowStore.getState().tabs.find((candidate) => candidate.id === tabId);
+    if (!source) return;
+    const snapshot = createDocumentSnapshot(source);
+    let workflow = documentSnapshotToPersistedWorkflow(snapshot);
+    const projectName = `${source.projectName} - 副本`;
+    let projectId = nanoid(10);
+    if (needsProjectResourceCopy(source)) {
+      if (copyingTabId === tabId) return;
+      setCopyingTabId(tabId);
+      setOperationFeedback({ tone: "pending", message: `正在复制“${source.projectName}”及其蒙版和画板…` });
+      try {
+        const response = await fetch("/api/projects/copy", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            sourceProjectId: source.projectId,
+            name: projectName,
+            flow: workflow,
+          }),
+        });
+        const body = await response.json().catch(() => ({})) as {
+          id?: unknown;
+          flow?: unknown;
+          error?: unknown;
+        };
+        if (!response.ok) {
+          throw new Error(typeof body.error === "string" ? body.error : "项目资源复制失败");
+        }
+        if (
+          typeof body.id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(body.id) ||
+          body.id === source.projectId || !body.flow || typeof body.flow !== "object" ||
+          !Array.isArray((body.flow as { nodes?: unknown }).nodes) ||
+          !Array.isArray((body.flow as { edges?: unknown }).edges)
+        ) throw new Error("项目资源复制响应无效");
+        projectId = body.id;
+        workflow = body.flow as typeof workflow;
+      } catch (error) {
+        setOperationFeedback({
+          tone: "error",
+          message: `复制“${source.projectName}”失败：${error instanceof Error ? error.message : "请稍后重试"}`,
+        });
+        setCopyingTabId(null);
+        return;
+      }
+      setCopyingTabId(null);
+    }
+    openFlowTab({
+      projectId,
+      projectName,
+      nodes: workflow.nodes as FlowNode[],
+      edges: workflow.edges,
+      markDirty: true,
+    });
+    setOperationFeedback({ tone: "success", message: `已复制为“${projectName}”` });
+  };
+
+  const saveTab = async (tabId: string) => {
+    if (savingTabId === tabId) return;
+    flushActiveTextEdit();
+    const targetTab = useFlowStore.getState().tabs.find((candidate) => candidate.id === tabId);
+    if (!targetTab) return;
+    const target = {
+      tabId: targetTab.id,
+      projectId: targetTab.projectId,
+      documentEpoch: targetTab.documentEpoch,
+    };
+    setSavingTabId(tabId);
+    setOperationFeedback({ tone: "pending", message: `正在保存“${targetTab.projectName}”…` });
+    const saved = await useFlowStore.getState().saveProjectInTab(target);
+    setOperationFeedback(saved
+      ? { tone: "success", message: `已保存“${targetTab.projectName}”` }
+      : { tone: "error", message: `保存“${targetTab.projectName}”失败，请检查网络或项目状态后重试` });
+    setSavingTabId(null);
+  };
+
+  const openTemplateFormForTab = (tabId: string) => {
+    flushActiveTextEdit();
+    const targetTab = useFlowStore.getState().tabs.find((candidate) => candidate.id === tabId);
+    if (!targetTab) return;
+    templateFinalFocusRef.current = tabLabelRefs.current.get(tabId) ?? null;
+    setTemplateTarget({
+      projectName: targetTab.projectName,
+      nodes: structuredClone(targetTab.nodes),
+      edges: structuredClone(targetTab.edges),
+    });
+    setTemplateDialogOpen(true);
   };
 
   const requestClose = async (tab: ProjectTab) => {
@@ -204,15 +342,67 @@ export function ProjectTabs() {
                   )}
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => switchTab(tab.id)}
-                  onDoubleClick={() => beginRename(tab)}
-                  className="min-w-0 flex-1 truncate text-left text-[11px]"
-                  title={tab.readOnly ? `${tab.projectName}（只读）` : `${tab.projectName} · 双击重命名`}
-                >
-                  {tab.projectName}
-                </button>
+                <ContextMenu>
+                  <ContextMenuTrigger
+                    render={(
+                      <button
+                        ref={(element) => {
+                          if (element) tabLabelRefs.current.set(tab.id, element);
+                          else tabLabelRefs.current.delete(tab.id);
+                        }}
+                        type="button"
+                        onClick={() => switchTab(tab.id)}
+                        onDoubleClick={() => beginRename(tab)}
+                        onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+                          if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
+                          event.preventDefault();
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          event.currentTarget.dispatchEvent(new MouseEvent("contextmenu", {
+                            bubbles: true,
+                            cancelable: true,
+                            button: 2,
+                            clientX: bounds.left + 8,
+                            clientY: bounds.bottom,
+                          }));
+                        }}
+                        className="min-w-0 flex-1 truncate text-left text-[11px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gc-accent)]"
+                        title={tab.readOnly ? `${tab.projectName}（只读）` : `${tab.projectName} · 双击重命名`}
+                      />
+                    )}
+                  >
+                    {tab.projectName}
+                  </ContextMenuTrigger>
+                  <ContextMenuContent aria-label={`${tab.projectName}页签操作`}>
+                    <ContextMenuItem disabled={tab.readOnly} onClick={() => beginRename(tab)}>
+                      <PencilIcon aria-hidden="true" />
+                      <span>重命名</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      disabled={copyingTabId === tab.id}
+                      onClick={() => void duplicateTab(tab.id)}
+                    >
+                      {copyingTabId === tab.id
+                        ? <LoaderCircleIcon aria-hidden="true" className="animate-spin" />
+                        : <CopyIcon aria-hidden="true" />}
+                      <span>{copyingTabId === tab.id ? "正在复制…" : "复制"}</span>
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      disabled={tab.readOnly || savingTabId === tab.id}
+                      onClick={() => void saveTab(tab.id)}
+                    >
+                      {savingTabId === tab.id
+                        ? <LoaderCircleIcon aria-hidden="true" className="animate-spin" />
+                        : <SaveIcon aria-hidden="true" />}
+                      <span>保存</span>
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => openTemplateFormForTab(tab.id)}>
+                      <BookmarkPlusIcon aria-hidden="true" />
+                      <span>另存至我的模板</span>
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               )}
 
               {!editing && (
@@ -260,6 +450,29 @@ export function ProjectTabs() {
         )}>
           <LazyProjectCenter open={projectCenterOpen} onOpenChange={setProjectCenterOpen} />
         </Suspense>
+      )}
+      <SaveTemplateForm
+        open={templateDialogOpen}
+        onOpenChange={(open) => {
+          setTemplateDialogOpen(open);
+          if (!open) setTemplateTarget(undefined);
+        }}
+        onSaved={() => setOperationFeedback({ tone: "success", message: "已另存至我的模板" })}
+        finalFocusRef={templateFinalFocusRef}
+        document={templateTarget}
+      />
+      {operationFeedback && (
+        <div
+          role={operationFeedback.tone === "error" ? "alert" : "status"}
+          aria-live={operationFeedback.tone === "error" ? "assertive" : "polite"}
+          className={`fixed bottom-4 right-4 z-[80] max-w-[min(28rem,calc(100vw-2rem))] rounded-lg border px-3 py-2 text-xs shadow-xl ${
+            operationFeedback.tone === "error"
+              ? "border-red-500/40 bg-red-950 text-red-100"
+              : "border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]"
+          }`}
+        >
+          {operationFeedback.message}
+        </div>
       )}
     </>
   );

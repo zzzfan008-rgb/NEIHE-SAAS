@@ -48,8 +48,14 @@ assert.deepEqual(versions, [
   { version: 25, name: "image_conversation_planning" },
   { version: 26, name: "image_conversation_start_new" },
   { version: 27, name: "image_conversation_requests" },
+  { version: 28, name: "project_resource_copy_drafts" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
+const projectLifecycleConstraint = await queryOne<{ definition: string }>(`
+  SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+  WHERE conrelid = 'projects'::regclass AND conname = 'projects_lifecycle_check'
+`);
+assert.match(projectLifecycleConstraint?.definition ?? "", /'copy_draft'/);
 const requestConstraints = await query<{ definition: string }>(`
   SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
   WHERE conrelid = 'image_conversation_requests'::regclass

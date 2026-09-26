@@ -58,6 +58,26 @@ assetsRouter.get("/", asyncHandler(async (req, res) => {
   const includeDeleted = req.query.deleted === "true";
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
   const offset = Math.max(0, Number(req.query.offset) || 0);
+  const requestedSortBy = typeof req.query.sortBy === "string" ? req.query.sortBy : undefined;
+  const requestedSortOrder = typeof req.query.sortOrder === "string" ? req.query.sortOrder : undefined;
+  const sortBy = requestedSortBy === undefined
+    ? "createdAt"
+    : requestedSortBy === "name" || requestedSortBy === "createdAt"
+      ? requestedSortBy
+      : undefined;
+  const sortOrder = requestedSortOrder === undefined
+    ? "desc"
+    : requestedSortOrder === "asc" || requestedSortOrder === "desc"
+      ? requestedSortOrder
+      : undefined;
+  if (!sortBy || !sortOrder) {
+    res.status(400).json({ error: "sortBy must be name or createdAt and sortOrder must be asc or desc" });
+    return;
+  }
+  const direction = sortOrder === "asc" ? "ASC" : "DESC";
+  const orderBy = sortBy === "name"
+    ? `LOWER(a.name) ${direction}, a.name ${direction}, a.id ${direction}`
+    : `a.created_at ${direction}, a.id ${direction}`;
   // 名称模糊搜索：转义 LIKE 通配符（%、_、\），按字面子串匹配整库。
   const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
   const searchPattern = search ? `%${search.replace(/[\\%_]/g, "\\$&")}%` : null;
@@ -70,7 +90,7 @@ assetsRouter.get("/", asyncHandler(async (req, res) => {
       AND (${includeDeleted
         ? "$2 = 'admin' OR a.owner_id = $3"
         : "$2 = 'admin' OR a.scope IN ('global','shared') OR a.owner_id = $3"})
-    ORDER BY a.created_at DESC, a.id DESC
+    ORDER BY ${orderBy}
     LIMIT $4 OFFSET $5
   `, [category ?? null, user.role, user.id, limit, offset, searchPattern]);
   res.json(rows.map((row) => ({

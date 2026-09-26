@@ -1067,6 +1067,34 @@ await test("资产分类支持筛选和调整，并保持所有权与输入校�
   await query("DELETE FROM assets WHERE id = ANY($1::text[])", [createdIds]);
 });
 
+await test("素材列表支持名称和时间双向排序，并使用稳定的 ID 次序", async () => {
+  await query(`
+    INSERT INTO assets (id, owner_id, scope, name, category, image, created_at)
+    VALUES
+      ('sort-asset-beta', $1, 'private', 'sort-asset Beta', 'reference', '/api/files/sort-beta.png', '2026-01-02T00:00:00.000Z'),
+      ('sort-asset-alpha', $1, 'private', 'sort-asset alpha', 'reference', '/api/files/sort-alpha.png', '2026-01-03T00:00:00.000Z'),
+      ('sort-asset-gamma', $1, 'private', 'sort-asset Gamma', 'reference', '/api/files/sort-gamma.png', '2026-01-01T00:00:00.000Z')
+  `, [users.owner.id]);
+  const list = async (queryString: string) =>
+    await (await request(`/assets?search=sort-asset&${queryString}`, "owner")).json() as Array<{ id: string }>;
+  assert.deepEqual((await list("sortBy=name&sortOrder=asc")).map((asset) => asset.id), [
+    "sort-asset-alpha", "sort-asset-beta", "sort-asset-gamma",
+  ]);
+  assert.deepEqual((await list("sortBy=name&sortOrder=desc")).map((asset) => asset.id), [
+    "sort-asset-gamma", "sort-asset-beta", "sort-asset-alpha",
+  ]);
+  assert.deepEqual((await list("sortBy=createdAt&sortOrder=asc")).map((asset) => asset.id), [
+    "sort-asset-gamma", "sort-asset-beta", "sort-asset-alpha",
+  ]);
+  assert.deepEqual((await list("sortBy=createdAt&sortOrder=desc")).map((asset) => asset.id), [
+    "sort-asset-alpha", "sort-asset-beta", "sort-asset-gamma",
+  ]);
+  assert.equal((await request("/assets?sortBy=invalid", "owner")).status, 400);
+  await query("DELETE FROM assets WHERE id = ANY($1::text[])", [[
+    "sort-asset-alpha", "sort-asset-beta", "sort-asset-gamma",
+  ]]);
+});
+
 await test("图片上传可在一次请求中标准化并创建私有素材", async () => {
   const create = await request("/assets", "owner", {
     method: "POST",
@@ -2993,6 +3021,153 @@ await test("新建画板将不可变版本与完整项目节点原子提交并�
   assert.equal((await queryOne<{ count: number }>(`
     SELECT COUNT(*)::int AS count FROM drawing_document_versions WHERE project_id = $1 AND node_id = $2
   `, [projectId, nodeId]))?.count, 1);
+});
+
+await test("项目页签复制会独立复制蒙版和画板资源，并回收未保存副本", async () => {
+  const sourceProjectId = "resource-copy-source";
+  const projectIds = [sourceProjectId];
+  const fileIds: string[] = [];
+  try {
+    const uploaded = await request("/files", "owner", {
+      method: "POST",
+      body: JSON.stringify({ dataUrl: PNG_DATA_URL }),
+    });
+    const maskFile = await uploaded.json() as { id: string; url: string; error?: string };
+    assert.equal(uploaded.status, 200, maskFile.error);
+    fileIds.push(maskFile.id);
+    await query(`
+      UPDATE files SET source_type = 'mask-draft', project_id = $1, node_id = 'copy-mask-node',
+        mime_type = 'image/png'
+      WHERE id = $2 AND owner_id = $3
+    `, [sourceProjectId, maskFile.id, users.owner.id]);
+
+    const sourceFlow = {
+      schemaVersion: 2,
+      nodes: [{
+        id: "copy-mask-node",
+        type: "mask-redraw",
+        position: { x: 0, y: 0 },
+        data: {
+          kind: "mask-redraw", label: "局部重绘", status: "idle", prompt: "复制测试",
+          mask: maskFile.url, maskSourceRef: maskFile.url, outputImages: [],
+          modelId: "gpt-image-2", modelOptions: {},
+        },
+      }],
+      edges: [],
+    };
+    const sourceSaved = await request("/projects", "owner", {
+      method: "POST",
+      body: JSON.stringify({ id: sourceProjectId, name: "资源来源项目", flow: sourceFlow }),
+    });
+    assert.equal(sourceSaved.status, 200, await sourceSaved.text());
+
+    const document = {
+      version: 1,
+      canvas: { width: 1024, height: 768, background: "#FFFFFF" },
+      layers: [{ id: "copy-layer", name: "图层 1", visible: true, locked: false, opacity: 1, objects: [] }],
+    };
+    const boardCreated = await request("/drawing-boards/create", "owner", {
+      method: "POST",
+      body: JSON.stringify({
+        clientRequestId: "resource-copy-board-create",
+        projectId: sourceProjectId,
+        nodeId: "copy-board-node",
+        position: { x: 240, y: 100 },
+        previewImageRef: maskFile.url,
+        document,
+      }),
+    });
+    assert.equal(boardCreated.status, 201, await boardCreated.text());
+    const sourceDetailResponse = await request(`/projects/${sourceProjectId}`, "owner");
+    assert.equal(sourceDetailResponse.status, 200);
+    const sourceDetail = await sourceDetailResponse.json() as {
+      flow: { nodes: Array<{ id: string; data: Record<string, unknown> }>; edges: unknown[] };
+    };
+
+    const denied = await request("/projects/copy", "other", {
+      method: "POST",
+      body: JSON.stringify({ sourceProjectId, name: "不应创建的副本", flow: sourceDetail.flow }),
+    });
+    assert.equal(denied.status, 403, await denied.text());
+
+    const copiedResponse = await request("/projects/copy", "owner", {
+      method: "POST",
+      body: JSON.stringify({ sourceProjectId, name: "资源来源项目 - 副本", flow: sourceDetail.flow }),
+    });
+    const copiedText = await copiedResponse.text();
+    assert.equal(copiedResponse.status, 201, copiedText);
+    const copied = JSON.parse(copiedText) as {
+      id: string;
+      flow: { nodes: Array<{ id: string; data: Record<string, unknown> }>; edges: unknown[] };
+    };
+    projectIds.push(copied.id);
+    const copiedMaskNode = copied.flow.nodes.find((node) => node.id === "copy-mask-node")!;
+    const copiedBoardNode = copied.flow.nodes.find((node) => node.id === "copy-board-node")!;
+    const copiedMaskUrl = copiedMaskNode.data.mask as string;
+    const copiedMaskId = copiedMaskUrl.slice("/api/files/".length);
+    const copiedContentRef = copiedBoardNode.data.contentRef as string;
+    fileIds.push(copiedMaskId);
+    assert.notEqual(copiedMaskUrl, maskFile.url);
+    assert.notEqual(copiedContentRef, sourceDetail.flow.nodes.find((node) => node.id === "copy-board-node")!.data.contentRef);
+    assert.deepEqual(fs.readFileSync(path.join(uploadsDir(), copiedMaskId)), fs.readFileSync(path.join(uploadsDir(), maskFile.id)));
+    assert.deepEqual(await queryOne<Record<string, unknown>>(`
+      SELECT lifecycle, purge_after IS NOT NULL AS expiring
+      FROM projects WHERE id = $1 AND owner_id = $2
+    `, [copied.id, users.owner.id]), { lifecycle: "copy_draft", expiring: true });
+    assert.equal((await request(`/projects/${copied.id}`, "owner")).status, 404);
+    const visibleProjects = await (await request("/projects", "owner")).json() as Array<{ id: string }>;
+    assert.equal(visibleProjects.some((project) => project.id === copied.id), false);
+
+    const copiedVersion = await queryOne<{ content_json: string; project_id: string; node_id: string }>(`
+      SELECT content_json, project_id, node_id FROM drawing_document_versions WHERE id = $1
+    `, [copiedContentRef]);
+    assert.equal(copiedVersion?.project_id, copied.id);
+    assert.equal(copiedVersion?.node_id, "copy-board-node");
+    assert.deepEqual(JSON.parse(copiedVersion?.content_json ?? "null"), document);
+    const promoted = await request("/projects", "owner", {
+      method: "POST",
+      body: JSON.stringify({ id: copied.id, name: "已保存的资源副本", flow: copied.flow }),
+    });
+    assert.equal(promoted.status, 200, await promoted.text());
+    assert.deepEqual(await queryOne<Record<string, unknown>>(`
+      SELECT lifecycle, purge_after FROM projects WHERE id = $1
+    `, [copied.id]), { lifecycle: "saved", purge_after: null });
+    const promotedProjects = await (await request("/projects", "owner")).json() as Array<{ id: string }>;
+    assert.equal(promotedProjects.some((project) => project.id === copied.id), true);
+
+    const expiringResponse = await request("/projects/copy", "owner", {
+      method: "POST",
+      body: JSON.stringify({ sourceProjectId, name: "过期资源副本", flow: sourceDetail.flow }),
+    });
+    const expiring = await expiringResponse.json() as {
+      id: string;
+      flow: { nodes: Array<{ id: string; data: Record<string, unknown> }> };
+    };
+    assert.equal(expiringResponse.status, 201);
+    projectIds.push(expiring.id);
+    const expiringMaskUrl = expiring.flow.nodes.find((node) => node.id === "copy-mask-node")!.data.mask as string;
+    const expiringMaskId = expiringMaskUrl.slice("/api/files/".length);
+    const expiringBoardRef = expiring.flow.nodes.find((node) => node.id === "copy-board-node")!.data.contentRef as string;
+    fileIds.push(expiringMaskId);
+    const expiredAt = new Date(Date.now() - 1_000).toISOString();
+    await query("UPDATE projects SET purge_after = $1 WHERE id = $2", [expiredAt, expiring.id]);
+    await query("UPDATE files SET purge_after = $1 WHERE project_id = $2", [expiredAt, expiring.id]);
+    await purgeExpiredProjects();
+    assert.equal(await queryOne("SELECT id FROM projects WHERE id = $1", [expiring.id]), undefined);
+    assert.equal(await queryOne("SELECT id FROM drawing_document_versions WHERE id = $1", [expiringBoardRef]), undefined);
+    assert.equal(await queryOne("SELECT id FROM files WHERE id = $1", [expiringMaskId]), undefined);
+    assert.equal(fs.existsSync(path.join(uploadsDir(), expiringMaskId)), false);
+  } finally {
+    const storedFiles = await query<{ id: string }>(
+      "SELECT id FROM files WHERE project_id = ANY($1::text[]) OR id = ANY($2::text[])",
+      [projectIds, fileIds],
+    );
+    await query("DELETE FROM project_asset_refs WHERE project_id = ANY($1::text[])", [projectIds]);
+    await query("DELETE FROM projects WHERE id = ANY($1::text[])", [projectIds]);
+    await query("DELETE FROM files WHERE id = ANY($1::text[])", [storedFiles.map((row) => row.id)]);
+    storedFiles.forEach(({ id }) => deleteStoredImage(id));
+    for (const fileId of fileIds) deleteStoredImage(fileId);
+  }
 });
 
 await test("历史分页固定在首次快照，期间新增记录不会推移游标造成缺口", async () => {
