@@ -63,11 +63,12 @@ def normalize_people(points, scores, width, height):
             if isinstance(raw_confidence, bool) or not isinstance(raw_confidence, Real):
                 raise InvalidPoseOutputError('Invalid keypoint confidence')
             confidence = float(raw_confidence)
-            if not math.isfinite(confidence) or not 0 <= confidence <= 1:
+            if not math.isfinite(confidence):
                 raise InvalidPoseOutputError('Invalid keypoint confidence')
-            if confidence == 0:
+            if confidence <= 0:
                 keypoints.append(None)
                 continue
+            confidence = min(confidence, 1.0)
             if not isinstance(point, (list, tuple)) or len(point) != 2:
                 raise InvalidPoseOutputError('Invalid keypoint coordinates')
             if any(isinstance(value, bool) or not isinstance(value, Real) for value in point):

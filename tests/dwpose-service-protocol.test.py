@@ -37,6 +37,15 @@ class DWPoseServiceProtocolTests(unittest.TestCase):
         self.assertEqual(person['keypoints'][0], {'x': 0.5, 'y': 0.4, 'confidence': 0.8})
         self.assertEqual(person['keypoints'][1:], [None] * 132)
 
+    def test_normalize_people_clips_simcc_peak_scores_and_marks_nonpositive_as_missing(self):
+        points = [[[15, 20] for _ in range(133)]]
+        scores = [[1.033552885055542, 0.6, -0.01] + [0] * 130]
+        keypoints = service.normalize_people(points, scores, 30, 50)[0]['keypoints']
+        self.assertEqual(keypoints[0], {'x': 0.5, 'y': 0.4, 'confidence': 1.0})
+        self.assertEqual(keypoints[1], {'x': 0.5, 'y': 0.4, 'confidence': 0.6})
+        self.assertIsNone(keypoints[2])
+
+
     def test_normalize_people_rejects_out_of_canvas_keypoints(self):
         points = [[[30, 20]] + [[0, 0]] * 132]
         scores = [[0.8] + [0] * 132]
