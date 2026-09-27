@@ -658,6 +658,7 @@ export function buildExecutionPlan(
         ? source.poseReferenceSource.kind : 'unspecified';
       // The actual pose edge owns this text; never use a stale image's description.
       if (source?.kind === 'image-input' && source.imageUrl && source.posePromptImage === source.imageUrl && typeof source.posePrompt === 'string') {
+        params.posePromptMode = source.posePromptMode === 'three-view' ? 'three-view' : 'single';
         params.posePrompt = source.posePrompt.trim();
       }
     }

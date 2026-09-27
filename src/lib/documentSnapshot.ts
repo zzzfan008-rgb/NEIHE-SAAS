@@ -68,6 +68,7 @@ export type DocumentNodeData =
       poseReference?: boolean;
       posePrompt?: string;
       posePromptImage?: string;
+      posePromptMode?: import('../types/poseReference').PosePromptMode;
       poseReferenceSource?: import('../types/poseReference').PoseReferenceSource;
       poseDocument?: import('../types/poseDocument').PoseDocumentV1;
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
@@ -437,6 +438,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         imageRole: data.imageRole,
         ...(data.poseReference === true ? { poseReference: true } : {}),
         ...(posePromptForImage(data) !== undefined ? { posePrompt: data.posePrompt, posePromptImage: data.imageUrl } : {}),
+        ...(posePromptForImage(data) !== undefined && data.posePromptMode === 'three-view' ? { posePromptMode: 'three-view' } : {}),
         ...(validPoseReferenceSource(data.poseReferenceSource, data.imageUrl)
           ? { poseReferenceSource: { kind: data.poseReferenceSource.kind, image: data.poseReferenceSource.image,
               ...optionalString("neutralSource", data.poseReferenceSource.neutralSource) } }

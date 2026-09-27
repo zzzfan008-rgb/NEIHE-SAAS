@@ -42,7 +42,7 @@ test('pose model selection, credential persistence, candidate application and lo
   await page.getByRole('button', { name: '开始反推' }).click();
   await expect(dialog.locator('[data-pose-prompt="candidate"]')).toContainText('DeepSeek：');
   await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText('原有用户编辑');
-  await page.getByRole('button', { name: '使用新版结果替换当前提示词' }).click();
+  await page.getByRole('button', { name: '确认并替换当前提示词' }).click();
   await expect(dialog.locator('[data-pose-prompt="result"]')).toContainText('DeepSeek：');
   await page.getByRole('combobox', { name: '反推模型' }).click();
   await page.getByRole('option', { name: 'Gemini', exact: true }).click();

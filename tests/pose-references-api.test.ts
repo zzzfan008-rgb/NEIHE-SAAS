@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,6 +33,7 @@ await query("INSERT INTO projects(id,owner_id,name,flow_json,created_at,updated_
 let calls = 0;
 let promptCalls = 0;
 let promptOptions: import('../server/lib/poseAnalysis').PoseAnalysisOptions | undefined;
+let promptCalibration: unknown;
 let release: (()=>void) | undefined;
 let delayed = new Promise<void>(resolve=>{release=resolve;});
 const app = express();
@@ -47,9 +49,10 @@ const router = fs.existsSync('server/routes/poseReferences.ts')
       },
       analyzePosePrompt: async (image: string, options) => {
         promptOptions = options;
+        promptCalibration = options?.calibration;
         promptCalls++;
         assert.equal(image,png);
-        return {prompt:'身体姿势：肩线左高右低；手部姿势：右手靠近髋部；头部姿势：头部向画面右侧旋转；视线方向：朝向画面右上方。',providerRequests:1,model:'test-pose-analysis',cacheHit:false};
+        return {prompt:'身体姿势：肩线左高右低；手部姿势：右手靠近髋部；头部姿势：头部向画面右侧旋转；视线方向：朝向画面右上方。',providerRequests:1,model:'test-pose-analysis',cacheHit:false,...(options?.calibration?{calibrationMode:'three-view' as const}:{})};
       },
     }) : express.Router();
 app.use('/api/pose-references',router);
@@ -83,6 +86,9 @@ const outfitBody = {projectId:'project',nodeId:'pose',source:stored.url,requestI
 const outfitReq = (method: string, data: unknown = outfitBody, user='owner') => fetch(base+'/api/pose-references/outfit'+(method==='GET'?'?'+new URLSearchParams({projectId:'project',nodeId:'pose',source:stored.url}):''),{method,headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},...(method==='POST'?{body:JSON.stringify(data)}:{})});
 try {
   assert.equal((await analyzeReq(analyzeBody,'none')).status,401);
+  const unavailableCalibration = await analyzeReq({ ...analyzeBody, calibrationMode: 'three-view' });
+  assert.equal(unavailableCalibration.status, 409, '缺少当前来源深度图或结构化 DWPose 点位时不得启动校准推理');
+  assert.equal(promptCalls, 0, '缺少证据时不能调用模型');
   const promptResponse=await analyzeReq();
   assert.equal(promptResponse.status,200,'姿势反推接口必须接受当前已保存的姿势参考图');
   const prompt=await promptResponse.json();
@@ -287,6 +293,25 @@ try {
     await query("UPDATE pose_references SET result=jsonb_set(result,'{pose}',$2::jsonb) WHERE id=$1",[local.id,JSON.stringify(structuredPose)]);
     assert.equal((await localRequest('reuse-structured-points')).status,200,'已有点位的成功结果必须复用');
   } finally {finishWorker!();globalThis.fetch=savedFetch;}
+  const calibrationPose={schemaVersion:1,canvas:{width:30,height:50},people:[{keypoints:Array.from({length:133},()=>({x:0.5,y:0.5,confidence:0.9}))}]};
+  const configurationHash=(parts:unknown[])=>createHash('sha256').update(JSON.stringify(parts)).digest('hex');
+  const depthConfiguration=configurationHash(['depth-v1',process.env.DEPTH_SERVICE_URL??'',process.env.DEPTH_INPUT_SIZE??'518',process.env.DEPTH_MODEL_REVISION??'vitl-official-v1']);
+  const skeletonConfiguration=configurationHash(['dwpose-v2-structured',process.env.POSE_SERVICE_URL??'',process.env.POSE_MODEL_REVISION??'1a7144101628d69ee7a3768d1ee3a094070dc388']);
+  const calibratedAt=Date.now();
+  const seedCalibrationRecord=async(kind:'depth'|'skeleton',configuration:string,result:unknown)=>query(
+    `INSERT INTO pose_references(id,owner_id,project_id,node_id,source,kind,configuration,attempt,status,result,created_at,updated_at)
+     VALUES($1,'owner','project','pose',$2,$3,$4,$5,'succeeded',$6::jsonb,$7,$7)
+     ON CONFLICT(owner_id,project_id,node_id,source,kind,configuration) DO UPDATE SET status='succeeded',result=EXCLUDED.result,error=NULL,updated_at=EXCLUDED.updated_at`,
+    [`calibration-${kind}`,stored.url,kind,configuration,`calibration-${kind}`,JSON.stringify(result),calibratedAt],
+  );
+  await seedCalibrationRecord('depth',depthConfiguration,{image:depthPng,model:'depth-anything-v2-vitl',convention:'near-white',width:30,height:50});
+  await seedCalibrationRecord('skeleton',skeletonConfiguration,{image:png,model:'dwpose-wholebody',width:30,height:50,pose:calibrationPose});
+  const calibratedResponse=await analyzeReq({...analyzeBody,calibrationMode:'three-view'});
+  assert.equal(calibratedResponse.status,200,'已就绪的三图证据应通过当前所有权与来源验证');
+  const calibratedResult=await calibratedResponse.json();
+  assert.equal(calibratedResult.calibrationMode,'three-view');
+  assert.deepEqual(promptCalibration,{depthImageDataUrl:depthPng,skeletonImageDataUrl:png,pose:calibrationPose});
+  assert.equal(promptCalls,3);
   flow.nodes[0].data.imageUrl='/api/files/replacement.png';
   await query("UPDATE projects SET flow_json=$1 WHERE id='project'",[JSON.stringify(flow)]);
   assert.equal((await req('POST')).status,409,'stale source must be rejected');

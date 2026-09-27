@@ -92,10 +92,13 @@ export async function prepareMultiImageTryOn(
     referenceRoles: groups.map(group => group.role), aspectReference: images[roles.indexOf("scene")] };
 }
 
-export function multiImageTryOnPrompt(referenceMap: string, extra: string, angleControlled: boolean, concise = false, poseReferenceType?: unknown, posePrompt?: unknown): string {
+export function multiImageTryOnPrompt(referenceMap: string, extra: string, angleControlled: boolean, concise = false, poseReferenceType?: unknown, posePrompt?: unknown, posePromptMode?: unknown): string {
   const skeleton = poseReferenceType === "skeleton";
+  const calibrated = posePromptMode === "three-view";
   const posePromptClause = typeof posePrompt === "string" && posePrompt.trim()
-    ? `姿势补充描述（仅在图1无法判定的项目上参考）：${posePrompt.trim()}。身体朝向、肩髋倾斜、四肢弯曲、手脚位置与接触、双腿交叉与前后关系、重心与承重一律以图1可见几何为准；该文字中与图1可见几何冲突的部分全部忽略，"无法判断"表示该项没有约束。仅图1无法判定的头部旋转、俯仰、视线方向与面部神态才参考该文字。`
+    ? calibrated
+      ? `三图校准姿势约束：${posePrompt.trim()}。以原图确定主体与整体动作及可见关节关系；只把深度图明确支持的相对前后关系用于补充原图难以判断的深度，不改变原图可见动作；只把骨骼图与DWPose点位用于核对头部和关节二维位置。跨图冲突按各来源职责分别保留并避免猜测；“无法判断”不构成生成约束。`
+      : `姿势补充描述（仅在图1无法判定的项目上参考）：${posePrompt.trim()}。身体朝向、肩髋倾斜、四肢弯曲、手脚位置与接触、双腿交叉与前后关系、重心与承重一律以图1可见几何为准；该文字中与图1可见几何冲突的部分全部忽略，"无法判断"表示该项没有约束。仅图1无法判定的头部旋转、俯仰、视线方向与面部神态才参考该文字。`
     : "";
   return [
     "以参考图2提供的人物造型基调，创作一位原创虚构模特的时尚服装摄影照片，展示下方指定的服装和配饰。人物为原创虚构角色或已获授权的模特形象，不代表、不映射任何真实在世或已故个人、公众人物或知名 IP 角色。",

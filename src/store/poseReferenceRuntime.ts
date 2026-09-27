@@ -22,6 +22,7 @@ export interface PosePromptInferenceResult {
   model: string;
   providerRequests: number;
   cacheHit: boolean;
+  calibrationMode?: 'three-view';
 }
 export interface PosePromptInferenceState {
   status: 'running' | 'succeeded' | 'failed';
@@ -73,8 +74,11 @@ function validatePosePrompt(value:unknown):PosePromptInferenceResult {
   if (typeof result.prompt!=='string' || !result.prompt.trim() || result.prompt.length>4000 ||
       typeof result.model!=='string' || !result.model.trim() ||
       typeof result.providerRequests!=='number' || !Number.isInteger(result.providerRequests) || result.providerRequests<0 ||
-      typeof result.cacheHit!=='boolean') throw new Error('姿势反推结果格式无效');
-  return {prompt:result.prompt,model:result.model,providerRequests:result.providerRequests,cacheHit:result.cacheHit};
+      typeof result.cacheHit!=='boolean' || (result.calibrationMode !== undefined && result.calibrationMode !== 'three-view')) {
+    throw new Error('姿势反推结果格式无效');
+  }
+  return {prompt:result.prompt,model:result.model,providerRequests:result.providerRequests,cacheHit:result.cacheHit,
+    ...(result.calibrationMode ? {calibrationMode:result.calibrationMode} : {})};
 }
 export async function restorePoseReferences(target:DocumentTarget,nodeId:string,source:string,analysisSource=source,analysisSourceRecordId?:string) {
   const key=poseReferenceKey(target,nodeId,analysisSource,analysisSourceRecordId);
@@ -118,13 +122,14 @@ export interface PosePromptRequestOptions {
   apiKey?: string;
   ownerId?: string;
   candidateOnly?: boolean;
+  calibrationMode?: 'single' | 'three-view';
 }
-export function posePromptRuntimeKey(target:DocumentTarget,nodeId:string,source:string,provider:'gemini'|'deepseek'='gemini',ownerId='') {
+export function posePromptRuntimeKey(target:DocumentTarget,nodeId:string,source:string,provider:'gemini'|'deepseek'='gemini',ownerId='',calibrationMode:'single'|'three-view'='single') {
   const base=poseReferenceKey(target,nodeId,source);
-  return provider==='gemini' ? base : JSON.stringify([base,provider,ownerId]);
+  return provider==='gemini' && calibrationMode==='single' ? base : JSON.stringify([base,provider,ownerId,calibrationMode]);
 }
 export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,source:string,retry=false,options?:PosePromptRequestOptions) {
-  const key=posePromptRuntimeKey(target,nodeId,source,options?.provider,options?.ownerId);
+  const key=posePromptRuntimeKey(target,nodeId,source,options?.provider,options?.ownerId,options?.calibrationMode);
   const state=usePoseReferenceRuntime.getState().entries[key];
   if (!current(target,nodeId,source) || state?.posePrompt?.status==='running') return;
   const sourceData = useFlowStore.getState().tabs.find(t=>t.id===target.tabId)?.nodes.find(n=>n.id===nodeId)?.data;
@@ -132,11 +137,11 @@ export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,sour
   // Saved user text (including an intentionally empty draft) wins over analysis/cache.
   if (posePromptForImage(sourceData) !== undefined && !retry) return;
   const adopt = (result: PosePromptInferenceResult) => {
-    if (options?.candidateOnly || options?.provider==='deepseek') return;
+    if (options?.candidateOnly || options?.provider==='deepseek' || options?.calibrationMode==='three-view') return;
     const latest = useFlowStore.getState().tabs.find(t=>t.id===target.tabId)?.nodes.find(n=>n.id===nodeId)?.data;
     if (current(target,nodeId,source,true) && latest?.kind === 'image-input' &&
         posePromptForImage(latest) === undefined && posePromptForImage(sourceData) === undefined) {
-      useFlowStore.getState().updateNodeDataInTab(target,nodeId,{posePrompt:result.prompt,posePromptImage:source});
+      useFlowStore.getState().updateNodeDataInTab(target,nodeId,{posePrompt:result.prompt,posePromptImage:source,posePromptMode:result.calibrationMode ?? 'single'});
     }
   };
   if (!retry && state?.posePrompt?.status==='succeeded' && state.posePrompt.result) {
@@ -153,8 +158,10 @@ export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,sour
     if (!current(target,nodeId,source)) return;
     const value=await response(await fetch('/api/pose-references/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
       signal:AbortSignal.timeout(130_000),body:JSON.stringify({projectId:target.projectId,nodeId,source,
-        ...(options?.provider==='deepseek'?{provider:'deepseek',apiKey:options.apiKey}: {})})}));
+        ...(options?.provider==='deepseek'?{provider:'deepseek',apiKey:options.apiKey}: {}),
+        ...(options?.calibrationMode==='three-view'?{calibrationMode:'three-view'}: {})})}));
     const result=validatePosePrompt(value);
+    if (options?.calibrationMode === 'three-view' && result.calibrationMode !== 'three-view') throw new Error('三图校准未返回完整证据，请重试');
     if (current(target,nodeId,source)&&(promptVersions.get(key)??0)===version) {
       adopt(result);
       patch(key,s=>({...s,posePrompt:{status:'succeeded',result}}));

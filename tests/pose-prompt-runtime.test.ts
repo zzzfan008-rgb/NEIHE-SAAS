@@ -151,6 +151,16 @@ try {
   assert.equal(useFlowStore.getState().tabs.find(t => t.id === renameTarget.tabId)!.nodes[0].data.posePrompt, beforeDeepseek);
   assert.equal(usePoseReferenceRuntime.getState().entries[posePromptRuntimeKey(renameTarget, 'pose', source, 'deepseek', 'owner')].posePrompt?.result?.prompt, 'DeepSeek 候选');
   assert.notEqual(posePromptRuntimeKey(renameTarget, 'pose', source, 'deepseek', 'owner'), posePromptRuntimeKey(renameTarget, 'pose', source, 'deepseek', 'other'));
+  assert.notEqual(posePromptRuntimeKey(renameTarget, 'pose', source, 'gemini', '', 'three-view'), posePromptRuntimeKey(renameTarget, 'pose', source), '三图校准候选必须与单图状态隔离');
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.calibrationMode, 'three-view');
+    return Response.json({ prompt: '三图校准：左膝位于右膝前方。', model: 'test', providerRequests: 1, cacheHit: false, calibrationMode: 'three-view' });
+  };
+  await analyzePosePrompt(renameTarget, 'pose', source, true, { provider: 'gemini', candidateOnly: true, calibrationMode: 'three-view' });
+  const calibratedKey = posePromptRuntimeKey(renameTarget, 'pose', source, 'gemini', '', 'three-view');
+  assert.equal(usePoseReferenceRuntime.getState().entries[calibratedKey]?.posePrompt?.result?.calibrationMode, 'three-view');
+  assert.equal(useFlowStore.getState().tabs.find(t => t.id === renameTarget.tabId)!.nodes[0].data.posePrompt, beforeDeepseek, '三图结果保留为候选，不覆盖现有用户文本');
   assert.ok(!JSON.stringify(usePoseReferenceRuntime.getState()).includes('test-deepseek-secret'));
 } finally {
   globalThis.fetch = originalFetch;

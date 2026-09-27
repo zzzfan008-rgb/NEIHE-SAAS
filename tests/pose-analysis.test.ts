@@ -13,6 +13,9 @@ process.env.POSE_ANALYSIS_MODEL = "gemini-3-flash-preview";
 const IMAGE = `data:image/png;base64,${(await sharp({
   create: { width: 300, height: 500, channels: 3, background: "white" },
 }).png().toBuffer()).toString("base64")}`;
+const ALT_IMAGE = `data:image/png;base64,${(await sharp({
+  create: { width: 300, height: 500, channels: 3, background: "#777777" },
+}).png().toBuffer()).toString("base64")}`;
 const point = (x: number, y: number) => ({ x, y });
 const ANALYSIS = {
   points: {
@@ -31,6 +34,16 @@ const ANALYSIS = {
   headPose: "头部轻微向画面右侧倾斜并保持平视",
   gazeDirection: "视线朝画面右侧",
   facialExpression: "眼睑微收，嘴唇闭合，嘴角轻微上扬",
+};
+const CALIBRATED_ANALYSIS = {
+  ...ANALYSIS,
+  calibration: {
+    originalEvidence: "原图可见人物站立，重心落在画面左腿",
+    depthEvidence: "深度图显示画面左膝比右膝更靠近镜头",
+    skeletonEvidence: "DWPose左膝坐标位于右膝左侧，置信度较高",
+    conflicts: "无",
+    unknowns: "无法判断被遮挡的脚踝",
+  },
 };
 
 let calls = 0;
@@ -72,7 +85,7 @@ try {
     contents?: Array<{ parts?: Array<{ text?: string; inlineData?: { mimeType?: string } }> }>;
     generationConfig?: { responseMimeType?: string; temperature?: number };
   };
-  assert.equal(body.contents?.[0]?.parts?.[1]?.inlineData?.mimeType, "image/png");
+  assert.equal(body.contents?.[0]?.parts?.[2]?.inlineData?.mimeType, "image/png");
   assert.match(body.contents?.[0]?.parts?.[0]?.text ?? "", /严禁描述或推断人物身份/);
   assert.equal(body.generationConfig?.responseMimeType, "application/json");
   assert.equal(body.generationConfig?.temperature, 0);
@@ -103,7 +116,7 @@ try {
   assert.equal(unknown.cacheHit, false);
   assert.match(unknown.prompt, /面部神态：无法判断/);
   assert.ok(unknown.guideImage.startsWith('data:image/png;base64,'));
-  assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).schemaVersion, 2);
+  assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).schemaVersion, 3);
   globalThis.fetch = async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{
     text: JSON.stringify({ ...ANALYSIS, facialExpression: undefined }),
   }] } }] }), { status: 200 });
@@ -116,7 +129,7 @@ try {
     assert.equal(new Headers(init?.headers).get('Authorization'), `Bearer ${deepseekOptions.apiKey}`);
     const request = JSON.parse(String(init?.body));
     assert.equal(request.model, 'deepseek-v4-flash-vision-exp');
-    assert.deepEqual(request.messages[0].content[1], { type: 'image_url', image_url: { url: IMAGE, detail: 'original' } });
+    assert.deepEqual(request.messages[0].content[2], { type: 'image_url', image_url: { url: IMAGE, detail: 'original' } });
     assert.equal(request.response_format.type, 'json_object');
     return Response.json({ choices: [{ message: { content: JSON.stringify(ANALYSIS) } }] });
   };
@@ -140,6 +153,36 @@ try {
   for (const name of fs.readdirSync(path.join(temp, 'pose-analysis-cache'))) {
     assert.ok(!fs.readFileSync(path.join(temp, 'pose-analysis-cache', name), 'utf8').includes(deepseekOptions.apiKey));
   }
+  let calibrationCalls = 0;
+  const calibrationBodies: Array<Record<string, any>> = [];
+  globalThis.fetch = async (_input, init) => {
+    calibrationCalls++;
+    const request = JSON.parse(String(init?.body)) as Record<string, any>;
+    calibrationBodies.push(request);
+    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(CALIBRATED_ANALYSIS) }] } }] });
+  };
+  const pose = { schemaVersion: 1, canvas: { width: 300, height: 500 }, people: [{
+    keypoints: Array.from({ length: 133 }, (_, index) => ({ x: index / 133, y: (132 - index) / 133, confidence: 0.9 })),
+  }] };
+  const calibration = { depthImageDataUrl: ALT_IMAGE, skeletonImageDataUrl: IMAGE, pose };
+  const calibrated = await analyzePoseReference(IMAGE, { calibration });
+  const calibratedParts = calibrationBodies[0].contents[0].parts;
+  assert.equal(calibrationCalls, 1);
+  assert.ok(calibratedParts[0].text.includes("原始姿势图"));
+  assert.equal(calibrated.calibrationMode, 'three-view');
+  assert.ok(calibrated.prompt.includes('三图校准结果'));
+  assert.match(calibratedParts[0].text, /原始姿势图/);
+  assert.equal(calibratedParts[2].inlineData.data, IMAGE.split(",")[1]);
+  assert.match(calibratedParts[3].text, /深度图/);
+  assert.equal(calibratedParts[4].inlineData.data, ALT_IMAGE.split(",")[1]);
+  assert.match(calibratedParts[5].text, /DWPose/);
+  assert.equal(calibratedParts[6].inlineData.data, IMAGE.split(",")[1]);
+  assert.ok(calibratedParts[7].text.includes(JSON.stringify(pose.people[0].keypoints[0])));
+  assert.equal((await analyzePoseReference(IMAGE, { calibration })).cacheHit, true);
+  await analyzePoseReference(IMAGE, { calibration: { ...calibration, depthImageDataUrl: IMAGE } });
+  await analyzePoseReference(IMAGE, { calibration: { ...calibration, skeletonImageDataUrl: ALT_IMAGE } });
+  await analyzePoseReference(ALT_IMAGE, { calibration });
+  assert.equal(calibrationCalls, 4, "原图、深度图、骨骼图任一变化都必须使校准缓存失效");
   console.log("姿势分析测试通过：Gemini/DeepSeek、Base64、账户缓存隔离、密钥脱敏与结构验证");
 } finally {
   globalThis.fetch = originalFetch;

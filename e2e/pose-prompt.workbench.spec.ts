@@ -68,9 +68,26 @@ test('connected pose text is editable, source-bound and preserved through save/l
   expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
   expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-  await dialog.getByRole('button', { name: '使用新版结果替换当前提示词', exact: true }).click();
+  await dialog.getByRole('button', { name: '确认并替换当前提示词', exact: true }).click();
   await expect(page.locator('#pose-prompt-pose')).toHaveValue('画面左腿交叉，肩线倾斜。');
   await expect(dialog.locator('[data-pose-prompt="candidate"]')).toHaveCount(0);
+  const analysisMode = dialog.getByRole('combobox', { name: '分析方式' });
+  await analysisMode.click();
+  await page.getByRole('option', { name: '原图 + 深度图 + DWPose 三图校准' }).click();
+  await expect(dialog.getByRole('status')).toContainText('请先在姿势参考结果中生成当前原图的深度图和 DWPose 骨骼图。');
+  await expect(dialog.getByRole('button', { name: '开始反推', exact: true })).toBeDisabled();
+  const originalViewport = page.viewportSize()!;
+  for (const width of [1024, 1280, 1440]) {
+    await page.setViewportSize({ width, height: originalViewport.height });
+    const calibrationBox = await dialog.boundingBox();
+    expect(calibrationBox!.x).toBeGreaterThanOrEqual(0);
+    expect(calibrationBox!.x + calibrationBox!.width).toBeLessThanOrEqual(width);
+    expect(calibrationBox!.y + calibrationBox!.height).toBeLessThanOrEqual(originalViewport.height);
+  }
+  await page.setViewportSize(originalViewport);
+  await analysisMode.click();
+  await page.getByRole('option', { name: '单图反推', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: '重新反推', exact: true })).toBeEnabled();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   await expect(inference).toBeFocused();

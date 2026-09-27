@@ -1,5 +1,6 @@
+export type PosePromptMode = 'single' | 'three-view';
 export type PoseReferenceKind = 'skeleton' | 'depth';
-export function posePromptForImage(data: { imageUrl?: string; posePrompt?: string; posePromptImage?: string }): string | undefined {
+export function posePromptForImage(data: { imageUrl?: string; posePrompt?: string; posePromptImage?: string; posePromptMode?: PosePromptMode }): string | undefined {
   return data.imageUrl && data.posePromptImage === data.imageUrl && typeof data.posePrompt === 'string'
     ? data.posePrompt : undefined;
 }

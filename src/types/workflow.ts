@@ -172,6 +172,7 @@ export interface ImageInputNodeData extends BaseNodeData {
   poseDocument?: import('./poseDocument').PoseDocumentV1;
   posePrompt?: string;
   posePromptImage?: string;
+  posePromptMode?: import('./poseReference').PosePromptMode;
   /** dataURL 或 /api/files/xxx 路径 */
   imageUrl?: string;
   /** 对话修改结果/资产的稳定来源身份；预览仍使用 imageUrl。 */

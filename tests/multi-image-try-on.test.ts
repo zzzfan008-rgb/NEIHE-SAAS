@@ -63,6 +63,12 @@ assert.match(promptedPose, /仅图1无法判定的头部旋转、俯仰、视线
 assert.match(promptedPose, /该文字中与图1可见几何冲突的部分全部忽略/);
 assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original", ""), /姿势补充描述/);
 assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /姿势补充描述/);
+const calibratedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "明确校准：画面左膝位于右膝前方；无法判断：髋部前后", "three-view");
+assert.match(calibratedPrompt, /三图校准姿势约束/);
+assert.match(calibratedPrompt, /画面左膝位于右膝前方/);
+assert.match(calibratedPrompt, /以原图确定主体与整体动作/);
+assert.match(calibratedPrompt, /无法判断/);
+assert.doesNotMatch(calibratedPrompt, /仅在图1无法判定的头部/);
 const baseRoles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
 const allRoles = [...MULTI_IMAGE_TRY_ON_ROLES, "detail", "detail", "detail", "detail"];
 for (const count of [4, 5, 6, 7, 14, 15, 20]) {
@@ -137,6 +143,23 @@ const template = JSON.parse(fs.readFileSync(new URL("../templates/multi-image-tr
 const validated = validateAndMigrateFlow(template.flow);
 assert.equal(isDirectMultiImagePoseNode("pose", validated.nodes, validated.edges), true);
 assert.equal(validated.nodes.find(node => node.id === "pose")?.data.kind === "image-input" && validated.nodes.find(node => node.id === "pose")?.data.poseReference, true, "多图模板默认提供姿势参考节点");
+const calibrationFlow = structuredClone(validated);
+const calibrationNode = calibrationFlow.nodes.find(node => node.id === "pose")!;
+if (calibrationNode.data.kind === "image-input") {
+  calibrationNode.data.imageUrl = "/api/files/pose-source.png";
+  calibrationNode.data.posePrompt = "明确校准：左膝位于右膝前方";
+  calibrationNode.data.posePromptImage = calibrationNode.data.imageUrl;
+  calibrationNode.data.posePromptMode = "three-view";
+}
+const normalizedCalibrationFlow = validateAndMigrateFlow(calibrationFlow);
+const calibrationSnapshot = createDocumentSnapshot({ projectName: "calibrated pose", nodes: normalizedCalibrationFlow.nodes, edges: normalizedCalibrationFlow.edges });
+const persistedCalibration = documentSnapshotToPersistedWorkflow(calibrationSnapshot);
+const persistedCalibrationNode = persistedCalibration.nodes.find(node => node.id === "pose")!;
+assert.equal((persistedCalibrationNode.data as any).posePromptMode, "three-view", "校准语义必须跨保存/重载保留");
+const invalidCalibrationFlow = structuredClone(calibrationFlow);
+const invalidCalibrationNode = invalidCalibrationFlow.nodes.find(node => node.id === "pose")!;
+if (invalidCalibrationNode.data.kind === "image-input") invalidCalibrationNode.data.posePromptMode = "invented" as never;
+assert.throws(() => validateAndMigrateFlow(invalidCalibrationFlow), /posePromptMode/, "未知校准模式必须在工作流边界拒绝");
 const legacyStage = { id: "legacy-stage", data: { kind: "virtual-try-on", workflowStage: "scene-stabilize" } };
 assert.equal(isDirectMultiImagePoseNode("pose", [...validated.nodes, legacyStage], [...validated.edges,
   { source: "pose", target: "legacy-stage", targetHandle: "pose" }]), false, "同图仍连接旧流程时保留旧提示词入口");

@@ -708,6 +708,9 @@ function validateData(
           fail(`${path}.imageConversationId`, "must be a valid conversation id");
         }
       }
+      if (raw.posePromptMode !== undefined && raw.posePromptMode !== 'single' && raw.posePromptMode !== 'three-view') {
+        fail(`${path}.posePromptMode`, 'must be single or three-view');
+      }
       if (raw.posePrompt !== undefined) {
         stringValue(raw.posePrompt, `${path}.posePrompt`);
         if ((raw.posePrompt as string).length > 4000) fail(`${path}.posePrompt`, 'must be at most 4000 characters');
@@ -715,6 +718,7 @@ function validateData(
       optionalImageReference(raw.posePromptImage, `${path}.posePromptImage`);
       if (!raw.imageUrl || raw.posePromptImage !== raw.imageUrl || raw.posePrompt === undefined) {
         delete raw.posePrompt;
+        delete raw.posePromptMode;
         delete raw.posePromptImage;
       }
       if (raw.poseReferenceSource !== undefined) {
