@@ -34,6 +34,7 @@ let calls = 0;
 let promptCalls = 0;
 let promptOptions: import('../server/lib/poseAnalysis').PoseAnalysisOptions | undefined;
 let promptCalibration: unknown;
+let promptFailure: Error | undefined;
 let release: (()=>void) | undefined;
 let delayed = new Promise<void>(resolve=>{release=resolve;});
 const app = express();
@@ -48,6 +49,7 @@ const router = fs.existsSync('server/routes/poseReferences.ts')
         return {image: kind === 'depth' ? depthPng : png, model: kind === 'skeleton' ? 'test-skeleton' : 'test-depth'};
       },
       analyzePosePrompt: async (image: string, options) => {
+        if (promptFailure) throw promptFailure;
         promptOptions = options;
         promptCalibration = options?.calibration;
         promptCalls++;
@@ -312,6 +314,17 @@ try {
   assert.equal(calibratedResult.calibrationMode,'three-view');
   assert.deepEqual(promptCalibration,{depthImageDataUrl:depthPng,skeletonImageDataUrl:png,pose:calibrationPose});
   assert.equal(promptCalls,3);
+  const { PoseAnalysisResponseError } = await import('../server/lib/poseAnalysis');
+  promptFailure = new PoseAnalysisResponseError('三图校准缺少来源证据');
+  const schemaFailure = await analyzeReq({ ...analyzeBody, calibrationMode: 'three-view' });
+  assert.equal(schemaFailure.status, 502);
+  assert.equal((await schemaFailure.json()).error, '三图校准缺少来源证据', 'Gemini 校验错误必须传达至前端');
+  const { ProviderError } = await import('../server/providers/base');
+  promptFailure = new ProviderError('private upstream body with secret', 502, 'gemini-test', 'invalid_response');
+  const privateFailure = await analyzeReq({ ...analyzeBody, calibrationMode: 'three-view' });
+  assert.equal(privateFailure.status, 500);
+  assert.ok(!(await privateFailure.text()).includes('private upstream'));
+  promptFailure = undefined;
   flow.nodes[0].data.imageUrl='/api/files/replacement.png';
   await query("UPDATE projects SET flow_json=$1 WHERE id='project'",[JSON.stringify(flow)]);
   assert.equal((await req('POST')).status,409,'stale source must be rejected');

@@ -11,7 +11,7 @@ import { isLocalImageReference, validateImageDataUrl } from '../lib/imageValidat
 import { resolveToDataUrl } from '../lib/fileStore';
 import { analyzeDWPoseReference } from '../lib/dwposeAnalysis';
 import { analyzeDepthReference } from '../lib/depthAnalysis';
-import { analyzePoseReference, DEEPSEEK_POSE_MODEL, type PoseAnalysisCalibration, type PoseAnalysisOptions, type PoseAnalysisResult } from '../lib/poseAnalysis';
+import { analyzePoseReference, DEEPSEEK_POSE_MODEL, PoseAnalysisResponseError, type PoseAnalysisCalibration, type PoseAnalysisOptions, type PoseAnalysisResult } from '../lib/poseAnalysis';
 import { config } from '../config';
 import { ProviderError } from '../providers/base';
 import { isPoseReferenceNode, type PoseOutfitReferenceRecord, type PoseOutfitReferenceStatus, type PoseReferenceKind, type PoseReferenceRecord } from '../../src/types/poseReference';
@@ -383,8 +383,8 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer; analyze
       res.setHeader('Cache-Control','no-store');
       res.json(result);
     } catch(error) {
-      // DeepSeek adapter emits only fixed, sanitized messages, never upstream bodies.
-      if (error instanceof ProviderError && error.providerId === DEEPSEEK_POSE_MODEL) {
+      // Only our validation errors and the sanitized BYOK adapter can expose their messages.
+      if (error instanceof PoseAnalysisResponseError || (error instanceof ProviderError && error.providerId === DEEPSEEK_POSE_MODEL)) {
         res.status(error.status ?? 502).json({error:error.message});
       } else handleError(error,res);
     }

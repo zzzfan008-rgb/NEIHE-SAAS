@@ -116,7 +116,7 @@ try {
   assert.equal(unknown.cacheHit, false);
   assert.match(unknown.prompt, /面部神态：无法判断/);
   assert.ok(unknown.guideImage.startsWith('data:image/png;base64,'));
-  assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).schemaVersion, 3);
+  assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).schemaVersion, 4);
   globalThis.fetch = async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{
     text: JSON.stringify({ ...ANALYSIS, facialExpression: undefined }),
   }] } }] }), { status: 200 });
@@ -183,6 +183,81 @@ try {
   await analyzePoseReference(IMAGE, { calibration: { ...calibration, skeletonImageDataUrl: ALT_IMAGE } });
   await analyzePoseReference(ALT_IMAGE, { calibration });
   assert.equal(calibrationCalls, 4, "原图、深度图、骨骼图任一变化都必须使校准缓存失效");
+  globalThis.fetch = async (_input, init) => {
+    const request = JSON.parse(String(init?.body));
+    assert.equal(request.messages[0].content[0].text.split('\n').filter((line: string) => line.startsWith('{"points"')).length, 1);
+    assert.equal(request.messages[0].content.filter((part: { type: string }) => part.type === 'image_url').length, 3);
+    assert.match(request.messages[0].content[7].text, /coco-wholebody-133/);
+    return Response.json({ choices: [{ message: { content: [
+      { type: 'reasoning', text: '内部推理不参与解析' },
+      { type: 'text', text: `\`\`\`json\n${JSON.stringify(CALIBRATED_ANALYSIS)}\n\`\`\`` },
+    ] } }] });
+  };
+  const deepseekCalibration = await analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'calibrated-owner', calibration });
+  assert.equal(deepseekCalibration.calibrationMode, 'three-view', 'DeepSeek content blocks containing fenced JSON should parse');
+  assert.match(deepseekCalibration.prompt, /三图校准结果/);
+  globalThis.fetch = async () => Response.json({ choices: [{ message: { content: JSON.stringify({ ...CALIBRATED_ANALYSIS, bodyPose: '' }) } }] });
+  await assert.rejects(
+    analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'invalid-calibrated-owner', calibration }),
+    /姿势分析字段 bodyPose 无效/,
+    'DeepSeek schema errors should remain actionable without exposing model output',
+  );
+  globalThis.fetch = async () => Response.json({ choices: [{ finish_reason: 'length', message: { content: '{"points":' } }] });
+  await assert.rejects(
+    analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'truncated-calibrated-owner', calibration }),
+    /DeepSeek 输出未完整结束/,
+  );
+  const responseFailures: string[] = [];
+  const calibratedJson = JSON.stringify(CALIBRATED_ANALYSIS);
+  const cases = [
+    { name: 'split-json', parts: [{ text: calibratedJson.slice(0, 150) }, { text: calibratedJson.slice(150) }] },
+    { name: 'thought-before-json', parts: [{ thought: true, text: '仅用于内部推理，不是最终结果' }, { text: calibratedJson }] },
+    { name: 'truncated-json', parts: [{ text: calibratedJson }], finishReason: 'MAX_TOKENS', error: /输出未完整结束/ },
+    { name: 'blocked-json', parts: [{ text: calibratedJson }], finishReason: 'SAFETY', error: /安全限制/ },
+    { name: 'thought-only', parts: [{ thought: true, text: calibratedJson }], error: /未返回可用文字/ },
+    { name: 'missing-evidence', parts: [{ text: JSON.stringify(ANALYSIS) }], error: /缺少来源证据/ },
+    { name: 'secret-echo', parts: [{ text: JSON.stringify({ ...CALIBRATED_ANALYSIS, bodyPose: process.env.APIYI_API_KEY }) }], error: /返回格式无效/ },
+    { name: 'invalid-coordinate', parts: [{ text: JSON.stringify({ ...CALIBRATED_ANALYSIS, points: { ...ANALYSIS.points, head: { x: 2, y: 0 } } }) }], error: /坐标 head 越界/ },
+    { name: 'forbidden-evidence', parts: [{ text: JSON.stringify({ ...CALIBRATED_ANALYSIS, calibration: { ...CALIBRATED_ANALYSIS.calibration, originalEvidence: '红色外套' } }) }], error: /包含禁止/ },
+  ];
+  for (const sample of cases) {
+    process.env.POSE_ANALYSIS_MODEL = `gemini-regression-${sample.name}`;
+    let attempts = 0;
+    globalThis.fetch = async () => {
+      attempts++;
+      return Response.json({ candidates: [
+        { finishReason: sample.finishReason ?? 'STOP', content: { parts: sample.parts } },
+        { content: { parts: [{ text: JSON.stringify({ ...CALIBRATED_ANALYSIS, bodyPose: '另一个候选不应被拼接' }) }] } },
+      ] });
+    };
+    try {
+      if (sample.error) {
+        await assert.rejects(analyzePoseReference(IMAGE, { calibration }), sample.error);
+      } else {
+        const result = await analyzePoseReference(IMAGE, { calibration });
+        assert.match(result.prompt, /三图校准结果/);
+        assert.ok(!result.prompt.includes('内部推理'));
+        assert.equal((await analyzePoseReference(IMAGE, { calibration })).cacheHit, true);
+      }
+      assert.equal(attempts, 1, '解析失败不得自动再次调用付费模型');
+    } catch (error) {
+      responseFailures.push(`${sample.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  try {
+    assert.equal(calibratedParts[0].text.split('\n').filter((line: string) => line.startsWith('{"points"')).length, 1, '三图模式只能有一份完整输出示例');
+    const schema = calibrationBodies[0].generationConfig.responseSchema;
+    assert.ok(schema, 'Gemini 必须发送结构化响应 schema，而不仅是 JSON MIME');
+    assert.ok(schema.required.includes('calibration'));
+    assert.equal(schema.properties.points.required.length, 16);
+    assert.equal(schema.properties.points.properties.head.nullable, true);
+    assert.equal(schema.properties.calibration.required.length, 5);
+    assert.match(calibratedParts[7].text, /coco-wholebody-133/);
+    assert.match(calibratedParts[7].text, /leftShoulder/);
+  } catch (error) {
+    responseFailures.push(`request-contract: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  assert.deepEqual(responseFailures, [], '三图校准响应与请求契约回归');
   console.log("姿势分析测试通过：Gemini/DeepSeek、Base64、账户缓存隔离、密钥脱敏与结构验证");
 } finally {
   globalThis.fetch = originalFetch;
