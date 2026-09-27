@@ -26,7 +26,7 @@ export const BODY25_CONNECTIONS = [
   [1, 5], [5, 6], [6, 7],
   [1, 8], [8, 9], [9, 10], [10, 11],
   [8, 12], [12, 13], [13, 14],
-  [8, 15], [15, 16], [16, 17],
+  [0, 15], [15, 17], [0, 16], [16, 18],
   [14, 19], [14, 20], [14, 21],
   [11, 22], [11, 23], [11, 24],
 ] as const;
@@ -98,6 +98,7 @@ function clonePose3DPoint(point: PosePoint3DV1): PosePoint3DV1 {
 
 function clonePose3D(pose3d: Pose3DV1): Pose3DV1 {
   return {
+    ...(pose3d.personId === undefined ? {} : { personId: pose3d.personId }),
     body25: pose3d.body25.map(clonePose3DPoint),
     camera: cloneCamera(pose3d.camera),
     ...(pose3d.stale === undefined ? {} : { stale: pose3d.stale }),
@@ -283,6 +284,7 @@ export function createPose3DFromDocument(document: PoseDocumentV1, personId: str
   const person = getPerson(source, personId);
   const canvas = source.canvas;
   return {
+    personId,
     body25: Array.from({ length: 25 }, (_, body25Index) => {
       const point = body25PointFromPerson(person, body25Index, canvas);
       return point ? {
@@ -303,6 +305,9 @@ export function projectPose3DToDocument(
 ): PoseDocumentV1 {
   const source = validatePoseDocument(document);
   const person = getPerson(source, personId);
+  if ((pose3d.personId ?? (source.people.length === 1 ? person.id : undefined)) !== personId) {
+    throw new Error('3D 骨架不属于当前人物，请从 2D 重建');
+  }
   const canvas = source.canvas;
   const nextNose = projectedBody25Point(0, pose3d, canvas);
   const nextLeftWrist = projectedBody25Point(7, pose3d, canvas);
@@ -319,7 +324,7 @@ export function projectPose3DToDocument(
       right: translateAttachedPoints(person.hands.right, person.body[10], nextRightWrist, canvas),
     },
   };
-  const nextPose3D: Pose3DV1 = { ...clonePose3D(pose3d), stale: false };
+  const nextPose3D: Pose3DV1 = { ...clonePose3D(pose3d), personId, stale: false };
   return validatePoseDocument({
     ...source,
     people: source.people.map((candidate) => candidate.id === personId ? nextPerson : candidate),
@@ -338,7 +343,13 @@ export function markPose3DStale(document: PoseDocumentV1): PoseDocumentV1 {
 
 export function ensurePose3DDocument(document: PoseDocumentV1, personId: string): PoseDocumentV1 {
   const source = validatePoseDocument(document);
-  if (source.pose3d && !source.pose3d.stale) return source;
+  getPerson(source, personId);
+  if (source.pose3d && !source.pose3d.stale) {
+    if (source.pose3d.personId === personId) return source;
+    if (source.pose3d.personId === undefined && source.people.length === 1) {
+      return { ...source, pose3d: { ...clonePose3D(source.pose3d), personId } };
+    }
+  }
   const pose3d = createPose3DFromDocument(source, personId);
   return projectPose3DToDocument(source, pose3d, personId);
 }
@@ -389,6 +400,9 @@ export function solvePose3DChain(
       reason: '3D 姿势尚未建立或已因 2D 修改而过期',
     };
   }
+  if ((pose3d.personId ?? (source.people.length === 1 ? source.people[0].id : undefined)) !== personId) {
+    return { status: 'invalid', document: source, requestedTarget: target, achievedTarget: null, reason: '3D 骨架不属于当前人物，请从 2D 重建' };
+  }
   const root = pointToVector(pose3d.body25[chain.root]);
   const joint = pointToVector(pose3d.body25[chain.joint]);
   const end = pointToVector(pose3d.body25[chain.end]);
@@ -423,6 +437,12 @@ export function solvePose3DChain(
   body25[chain.root] = vectorToPoint(ik.root, pose3d.body25[chain.root]);
   body25[chain.joint] = vectorToPoint(ik.joint, pose3d.body25[chain.joint]);
   body25[chain.end] = vectorToPoint(ik.end, pose3d.body25[chain.end]);
+  const footIndices = chainId === 'left-leg' ? [19, 20, 21] : chainId === 'right-leg' ? [22, 23, 24] : [];
+  const ankleDelta = subtractPoseVectors(ik.end, end);
+  for (const index of footIndices) {
+    const point = pose3d.body25[index];
+    if (point) body25[index] = vectorToPoint(addPoseVectors(point, ankleDelta), point);
+  }
   const nextPose3D: Pose3DV1 = { ...clonePose3D(pose3d), body25, stale: false };
   return {
     status: ik.status,

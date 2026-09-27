@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createEmptyPoseDocument, setPosePoint } from '../src/lib/poseEditorModel';
 import { solveTwoBoneIk, poseVectorLength, subtractPoseVectors } from '../src/lib/poseIk';
 import {
+  BODY25_CONNECTIONS,
   createPose3DFromDocument,
   ensurePose3DDocument,
   getPose3DChainTarget,
@@ -10,6 +11,7 @@ import {
   solvePose3DChain,
 } from '../src/lib/pose3dModel';
 import type { PosePointV1 } from '../src/types/poseDocument';
+import { validatePoseDocument } from '../src/lib/poseTopology';
 
 const personId = '00000000-0000-4000-8000-000000000001';
 const image = '/api/files/pose-ik-source.png';
@@ -164,4 +166,77 @@ test('2D 修改会标记已有 3D 姿势过期，重新进入 3D 可重建', () 
   const rebuilt = ensurePose3DDocument(stale, personId);
   assert.equal(rebuilt.pose3d?.stale, false);
   assert.ok(rebuilt.pose3d?.body25[7]);
+});
+
+test('多人物保存后只复用所属人物的 3D 骨架', () => {
+  const document = createDocument();
+  const second = structuredClone(document.people[0]);
+  second.id = '00000000-0000-4000-8000-000000000002';
+  second.body[5] = manualPoint(100, 200);
+  document.people.push(second);
+  const saved = JSON.parse(JSON.stringify(ensurePose3DDocument(document, second.id)));
+  const restored = ensurePose3DDocument(saved, personId);
+  assert.ok(Math.abs(restored.pose3d!.body25[5]!.x + 0.2) < 1e-8);
+  assert.deepEqual(restored.people, saved.people);
+  assert.equal(saved.pose3d.personId, second.id);
+  assert.equal(restored.pose3d!.personId, personId);
+  assert.equal(markPose3DStale(saved).pose3d!.personId, second.id);
+  assert.throws(() => validatePoseDocument({ ...saved, pose3d: { ...saved.pose3d, personId: 'not-a-uuid' } }));
+  assert.throws(() => projectPose3DToDocument(saved, saved.pose3d, personId), /人物/);
+  const wrongTarget = solvePose3DChain(saved, personId, 'left-arm', { x: 0, y: 0, z: 0 });
+  assert.equal(wrongTarget.status, 'invalid');
+  assert.deepEqual(wrongTarget.document, saved);
+  const reused = ensurePose3DDocument(saved, second.id);
+  assert.deepEqual(reused.pose3d, saved.pose3d);
+});
+
+test('旧版未绑定的多人物骨架按当前人物重建', () => {
+  const document = createDocument();
+  const legacy = createPose3DFromDocument(document, personId);
+  Reflect.deleteProperty(legacy, 'personId');
+  legacy.body25[5]!.x = 1;
+  document.pose3d = legacy;
+  const single = ensurePose3DDocument(document, personId);
+  assert.equal(single.pose3d!.body25[5]!.x, 1);
+  const second = structuredClone(document.people[0]);
+  second.id = '00000000-0000-4000-8000-000000000002';
+  document.people.push(second);
+  assert.ok(Math.abs(ensurePose3DDocument(document, personId).pose3d!.body25[5]!.x + 0.2) < 1e-8);
+});
+
+test('双腿 IK 让对应脚趾脚跟按实际脚踝位移随动，包括不可达目标', () => {
+  for (const side of ['left', 'right'] as const) {
+    for (const distance of [0.1, 3]) {
+      let document = createDocument();
+      for (const index of [15, 16]) document = setPosePoint(document, { personId, group: 'body', index }, manualPoint(500, 950));
+      for (let index = 0; index < 6; index++) document = setPosePoint(document, { personId, group: 'feet', index }, manualPoint(510 + index, 960));
+      document = ensurePose3DDocument(document, personId);
+      const chainId = `${side}-leg` as const;
+      const ankleIndex = side === 'left' ? 14 : 11;
+      const footIndices = side === 'left' ? [19, 20, 21] : [22, 23, 24];
+      const before = document.pose3d!;
+      const ankle = before.body25[ankleIndex]!;
+      const result = solvePose3DChain(document, personId, chainId, { x: ankle.x + distance, y: ankle.y, z: 0.1 });
+      assert.notEqual(result.status, 'invalid');
+      if (distance === 3) assert.equal(result.status, 'unreachable');
+      const after = result.document.pose3d!;
+      assert.notEqual(after.body25[ankleIndex]!.x, ankle.x);
+      for (let index = 19; index < 25; index++) {
+        if (!footIndices.includes(index)) {
+          assert.deepEqual(after.body25[index], before.body25[index]);
+          continue;
+        }
+        for (const axis of ['x', 'y', 'z'] as const) {
+          const delta = after.body25[ankleIndex]![axis] - ankle[axis];
+          assert.ok(Math.abs(after.body25[index]![axis] - before.body25[index]![axis] - delta) < 1e-8);
+        }
+      }
+    }
+  }
+});
+
+test('BODY-25 面部连线遵循鼻子、双眼、双耳拓扑', () => {
+  assert.deepEqual(BODY25_CONNECTIONS.filter(([a, b]) => (a >= 15 && a <= 18) || (b >= 15 && b <= 18)), [
+    [0, 15], [15, 17], [0, 16], [16, 18],
+  ]);
 });

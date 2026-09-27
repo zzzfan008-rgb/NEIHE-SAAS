@@ -10,7 +10,7 @@ import { PoseEditor2D } from "@/components/pose/PoseEditor2D";
 import { posePointOptions, posePointLabel, type PoseEditorGroupFilter, type PoseEditorLayer } from "@/components/pose/poseEditorLabels";
 import { addPosePerson, mirrorPoseDocument, movePosePoint, removePosePerson, setPosePoint, type PosePointPath } from "@/lib/poseEditorModel";
 import { canRedoPoseEditorHistory, canUndoPoseEditorHistory, commitPoseEditorHistory, createPoseEditorHistory, redoPoseEditorHistory, undoPoseEditorHistory } from "@/lib/poseEditorHistory";
-import { markPose3DStale, resetPose3DFromCurrent2D } from "@/lib/pose3dModel";
+import { ensurePose3DDocument, markPose3DStale } from "@/lib/pose3dModel";
 import type { PoseDocumentV1, PosePointV1 } from "@/types/poseDocument";
 
 const PoseEditor3D = lazy(() => import("@/components/pose/PoseEditor3D").then(({ PoseEditor3D: component }) => ({ default: component })));
@@ -45,7 +45,6 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
   const [draftDocument, setDraftDocument] = useState<PoseDocumentV1 | null>(null);
   const draftRef = useRef<PoseDocumentV1 | null>(null);
   const threeDDraftRef = useRef<PoseDocumentV1 | null>(null);
-  const pose3DPersonRef = useRef<string | null>(initialDocument.pose3d && !initialDocument.pose3d.stale ? initialDocument.people[0]?.id ?? null : null);
   const [mode, setMode] = useState<PoseEditorMode>('2d');
   const [activePersonId, setActivePersonId] = useState(initialDocument.people[0]?.id ?? "");
   const [group, setGroup] = useState<PoseEditorGroupFilter>("body");
@@ -170,20 +169,13 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
   const switchMode = (nextMode: string) => {
     if (nextMode !== '2d' && nextMode !== '3d') return;
     if (nextMode === '3d' && person) {
-      const personChanged = pose3DPersonRef.current !== null && pose3DPersonRef.current !== person.id;
-      const needsRebuild = !document.pose3d || document.pose3d.stale || personChanged;
-      if (needsRebuild) {
-        try {
-          const nextDocument = resetPose3DFromCurrent2D(document, person.id);
-          pose3DPersonRef.current = person.id;
-          commitPose3D(nextDocument);
-          setError(null);
-        } catch (cause) {
-          setError(cause instanceof Error ? cause.message : "3D 姿势建立失败");
-          return;
-        }
-      } else {
-        pose3DPersonRef.current = person.id;
+      try {
+        const nextDocument = ensurePose3DDocument(document, person.id);
+        if (nextDocument !== document) commitPose3D(nextDocument);
+        setError(null);
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "3D 姿势建立失败");
+        return;
       }
     }
     setMode(nextMode);

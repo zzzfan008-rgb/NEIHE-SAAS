@@ -46,6 +46,8 @@ export interface PoseCameraV1 {
 }
 
 export interface Pose3DV1 {
+  /** Older documents may omit ownership; only single-person rigs can be reused safely. */
+  personId?: string;
   body25: PosePoint3DV1[];
   camera: PoseCameraV1;
   stale?: boolean;

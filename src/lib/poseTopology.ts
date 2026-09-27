@@ -78,8 +78,9 @@ function validateSource(value: unknown): value is PoseSourceV1 {
 }
 
 function validatePose3D(value: unknown): boolean {
-  if (!isRecord(value) || !hasOnlyKeys(value, ['body25', 'camera'], ['stale']) ||
+  if (!isRecord(value) || !hasOnlyKeys(value, ['body25', 'camera'], ['stale', 'personId']) ||
       !Array.isArray(value.body25) || value.body25.length !== 25 ||
+      (value.personId !== undefined && (typeof value.personId !== 'string' || !UUID.test(value.personId))) ||
       (value.stale !== undefined && typeof value.stale !== 'boolean')) return false;
   const valid3DPoint = (point: unknown): boolean => {
     if (point === null) return true;
