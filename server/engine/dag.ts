@@ -659,7 +659,10 @@ export function buildExecutionPlan(
       // The actual pose edge owns this text; never use a stale image's description.
       if (source?.kind === 'image-input' && source.imageUrl && source.posePromptImage === source.imageUrl && typeof source.posePrompt === 'string') {
         params.posePromptMode = source.posePromptMode === 'three-view' ? 'three-view' : 'single';
-        params.posePrompt = source.posePrompt.trim();
+        const optimized = source.posePromptMode === 'three-view' && typeof source.posePromptOptimized === 'string' && source.posePromptOptimized.trim()
+          ? source.posePromptOptimized.trim()
+          : undefined;
+        params.posePrompt = (optimized ?? source.posePrompt).trim();
       }
     }
     if (data.kind === "mask-redraw") {

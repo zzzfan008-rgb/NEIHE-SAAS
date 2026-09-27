@@ -7,7 +7,7 @@ import { config } from "../config";
 import { fetchWithRetry, parseDataUrl, ProviderError, toDataUrl } from "../providers/base";
 import type { DWPosePoseV1 } from '../../src/types/poseReference';
 
-const POSE_ANALYSIS_SCHEMA_VERSION = 4;
+const POSE_ANALYSIS_SCHEMA_VERSION = 5;
 const POSE_POINT_NAMES = [
   "head", "gazeTarget", "neck", "leftShoulder", "rightShoulder",
   "leftElbow", "rightElbow", "leftWrist", "rightWrist", "pelvis",
@@ -50,6 +50,7 @@ export interface PoseAnalysis {
 export interface PoseAnalysisResult {
   guideImage: string;
   prompt: string;
+  optimizedPrompt?: string;
   providerRequests: number;
   model: string;
   cacheHit: boolean;
@@ -237,9 +238,11 @@ ${POINTS_INSTRUCTION}
 {"points":{"head":null,"gazeTarget":null,"neck":null,"leftShoulder":null,"rightShoulder":null,"leftElbow":null,"rightElbow":null,"leftWrist":null,"rightWrist":null,"pelvis":null,"leftHip":null,"rightHip":null,"leftKnee":null,"rightKnee":null,"leftAnkle":null,"rightAnkle":null},"bodyPose":"","torsoPose":"","legPose":"","handPose":"","headPose":"","gazeDirection":"","facialExpression":""}`;
 
 const CALIBRATED_ANALYSIS_INSTRUCTION = `${POSE_OBSERVATION_INSTRUCTION}
-三图校准时按以下证据职责处理：原始姿势图是整体主体动作、躯干、肢体关系与可见神态的基线；配套深度图仅校准有明确灰度证据支持的相对前后关系，灰度约定为近白近、近黑远，不能由灰度推断绝对距离；骨骼渲染图与下方DWPose归一化点位仅用于核对头部及关节二维位置，不用于推断视线、表情或意图。
-校准模式中的视线与面部神态仍须如实读取清晰可见的原图；“无法判断”只用于原图自身被遮挡、裁切或分辨率不足的情况，深度图和骨骼图不得补足这些字段。
-DWPose归一化坐标对应原始姿势图画布，置信度原样作为证据强弱；不得插值、重排人物或让低置信度点覆盖原图的清晰几何。若来源不一致，按各自职责记录冲突，不强行合并；遮挡、裁切、冲突或低置信度造成的未知项明确写“无法判断”，不生成默认姿态。
+按原图→骨骼→深度的顺序完成三层校准，七个姿态字段输出合并后的结论，不重复逐图描述：
+第一层：从原始姿势图建立动作基线。手掌朝向、手指状态、手部接触等手部语义，以及视线、面部神态，只以原图可见证据为准。
+第二层：用骨骼图及DWPose关节点与原图结论比较，相同语义只保留一次；关节二维位置、肢体弯曲和二维交叉发生冲突时，以有效且可信的DWPose关节点为准。低置信度或缺失点不产生覆盖结论，不把二维交叉等同于前后遮挡。
+第三层：用深度图校准前两层结论中的四肢相对前后关系；有明确深度证据时以前后深度关系为准。近白远黑，不能由灰度推断绝对距离，不能让深度图改写手部语义或二维关节点位置。
+人物左右与画面左右必须明确区分；三类证据必须对应同一人物。七个字段按整体、躯干、下肢、上肢手部、头部、视线、面部各自职责简洁描述，避免跨字段重复。证据来源、冲突及不可确定的原因保留在calibration审计字段，不混入已确认的动作描述。未知字段仍写“无法判断”，不得把删除未知描述当作确认了该姿态。
 calibration对象必须存在，五个字符串字段各为1至200字：originalEvidence（原图支持的主体动作和关系）、depthEvidence（深度图实际支持的前后关系，未支持时说明无法判断）、skeletonEvidence（骨骼图/DWPose支持的头部与关节位置及置信度限制）、conflicts（冲突或“无”）、unknowns（无法判断项或“无”）。七个姿态描述字段各为1至300字。
 ${POINTS_INSTRUCTION}
 只返回以下完整JSON对象，不输出数组、Markdown或额外文字，不省略字段：
@@ -392,6 +395,45 @@ function analysisPrompt(analysis: PoseAnalysis): string {
   return prompt;
 }
 
+/** Clauses that weaken or void generation constraints; they must not reach the image model. */
+const POSE_UNCERTAINTY_PATTERN = /无法判断|无法识别|无法确认|无法确定|难以判断|置信度(?:偏|较)低|仅作[^，；。]*参考|不构成[^，；。]*约束/;
+
+/** Drop uncertainty clauses from one merged pose field. */
+function prunePoseField(text: string): string {
+  return text
+    .split(/[，；。]/)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.length > 0 && !POSE_UNCERTAINTY_PATTERN.test(clause))
+    .join('，');
+}
+
+/**
+ * 三图校准后的干净提示词：分层合并后的七个字段（原图确定主体动作与手部、骨骼关节点核对头部
+ * 与关节位置、深度图确定四肢相对前后关系），再剔除不确定性描述。保留原始校准结果用于对比。
+ */
+export function optimizeCalibratedPrompt(analysis: PoseAnalysis): string {
+  const fields = [
+    ['整体姿态', prunePoseField(analysis.bodyPose)],
+    ['躯干姿态', prunePoseField(analysis.torsoPose)],
+    ['下肢姿态', prunePoseField(analysis.legPose)],
+    ['上肢与手部', prunePoseField(analysis.handPose)],
+    ['头部姿态', prunePoseField(analysis.headPose)],
+    ['视线方向', prunePoseField(analysis.gazeDirection)],
+    ['面部神态', prunePoseField(analysis.facialExpression)],
+  ] as const;
+  const prompt = fields
+    .filter(([, value]) => value.length > 0)
+    .map(([label, value]) => `${label}：${value}`)
+    .join('\n');
+  if (!prompt) throw new PoseAnalysisResponseError('校准后无法生成有效的优化姿势提示词');
+  return prompt;
+}
+
+function calibrationExtras(options: PoseAnalysisOptions | undefined, analysis: PoseAnalysis) {
+  if (!options?.calibration) return {};
+  return { calibrationMode: 'three-view' as const, optimizedPrompt: optimizeCalibratedPrompt(analysis) };
+}
+
 function cacheKey(model: string, mime: string, image: Buffer, calibration?: PoseAnalysisCalibration): string {
   const hash = createHash("sha256").update(`pose-analysis:${POSE_ANALYSIS_SCHEMA_VERSION}:${model}:${mime}:`).update(image);
   if (calibration) {
@@ -483,7 +525,7 @@ async function analyzeUncached(
       providerRequests: 0,
       model,
       cacheHit: true,
-      ...(options?.calibration ? { calibrationMode: 'three-view' as const } : {}),
+      ...calibrationExtras(options, cached),
     };
   }
   const { mime, base64 } = parseDataUrl(imageDataUrl);
@@ -491,7 +533,7 @@ async function analyzeUncached(
   if (options?.provider === 'deepseek') {
     const analysis = await requestDeepSeekPose(imageDataUrl, options.apiKey!, options.calibration);
     await writeCache(filePath, { schemaVersion: POSE_ANALYSIS_SCHEMA_VERSION, model, analysis });
-    return { guideImage: await renderPoseGuide(imageDataUrl, analysis), prompt: analysisPrompt(analysis), providerRequests: 1, model, cacheHit: false, ...(options?.calibration ? { calibrationMode: 'three-view' as const } : {}) };
+    return { guideImage: await renderPoseGuide(imageDataUrl, analysis), prompt: analysisPrompt(analysis), providerRequests: 1, model, cacheHit: false, ...calibrationExtras(options, analysis) };
   }
   const response = await fetchWithRetry(
     `${config.apiyiBaseUrl()}/v1beta/models/${model}:generateContent`,
@@ -537,7 +579,7 @@ async function analyzeUncached(
     providerRequests: 1,
     model,
     cacheHit: false,
-    ...(options?.calibration ? { calibrationMode: 'three-view' as const } : {}),
+    ...calibrationExtras(options, analysis),
   };
 }
 

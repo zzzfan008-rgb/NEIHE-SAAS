@@ -1715,6 +1715,7 @@ function normalizePoseBoundImageInputData(data: ImageInputNodeData): ImageInputN
   if (posePromptForImage(data) === undefined) {
     delete data.posePrompt;
     delete data.posePromptImage;
+    delete data.posePromptOptimized;
   }
   return data;
 }
@@ -2182,6 +2183,7 @@ function textEditPatch(
     else delete data[descriptor.field];
     if (descriptor.field === 'posePrompt' && data.kind === 'image-input') {
       data.posePromptImage = fieldExisted ? data.imageUrl : undefined;
+      data.posePromptOptimized = undefined;
     }
     return { ...node, data };
   });

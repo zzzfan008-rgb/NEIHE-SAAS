@@ -1,4 +1,4 @@
-import { posePromptForImage, validPoseReferenceSource } from '../types/poseReference';
+import { optimizedPosePromptForImage, posePromptForImage, validPoseReferenceSource } from '../types/poseReference';
 import { isPoseDocumentBoundToImage } from './poseTopology';
 import {
   isSceneStabilizeModelId,
@@ -69,6 +69,7 @@ export type DocumentNodeData =
       posePrompt?: string;
       posePromptImage?: string;
       posePromptMode?: import('../types/poseReference').PosePromptMode;
+      posePromptOptimized?: string;
       poseReferenceSource?: import('../types/poseReference').PoseReferenceSource;
       poseDocument?: import('../types/poseDocument').PoseDocumentV1;
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
@@ -439,6 +440,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         ...(data.poseReference === true ? { poseReference: true } : {}),
         ...(posePromptForImage(data) !== undefined ? { posePrompt: data.posePrompt, posePromptImage: data.imageUrl } : {}),
         ...(posePromptForImage(data) !== undefined && data.posePromptMode === 'three-view' ? { posePromptMode: 'three-view' } : {}),
+        ...(optimizedPosePromptForImage(data) !== undefined && data.posePromptMode === 'three-view' ? { posePromptOptimized: data.posePromptOptimized } : {}),
         ...(validPoseReferenceSource(data.poseReferenceSource, data.imageUrl)
           ? { poseReferenceSource: { kind: data.poseReferenceSource.kind, image: data.poseReferenceSource.image,
               ...optionalString("neutralSource", data.poseReferenceSource.neutralSource) } }

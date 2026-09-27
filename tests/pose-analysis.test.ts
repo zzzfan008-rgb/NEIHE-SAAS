@@ -59,7 +59,16 @@ globalThis.fetch = async (_input, init) => {
 };
 
 try {
-  const { analyzePoseReference } = await import("../server/lib/poseAnalysis");
+  const { analyzePoseReference, optimizeCalibratedPrompt } = await import("../server/lib/poseAnalysis");
+  const optimized = optimizeCalibratedPrompt({ ...CALIBRATED_ANALYSIS,
+    handPose: '右肘弯曲，右腕靠近髋部，手指状态无法判断',
+    gazeDirection: '无法识别',
+    facialExpression: '嘴唇闭合，嘴角方向无法判断',
+  });
+  assert.match(optimized, /右肘弯曲，右腕靠近髋部/);
+  assert.match(optimized, /嘴唇闭合/);
+  assert.doesNotMatch(optimized, /无法判断|无法识别|原图证据|跨图冲突|视线方向/);
+  assert.match(CALIBRATED_ANALYSIS.calibration.unknowns, /无法判断/, '优化不能修改原始校准证据');
   let marked = 0;
   const first = await analyzePoseReference(IMAGE, {
     beforeProviderCall: async (providerRequest) => { marked = providerRequest; },
@@ -116,7 +125,7 @@ try {
   assert.equal(unknown.cacheHit, false);
   assert.match(unknown.prompt, /面部神态：无法判断/);
   assert.ok(unknown.guideImage.startsWith('data:image/png;base64,'));
-  assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).schemaVersion, 4);
+  assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).schemaVersion, 5);
   globalThis.fetch = async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{
     text: JSON.stringify({ ...ANALYSIS, facialExpression: undefined }),
   }] } }] }), { status: 200 });

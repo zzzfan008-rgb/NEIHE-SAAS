@@ -88,7 +88,7 @@ test('three-view calibration preserves user text on failure and applies a retrie
       const provider = body.provider === 'deepseek' ? 'deepseek' : 'gemini';
       if (provider === 'deepseek') expect(body.apiKey).toBe('test-only-calibration-key');
       if (++calls[provider] === 1) return route.fulfill({ status: 502, json: { error: '三图校准缺少来源证据' } });
-      return route.fulfill({ json: { prompt: `${provider}：三图校准结果：左腿交叉，头部偏向画面左侧。`, model: `test-${provider}`, providerRequests: 1, cacheHit: false, calibrationMode: 'three-view' } });
+      return route.fulfill({ json: { prompt: `${provider}：三图校准结果：左腿交叉，头部偏向画面左侧。`, optimizedPrompt: '下肢姿态：左腿交叉\n头部姿态：向画面左侧倾斜', model: `test-${provider}`, providerRequests: 1, cacheHit: false, calibrationMode: 'three-view' } });
     }
     return route.fulfill({ json: {} });
   });
@@ -125,6 +125,10 @@ test('three-view calibration preserves user text on failure and applies a retrie
     await dialog.getByRole('button', { name: '确认并替换当前提示词' }).click();
     savedPrompt = `${provider}：三图校准结果：左腿交叉，头部偏向画面左侧。`;
     await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText(savedPrompt);
+    await expect(dialog.locator('[data-pose-prompt="saved-optimized"]')).toHaveText('下肢姿态：左腿交叉\n头部姿态：向画面左侧倾斜');
+    const optimizedBox = await dialog.locator('[data-pose-prompt="saved-optimized"]').boundingBox();
+    expect(optimizedBox!.width).toBeGreaterThan(0);
+    expect(optimizedBox!.x + optimizedBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
     expect(calls[provider]).toBe(2);
   }
   await page.keyboard.press('Escape');
@@ -138,6 +142,19 @@ test('three-view calibration preserves user text on failure and applies a retrie
     useFlowStore.getState().loadFlow({ ...flow, projectId: 'pose-e2e' });
     return selectActiveDocument(useFlowStore.getState()).nodes.find((node: { id: string }) => node.id === 'pose')?.data;
   });
-  expect(persisted).toMatchObject({ posePrompt: savedPrompt, posePromptImage: source, posePromptMode: 'three-view' });
+  expect(persisted).toMatchObject({ posePrompt: savedPrompt, posePromptOptimized: '下肢姿态：左腿交叉\n头部姿态：向画面左侧倾斜', posePromptImage: source, posePromptMode: 'three-view' });
+  await trigger.click();
+  await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText(savedPrompt);
+  await expect(dialog.locator('[data-pose-prompt="saved-optimized"]')).toHaveText(persisted.posePromptOptimized);
+  await page.keyboard.press('Escape');
+  const replaced = await page.evaluate(async () => {
+    const modulePath = '/src/store/flowStore.ts';
+    const { useFlowStore, selectActiveDocument, selectActiveDocumentTarget } = await import(modulePath);
+    const store = useFlowStore.getState();
+    store.updateNodeDataInTab(selectActiveDocumentTarget(store), 'pose', { imageUrl: '/api/files/replaced.png' });
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((node: { id: string }) => node.id === 'pose')?.data;
+  });
+  expect(replaced.posePrompt).toBeUndefined();
+  expect(replaced.posePromptOptimized).toBeUndefined();
   expect(calls).toEqual({ gemini: 2, deepseek: 2 });
 });

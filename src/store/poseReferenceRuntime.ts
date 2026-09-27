@@ -22,6 +22,7 @@ export interface PosePromptInferenceResult {
   model: string;
   providerRequests: number;
   cacheHit: boolean;
+  optimizedPrompt?: string;
   calibrationMode?: 'three-view';
 }
 export interface PosePromptInferenceState {
@@ -72,12 +73,14 @@ function validatePosePrompt(value:unknown):PosePromptInferenceResult {
   if (!value || typeof value !== 'object') throw new Error('姿势反推结果格式无效');
   const result=value as Partial<PosePromptInferenceResult>;
   if (typeof result.prompt!=='string' || !result.prompt.trim() || result.prompt.length>4000 ||
+      (result.optimizedPrompt !== undefined && (typeof result.optimizedPrompt!=='string' || !result.optimizedPrompt.trim() || result.optimizedPrompt.length>4000)) ||
       typeof result.model!=='string' || !result.model.trim() ||
       typeof result.providerRequests!=='number' || !Number.isInteger(result.providerRequests) || result.providerRequests<0 ||
       typeof result.cacheHit!=='boolean' || (result.calibrationMode !== undefined && result.calibrationMode !== 'three-view')) {
     throw new Error('姿势反推结果格式无效');
   }
   return {prompt:result.prompt,model:result.model,providerRequests:result.providerRequests,cacheHit:result.cacheHit,
+    ...(typeof result.optimizedPrompt==='string' && result.optimizedPrompt.trim() ? {optimizedPrompt:result.optimizedPrompt} : {}),
     ...(result.calibrationMode ? {calibrationMode:result.calibrationMode} : {})};
 }
 export async function restorePoseReferences(target:DocumentTarget,nodeId:string,source:string,analysisSource=source,analysisSourceRecordId?:string) {

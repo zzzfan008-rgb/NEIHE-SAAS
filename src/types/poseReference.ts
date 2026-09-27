@@ -4,6 +4,10 @@ export function posePromptForImage(data: { imageUrl?: string; posePrompt?: strin
   return data.imageUrl && data.posePromptImage === data.imageUrl && typeof data.posePrompt === 'string'
     ? data.posePrompt : undefined;
 }
+export function optimizedPosePromptForImage(data: { imageUrl?: string; posePromptImage?: string; posePromptOptimized?: string }): string | undefined {
+  return data.imageUrl && data.posePromptImage === data.imageUrl && typeof data.posePromptOptimized === 'string'
+    ? data.posePromptOptimized : undefined;
+}
 export type PoseReferenceCanvasKind = PoseReferenceKind | 'original' | 'neutral-outfit';
 /** Bound to an immutable image reference; replacing the image invalidates the tag. */
 export interface PoseReferenceSource {

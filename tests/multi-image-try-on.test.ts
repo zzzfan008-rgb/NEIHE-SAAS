@@ -63,11 +63,13 @@ assert.match(promptedPose, /仅图1无法判定的头部旋转、俯仰、视线
 assert.match(promptedPose, /该文字中与图1可见几何冲突的部分全部忽略/);
 assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original", ""), /姿势补充描述/);
 assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /姿势补充描述/);
-const calibratedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "明确校准：画面左膝位于右膝前方；无法判断：髋部前后", "three-view");
+const calibratedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "明确校准：画面左膝位于右膝前方", "three-view");
 assert.match(calibratedPrompt, /三图校准姿势约束/);
 assert.match(calibratedPrompt, /画面左膝位于右膝前方/);
-assert.match(calibratedPrompt, /以原图确定主体与整体动作/);
-assert.match(calibratedPrompt, /无法判断/);
+assert.match(calibratedPrompt, /手部语义按原图结论/);
+assert.match(calibratedPrompt, /四肢前后关系按深度校准结论/);
+assert.doesNotMatch(calibratedPrompt, /唯一姿势锚点|逐关节1:1复刻图1/);
+assert.doesNotMatch(calibratedPrompt, /无法判断/);
 assert.doesNotMatch(calibratedPrompt, /仅在图1无法判定的头部/);
 const baseRoles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
 const allRoles = [...MULTI_IMAGE_TRY_ON_ROLES, "detail", "detail", "detail", "detail"];

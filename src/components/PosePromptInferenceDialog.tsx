@@ -3,7 +3,7 @@ import { analyzePosePrompt, EMPTY_POSE_STATE, posePromptRuntimeKey, poseReferenc
 import { useAuth } from '../auth/AuthContext';
 import { readPoseCredential, savePoseCredential } from '../lib/poseCredentials';
 import { useFlowStore, type DocumentTarget } from '../store/flowStore';
-import { posePromptForImage, type PosePromptMode } from '../types/poseReference';
+import { optimizedPosePromptForImage, posePromptForImage, type PosePromptMode } from '../types/poseReference';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
@@ -47,6 +47,10 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     const data = s.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch)?.nodes.find(n => n.id === nodeId)?.data;
     return data?.kind === 'image-input' && data.imageUrl === source ? data.posePromptMode ?? 'single' : undefined;
   });
+  const savedOptimizedPrompt = useFlowStore(s => {
+    const data = s.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch)?.nodes.find(n => n.id === nodeId)?.data;
+    return data?.kind === 'image-input' && data.imageUrl === source ? optimizedPosePromptForImage(data) : undefined;
+  });
   const promptState = state.posePrompt;
   const result = promptState?.result;
   const running = promptState?.status === 'running';
@@ -60,7 +64,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     const store = useFlowStore.getState();
     const tab = store.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch);
     if (!result || !tab || tab.readOnly || !tab.nodes.some(n => n.id === nodeId && n.data.kind === 'image-input' && n.data.imageUrl === source)) return;
-    store.updateNodeDataInTab(target, nodeId, { posePrompt: result.prompt, posePromptImage: source, posePromptMode: result.calibrationMode ?? 'single' });
+    store.updateNodeDataInTab(target, nodeId, { posePrompt: result.prompt, posePromptImage: source, posePromptMode: result.calibrationMode ?? 'single', posePromptOptimized: result.calibrationMode === 'three-view' && typeof result.optimizedPrompt === 'string' && result.optimizedPrompt.trim() ? result.optimizedPrompt : undefined });
   };
   const canAnalyze = writable && Boolean(user) && !running && (provider !== 'deepseek' || /^[\x21-\x7e]{8,512}$/.test(apiKey.trim())) && (calibrationMode !== 'three-view' || threeViewReady);
   const startAnalysis = () => {
@@ -163,7 +167,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         {(result || savedPrompt !== undefined) && (
           <div className="space-y-3">
             {savedPrompt !== undefined && <Card className="gap-0 border border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
-              <h3 className="mb-2 text-sm font-medium">当前用于生图的姿势提示词</h3>
+              <h3 className="mb-2 text-sm font-medium">{savedPromptMode === 'three-view' ? '当前校准原始提示词（用于对比）' : '当前用于生图的姿势提示词'}</h3>
               <pre
                 data-pose-prompt="result"
                 className="whitespace-pre-wrap break-words text-sm leading-6"
@@ -171,10 +175,23 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
                 {savedPrompt}
               </pre>
             </Card>}
-            {result && (result.prompt !== savedPrompt || (result.calibrationMode ?? 'single') !== (savedPromptMode ?? 'single')) && !running && !failed && (
+            {savedOptimizedPrompt !== undefined && <Card className="gap-0 border border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
+              <h3 className="mb-2 text-sm font-medium">当前优化后提示词（用于生图）</h3>
+              <pre
+                data-pose-prompt="saved-optimized"
+                className="whitespace-pre-wrap break-words text-sm leading-6"
+              >
+                {savedOptimizedPrompt}
+              </pre>
+            </Card>}
+            {result && (result.prompt !== savedPrompt || result.optimizedPrompt !== savedOptimizedPrompt || (result.calibrationMode ?? 'single') !== (savedPromptMode ?? 'single')) && !running && !failed && (
               <Card className="gap-3 border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
-                <h3 className="text-sm font-medium">{result.calibrationMode === 'three-view' ? '三图校准反推结果' : `${provider === 'deepseek' ? 'DeepSeek' : 'Gemini'} 反推结果`}</h3>
+                <h3 className="text-sm font-medium">{result.calibrationMode === 'three-view' ? '新反推的校准原始结果（用于对比）' : `${provider === 'deepseek' ? 'DeepSeek' : 'Gemini'} 反推结果`}</h3>
                 <pre data-pose-prompt="candidate" className="whitespace-pre-wrap break-words text-sm leading-6">{result.prompt}</pre>
+                {result.optimizedPrompt !== undefined && <div className="mt-3 space-y-2">
+                  <h4 className="text-sm font-medium">优化后提示词（将用于生图）</h4>
+                  <pre data-pose-prompt="candidate-optimized" className="whitespace-pre-wrap break-words text-sm leading-6">{result.optimizedPrompt}</pre>
+                </div>}
                 <Button type="button" size="sm" disabled={!writable} onClick={applyResult}>{savedPrompt === undefined ? '使用此姿势提示词' : '确认并替换当前提示词'}</Button>
               </Card>
             )}
