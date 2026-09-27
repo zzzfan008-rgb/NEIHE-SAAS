@@ -345,7 +345,8 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer; analyze
         await expire(owner,client);
         const key = resolved.configuration;
         const prior = await queryOne<Row>('SELECT * FROM pose_references WHERE owner_id=$1 AND project_id=$2 AND node_id=$3 AND source=$4 AND kind=$5 AND configuration=$6', [owner,input.projectId,input.nodeId,resolved.source,kind,key],client);
-        if (prior && (prior.status==='running' || prior.status==='succeeded' || !retry || prior.attempt===requestId)) return prior;
+        const reusableSuccess = prior?.status === 'succeeded' && (kind !== 'skeleton' || Boolean(prior.result?.pose));
+        if (prior && (prior.status==='running' || reusableSuccess || !retry || prior.attempt===requestId)) return prior;
         const active = await queryOne<{count:number}>("SELECT COUNT(*)::int AS count FROM pose_references WHERE owner_id=$1 AND status='running'",[owner],client);
         if ((active?.count??0)>=2) throw new RequestError(429,'已有姿势任务运行中，请稍后重试');
         if (!prior) {

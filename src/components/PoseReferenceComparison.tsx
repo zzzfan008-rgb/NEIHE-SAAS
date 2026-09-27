@@ -84,7 +84,8 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
   const [openingPoseEditor, setOpeningPoseEditor] = useState(false);
   const [poseEditorOpenError, setPoseEditorOpenError] = useState<string | null>(null);
   const poseEditorTriggerRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => () => { poseEditorSessionRef.current = null; }, []);
+  const editorRequestRef = useRef(0);
+  useEffect(() => () => { editorRequestRef.current++; poseEditorSessionRef.current = null; }, [key]);
   const running = neutralOutfitPending ||
     Object.values(referenceState.records).some(record => record?.status === 'running') ||
     Object.values(referenceState.busy).some(Boolean) ||
@@ -124,8 +125,9 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
       kind === 'skeleton' ? skeletonAnalysisSourceRecordId : undefined,
     );
 
-  const openPoseEditor = async () => {
+  const openPoseEditor = async (blank = false) => {
     if (readOnly || openingPoseEditor) return;
+    const request = ++editorRequestRef.current;
     setOpeningPoseEditor(true);
     setPoseEditorOpenError(null);
     try {
@@ -135,7 +137,14 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
         throw new Error('文档已变化，请关闭后重新打开编辑器');
       }
       const editRevision = JSON.stringify(origin.data.poseDocument ?? null);
-      const storedDocument = isPoseDocumentBoundToImage(origin.data.poseDocument, source)
+      const assertCurrent = () => {
+        const latestTab = useFlowStore.getState().tabs.find(candidate => candidate.id === stableTarget.tabId && candidate.projectId === stableTarget.projectId && candidate.documentEpoch === stableTarget.documentEpoch);
+        const latest = latestTab?.nodes.find(candidate => candidate.id === nodeId);
+        if (request !== editorRequestRef.current || !latestTab || latestTab.readOnly || latest?.data.kind !== 'image-input' || latest.data.imageUrl !== source || JSON.stringify(latest.data.poseDocument ?? null) !== editRevision) {
+          throw new Error('文档已变化，请关闭后重新打开编辑器');
+        }
+      };
+      const storedDocument = !blank && isPoseDocumentBoundToImage(origin.data.poseDocument, source)
         ? structuredClone(origin.data.poseDocument)
         : undefined;
       let analysisSource = storedDocument?.source.analysisImage ?? skeletonAnalysisSource;
@@ -145,20 +154,46 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
       if (storedDocument) {
         document = storedDocument;
       } else {
-        const pose = skeletonRecord?.result?.pose;
-        if (skeletonRecord?.result && pose) {
-          const result = skeletonRecord.result;
+        let record = usePoseReferenceRuntime.getState().entries[skeletonReferenceKey]?.records.skeleton;
+        if (!blank && !record?.result?.pose) {
+          await restorePoseReferences(stableTarget, nodeId, source, skeletonAnalysisSource, skeletonAnalysisSourceRecordId);
+          assertCurrent();
+          record = usePoseReferenceRuntime.getState().entries[skeletonReferenceKey]?.records.skeleton;
+          if (!record?.result?.pose) {
+            await generatePoseReference(stableTarget, nodeId, source, 'skeleton', true, skeletonAnalysisSource, skeletonAnalysisSourceRecordId);
+            const deadline = Date.now() + 180_000;
+            while (true) {
+              assertCurrent();
+              const latest = usePoseReferenceRuntime.getState().entries[skeletonReferenceKey];
+              record = latest?.records.skeleton;
+              if (latest?.errors.skeleton) throw new Error(latest.errors.skeleton);
+              if (record?.status === 'succeeded') {
+                if (!record.result?.pose) throw new Error('DWPose 未返回骨骼点位，请重试识别');
+                break;
+              }
+              if (record?.status === 'failed' || record?.status === 'outcome_unknown') throw new Error(record.error || '骨骼识别失败，请重试');
+              if (Date.now() >= deadline) throw new Error('骨骼识别超时，请稍后重试');
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              assertCurrent();
+              await restorePoseReferences(stableTarget, nodeId, source, skeletonAnalysisSource, skeletonAnalysisSourceRecordId);
+            }
+          }
+        }
+        const pose = blank ? undefined : record?.result?.pose;
+        if (record?.result && pose) {
+          const result = record.result;
           document = poseDocumentFromDWPose(pose, {
             source: {
               analysisImage: skeletonAnalysisSource,
               kind: analysisSourceKind,
               model: typeof result.model === 'string' ? result.model : 'dwpose-wholebody',
               ...(typeof result.checkpoint === 'string' && /^[a-f0-9]{64}$/.test(result.checkpoint) ? { checkpoint: result.checkpoint } : {}),
-              ...(skeletonRecord.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(skeletonRecord.id) ? { recordId: skeletonRecord.id } : {}),
+              ...(record.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(record.id) ? { recordId: record.id } : {}),
             },
             imageBinding: source,
           });
         } else {
+          if (!blank) throw new Error('未找到可编辑的 DWPose 点位，请重试识别');
           const dimensions = await readImageDimensions(source);
           const emptyDocument = createEmptyPoseDocument({ image: skeletonAnalysisSource, ...dimensions });
           document = validatePoseDocument({
@@ -173,6 +208,7 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
           });
         }
       }
+      assertCurrent();
       const session: PoseEditorSession = {
         id: globalThis.crypto.randomUUID(),
         documentKey: key,
@@ -186,9 +222,9 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
       poseEditorSessionRef.current = session;
       setPoseEditorSession(session);
     } catch (error) {
-      setPoseEditorOpenError(error instanceof Error ? error.message : '无法打开2D姿势编辑器');
+      if (request === editorRequestRef.current) setPoseEditorOpenError(error instanceof Error ? error.message : '无法打开姿势编辑器');
     } finally {
-      setOpeningPoseEditor(false);
+      if (request === editorRequestRef.current) setOpeningPoseEditor(false);
     }
   };
 
@@ -470,10 +506,11 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
                       size="xs"
                       variant="outline"
                       disabled={openingPoseEditor || running}
-                      onClick={() => void openPoseEditor()}
+                      onClick={(event) => { poseEditorTriggerRef.current = event.currentTarget; void openPoseEditor(); }}
                     >
-                      {openingPoseEditor ? '准备编辑器…' : skeletonRecord?.result?.pose ? '编辑2D骨架' : '手绘2D骨架'}
+                      {openingPoseEditor ? '正在载入骨骼…' : poseEditorOpenError ? '重试载入骨骼' : '编辑2D骨架'}
                     </Button>
+                    <Button size="xs" variant="outline" disabled={openingPoseEditor || running} onClick={(event) => { poseEditorTriggerRef.current = event.currentTarget; void openPoseEditor(true); }}>新建空白骨架</Button>
                     {poseEditorOpenError && <p role="alert" className="mt-2 w-full text-xs text-red-600">{poseEditorOpenError}</p>}
                   </>
                 )}

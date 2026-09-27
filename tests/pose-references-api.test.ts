@@ -276,6 +276,16 @@ try {
     const completed=await (await req('GET')).json();
     assert.equal(completed.records.find((r:any)=>r.kind==='skeleton').result.model,'dwpose-wholebody');
     assert.equal((await queryOne<{provider_requests:number}>('SELECT provider_requests FROM pose_references WHERE id=$1',[local.id]))?.provider_requests,0);
+    const localRequest = (requestId: string) => fetch(base+'/api/pose-local',{method:'POST',headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions.owner}`},body:JSON.stringify({...body,kind:'skeleton',requestId,retry:true})});
+    assert.equal((await localRequest('reload-missing-points')).status,202,'图片缓存缺少点位时应重新运行本地 DWPose');
+    for(let i=0;i<100;i++) {
+      if((await queryOne<{status:string}>('SELECT status FROM pose_references WHERE id=$1',[local.id]))?.status==='succeeded') break;
+      await new Promise(r=>setTimeout(r,10));
+    }
+    assert.equal((await localRequest('reload-missing-points')).status,200,'相同请求不得重复执行');
+    const structuredPose={schemaVersion:1,canvas:{width:30,height:50},people:[{keypoints:Array.from({length:133},()=>({x:0.5,y:0.5,confidence:1}))}]};
+    await query("UPDATE pose_references SET result=jsonb_set(result,'{pose}',$2::jsonb) WHERE id=$1",[local.id,JSON.stringify(structuredPose)]);
+    assert.equal((await localRequest('reuse-structured-points')).status,200,'已有点位的成功结果必须复用');
   } finally {finishWorker!();globalThis.fetch=savedFetch;}
   flow.nodes[0].data.imageUrl='/api/files/replacement.png';
   await query("UPDATE projects SET flow_json=$1 WHERE id='project'",[JSON.stringify(flow)]);

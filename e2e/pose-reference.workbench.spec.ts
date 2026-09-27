@@ -14,6 +14,57 @@ async function setup(page: Page) {
     useFlowStore.getState().setSelectedNodeIds(['pose-test']);
   });
 }
+for (const scenario of ['cached', 'legacy', 'retry', 'closed'] as const) {
+  test(`pose editor loads detected skeleton: ${scenario}`, async ({ page }) => {
+    const png = await sharp({ create: { width: 300, height: 500, channels: 3, background: '#869ca7' } }).png().toBuffer();
+    const image = 'data:image/png;base64,' + png.toString('base64');
+    const pose = { schemaVersion: 1, canvas: { width: 300, height: 500 }, people: [{ keypoints: Array.from({ length: 133 }, (_, i) => ({ x: 0.3 + (i % 3) * 0.1, y: 0.2 + (i % 7) * 0.08, confidence: 1 })) }] };
+    let posts = 0;
+    let finish = false;
+    let record: any = scenario === 'cached' || scenario === 'legacy' ? { id: 'skeleton', kind: 'skeleton', source: '/api/files/pose-source.png', status: 'succeeded', result: { image, model: 'dwpose-wholebody', ...(scenario === 'cached' ? { pose } : {}) } } : undefined;
+    await page.route('**/api/files/pose-source.png', route => route.fulfill({ contentType: 'image/png', body: png }));
+    await page.route('**/api/pose-references**', async route => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/outfit')) return route.fulfill({ json: { record: null } });
+      if (url.pathname.endsWith('/analyze')) return route.fulfill({ json: { prompt: '站立', model: 'test', providerRequests: 0, cacheHit: false } });
+      if (route.request().method() === 'POST') {
+        posts++;
+        record = { id: 'skeleton', kind: 'skeleton', source: '/api/files/pose-source.png', status: scenario === 'retry' && posts === 1 ? 'failed' : 'running', error: '测试识别失败' };
+      } else if (finish && record?.status === 'running') {
+        record = { ...record, status: 'succeeded', result: { image, model: 'dwpose-wholebody', pose } };
+      }
+      return route.fulfill({ json: route.request().method() === 'GET' ? { records: record ? [record] : [] } : record });
+    });
+    await setup(page);
+    await page.getByRole('button', { name: '查看对比', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '姿势参考对比' });
+    await dialog.getByRole('button', { name: '编辑2D骨架', exact: true }).click();
+    const editor = page.getByRole('dialog', { name: '2D 姿势编辑' });
+    if (scenario === 'retry') {
+      await expect(dialog.getByRole('alert').filter({ hasText: '测试识别失败' }).last()).toBeVisible();
+      await expect(editor).toHaveCount(0);
+      await dialog.getByRole('button', { name: '重试载入骨骼', exact: true }).click();
+    }
+    if (scenario !== 'cached') {
+      await expect(dialog.getByRole('button', { name: '正在载入骨骼…', exact: true })).toBeDisabled();
+      await expect(editor).toHaveCount(0);
+      if (scenario === 'closed') {
+        await page.keyboard.press('Escape');
+        await expect(dialog).toHaveCount(0);
+        finish = true;
+        await page.getByRole('button', { name: '查看对比', exact: true }).click();
+        await expect(dialog).toBeVisible();
+        await expect(editor).toHaveCount(0);
+        return;
+      }
+      finish = true;
+    }
+    await expect(editor).toBeVisible();
+    await expect(editor.locator('svg line').first()).toBeVisible();
+    await expect(editor.getByRole('spinbutton', { name: '关键点 X 坐标' })).toHaveValue('90');
+    expect(posts).toBe(scenario === 'cached' ? 0 : scenario === 'retry' ? 2 : 1);
+  });
+}
 
 test('pose comparison persists, preserves partial results and fits three desktop widths',async({page},testInfo)=>{
   const png=await sharp({create:{width:300,height:500,channels:3,background:'#869ca7'}}).png().toBuffer();
@@ -144,7 +195,7 @@ test('pose comparison persists, preserves partial results and fits three desktop
   await expect(dialog).toHaveCount(0);
   await page.getByRole('button',{name:'查看对比',exact:true}).click();
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button',{name:'手绘2D骨架',exact:true}).click();
+  await dialog.getByRole('button',{name:'新建空白骨架',exact:true}).click();
   const editor=page.getByRole('dialog',{name:'2D 姿势编辑'});
   await expect(editor).toBeVisible();
   await editor.getByRole('tab',{name:'3D IK',exact:true}).click();
@@ -215,7 +266,7 @@ test('pose comparison persists, preserves partial results and fits three desktop
   await page.locator('.react-flow__node[data-id="pose-test"]').click();
   await page.getByRole('button',{name:'查看对比',exact:true}).click();
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button',{name:'手绘2D骨架',exact:true}).click();
+  await dialog.getByRole('button',{name:'编辑2D骨架',exact:true}).click();
   await expect(editor).toBeVisible();
   const reeditedX=editor.getByRole('spinbutton',{name:'关键点 X 坐标'});
   await expect(reeditedX).toHaveValue(String(editedPoseNode?.poseDocument?.people?.[0]?.body?.[0]?.x));
