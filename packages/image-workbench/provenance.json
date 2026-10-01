@@ -1,0 +1,3730 @@
+{
+  "sourceCommit": "162ba7f5fa566695cdfa5ff3641d745817ab7ac7",
+  "extraction": "Original React/TypeScript and Node/Express dependency closure; no Rust/Go or target-host adapter.",
+  "files": [
+    {
+      "path": "compose.test.yaml",
+      "originalSha256": "da26ca9b6cdb45d60e36a8f0d5edb0636644272fff475e4a0a97310c1a10f289",
+      "extractedSha256": "da26ca9b6cdb45d60e36a8f0d5edb0636644272fff475e4a0a97310c1a10f289",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/async-runtime.md",
+      "originalSha256": "fc7282bfc259abb78e80b7b6710981606338409833f78798545cbf5ef7d47029",
+      "extractedSha256": "fc7282bfc259abb78e80b7b6710981606338409833f78798545cbf5ef7d47029",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/input-image-normalization.md",
+      "originalSha256": "2e2fcc38d946d22714fc76b1592203a1f0579c068464dc9aea0ac7587b54ea3d",
+      "extractedSha256": "2e2fcc38d946d22714fc76b1592203a1f0579c068464dc9aea0ac7587b54ea3d",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/model-contracts.json",
+      "originalSha256": "b71cf5c0f8edbf934ef24bbce00f7bfc57e01a86148d847cdb62638286dd8bcb",
+      "extractedSha256": "b71cf5c0f8edbf934ef24bbce00f7bfc57e01a86148d847cdb62638286dd8bcb",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/models/flux-2-pro.md",
+      "originalSha256": "4b85cb55d87663810bc9bb0a327b68f13aaeeb1bff3c12cb1a71b02ca36c09a5",
+      "extractedSha256": "4b85cb55d87663810bc9bb0a327b68f13aaeeb1bff3c12cb1a71b02ca36c09a5",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/models/gemini-3.1-flash-image.md",
+      "originalSha256": "3b97af10b6537f0e2892302d82c6de5fa2649b0dac2bab3232dc9b3ebe37d78e",
+      "extractedSha256": "3b97af10b6537f0e2892302d82c6de5fa2649b0dac2bab3232dc9b3ebe37d78e",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/models/gpt-image-2-vip.md",
+      "originalSha256": "7ffb750509fdeb56c3f8a8fee3b404134357e1a4139e66e03cb8ba192af4f3ca",
+      "extractedSha256": "7ffb750509fdeb56c3f8a8fee3b404134357e1a4139e66e03cb8ba192af4f3ca",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/models/gpt-image-2.md",
+      "originalSha256": "cdf5222f952bcf0286c00d7ab7f5c1ef783c769f1543e45e9dace78a8ba631d8",
+      "extractedSha256": "cdf5222f952bcf0286c00d7ab7f5c1ef783c769f1543e45e9dace78a8ba631d8",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/models/grok-imagine-image.md",
+      "originalSha256": "6e0fca2c1bc2e8803e6daf1fe89dffd8906bf531cf8f96ebaca5fad489a23ef0",
+      "extractedSha256": "6e0fca2c1bc2e8803e6daf1fe89dffd8906bf531cf8f96ebaca5fad489a23ef0",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/models/seedream-5-0-260128.md",
+      "originalSha256": "f6393ae9f29ac52e2de2f4e18dffb5559b1cfa008a83cd1c1d75db3fd1660031",
+      "extractedSha256": "f6393ae9f29ac52e2de2f4e18dffb5559b1cfa008a83cd1c1d75db3fd1660031",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/README.md",
+      "originalSha256": "b17d3e91c7140af0d951df78b67eaf20ad5c892d0dd67243bd52b4c14f6ec182",
+      "extractedSha256": "b17d3e91c7140af0d951df78b67eaf20ad5c892d0dd67243bd52b4c14f6ec182",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "docs/ai/apiyi/sources.json",
+      "originalSha256": "cda832867cc199bb4349e05cf098993c3f9df5f35238279a9011bc5511340ca5",
+      "extractedSha256": "cda832867cc199bb4349e05cf098993c3f9df5f35238279a9011bc5511340ca5",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "originalSha256": "0900a28414c34a815a40e2ba7fcb07840bc51cd70aa424c22ac20b80afa8a5fe",
+      "extractedSha256": "0b476215ee87df2194d0b8853822cb0cebc7429d1229bf1affa85047c02db3eb",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "pnpm-workspace.yaml",
+      "originalSha256": "96cd02df0c275656f6afbcdb1c45851a4eef4efa04ec213a73c7fc82d9f3d9d4",
+      "extractedSha256": "96cd02df0c275656f6afbcdb1c45851a4eef4efa04ec213a73c7fc82d9f3d9d4",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "scripts/depth/requirements.txt",
+      "originalSha256": "e3fc90ea5d3c951e3211d684dae18f7b50bdbfc74efbfa7b0915fb510271e68f",
+      "extractedSha256": "e3fc90ea5d3c951e3211d684dae18f7b50bdbfc74efbfa7b0915fb510271e68f",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "scripts/depth/service.py",
+      "originalSha256": "8f43770948c6dd9d37d1654448bab97cc87ee4d19b11be8edc089b6e2ba0c8ee",
+      "extractedSha256": "8f43770948c6dd9d37d1654448bab97cc87ee4d19b11be8edc089b6e2ba0c8ee",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "scripts/package-manager.mjs",
+      "originalSha256": "27143472643964898357314e38cd5b5cb3b20702017644becc0fbe4bf886fae8",
+      "extractedSha256": "27143472643964898357314e38cd5b5cb3b20702017644becc0fbe4bf886fae8",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "scripts/pose/requirements.txt",
+      "originalSha256": "1a66f7d160762c420d82e4ae3f5194647f3d5b72587d406aa93b79af823cfd7f",
+      "extractedSha256": "1a66f7d160762c420d82e4ae3f5194647f3d5b72587d406aa93b79af823cfd7f",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "scripts/pose/service.py",
+      "originalSha256": "bbe71d5e2ebf9d334c495173f9bc5719cd4f2df693b36f7c76ab90b78238278f",
+      "extractedSha256": "bbe71d5e2ebf9d334c495173f9bc5719cd4f2df693b36f7c76ab90b78238278f",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "scripts/pose/setup.sh",
+      "originalSha256": "adb061528418a40200680d6d85acf1ea42b56dfd76da0e88dc15a6b1468d3d81",
+      "extractedSha256": "adb061528418a40200680d6d85acf1ea42b56dfd76da0e88dc15a6b1468d3d81",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "scripts/test-with-postgres.mjs",
+      "originalSha256": "9c32264b34bcfaff331aff10c642d095810148066150bb7b0d0923c453a71f8a",
+      "extractedSha256": "9c32264b34bcfaff331aff10c642d095810148066150bb7b0d0923c453a71f8a",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "scripts/package-manager.mjs"
+      ]
+    },
+    {
+      "path": "server/config.ts",
+      "originalSha256": "944ee9176d39bb6338ec2eb4c97859c68762042130f360e6f9a514508c0b6486",
+      "extractedSha256": "944ee9176d39bb6338ec2eb4c97859c68762042130f360e6f9a514508c0b6486",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/engine/dag.ts",
+      "originalSha256": "b280ada61b90517aa41cd78bde81fdc1ae31330c99cf800168c6d34933d81402",
+      "extractedSha256": "b280ada61b90517aa41cd78bde81fdc1ae31330c99cf800168c6d34933d81402",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/maskRepair.ts",
+        "src/lib/multiImageTryOn.ts",
+        "src/lib/seedance.ts",
+        "src/lib/styling.ts",
+        "src/lib/tiAngle.ts",
+        "src/lib/workflowPorts.ts",
+        "src/types/imageModels.ts",
+        "src/types/poseReference.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/engine/imageConversationExecution.ts",
+      "originalSha256": "551775f073f89559eccedfc4c9fcc3c615eaec00bf5da459f688506ca0502f8f",
+      "extractedSha256": "551775f073f89559eccedfc4c9fcc3c615eaec00bf5da459f688506ca0502f8f",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/runQueue.ts",
+        "server/lib/database.ts",
+        "server/lib/imageConversationStore.ts",
+        "server/lib/imageReferenceAccess.ts",
+        "src/lib/imageConversationRules.ts",
+        "src/types/imageConversation.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/engine/imageConversationReconciliation.ts",
+      "originalSha256": "209323ce9e27d017d1f189e3e1b4197a2db9ac60cec6c1b21dd97156e6ddd819",
+      "extractedSha256": "209323ce9e27d017d1f189e3e1b4197a2db9ac60cec6c1b21dd97156e6ddd819",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/database.ts",
+        "server/lib/imageConversationStore.ts"
+      ]
+    },
+    {
+      "path": "server/engine/runner.ts",
+      "originalSha256": "7d566b6cebad98543029175649f9e5c8d9eb278fb28bdf1225d709f67045559b",
+      "extractedSha256": "7d566b6cebad98543029175649f9e5c8d9eb278fb28bdf1225d709f67045559b",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/generationRecords.ts",
+        "server/lib/imagePostProcessing.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/maskProcessing.ts",
+        "server/lib/multiImageTryOn.ts",
+        "server/lib/outfitAnalysis.ts",
+        "server/lib/promptEnhancement.ts",
+        "server/lib/sceneAnalysis.ts",
+        "server/lib/sketchOptimization.ts",
+        "server/lib/tryOnCandidateSelection.ts",
+        "server/lib/tryOnStyle.ts",
+        "server/lib/uploadImageNormalization.ts",
+        "server/providers/apiyiVideo.ts",
+        "server/providers/base.ts",
+        "server/providers/exact.ts",
+        "server/providers/index.ts",
+        "src/lib/colors.ts",
+        "src/lib/multiImageTryOn.ts",
+        "src/lib/sceneReferenceOrder.ts",
+        "src/lib/seedance.ts",
+        "src/lib/styling.ts",
+        "src/lib/tiAngle.ts",
+        "src/lib/tryOnStylePresets.ts",
+        "src/lib/workflowPorts.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/engine/runQueue.ts",
+      "originalSha256": "bcc22347d1d5eab05d6e7370067a3c7804d4492d81ec316b15ec8e9c30864667",
+      "extractedSha256": "bcc22347d1d5eab05d6e7370067a3c7804d4492d81ec316b15ec8e9c30864667",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/engine/imageConversationReconciliation.ts",
+        "server/engine/runner.ts",
+        "server/lib/database.ts",
+        "server/lib/executionInputFingerprint.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/generationLimits.ts",
+        "server/lib/generationRecords.ts",
+        "server/lib/ownerMutation.ts",
+        "server/lib/sceneAnalysis.ts",
+        "server/lib/tryOnCandidateSelection.ts",
+        "server/providers/apiyiVideo.ts",
+        "server/providers/base.ts",
+        "server/providers/index.ts",
+        "src/lib/workflowPorts.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/lib/adobeSwatches.ts",
+      "originalSha256": "8fd243bc2f80e212db26511f12576d13d07d8fc183b7497c8f6fcbe4560470f3",
+      "extractedSha256": "8fd243bc2f80e212db26511f12576d13d07d8fc183b7497c8f6fcbe4560470f3",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/colorCatalog.ts"
+      ]
+    },
+    {
+      "path": "server/lib/asyncHandler.ts",
+      "originalSha256": "e467cbaf50a8c8153535ebede471e5c185345e777d9a2cd5a44f059c508a8c9b",
+      "extractedSha256": "e467cbaf50a8c8153535ebede471e5c185345e777d9a2cd5a44f059c508a8c9b",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/atomicJson.ts",
+      "originalSha256": "4c30ba9c0674e41d68dca733f5b97225e160e41d48f6aea0d5b14056876ebbdb",
+      "extractedSha256": "4c30ba9c0674e41d68dca733f5b97225e160e41d48f6aea0d5b14056876ebbdb",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/auth.ts",
+      "originalSha256": "ead321d7335effc69c680d5cfe6f28166e0f2a25c8a4e4a30e57b1a0fe6f4985",
+      "extractedSha256": "ead321d7335effc69c680d5cfe6f28166e0f2a25c8a4e4a30e57b1a0fe6f4985",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/database.ts"
+      ]
+    },
+    {
+      "path": "server/lib/brandColorMigration.ts",
+      "originalSha256": "014e11b55bffaef06dbd72d82b267bff28e6795b7258ed3adb2f38df2d110599",
+      "extractedSha256": "014e11b55bffaef06dbd72d82b267bff28e6795b7258ed3adb2f38df2d110599",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/brandColorStore.ts",
+      "originalSha256": "e38f9d4cb1fd39edbf071796d6ca7abef32b720e3e569156a1b4e2678ebfe771",
+      "extractedSha256": "e38f9d4cb1fd39edbf071796d6ca7abef32b720e3e569156a1b4e2678ebfe771",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/brandColorValidation.ts",
+        "server/lib/colorCatalogRelease.ts",
+        "server/lib/database.ts",
+        "src/types/brandColors.ts"
+      ]
+    },
+    {
+      "path": "server/lib/brandColorValidation.ts",
+      "originalSha256": "0cfb95f5d7b764f2dcd0a3f11c3a7f30edb279769daa7d91914cce4d7abd14a3",
+      "extractedSha256": "0cfb95f5d7b764f2dcd0a3f11c3a7f30edb279769daa7d91914cce4d7abd14a3",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/colorCatalogRelease.ts",
+        "src/types/brandColors.ts"
+      ]
+    },
+    {
+      "path": "server/lib/colorArchive.ts",
+      "originalSha256": "2c6f420a5c9e6558733ebbdcf84fda8a66a9bb36fee92448c07ec2a1b8bbeb0a",
+      "extractedSha256": "2c6f420a5c9e6558733ebbdcf84fda8a66a9bb36fee92448c07ec2a1b8bbeb0a",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/colorCatalog.ts",
+      "originalSha256": "6279cf65522ea9696101ff457181c7ddd2b94b1aeabbb4be687f7ab5e49a4a2e",
+      "extractedSha256": "6279cf65522ea9696101ff457181c7ddd2b94b1aeabbb4be687f7ab5e49a4a2e",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/adobeSwatches.ts",
+        "server/lib/colorScience.ts",
+        "src/types/colorImport.ts"
+      ]
+    },
+    {
+      "path": "server/lib/colorCatalogMigration.ts",
+      "originalSha256": "0580d8e8e583952a07d344d2a45535919fe8f623a67462d902c3076aac66d678",
+      "extractedSha256": "0580d8e8e583952a07d344d2a45535919fe8f623a67462d902c3076aac66d678",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/colorCatalogRelease.ts",
+      "originalSha256": "2ad67810169390015f1647f8763ab9754dd539d710dbdf35fd9d8fd7d886e477",
+      "extractedSha256": "2ad67810169390015f1647f8763ab9754dd539d710dbdf35fd9d8fd7d886e477",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/colorCatalog.ts"
+      ]
+    },
+    {
+      "path": "server/lib/colorCatalogStore.ts",
+      "originalSha256": "bf0f461c1ecf8c5fbec1b7ac928689a3d2a25692e1fdac40595151df06597a86",
+      "extractedSha256": "bf0f461c1ecf8c5fbec1b7ac928689a3d2a25692e1fdac40595151df06597a86",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/colorCatalog.ts",
+        "server/lib/colorCatalogRelease.ts",
+        "server/lib/database.ts",
+        "src/types/colorImport.ts",
+        "src/types/colorManagement.ts"
+      ]
+    },
+    {
+      "path": "server/lib/colorImport.ts",
+      "originalSha256": "446fc95147521f3e7e729b63958e144180ec01acfb0d5ef1f758ee99943d7824",
+      "extractedSha256": "446fc95147521f3e7e729b63958e144180ec01acfb0d5ef1f758ee99943d7824",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/adobeSwatches.ts",
+        "server/lib/colorCatalog.ts",
+        "server/lib/colorScience.ts",
+        "server/lib/xlsxColorRows.ts",
+        "src/types/colorImport.ts"
+      ]
+    },
+    {
+      "path": "server/lib/colorImportStore.ts",
+      "originalSha256": "0240d4124abaa5832d60f8eb62f75a4e4ee6a49ad4f71c22b370212941276cee",
+      "extractedSha256": "0240d4124abaa5832d60f8eb62f75a4e4ee6a49ad4f71c22b370212941276cee",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/brandColorStore.ts",
+        "server/lib/brandColorValidation.ts",
+        "server/lib/colorCatalogRelease.ts",
+        "server/lib/colorCatalogStore.ts",
+        "server/lib/colorImport.ts",
+        "server/lib/database.ts",
+        "src/types/brandColors.ts",
+        "src/types/colorImport.ts"
+      ]
+    },
+    {
+      "path": "server/lib/colorScience.ts",
+      "originalSha256": "21e81e9baf4e09fa55636965171583c578e0a8a7c62f5910dfbbcafb64620c63",
+      "extractedSha256": "21e81e9baf4e09fa55636965171583c578e0a8a7c62f5910dfbbcafb64620c63",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/colorPalette.ts",
+        "src/types/colorCatalog.ts",
+        "src/types/colorImport.ts"
+      ]
+    },
+    {
+      "path": "server/lib/database.ts",
+      "originalSha256": "f95bd06cb78557da194a64cbe78a602b291ee832173f731ca339a573e8173039",
+      "extractedSha256": "f95bd06cb78557da194a64cbe78a602b291ee832173f731ca339a573e8173039",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/brandColorMigration.ts",
+        "server/lib/colorCatalogMigration.ts",
+        "server/lib/imageConversationMigration.ts",
+        "server/lib/imageConversationPlanningMigration.ts",
+        "server/lib/imageConversationRequestsMigration.ts",
+        "server/lib/imageConversationStartNewMigration.ts",
+        "server/lib/materialAnalysisMigration.ts",
+        "server/lib/password.ts",
+        "server/lib/poseReferenceMigration.ts",
+        "server/lib/sqliteImport.ts"
+      ]
+    },
+    {
+      "path": "server/lib/depthAnalysis.ts",
+      "originalSha256": "2847230369c073ba6f3dc20039e2cf08f58ace68bd2732b035f9b958b82be0fc",
+      "extractedSha256": "2847230369c073ba6f3dc20039e2cf08f58ace68bd2732b035f9b958b82be0fc",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/imageValidation.ts"
+      ]
+    },
+    {
+      "path": "server/lib/drawingBoard.ts",
+      "originalSha256": "7df7335830a8ce157318de839f53717f76ab6d9e12df0efad20f58f52bf1427f",
+      "extractedSha256": "7df7335830a8ce157318de839f53717f76ab6d9e12df0efad20f58f52bf1427f",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/components/drawing/drawingModel.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/lib/dwposeAnalysis.ts",
+      "originalSha256": "e5a982cbd3307ecd5e0696fe9cbccfd5e227d1856a97326e85bfa9395694c85e",
+      "extractedSha256": "e5a982cbd3307ecd5e0696fe9cbccfd5e227d1856a97326e85bfa9395694c85e",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/imageValidation.ts",
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "server/lib/executionInputFingerprint.ts",
+      "originalSha256": "8d3d12dca4013d84195110dbd9f9332d66a7b1cb1e80fa2b9a99f833d319d151",
+      "extractedSha256": "8d3d12dca4013d84195110dbd9f9332d66a7b1cb1e80fa2b9a99f833d319d151",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/lib/fileStore.ts",
+      "originalSha256": "0e6a8bf2ede0d6d9005409d65ee797b7b9b6d8f1a33aa7368f27788f74f31dad",
+      "extractedSha256": "0e6a8bf2ede0d6d9005409d65ee797b7b9b6d8f1a33aa7368f27788f74f31dad",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/imageProcessingLimit.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/uploadImageNormalization.ts",
+        "server/providers/base.ts"
+      ]
+    },
+    {
+      "path": "server/lib/generationLimits.ts",
+      "originalSha256": "20ddf44f22cedf7e617f74129dd6e5184bb2a47eec10b035c485137d44ada900",
+      "extractedSha256": "20ddf44f22cedf7e617f74129dd6e5184bb2a47eec10b035c485137d44ada900",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/generationRecords.ts",
+      "originalSha256": "3b31725725194ef4a698cc8b50f3c9769d69e408b5274d240fdd936e595874cc",
+      "extractedSha256": "3b31725725194ef4a698cc8b50f3c9769d69e408b5274d240fdd936e595874cc",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts"
+      ]
+    },
+    {
+      "path": "server/lib/imageConversationMigration.ts",
+      "originalSha256": "a3b20c75990862890382dafe83d0dd5fc3b4d5995530fbffedabf4627c30e279",
+      "extractedSha256": "a3b20c75990862890382dafe83d0dd5fc3b4d5995530fbffedabf4627c30e279",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/imageConversationPlanner.ts",
+      "originalSha256": "18a87658ebd3727f5e9217f9c810fe1640b16bb48e7bd2a7ec1c86202b0a3be3",
+      "extractedSha256": "18a87658ebd3727f5e9217f9c810fe1640b16bb48e7bd2a7ec1c86202b0a3be3",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/imageConversationRules.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "server/lib/imageConversationPlanningMigration.ts",
+      "originalSha256": "25cc6f78bedaba95417784ebb2165e8ad9febc8353429bfd10a9dcc5a4eb38b6",
+      "extractedSha256": "25cc6f78bedaba95417784ebb2165e8ad9febc8353429bfd10a9dcc5a4eb38b6",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/imageConversationRequests.ts",
+      "originalSha256": "2cfe096008ca8bca9df5deacddb088a1f5cb5390b0d7687d68bcbbf505d71b9c",
+      "extractedSha256": "2cfe096008ca8bca9df5deacddb088a1f5cb5390b0d7687d68bcbbf505d71b9c",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/database.ts",
+        "server/lib/imageConversationStore.ts"
+      ]
+    },
+    {
+      "path": "server/lib/imageConversationRequestsMigration.ts",
+      "originalSha256": "6b36f81fd02d5bf610e4298a95751b5c06b6da33a51bf4b5514c34bc04807213",
+      "extractedSha256": "6b36f81fd02d5bf610e4298a95751b5c06b6da33a51bf4b5514c34bc04807213",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/imageConversationStartNewMigration.ts",
+      "originalSha256": "df3064da2c87e33202a057a4e03fe0246623c2e68ac04d8826652f20e123dccc",
+      "extractedSha256": "df3064da2c87e33202a057a4e03fe0246623c2e68ac04d8826652f20e123dccc",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/imageConversationStore.ts",
+      "originalSha256": "94be2f11a2f5bd4f6cf4b01410cd71f8b8d8e0f39a106e7f60c2e2b343558407",
+      "extractedSha256": "94be2f11a2f5bd4f6cf4b01410cd71f8b8d8e0f39a106e7f60c2e2b343558407",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/imageConversationExecution.ts",
+        "server/engine/imageConversationReconciliation.ts",
+        "server/lib/database.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/ownerMutation.ts",
+        "src/lib/imageConversationRules.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "server/lib/imagePostProcessing.ts",
+      "originalSha256": "78c576ad50baf13e5f2eab69ed51f45b5a7377e4c92face331b72d4924b2c9d8",
+      "extractedSha256": "78c576ad50baf13e5f2eab69ed51f45b5a7377e4c92face331b72d4924b2c9d8",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/fileStore.ts",
+        "server/lib/imageProcessingLimit.ts",
+        "server/lib/imageValidation.ts"
+      ]
+    },
+    {
+      "path": "server/lib/imageProcessingLimit.ts",
+      "originalSha256": "de2122659624ea6dbc5408f3a8094d7d54013cb6112abbc11b7c07e742b97c38",
+      "extractedSha256": "de2122659624ea6dbc5408f3a8094d7d54013cb6112abbc11b7c07e742b97c38",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/imageReferenceAccess.ts",
+      "originalSha256": "4d3a2b4d025d3b15c153f5836b4aeb2d29e0648e3a3a84764f575172ffdd305b",
+      "extractedSha256": "4d3a2b4d025d3b15c153f5836b4aeb2d29e0648e3a3a84764f575172ffdd305b",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts"
+      ]
+    },
+    {
+      "path": "server/lib/imageValidation.ts",
+      "originalSha256": "53de6055c428ac3db734f0c13a47f584ec34c1e1850809878c076da76954428e",
+      "extractedSha256": "53de6055c428ac3db734f0c13a47f584ec34c1e1850809878c076da76954428e",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/legacyMigration.ts",
+      "originalSha256": "dd95203ef509aab6c2f5ec102fbb7aa19d4eceba0e467db7a71356f66de3cd66",
+      "extractedSha256": "dd95203ef509aab6c2f5ec102fbb7aa19d4eceba0e467db7a71356f66de3cd66",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/database.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/workflowSchema.ts"
+      ]
+    },
+    {
+      "path": "server/lib/maskProcessing.ts",
+      "originalSha256": "4589874ad16b47437700e304b5dcf38b717103db898e14b451acc5805f26f698",
+      "extractedSha256": "4589874ad16b47437700e304b5dcf38b717103db898e14b451acc5805f26f698",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/imageProcessingLimit.ts",
+        "server/lib/imageValidation.ts",
+        "server/providers/base.ts",
+        "src/lib/maskGeometry.ts"
+      ]
+    },
+    {
+      "path": "server/lib/materialAnalysis.ts",
+      "originalSha256": "bb249fc173f6c778d30fa31e9e3f66d5275672e06617f6b4688ef4ae94a142fc",
+      "extractedSha256": "bb249fc173f6c778d30fa31e9e3f66d5275672e06617f6b4688ef4ae94a142fc",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/imageProcessingLimit.ts",
+        "server/lib/uploadImageNormalization.ts",
+        "server/providers/base.ts",
+        "src/lib/colorPalette.ts",
+        "src/types/materialAnalysis.ts"
+      ]
+    },
+    {
+      "path": "server/lib/materialAnalysisLimit.ts",
+      "originalSha256": "00f4c0d9919b2e5c5db164792b92037fec395de9d8f0f8cd2da1995181fc051d",
+      "extractedSha256": "00f4c0d9919b2e5c5db164792b92037fec395de9d8f0f8cd2da1995181fc051d",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/materialAnalysisMigration.ts",
+      "originalSha256": "ff80cfb6c028ff3f96af5e17921e728c69b826d7d12ece252b989a5e3a336762",
+      "extractedSha256": "ff80cfb6c028ff3f96af5e17921e728c69b826d7d12ece252b989a5e3a336762",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/materialAnalysisStore.ts",
+      "originalSha256": "a18351bd6747c0829b2b82eb25936ca0bad248f15a1912ec29d6e91c71806726",
+      "extractedSha256": "a18351bd6747c0829b2b82eb25936ca0bad248f15a1912ec29d6e91c71806726",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/materialAnalysis.ts",
+        "server/lib/ownerMutation.ts",
+        "server/providers/base.ts",
+        "src/lib/colorPalette.ts",
+        "src/types/colorPreferences.ts",
+        "src/types/materialAnalysis.ts"
+      ]
+    },
+    {
+      "path": "server/lib/multiImageTryOn.ts",
+      "originalSha256": "a6cf11508f57dafaf7811c56e3b2799040ffcbc5e1d578db5b08ed6ab59d4d22",
+      "extractedSha256": "a6cf11508f57dafaf7811c56e3b2799040ffcbc5e1d578db5b08ed6ab59d4d22",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/generationRecords.ts",
+        "server/lib/imageProcessingLimit.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/uploadImageNormalization.ts",
+        "server/providers/base.ts",
+        "src/lib/multiImageTryOn.ts"
+      ]
+    },
+    {
+      "path": "server/lib/outfitAnalysis.ts",
+      "originalSha256": "4e9d83477387322d4a26e33185ef25e00d491c2f364171ed61dcecafefc6f357",
+      "extractedSha256": "4e9d83477387322d4a26e33185ef25e00d491c2f364171ed61dcecafefc6f357",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/providers/base.ts",
+        "src/types/styling.ts"
+      ]
+    },
+    {
+      "path": "server/lib/ownerMutation.ts",
+      "originalSha256": "69baa95130609c6ea0453a6106ca7c6fc8b6a8915280ae968a5cb9e2615be46c",
+      "extractedSha256": "69baa95130609c6ea0453a6106ca7c6fc8b6a8915280ae968a5cb9e2615be46c",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/password.ts",
+      "originalSha256": "434769271ea077b401c6adecfa6e9ceaff8465c2fc82e2665f2696339b70ffe9",
+      "extractedSha256": "434769271ea077b401c6adecfa6e9ceaff8465c2fc82e2665f2696339b70ffe9",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/poseAnalysis.ts",
+      "originalSha256": "d4bdbf0647486adfd4e1d0167c868e67a56008974611f33a38c7b2cf4fe8d485",
+      "extractedSha256": "d4bdbf0647486adfd4e1d0167c868e67a56008974611f33a38c7b2cf4fe8d485",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/providers/base.ts",
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "server/lib/poseEditing.ts",
+      "originalSha256": "6a511bdd847287db38ef8dfa99f79169c47798de628fcab86fbdd864b594a55d",
+      "extractedSha256": "6a511bdd847287db38ef8dfa99f79169c47798de628fcab86fbdd864b594a55d",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/poseTopology.ts",
+        "src/types/poseDocument.ts"
+      ]
+    },
+    {
+      "path": "server/lib/poseReferenceMigration.ts",
+      "originalSha256": "12c019f90a0fb86167ed737fc875bd864b5e9aee797d87b51da5800763ccdca2",
+      "extractedSha256": "12c019f90a0fb86167ed737fc875bd864b5e9aee797d87b51da5800763ccdca2",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/promptEnhancement.ts",
+      "originalSha256": "1f6468bd4ea0bdec074c93744f338c42c613f688011a5807c85eded08b8b1105",
+      "extractedSha256": "1f6468bd4ea0bdec074c93744f338c42c613f688011a5807c85eded08b8b1105",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/providers/base.ts"
+      ]
+    },
+    {
+      "path": "server/lib/rateLimit.ts",
+      "originalSha256": "0caf085c8e8fb6dad5dc76ddf9b3957c0a9873e4aca21594ee4dfe170099dd19",
+      "extractedSha256": "0caf085c8e8fb6dad5dc76ddf9b3957c0a9873e4aca21594ee4dfe170099dd19",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/sceneAnalysis.ts",
+      "originalSha256": "d86a9a6e2cf52a63068182118d92fb652908b557e65ea23e944b1a4fda333d4a",
+      "extractedSha256": "d86a9a6e2cf52a63068182118d92fb652908b557e65ea23e944b1a4fda333d4a",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/providers/base.ts"
+      ]
+    },
+    {
+      "path": "server/lib/sketchOptimization.ts",
+      "originalSha256": "111381f2b8ca77e493007a8304b325e9b1e53cae9639adc43d22109fbd67993c",
+      "extractedSha256": "111381f2b8ca77e493007a8304b325e9b1e53cae9639adc43d22109fbd67993c",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "server/lib/sqliteImport.ts",
+      "originalSha256": "ff6bed75dabb1ca5f2e93c0aba683885c4f76cf8ac7097fed265a374192223d5",
+      "extractedSha256": "ff6bed75dabb1ca5f2e93c0aba683885c4f76cf8ac7097fed265a374192223d5",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts"
+      ]
+    },
+    {
+      "path": "server/lib/tryOnCandidateSelection.ts",
+      "originalSha256": "dce1ad3f5349ebd04b58f5a3ebfbdb641a7195cee82e3f1dcd80000e2a9ba651",
+      "extractedSha256": "dce1ad3f5349ebd04b58f5a3ebfbdb641a7195cee82e3f1dcd80000e2a9ba651",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/providers/base.ts",
+        "src/lib/tryOnPoseReview.ts"
+      ]
+    },
+    {
+      "path": "server/lib/tryOnStyle.ts",
+      "originalSha256": "968c3ade8f51a5c1c7224a1244779f4b0d8f1723ddcf534e86d3db1670616f33",
+      "extractedSha256": "968c3ade8f51a5c1c7224a1244779f4b0d8f1723ddcf534e86d3db1670616f33",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/fileStore.ts",
+        "server/providers/base.ts",
+        "src/lib/tryOnStylePresets.ts"
+      ]
+    },
+    {
+      "path": "server/lib/uploadImageNormalization.ts",
+      "originalSha256": "03d01c4883035e99afef3a02566c133a03cb74fc93d0b235905893c0f883397b",
+      "extractedSha256": "03d01c4883035e99afef3a02566c133a03cb74fc93d0b235905893c0f883397b",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "docs/ai/apiyi/model-contracts.json",
+        "server/lib/imageProcessingLimit.ts",
+        "server/lib/imageValidation.ts",
+        "server/providers/base.ts"
+      ]
+    },
+    {
+      "path": "server/lib/userTemplateLifecycle.ts",
+      "originalSha256": "3af935b20b0220113cf57978d22452a235d1c9f283c13db6e8867414f47a2a01",
+      "extractedSha256": "3af935b20b0220113cf57978d22452a235d1c9f283c13db6e8867414f47a2a01",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/atomicJson.ts",
+        "server/lib/database.ts"
+      ]
+    },
+    {
+      "path": "server/lib/workflowPantoneValidation.ts",
+      "originalSha256": "592e921c70b270f5dc303c8b9461caabbf42ce2b1883d1a12e237643f8807bcc",
+      "extractedSha256": "592e921c70b270f5dc303c8b9461caabbf42ce2b1883d1a12e237643f8807bcc",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/database.ts",
+        "server/lib/workflowSchema.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/lib/workflowSchema.ts",
+      "originalSha256": "0f28050dd30b0668a9081b2064e164dfe90619b42aa58e64efc361f236f2928d",
+      "extractedSha256": "0f28050dd30b0668a9081b2064e164dfe90619b42aa58e64efc361f236f2928d",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/fileStore.ts",
+        "server/lib/imageValidation.ts",
+        "src/lib/documentSnapshot.ts",
+        "src/lib/maskRepair.ts",
+        "src/lib/poseTopology.ts",
+        "src/lib/seedance.ts",
+        "src/lib/tiAngle.ts",
+        "src/lib/workflowPorts.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/lib/xlsxColorRows.ts",
+      "originalSha256": "c4b04e54e0bbdb88bfcc1b98a343c73f56965589458358ec742fe300047a9184",
+      "extractedSha256": "c4b04e54e0bbdb88bfcc1b98a343c73f56965589458358ec742fe300047a9184",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/colorArchive.ts",
+        "src/types/colorImport.ts"
+      ]
+    },
+    {
+      "path": "server/providers/apiyi.ts",
+      "originalSha256": "d4482c19741a3594956cce4b7260fe075854964044edec89a57b816d81f25131",
+      "extractedSha256": "d4482c19741a3594956cce4b7260fe075854964044edec89a57b816d81f25131",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/imageProcessingLimit.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/maskProcessing.ts",
+        "server/lib/uploadImageNormalization.ts",
+        "server/providers/base.ts",
+        "server/providers/gptImage25.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/providers/apiyiVideo.ts",
+      "originalSha256": "87b47792a35bb4d9600dcc3352964b12738d4c96023f6538c155577aea95e32c",
+      "extractedSha256": "87b47792a35bb4d9600dcc3352964b12738d4c96023f6538c155577aea95e32c",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/fileStore.ts",
+        "server/providers/base.ts",
+        "src/lib/seedance.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/providers/base.ts",
+      "originalSha256": "84f45f8022821a24e265c4db139200316b575ae3b0eb10c37b9d470815a6a3e7",
+      "extractedSha256": "84f45f8022821a24e265c4db139200316b575ae3b0eb10c37b9d470815a6a3e7",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts"
+      ]
+    },
+    {
+      "path": "server/providers/exact.ts",
+      "originalSha256": "e83867818271b8007c695e57a0074be17584c3a93ed460e2ffb44d5049bdb5d1",
+      "extractedSha256": "e83867818271b8007c695e57a0074be17584c3a93ed460e2ffb44d5049bdb5d1",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/providers/base.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/providers/gptImage25.ts",
+      "originalSha256": "b2a20057867170b37bd1c1a720d79601f3b8132e24b45015697ee882f53c38d5",
+      "extractedSha256": "b2a20057867170b37bd1c1a720d79601f3b8132e24b45015697ee882f53c38d5",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/imageProcessingLimit.ts",
+        "server/lib/imageValidation.ts",
+        "server/providers/base.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/providers/imageConversationPlanner.ts",
+      "originalSha256": "620e8b1b5a53580768ec4adf36e1826808ab732664470263f0f31076e90b4cd3",
+      "extractedSha256": "620e8b1b5a53580768ec4adf36e1826808ab732664470263f0f31076e90b4cd3",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/imageConversationPlanner.ts",
+        "server/providers/base.ts"
+      ]
+    },
+    {
+      "path": "server/providers/index.ts",
+      "originalSha256": "67465c94aa0f408189db4cbc5ba0ffd1c0ddaf7add7657faa639334ebd0658cf",
+      "extractedSha256": "67465c94aa0f408189db4cbc5ba0ffd1c0ddaf7add7657faa639334ebd0658cf",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/providers/apiyi.ts",
+        "server/providers/base.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/routes/aiDiagnostics.ts",
+      "originalSha256": "c91bdeb21211c1c5d43a378a32603d97f3d8c5a49462f3f81cc3abe51a89d20a",
+      "extractedSha256": "c91bdeb21211c1c5d43a378a32603d97f3d8c5a49462f3f81cc3abe51a89d20a",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/providers/index.ts",
+        "src/types/imageModels.ts"
+      ]
+    },
+    {
+      "path": "server/routes/assets.ts",
+      "originalSha256": "1c5b9ad3da33f6bb8ba7cd96d485b7dbf567f506787bcc11e18202e47fc8901a",
+      "extractedSha256": "1c5b9ad3da33f6bb8ba7cd96d485b7dbf567f506787bcc11e18202e47fc8901a",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/materialAnalysisStore.ts",
+        "server/lib/ownerMutation.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/routes/auth.ts",
+      "originalSha256": "982bc63d9027647e3c6342b2448bf6887005c0629d6eaa2b616439d5d7e5e1f0",
+      "extractedSha256": "982bc63d9027647e3c6342b2448bf6887005c0629d6eaa2b616439d5d7e5e1f0",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/generationLimits.ts",
+        "server/lib/materialAnalysisStore.ts",
+        "server/lib/password.ts",
+        "server/lib/userTemplateLifecycle.ts",
+        "src/lib/colorPalette.ts",
+        "src/types/colorPreferences.ts"
+      ]
+    },
+    {
+      "path": "server/routes/brandColors.ts",
+      "originalSha256": "3a0a893685430fc4757d6098873e01dfc56861cc936c425c3cb0349b46b31d4a",
+      "extractedSha256": "3a0a893685430fc4757d6098873e01dfc56861cc936c425c3cb0349b46b31d4a",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/brandColorStore.ts",
+        "server/lib/brandColorValidation.ts",
+        "server/lib/colorImportStore.ts",
+        "server/lib/rateLimit.ts"
+      ]
+    },
+    {
+      "path": "server/routes/colors.ts",
+      "originalSha256": "885942bb9a8c9efb27405d4861d0c3b48b3d51650ad668d0cab855d236211578",
+      "extractedSha256": "885942bb9a8c9efb27405d4861d0c3b48b3d51650ad668d0cab855d236211578",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/colorCatalogStore.ts",
+        "server/routes/brandColors.ts",
+        "src/types/colorManagement.ts"
+      ]
+    },
+    {
+      "path": "server/routes/drawingBoards.ts",
+      "originalSha256": "cd95caaa691e79a85f3f3e0266358ebbece2fc7d8e11e6efc23aea069d6107d7",
+      "extractedSha256": "cd95caaa691e79a85f3f3e0266358ebbece2fc7d8e11e6efc23aea069d6107d7",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/drawingBoard.ts",
+        "server/lib/imageReferenceAccess.ts",
+        "server/lib/ownerMutation.ts",
+        "server/lib/workflowPantoneValidation.ts",
+        "server/lib/workflowSchema.ts",
+        "src/components/drawing/drawingModel.ts"
+      ]
+    },
+    {
+      "path": "server/routes/files.ts",
+      "originalSha256": "d59fe372a62ef0a3f0602f40c20cecbac1f8ef6d02f51317869f60d51497d4eb",
+      "extractedSha256": "d59fe372a62ef0a3f0602f40c20cecbac1f8ef6d02f51317869f60d51497d4eb",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/imageReferenceAccess.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/maskProcessing.ts",
+        "server/lib/ownerMutation.ts",
+        "server/lib/workflowSchema.ts",
+        "server/providers/base.ts"
+      ]
+    },
+    {
+      "path": "server/routes/generate.ts",
+      "originalSha256": "0e26aebea66d271879d5adfba0dc695f98b23e3e91737fac107d23db52af91b7",
+      "extractedSha256": "0e26aebea66d271879d5adfba0dc695f98b23e3e91737fac107d23db52af91b7",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/runQueue.ts",
+        "server/engine/runner.ts",
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/imagePostProcessing.ts",
+        "server/lib/imageReferenceAccess.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/routes/history.ts",
+      "originalSha256": "6785aa69bb38ace3778e61c0b6d17743f623b9e3629637bf58800af614b048fe",
+      "extractedSha256": "6785aa69bb38ace3778e61c0b6d17743f623b9e3629637bf58800af614b048fe",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/generationLimits.ts",
+        "server/lib/ownerMutation.ts"
+      ]
+    },
+    {
+      "path": "server/routes/imageConversations.ts",
+      "originalSha256": "8d4b5ecd36da1f3480d8c172e1fbee5c9e993aabb2d4f1f1621b418676d9542f",
+      "extractedSha256": "8d4b5ecd36da1f3480d8c172e1fbee5c9e993aabb2d4f1f1621b418676d9542f",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/imageConversationExecution.ts",
+        "server/engine/imageConversationReconciliation.ts",
+        "server/engine/runQueue.ts",
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/imageConversationPlanner.ts",
+        "server/lib/imageConversationRequests.ts",
+        "server/lib/imageConversationStore.ts",
+        "server/lib/imageReferenceAccess.ts",
+        "server/providers/imageConversationPlanner.ts",
+        "src/lib/imageConversationRules.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "server/routes/materialAnalyses.ts",
+      "originalSha256": "8861655e5297e1e894a4f92e3e804ea4f93d43347a2dd6157b012ba87e442581",
+      "extractedSha256": "8861655e5297e1e894a4f92e3e804ea4f93d43347a2dd6157b012ba87e442581",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/materialAnalysisLimit.ts",
+        "server/lib/materialAnalysisStore.ts",
+        "server/providers/base.ts"
+      ]
+    },
+    {
+      "path": "server/routes/outfitAnalysis.ts",
+      "originalSha256": "96d1940491bee9f10dec6e965ffebcb450895bb6ac0d6021549e52c37ecd2f7e",
+      "extractedSha256": "96d1940491bee9f10dec6e965ffebcb450895bb6ac0d6021549e52c37ecd2f7e",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/engine/dag.ts",
+        "server/engine/runQueue.ts",
+        "server/engine/runner.ts",
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/imageReferenceAccess.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/outfitAnalysis.ts",
+        "server/lib/workflowSchema.ts",
+        "server/providers/base.ts",
+        "src/lib/styling.ts",
+        "src/types/styling.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/routes/poseReferences.ts",
+      "originalSha256": "b2b84b632a76e608ab26737e1b8cb6fd7d2114f4cb16e227dc44e2552ecb84dc",
+      "extractedSha256": "b2b84b632a76e608ab26737e1b8cb6fd7d2114f4cb16e227dc44e2552ecb84dc",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/engine/runQueue.ts",
+        "server/engine/runner.ts",
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/depthAnalysis.ts",
+        "server/lib/dwposeAnalysis.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/imageReferenceAccess.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/poseAnalysis.ts",
+        "server/lib/poseEditing.ts",
+        "server/providers/base.ts",
+        "src/lib/poseTopology.ts",
+        "src/types/imageModels.ts",
+        "src/types/poseDocument.ts",
+        "src/types/poseReference.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/routes/projects.ts",
+      "originalSha256": "a7769094a6699d470ff6ec9a5b0fd0a04713e7be449fe5763b500eb97859e00b",
+      "extractedSha256": "a7769094a6699d470ff6ec9a5b0fd0a04713e7be449fe5763b500eb97859e00b",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/drawingBoard.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/imageReferenceAccess.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/ownerMutation.ts",
+        "server/lib/workflowPantoneValidation.ts",
+        "server/lib/workflowSchema.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/routes/promptOptimize.ts",
+      "originalSha256": "b0df5a555e00b6b16c91e6c67d978caf9ff1450e4414eeb81dea8ffc00debbf0",
+      "extractedSha256": "b0df5a555e00b6b16c91e6c67d978caf9ff1450e4414eeb81dea8ffc00debbf0",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/promptEnhancement.ts"
+      ]
+    },
+    {
+      "path": "server/routes/runPlan.ts",
+      "originalSha256": "53b52697b5cc2a0a733221d9f63982d90621345eda218503945870fff1a65734",
+      "extractedSha256": "53b52697b5cc2a0a733221d9f63982d90621345eda218503945870fff1a65734",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/dag.ts",
+        "server/engine/runQueue.ts",
+        "server/engine/runner.ts",
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/executionInputFingerprint.ts",
+        "server/lib/imageReferenceAccess.ts",
+        "server/lib/workflowPantoneValidation.ts",
+        "server/lib/workflowSchema.ts",
+        "server/routes/outfitAnalysis.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/routes/templates.ts",
+      "originalSha256": "3e4dc357a39aab16fd14831256f2df3e959d08024e982b6388131462e08d2bdf",
+      "extractedSha256": "3e4dc357a39aab16fd14831256f2df3e959d08024e982b6388131462e08d2bdf",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/config.ts",
+        "server/lib/asyncHandler.ts",
+        "server/lib/atomicJson.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/ownerMutation.ts",
+        "server/lib/userTemplateLifecycle.ts",
+        "server/lib/workflowPantoneValidation.ts",
+        "server/lib/workflowSchema.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "server/routes/tryOnStylePresets.ts",
+      "originalSha256": "0bb8d6278aa65534808f6fc7a61284c6cee310054472ba85d552f3a099075f58",
+      "extractedSha256": "0bb8d6278aa65534808f6fc7a61284c6cee310054472ba85d552f3a099075f58",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/ownerMutation.ts",
+        "src/lib/tryOnStylePresets.ts"
+      ]
+    },
+    {
+      "path": "server/routes/usage.ts",
+      "originalSha256": "8e4bacf75cfb25bf52e3910c04202131c0213df873a8030d4a85e91e57f08a3c",
+      "extractedSha256": "8e4bacf75cfb25bf52e3910c04202131c0213df873a8030d4a85e91e57f08a3c",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/asyncHandler.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts"
+      ]
+    },
+    {
+      "path": "src/auth/AuthContext.tsx",
+      "originalSha256": "d28b6c4d86e704de982deb4a53a594170defb9c2244c044c9136fd99823fe22b",
+      "extractedSha256": "0db76ca51d2d16e1b39c0009c63b73a69ffac9eeb9bd707fb0a092833f6951dc",
+      "aliasImportsRewritten": 6,
+      "dependencies": [
+        "src/auth/session.ts",
+        "src/lib/drawingDraftStore.ts",
+        "src/lib/poseCredentials.ts",
+        "src/lib/tabSessionStorage.ts",
+        "src/lib/workspaceRestoreState.ts",
+        "src/lib/workspaceUnload.ts",
+        "src/store/customColors.ts"
+      ]
+    },
+    {
+      "path": "src/auth/LoginPage.tsx",
+      "originalSha256": "2cae28ec31414c69d92fb28dea980fbfa29566f01fd7d8d92afa21e39e032938",
+      "extractedSha256": "b380c4140b13990b6fc9e8a9b032309e30962136a5c8e19ae257fc9597482900",
+      "aliasImportsRewritten": 3,
+      "dependencies": [
+        "src/auth/AuthContext.tsx",
+        "src/auth/session.ts",
+        "src/components/ui/button.tsx",
+        "src/components/ui/input.tsx",
+        "src/lib/workspaceUnload.ts"
+      ]
+    },
+    {
+      "path": "src/auth/session.ts",
+      "originalSha256": "16f49a10bda821983d87a1f104cfcfcc786be12189803d040fcd79f77bb58cc6",
+      "extractedSha256": "b646ed2c9f2cad30d53f60fe5ea8632b9a2bfcaddf20814484361595177d6d90",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/tabSessionStorage.ts"
+      ]
+    },
+    {
+      "path": "src/components/AssetPickerOverlay.tsx",
+      "originalSha256": "0c69434888a34d8f02de101dfb98aa5395f0e50a9ac819ed27f5030a9d5b39d0",
+      "extractedSha256": "f7d4dacbdbe75ebee5b277e9e0603da399189927bc7933c0d02bdf9df0f75434",
+      "aliasImportsRewritten": 13,
+      "dependencies": [
+        "src/components/MaterialAnalysisDialog.tsx",
+        "src/components/MaterialAssetDetailsDialog.tsx",
+        "src/components/ui/alert-dialog.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/components/ui/input.tsx",
+        "src/components/ui/select.tsx",
+        "src/components/ui/tabs.tsx",
+        "src/lib/assetCategories.ts",
+        "src/lib/images.ts",
+        "src/lib/overlayEvents.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/CompareOverlay.tsx",
+      "originalSha256": "f2df32019fe9c3b15eaca705202590c07140bcbc83aa4edb22c26ced051b9121",
+      "extractedSha256": "6de6fc5f15d8c7469a3dfa46e7362eab3c9ccd0c86c4252bdfd173101c112b8d",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/components/conversation/ConversationComposer.tsx",
+      "originalSha256": "1c99a7f56778096203715232fd010efc7be42f263923ee7fa30fa2898b457074",
+      "extractedSha256": "886892ebc645330ff7d18e0a2cbe42e394d304fd42c2060928a034b0193323f1",
+      "aliasImportsRewritten": 8,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/components/ui/collapsible.tsx",
+        "src/components/ui/select.tsx",
+        "src/components/ui/textarea.tsx",
+        "src/lib/imageConversationRules.ts",
+        "src/store/imageConversationStore.ts",
+        "src/types/imageConversation.ts",
+        "src/types/imageModels.ts"
+      ]
+    },
+    {
+      "path": "src/components/conversation/ConversationHistory.tsx",
+      "originalSha256": "f16c19d6cc69274861ee0dc27243bbbd59d4d147e69745c304ac1fa1eee6dc2b",
+      "extractedSha256": "e6b53e4e535547aeb9a32d02f06d261b0bce11060ec5202cc57065610dd86927",
+      "aliasImportsRewritten": 8,
+      "dependencies": [
+        "src/components/conversation/ConversationResultActions.tsx",
+        "src/components/ui/alert-dialog.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/card.tsx",
+        "src/components/ui/collapsible.tsx",
+        "src/lib/imageConversationInputs.ts",
+        "src/store/flowStore.ts",
+        "src/types/imageConversation.ts",
+        "src/types/imageModels.ts"
+      ]
+    },
+    {
+      "path": "src/components/conversation/ConversationPanel.tsx",
+      "originalSha256": "c8f280c6fbf10335aa4c838c9b016e70954863d0e3449da5394d958703d41051",
+      "extractedSha256": "bf19d4619b0ddc664a9e9dc919e8ce0a750063c77510ab432269e45cf8b2dda4",
+      "aliasImportsRewritten": 13,
+      "dependencies": [
+        "src/components/conversation/ConversationComposer.tsx",
+        "src/components/conversation/ConversationHistory.tsx",
+        "src/components/nodes/MaskEditor.tsx",
+        "src/components/ui/alert-dialog.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/tabs.tsx",
+        "src/lib/imageConversationClient.ts",
+        "src/lib/imageConversationInputs.ts",
+        "src/lib/imageConversationResults.ts",
+        "src/lib/imageConversationRules.ts",
+        "src/lib/maskUpload.ts",
+        "src/lib/overlayEvents.ts",
+        "src/store/flowStore.ts",
+        "src/store/imageConversationStore.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "src/components/conversation/ConversationResultActions.tsx",
+      "originalSha256": "5c8fd18d9d03ab4b9a9bbb91bd2d71d0a1c3a669f0a5fa79be8fbc7eb03b986a",
+      "extractedSha256": "bc78eccdfac36947e02265b1b1c270f95249d186c8419ad0d5fcb37e4bd1dc25",
+      "aliasImportsRewritten": 6,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/lib/canvasLanding.ts",
+        "src/lib/imageConversationInputs.ts",
+        "src/lib/overlayEvents.ts",
+        "src/store/flowStore.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "src/components/drawing/DrawingEditor.tsx",
+      "originalSha256": "c4fffd31f3e74391051ad3eabba819780c7d8a6b7ba96ac4feb5f88b1eeff4fc",
+      "extractedSha256": "5ba3a9df96566bd2dd151806d4baf9b7dc684811f578d458070118c33c285f95",
+      "aliasImportsRewritten": 7,
+      "dependencies": [
+        "src/components/drawing/drawingHistory.ts",
+        "src/components/drawing/drawingModel.ts",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/input.tsx",
+        "src/components/ui/slider.tsx",
+        "src/components/ui/textarea.tsx",
+        "src/lib/canvasCreation.ts",
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/components/drawing/drawingHistory.ts",
+      "originalSha256": "5c96871e7b577a6e542d1c855e7f6844cdbb3cf055d686f4cc16300ab7453e4b",
+      "extractedSha256": "5c96871e7b577a6e542d1c855e7f6844cdbb3cf055d686f4cc16300ab7453e4b",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/components/drawing/drawingModel.ts"
+      ]
+    },
+    {
+      "path": "src/components/drawing/drawingModel.ts",
+      "originalSha256": "2a33b737b7d7aca2fa0886fb0cf77f315f6b030481e92cad0b7a32eaccb70cc3",
+      "extractedSha256": "2a33b737b7d7aca2fa0886fb0cf77f315f6b030481e92cad0b7a32eaccb70cc3",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/components/GenerationRecordDialog.tsx",
+      "originalSha256": "8ec0e8e1f2d5f6de1cf7912d7f07db0a9b13bccffd576572c2e6cf949f25e185",
+      "extractedSha256": "7687ba390f990a5ee37ce98ab30a53bde502ed782fffda30e43fe1a31a75a03b",
+      "aliasImportsRewritten": 7,
+      "dependencies": [
+        "src/components/TryOnPoseReviewSummary.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/lib/images.ts",
+        "src/lib/multiImageTryOn.ts",
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/components/ImageViewer.tsx",
+      "originalSha256": "00bd434edfdacf097b79abc257dbf936ddc246f99698a0a379a9ce78ba9e80f1",
+      "extractedSha256": "ea17d1168ab773c8902f164e52fde5d9033a94c235c22646ca80d5bac244fc72",
+      "aliasImportsRewritten": 4,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/lib/images.ts",
+        "src/store/flowStore.ts",
+        "src/store/generationSafety.ts"
+      ]
+    },
+    {
+      "path": "src/components/MaterialAnalysisDialog.tsx",
+      "originalSha256": "d75b9aacd893c1ce55bec4e37fece1f5e308ea23e7ed3a8a86784aae501d1835",
+      "extractedSha256": "254e9746ed0c6aefdea736f1d6e155d6921bca76921b82ebbfa888e66c06a08b",
+      "aliasImportsRewritten": 7,
+      "dependencies": [
+        "src/components/RectangleCropSurface.tsx",
+        "src/components/ui/alert-dialog.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/components/ui/input.tsx",
+        "src/components/ui/select.tsx",
+        "src/types/materialAnalysis.ts"
+      ]
+    },
+    {
+      "path": "src/components/MaterialAssetDetailsDialog.tsx",
+      "originalSha256": "20bac9217525b1b1dbe45a8d7b2952a23b6f75f3dd64eaf1dd8cf4c22ee3cc84",
+      "extractedSha256": "6191f4c7204c709cee9a7ec97da193735c56771f1ba81a2cf09c038961e8b696",
+      "aliasImportsRewritten": 6,
+      "dependencies": [
+        "src/components/ui/alert-dialog.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/components/ui/input.tsx",
+        "src/types/materialAnalysis.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/AiModifyNode.tsx",
+      "originalSha256": "a8952391e0243f261bf3f3693c0fb4efcb523b9ed13590a78ed85c1e38b60eb6",
+      "extractedSha256": "260ae233588f65eb2f74e00c1d61215aa8190a8d3f39b382469714741e29535a",
+      "aliasImportsRewritten": 4,
+      "dependencies": [
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/ModelControls.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/store/flowStore.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/AiStylingNode.tsx",
+      "originalSha256": "e5000d49b9d270a5746993565490f240c6f281d798776a713e81ae41c6470f16",
+      "extractedSha256": "e2d8560a9d6e1af7f6b63511713924cca1d4bde40b6fc1b22da714c7150635a2",
+      "aliasImportsRewritten": 9,
+      "dependencies": [
+        "src/components/nodes/ModelControls.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/select.tsx",
+        "src/components/ui/textarea.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/lib/styling.ts",
+        "src/store/flowStore.ts",
+        "src/store/stylingRuntime.ts",
+        "src/types/styling.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/AudioInputNode.tsx",
+      "originalSha256": "493d87b0da2d89e8e4eb04947073bdb91b8358180f2ef7d8b152c41dd4567a2c",
+      "extractedSha256": "18a95210e831a886841938eb1cc364c06fa3ff833347b6033be50bebf7841143",
+      "aliasImportsRewritten": 4,
+      "dependencies": [
+        "src/components/nodes/NodeActionToolbar.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/input.tsx",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/BackgroundExtractNode.tsx",
+      "originalSha256": "154d2ac6a699fbf36d1b3400572631ea008dc779600ead41c355e1296c656889",
+      "extractedSha256": "3564b59e2084193480a4eee2603233f2c3229e65ae795bff1d51ac0f609b888c",
+      "aliasImportsRewritten": 5,
+      "dependencies": [
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/ImageInputNode.tsx",
+        "src/components/nodes/ModelControls.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/textarea.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/CharacterBoardNode.tsx",
+      "originalSha256": "75410d63eda06538a5aa12f66b296a0c875417c190a4ec86173fe8f6b55fab04",
+      "extractedSha256": "46f3e479e490c260b4cada0bcdb69b04c6652c9a53d83e251e9c0fac14e38a4b",
+      "aliasImportsRewritten": 6,
+      "dependencies": [
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/select.tsx",
+        "src/lib/characterBoardUpload.ts",
+        "src/store/flowStore.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/ColorPaletteNode.tsx",
+      "originalSha256": "69d7b91958bda0b5c9690d66cd835dbbc8fa33ac87f782475e20a087ddc06d0f",
+      "extractedSha256": "28440b9061a798971efaf6333c43449aa7a47cc8448e46a16daa5b145abcb345",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/DrawingBoardNode.tsx",
+      "originalSha256": "ec571fdb44a2f8c457116daee9a7639e22c35d2b440883a4586eb96f09e9de28",
+      "extractedSha256": "474371f21b771aba453ab0da6042c34d6b85e0475d9eb119bcc4cfbb8f042654",
+      "aliasImportsRewritten": 10,
+      "dependencies": [
+        "src/auth/AuthContext.tsx",
+        "src/components/drawing/DrawingEditor.tsx",
+        "src/components/drawing/drawingModel.ts",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/lib/canvasCreation.ts",
+        "src/lib/drawingBoardClient.ts",
+        "src/lib/drawingDraftStore.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/FabricRecolorNode.tsx",
+      "originalSha256": "3a1335945060cf2fc58b56852e41a698ec95a21021d8992215dbaad446f7f8f7",
+      "extractedSha256": "aa058ca97c1e56270f33c2c9899b9f1f22fcab66f52ccf4041a1dcac61bd8df1",
+      "aliasImportsRewritten": 7,
+      "dependencies": [
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/ModelControls.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/input.tsx",
+        "src/components/ui/popover.tsx",
+        "src/lib/colors.ts",
+        "src/store/customColors.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/GptQualityControls.tsx",
+      "originalSha256": "abdf77995d4e072e9729cc8dc36195d5c7d2b30fe3ebfc426ca8511eaa5d477d",
+      "extractedSha256": "3e8466b7f89b5e63655de6dc75331079a22967f501d6abee45afcbbf54aabf70",
+      "aliasImportsRewritten": 3,
+      "dependencies": [
+        "src/components/ui/select.tsx",
+        "src/store/flowStore.ts",
+        "src/types/imageModels.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/ImageCropEditor.tsx",
+      "originalSha256": "59d9b558b24e15ce97ce15fdfbea330f4c62e4a0c755ca1daf17d698e6d0eaca",
+      "extractedSha256": "362ca884743a3f12e72693e0d91a2fb8437c477e89d40f512a7e37ff11016a2e",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/components/RectangleCropSurface.tsx",
+        "src/components/ui/button.tsx"
+      ]
+    },
+    {
+      "path": "src/components/nodes/ImageGrid.tsx",
+      "originalSha256": "5d68d2487bd557334236ff256d5c2bbbe5aa05ea05a5e32de7a6e2bca71131a0",
+      "extractedSha256": "fcbd3f1751b4d1bdb612537d6ff420e006155a418be0d74c5c516bcf1d00e15f",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/ImageInputNode.tsx",
+      "originalSha256": "af9e936026d84ae3024f95ffe2f3e1df4dcff25c519f161b1a3ebfd1ffc4fabf",
+      "extractedSha256": "755c60559c72aa3066b9a6731b57ae1269dc309a3c299b000552489dc6984e38",
+      "aliasImportsRewritten": 6,
+      "dependencies": [
+        "src/components/PosePromptEditor.tsx",
+        "src/components/PosePromptInferenceDialog.tsx",
+        "src/components/PoseReferenceComparison.tsx",
+        "src/components/nodes/ImageCropEditor.tsx",
+        "src/components/nodes/NodeActionToolbar.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/lib/multiImageTryOn.ts",
+        "src/lib/overlayEvents.ts",
+        "src/store/flowStore.ts",
+        "src/types/poseReference.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/index.ts",
+      "originalSha256": "293ddd2991f03e36ec2a78605362300bbe2178203129ad38a0d9a8efcfb175a3",
+      "extractedSha256": "293ddd2991f03e36ec2a78605362300bbe2178203129ad38a0d9a8efcfb175a3",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/components/nodes/AiModifyNode.tsx",
+        "src/components/nodes/AiStylingNode.tsx",
+        "src/components/nodes/AudioInputNode.tsx",
+        "src/components/nodes/BackgroundExtractNode.tsx",
+        "src/components/nodes/CharacterBoardNode.tsx",
+        "src/components/nodes/ColorPaletteNode.tsx",
+        "src/components/nodes/DrawingBoardNode.tsx",
+        "src/components/nodes/FabricRecolorNode.tsx",
+        "src/components/nodes/ImageInputNode.tsx",
+        "src/components/nodes/MaskRedrawNode.tsx",
+        "src/components/nodes/OutfitReferenceNode.tsx",
+        "src/components/nodes/PrintExtractNode.tsx",
+        "src/components/nodes/PrintMutateNode.tsx",
+        "src/components/nodes/ResultNode.tsx",
+        "src/components/nodes/SketchOptimizeNode.tsx",
+        "src/components/nodes/SketchToRenderNode.tsx",
+        "src/components/nodes/StageApprovalNode.tsx",
+        "src/components/nodes/TextInputNode.tsx",
+        "src/components/nodes/TiAngelNode.tsx",
+        "src/components/nodes/UpscaleNode.tsx",
+        "src/components/nodes/VideoGenerateNode.tsx",
+        "src/components/nodes/VideoInputNode.tsx",
+        "src/components/nodes/VirtualTryOnNode.tsx"
+      ]
+    },
+    {
+      "path": "src/components/nodes/MaskEditor.tsx",
+      "originalSha256": "c8f711d99ffcbece5e85cfdbe8e76975991329c654e564b92d1354bedb2ea7e7",
+      "extractedSha256": "830f355cc3d45b53a353f5ea1df694935c7d345d03b69e9db301310dd5b37beb",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/lib/maskGeometry.ts",
+        "src/lib/maskUpload.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/MaskRedrawNode.tsx",
+      "originalSha256": "e9cde92d27ceeca5f48d7a2bee618eb676d73f53199cff9d210a163538f09c68",
+      "extractedSha256": "771df337aa04d3a2070be807b42ab34f0792cdcc0eaa9ce9e5b9186998c02de1",
+      "aliasImportsRewritten": 7,
+      "dependencies": [
+        "src/components/nodes/GptQualityControls.tsx",
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/MaskEditor.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/switch.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/lib/maskRedraw.ts",
+        "src/lib/maskUpload.ts",
+        "src/store/flowStore.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/ModelControls.tsx",
+      "originalSha256": "527050ce68e127d3e037c8ecd5e640dddb43f148a834d9a7c55a5b081df96a73",
+      "extractedSha256": "ae9c1317d31dfc476a328db6504c2236561d3e6d95473e8032e3db187ce8fbcb",
+      "aliasImportsRewritten": 3,
+      "dependencies": [
+        "src/components/nodes/GptQualityControls.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/ui/select.tsx",
+        "src/store/flowStore.ts",
+        "src/types/imageModels.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/NodeActionToolbar.tsx",
+      "originalSha256": "5e55cf88fa2fd5d9b4001695615e8c229543e20f85b07e12e47442d2078a29cf",
+      "extractedSha256": "4747f3e46fe7a93f5d8adc96017db01bafd519a6e98c55b1c5acc5bb4d4e2d50",
+      "aliasImportsRewritten": 5,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/components/ui/dropdown-menu.tsx",
+        "src/components/ui/tooltip.tsx",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/NodeFrame.tsx",
+      "originalSha256": "40dddab770a9d9291772537dc192ecc3a4db4e71a2421c7cdb311f2d5617579f",
+      "extractedSha256": "055e0699e2785d16e47ce6abf3525294ee2530ee9d86a768f86d116130c6f34a",
+      "aliasImportsRewritten": 6,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/components/ui/input.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/lib/nodeDisplayState.ts",
+        "src/store/generationSafety.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/NodeHandle.tsx",
+      "originalSha256": "79ff3167590327a3006da56129ed292152cece0643ddde150e3db25a47c43d04",
+      "extractedSha256": "79ff3167590327a3006da56129ed292152cece0643ddde150e3db25a47c43d04",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/OutfitReferenceNode.tsx",
+      "originalSha256": "86b1fdfa193ce5ee1701abbfe3459a3c3be2218f3ea417445f307ee22f561725",
+      "extractedSha256": "206f59332fe043d0f5df5cedb94d48a3ff9918b1e3b3b209f61477a8d69b7d98",
+      "aliasImportsRewritten": 5,
+      "dependencies": [
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/lib/styling.ts",
+        "src/store/flowStore.ts",
+        "src/store/stylingRuntime.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/PrintExtractNode.tsx",
+      "originalSha256": "d28b0bc9fb7916aa48bd860a970cca9315881593ec172d6928a7c9d3bf78644b",
+      "extractedSha256": "35cfdb5f82bf0b28012e6413d933bf5a0c7e850d85df699f5ba544f4dd38f79b",
+      "aliasImportsRewritten": 4,
+      "dependencies": [
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/ModelControls.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/lib/printAsset.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/PrintMutateNode.tsx",
+      "originalSha256": "b86ffedb15c9b9f02a3f58f7c010713e233431c0cff779a66eddf896bb6a7ae9",
+      "extractedSha256": "e000713a98a53ffc3f140c2c198cc6253853df3f94db6712bcfafbbd07e91778",
+      "aliasImportsRewritten": 3,
+      "dependencies": [
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/ModelControls.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/ResultNode.css",
+      "originalSha256": "54491774db3bb32d60caf96bcc547f9b249e308cbb27f50b573969f7f14cc9af",
+      "extractedSha256": "54491774db3bb32d60caf96bcc547f9b249e308cbb27f50b573969f7f14cc9af",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/components/nodes/ResultNode.tsx",
+      "originalSha256": "ee93f8edb0cf32a10219af22e27f8c62fb489abe400f368a8a1587988467021f",
+      "extractedSha256": "599a7a09f6bf3a9c5347b2543d4a09049f0b2b8e969484cbce7d4a805d8ec2f6",
+      "aliasImportsRewritten": 8,
+      "dependencies": [
+        "src/components/nodes/NodeActionToolbar.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/nodes/ResultNoteControl.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/popover.tsx",
+        "src/components/ui/switch.tsx",
+        "src/lib/imageFormat.ts",
+        "src/lib/overlayEvents.ts",
+        "src/store/flowStore.ts",
+        "src/store/resultExportStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/ResultNoteControl.tsx",
+      "originalSha256": "3216f8866c0fe953ff3949610974d6506d18a5553c1f5f1937b122aaddbff663",
+      "extractedSha256": "6be007e2aca13306526a8aa2c8efc6fdf4630c3ab7ece62af32703bcff49d892",
+      "aliasImportsRewritten": 4,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/components/ui/textarea.tsx",
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/SceneStabilizeControls.tsx",
+      "originalSha256": "ad2fe1dee19d3a8945af2ed8466ff3e8d031128503e0bdd3fef523cea9c7335c",
+      "extractedSha256": "be594cf07a94761070f692f56a1653e242bc75e763b85bca9b5fc9d304fb1064",
+      "aliasImportsRewritten": 6,
+      "dependencies": [
+        "src/components/ui/select.tsx",
+        "src/components/ui/textarea.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/store/flowStore.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/SketchOptimizeNode.tsx",
+      "originalSha256": "0a48a13d96fc695512aca3fc3ad3993da8a43fb64e3d12dc201361ed089b56ca",
+      "extractedSha256": "4f716c0cffc63ebb580e1a2ac222feb773b305dddbaf79725498fe54038b9fda",
+      "aliasImportsRewritten": 6,
+      "dependencies": [
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/select.tsx",
+        "src/components/ui/textarea.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/store/flowStore.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/SketchToRenderNode.tsx",
+      "originalSha256": "bfa5cf7a4616541f8645eceb681d621fad7e7ba94ae0f0813ae43bb7f0a7c486",
+      "extractedSha256": "8d111abb718799e4a91446fceafdf87055e94de3b1b9eb6a21ac04bf4f3a0833",
+      "aliasImportsRewritten": 4,
+      "dependencies": [
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/ModelControls.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/store/flowStore.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/StageApprovalNode.tsx",
+      "originalSha256": "badff93477b7e35c306303ea020b80248d45c45dccd95297c9b7f31607d33fb6",
+      "extractedSha256": "cbf0a00d4086eaf2ff69faee85c6ff552d0b9e0699930a82f62d181f9922b43d",
+      "aliasImportsRewritten": 3,
+      "dependencies": [
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/TextInputNode.tsx",
+      "originalSha256": "dff35f84000cc831bfb98bcd18e44c6e962b79be1599e92dccb890baa7a9c6d7",
+      "extractedSha256": "1bbfe93226a2532be3ebfab309187171428fa6cc266635ee433dff4b3e29eeb6",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/components/nodes/NodeActionToolbar.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/TiAngelNode.tsx",
+      "originalSha256": "77b12abbd807ee1a2b14845d99e1a72bcc8e2fe2d7c142ba0ff25a01e651ad80",
+      "extractedSha256": "0258e6b5bd2fc4aed7d028839ee2a25ee79fa9353c7a4ce6e17224d6d549782c",
+      "aliasImportsRewritten": 10,
+      "dependencies": [
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/nodes/TiAnglePreview.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/collapsible.tsx",
+        "src/components/ui/input.tsx",
+        "src/components/ui/select.tsx",
+        "src/components/ui/slider.tsx",
+        "src/components/ui/switch.tsx",
+        "src/lib/tiAngle.ts",
+        "src/store/flowStore.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/TiAnglePreview.tsx",
+      "originalSha256": "2ee6fc540bc2a22f3856c6a36b683013f23470060669fa6ab094fb14617364f0",
+      "extractedSha256": "186b644af789a605f65fa3d6418b07fe0b3f97f4fa2c19001702606acc78570d",
+      "aliasImportsRewritten": 6,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/lib/tiAngleGeometry.ts",
+        "src/lib/tiAngleThreeRenderer.ts",
+        "src/lib/tiAngleThreeRuntime.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/UpscaleNode.tsx",
+      "originalSha256": "b85d33d7fe46f82b9938357485581af01790a2abb8698b49c38ee64f55b1f543",
+      "extractedSha256": "e9b20dc88ba19e9578bc249c6ed274921d3759462e647f58fb91890aa0297825",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/ModelControls.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/VideoGenerateNode.tsx",
+      "originalSha256": "039fc8de41d27426846325a85ff3adf96f628b6529f89faa8d114ce60ed5bccf",
+      "extractedSha256": "99b14ff8e53d9ef9eef3f1a95fb772dc8d2b60c3c6c8d5ee237248cbad55a38d",
+      "aliasImportsRewritten": 9,
+      "dependencies": [
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/input.tsx",
+        "src/components/ui/select.tsx",
+        "src/components/ui/switch.tsx",
+        "src/components/ui/textarea.tsx",
+        "src/lib/seedance.ts",
+        "src/lib/workflowPorts.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/VideoInputNode.tsx",
+      "originalSha256": "937aad67100bfc8fdb67e0675007ba362ce2e20508c889db40683a26a7b3deb7",
+      "extractedSha256": "6f041bf9e5b8064eb885447ff3a7d8b391921c0e627b9f5714fff9d16a90fe9a",
+      "aliasImportsRewritten": 4,
+      "dependencies": [
+        "src/components/nodes/NodeActionToolbar.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/input.tsx",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/nodes/VirtualTryOnNode.tsx",
+      "originalSha256": "2e5822780f831a48123928773bd0ad548296c1cd75e68eefcc3081205b3889f1",
+      "extractedSha256": "848a9abb76a23fd3c55400775851f28fc33353dcb81e51cfd59824efe281193c",
+      "aliasImportsRewritten": 6,
+      "dependencies": [
+        "src/components/nodes/GptQualityControls.tsx",
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/nodes/NodeHandle.tsx",
+        "src/components/nodes/SceneStabilizeControls.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/lib/multiImageTryOn.ts",
+        "src/lib/sceneReferenceOrder.ts",
+        "src/lib/workflowPorts.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/panels/ResultsPanel.tsx",
+      "originalSha256": "491a10c80596a2ca17399eb355e49de82bec1a2528c00fbe4d9e3e30c2a605bc",
+      "extractedSha256": "7d5b181b34482456fd74b0c7ce983f35ca0c37a52733bb45a553233a152044d8",
+      "aliasImportsRewritten": 8,
+      "dependencies": [
+        "src/components/nodes/NodeFrame.tsx",
+        "src/components/ui/button.tsx",
+        "src/lib/canvasLanding.ts",
+        "src/lib/images.ts",
+        "src/lib/overlayEvents.ts",
+        "src/lib/utils.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/panels/TemplatesDock.tsx",
+      "originalSha256": "21e14491697a17b2f38eec5686c841c3c519ef2c4f7435c61c59b6554a3b3a2b",
+      "extractedSha256": "d591725f502ebcc6488008c02f54dfa2b85aa0484b4125ea6fed934be222b0f8",
+      "aliasImportsRewritten": 7,
+      "dependencies": [
+        "src/components/panels/WorkflowMini.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/lib/documentSnapshot.ts",
+        "src/lib/images.ts",
+        "src/lib/templateLaunch.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/panels/WorkflowMini.tsx",
+      "originalSha256": "f0440bc866839e1d9586be85d7ac089dcc4a8ad904cdb428dd3eeefab2aacdfb",
+      "extractedSha256": "a8f49320b0fa21bc7890d99383e64bf039ea5536a0efddb4d6533fb3f16a9dba",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/components/pose/PoseEditor2D.tsx",
+      "originalSha256": "3e85b6f0a485540cab62666b89a607c142ae4a97a8612d1d2834c8164e2a5acc",
+      "extractedSha256": "70a701e407de3d3471a9b94b7bccd0aa07f50948121a897f589ad99453175f1b",
+      "aliasImportsRewritten": 3,
+      "dependencies": [
+        "src/components/pose/poseEditorLabels.ts",
+        "src/lib/poseEditorModel.ts",
+        "src/lib/poseTopology.ts",
+        "src/types/poseDocument.ts"
+      ]
+    },
+    {
+      "path": "src/components/pose/PoseEditor3D.tsx",
+      "originalSha256": "fe4c5d0d1b19d8ffdb4a527c03dd0770c324f7e6db70e8fa733049b9b1d4db86",
+      "extractedSha256": "d37d9d41245a704665bbdb1975e34cff706a11462ce695e8bd77dba46d1e0449",
+      "aliasImportsRewritten": 7,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/components/ui/input.tsx",
+        "src/components/ui/select.tsx",
+        "src/lib/pose3dModel.ts",
+        "src/lib/poseIk.ts",
+        "src/lib/poseTopology.ts",
+        "src/types/poseDocument.ts"
+      ]
+    },
+    {
+      "path": "src/components/pose/PoseEditorDialog.tsx",
+      "originalSha256": "5f0e806207e705d2fed934248954cf8450fb3c3dd3db63d72caa4ba7e62f2e60",
+      "extractedSha256": "0f33d677d2d409281fb70db6c4c3b932c5ebbfc75fc2ca09c675faf934bdae07",
+      "aliasImportsRewritten": 14,
+      "dependencies": [
+        "src/components/pose/PoseEditor2D.tsx",
+        "src/components/pose/PoseEditor3D.tsx",
+        "src/components/pose/poseEditorLabels.ts",
+        "src/components/ui/alert-dialog.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/components/ui/input.tsx",
+        "src/components/ui/select.tsx",
+        "src/components/ui/switch.tsx",
+        "src/components/ui/tabs.tsx",
+        "src/lib/pose3dModel.ts",
+        "src/lib/poseEditorHistory.ts",
+        "src/lib/poseEditorModel.ts",
+        "src/types/poseDocument.ts"
+      ]
+    },
+    {
+      "path": "src/components/pose/poseEditorLabels.ts",
+      "originalSha256": "aa281ddebbd7898eea200cdaabe896b29c43d192db6222e637b4c4ef19236924",
+      "extractedSha256": "37fb72d9db4d0ff13499689c7090ebc4d4cb12895624f609eaee8dc0b69021b5",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/poseEditorModel.ts"
+      ]
+    },
+    {
+      "path": "src/components/PosePromptEditor.tsx",
+      "originalSha256": "648d2ca496263c0a4f486a15ce4c23807a25c00b5936f50212b146d57f6a7f7f",
+      "extractedSha256": "648d2ca496263c0a4f486a15ce4c23807a25c00b5936f50212b146d57f6a7f7f",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/components/ui/card.tsx",
+        "src/components/ui/textarea.tsx",
+        "src/hooks/useCoalescedTextEdit.ts",
+        "src/store/flowStore.ts",
+        "src/store/poseReferenceRuntime.ts",
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "src/components/PosePromptInferenceDialog.tsx",
+      "originalSha256": "7b2049141c822ec87b7fdb1dea19c2ec55f4f5bd0454149ab96deb796d85c006",
+      "extractedSha256": "7b2049141c822ec87b7fdb1dea19c2ec55f4f5bd0454149ab96deb796d85c006",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/auth/AuthContext.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/card.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/components/ui/input.tsx",
+        "src/components/ui/select.tsx",
+        "src/lib/poseCredentials.ts",
+        "src/store/flowStore.ts",
+        "src/store/poseReferenceRuntime.ts",
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "src/components/PoseReferenceComparison.tsx",
+      "originalSha256": "6826243f86c92704a1235ff3e1c40e4259b921f19626043c0d2571ac4674e312",
+      "extractedSha256": "6826243f86c92704a1235ff3e1c40e4259b921f19626043c0d2571ac4674e312",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/components/pose/PoseEditorDialog.tsx",
+        "src/components/ui/button.tsx",
+        "src/components/ui/card.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/lib/poseEditorModel.ts",
+        "src/lib/poseTopology.ts",
+        "src/store/flowStore.ts",
+        "src/store/poseReferenceRuntime.ts",
+        "src/types/poseDocument.ts",
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "src/components/RectangleCropSurface.tsx",
+      "originalSha256": "cef925772d127d68afe0babe24dae2286bb5f99f4eaf6dd31f3e078cb7540ee7",
+      "extractedSha256": "5980f31677660e0f105de1ae3da19765a790bf949de87f5dd95b6792e6f376be",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/TryOnPoseReviewSummary.tsx",
+      "originalSha256": "9a49e9c5c43226e6a8b2e4e14b9055d35f39f1bf4d07489702c0f11ede75eea9",
+      "extractedSha256": "07d8d9aca71495af886abc1362f1df2fa08e7cac267cfe6a6589cffd3a30feea",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/components/ui/card.tsx",
+        "src/lib/tryOnPoseReview.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/alert-dialog.tsx",
+      "originalSha256": "76c965d9477f14b96757d8f746287683fef7cbac4e1412825f4e23ade82d0b7a",
+      "extractedSha256": "06686cddd3498080116f4165e41410b7dc385bbd9718ebe50655b10cd0d2b621",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/button.tsx",
+      "originalSha256": "2402855f072711f95293222bff16d4c589ce4645fe583b92987d0e5b0aa4b4ec",
+      "extractedSha256": "055d7f2eb8fd1593cd65eb50904418319a19d3ee958f9c902e9dd2e58f3a84bf",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/card.tsx",
+      "originalSha256": "d8113cbf964f8d1aadf2649d2944d8bbc6e3cfd49d36746f76868cbc4dde3cfe",
+      "extractedSha256": "d770212cbb6c0b551a9e9d7cabde8f7d507d814509f13c7d1ae930e2398631a5",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/collapsible.tsx",
+      "originalSha256": "301976baf63dd505dc6ff1778efaafad1f91d55ec686835be56365b66c8519c1",
+      "extractedSha256": "d6aa45c11e73fe18b5df3284afe0a5ceca7663845cb26d81e3cbeb065f4af5c2",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/dialog.tsx",
+      "originalSha256": "eaa7b5ddd132fed270be0c893db8d6d561e49bbb7a97ed7d9a4e3e68f435fbfa",
+      "extractedSha256": "4341faf45d286d6d27c4d8976fcafe88598b79f1dd3dd6613df64e2939b00c3f",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/dropdown-menu.tsx",
+      "originalSha256": "b47f3ddbc0fb0cdcf97cf333c0d9bcc7a20cb4dbb10837d48dc69294a567f064",
+      "extractedSha256": "4b917c2de302508658d2124f650afb20eb4f66bb0ab8cc7f39de437cbaaaba63",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/input.tsx",
+      "originalSha256": "e3b7f3db83b75bffb7aae185b357c51888bc62671d5035f9f2b633d2009bc13e",
+      "extractedSha256": "5e1dd666238521b08ec5bae58363ebc1c3a9bfa7710d9705689ae6564501b6a6",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/popover.tsx",
+      "originalSha256": "eac4944fe11438fce114ecc921506eb861c85fb39436a8f0aa9be4b93f3c7d36",
+      "extractedSha256": "9599210d5fb1dc4fc5d7a546fcf6a6101aaec415afa9ca64b70fcebf03fe0839",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/select.tsx",
+      "originalSha256": "2807bc668e2abdf351cec0a7da63d37e438dbfaf7d8e220e3204d30c3d347bd2",
+      "extractedSha256": "bd6405f318fb79048f2cd94a08a73110b112e69bb03a38550c921853ebef291d",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/slider.tsx",
+      "originalSha256": "1f8b2d094f7a6f304d5c793c59f90f526064a064e7a4c9ee83b5bd091bee902c",
+      "extractedSha256": "942245e37b17488a8564e651a0c363f1e71dfb4aa0119d282a959aa8662439ba",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/switch.tsx",
+      "originalSha256": "be1c29339ae5fdc0f6d08686788007413d36bda3eb02799b912c3e82576a3380",
+      "extractedSha256": "38fdd6d2d758ac89740407148908824960b37766d2311b2492f97b586ecf6db1",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/tabs.tsx",
+      "originalSha256": "84c1ebcee9c620b4b9543b1fe097307051a68ee7bd2901241a962360337f1191",
+      "extractedSha256": "448ff246aca76f476d182eb2beca32743d1fa2060003cb2c2567b9508f6b8f8d",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/textarea.tsx",
+      "originalSha256": "fa0ce5e86f2d8315e120edcddf036f9c7d1c764fb3252576e42450786932c662",
+      "extractedSha256": "a8e9a35964e533ab248bf2cf6c0ed649de4dfc363688c6ebdd6861b7ef6ed8df",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/ui/tooltip.tsx",
+      "originalSha256": "a9f7b6823ef80334f2a70ee0e7eb40e01f095d63f7e354be6b7c499e2d2c84aa",
+      "extractedSha256": "42b744b6bf79943f91cd6864b1a47dcdc1c94875e51966bb0d09f70d5ed462b1",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/utils.ts"
+      ]
+    },
+    {
+      "path": "src/components/workbench/ConnectionRoleDialog.tsx",
+      "originalSha256": "763b700add510629b89fd0b181b25af5c5f5c61c05d4d57a71e40b71b0121d63",
+      "extractedSha256": "86e563da450ae7a20fc5b477c59640418ce07f619cfdb6bec13ab0284f46228b",
+      "aliasImportsRewritten": 5,
+      "dependencies": [
+        "src/components/ui/button.tsx",
+        "src/components/ui/dialog.tsx",
+        "src/lib/workflowPorts.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/hooks/useCoalescedTextEdit.ts",
+      "originalSha256": "eb2f7d9baee08e62a23b2f594e60610553d1e6ae2e40fd1124d8ad4702985ed3",
+      "extractedSha256": "2aea29aaf2f0deb55597ada4052179d9a1da0d40fafe3a4bd93f280d11724d27",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/index.css",
+      "originalSha256": "c6b6e830ea4fd2700f0d794c04923a8bfb540d686b540066a6de3b1e052bd39d",
+      "extractedSha256": "c6b6e830ea4fd2700f0d794c04923a8bfb540d686b540066a6de3b1e052bd39d",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/components/nodes/ResultNode.css"
+      ]
+    },
+    {
+      "path": "src/initialDraft/initialDraftClient.ts",
+      "originalSha256": "583a6d12150cab9e077964d304ea7a5fd2cd67102b0838938a2677bcc107659d",
+      "extractedSha256": "a7752a864bba854162321e0ef7e478eb35916e5f2250d5445aa57967197246f1",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/initialDraft/initialDraftMigration.ts",
+      "originalSha256": "032bcc9bac44e33997ff87a6c9d9b5bdcea14430193c1430752e5896d9f8957e",
+      "extractedSha256": "711f646b2ea803402ca0d23cb7c692e1b3fa3de112042a1c83b86caca4e142d8",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/initialDraft/initialDraftClient.ts",
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/initialDraft/initialDraftRuntime.ts",
+      "originalSha256": "177f0a394fe39ef314b67a92dba3258aae7764c9906683112c7bf5285161c40b",
+      "extractedSha256": "177f0a394fe39ef314b67a92dba3258aae7764c9906683112c7bf5285161c40b",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/initialDraft/InitialDraftWorkspace.tsx",
+      "originalSha256": "da998738910db140892e7f6977986629c100a2da2613b6dfc42966c0a90b46d8",
+      "extractedSha256": "b25d906bf5d41ec1e4543a00f61a9ecd58920fa922072b11bfb06b0afbac2657",
+      "aliasImportsRewritten": 4,
+      "dependencies": [
+        "src/auth/session.ts",
+        "src/components/ui/button.tsx",
+        "src/components/ui/card.tsx",
+        "src/initialDraft/initialDraftClient.ts",
+        "src/initialDraft/initialDraftMigration.ts",
+        "src/initialDraft/initialDraftRuntime.ts",
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/lib/assetCategories.ts",
+      "originalSha256": "b394b7ea61d64ec4b0fd502232f0775ed9964e9642939ff27d5b4c9c8839250e",
+      "extractedSha256": "8688f5bdcbb773915edd650baccf806a8478b2489090a2c503eeae8ad763d004",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/canvasCreation.ts",
+      "originalSha256": "489cec2066efbb794130f31b4ecb221cc0b70ba34b8a60117fa76255311b3686",
+      "extractedSha256": "489cec2066efbb794130f31b4ecb221cc0b70ba34b8a60117fa76255311b3686",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/workbench.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/canvasLanding.ts",
+      "originalSha256": "d4a2db7b2e27692014ced209abd7492373f877daca6f82a72db0f1c10640de89",
+      "extractedSha256": "d4a2db7b2e27692014ced209abd7492373f877daca6f82a72db0f1c10640de89",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/characterBoardUpload.ts",
+      "originalSha256": "cf074d5323596ab40fe85a49582fcd00227d600dfb5ddb1e635dd146daf7428c",
+      "extractedSha256": "cf074d5323596ab40fe85a49582fcd00227d600dfb5ddb1e635dd146daf7428c",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/colorPalette.ts",
+      "originalSha256": "60f749c5066442e26e9da7946a47a28e19ca800268abee5e1e46488017c06f6a",
+      "extractedSha256": "60f749c5066442e26e9da7946a47a28e19ca800268abee5e1e46488017c06f6a",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/colors.ts",
+      "originalSha256": "5600e26a9c43f19e567ce142de140bef2470092398fd74ff9c018bb9630fbb8a",
+      "extractedSha256": "5600e26a9c43f19e567ce142de140bef2470092398fd74ff9c018bb9630fbb8a",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/documentSnapshot.ts",
+      "originalSha256": "b120b31a0290c831f658b2a5d6850d1291509d2582ab4395d570148f4571cb3a",
+      "extractedSha256": "b120b31a0290c831f658b2a5d6850d1291509d2582ab4395d570148f4571cb3a",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/poseTopology.ts",
+        "src/types/imageModels.ts",
+        "src/types/poseDocument.ts",
+        "src/types/poseReference.ts",
+        "src/types/styling.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/drawingBoardClient.ts",
+      "originalSha256": "5fbc97ec0f19cae93bb9f86c37fc890f553f264b58a30f16e7f1a8db8603aab9",
+      "extractedSha256": "e6f2e10d5f43befc81e4cf3ddc6e9c56c78a9ff9f5eed48b41ab87419eb56f77",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/components/drawing/drawingModel.ts"
+      ]
+    },
+    {
+      "path": "src/lib/drawingDraftStore.ts",
+      "originalSha256": "c6fefcbbd0873d77ee7740b87d1cec265c0c7eff14998d63221e3c6155efd40d",
+      "extractedSha256": "b836262c4f5bc8d773e0df511e4783cc1df24cb7f91ea29bcd73b16566ac8d8a",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/components/drawing/drawingModel.ts"
+      ]
+    },
+    {
+      "path": "src/lib/graphLayout.ts",
+      "originalSha256": "1386be599a54c0c79f202482748dbce3d8b9a91c4680f6bb52804b0f4399a307",
+      "extractedSha256": "1386be599a54c0c79f202482748dbce3d8b9a91c4680f6bb52804b0f4399a307",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/imageConversationClient.ts",
+      "originalSha256": "46ba976d9efd20c854fa7b2493d58689c3944756e8353360894fdfed9923d604",
+      "extractedSha256": "3fadc45423ea72672958accdfbf92d89ef18265a132fb099a028c9d34cf145b8",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/store/flowStore.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "src/lib/imageConversationInputs.ts",
+      "originalSha256": "7697d396f2c8148e571e3c4ee1d81680c5acda7eb6d82bf20d0a31916176ee4a",
+      "extractedSha256": "38c1c71fd07efb883d6d639e927e4fbdd5b1f9a863fa165b843b9ced8a3d1f44",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/store/flowStore.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "src/lib/imageConversationResults.ts",
+      "originalSha256": "c3f7a1a2de1ed4e6465053a9743dd895bd45f40e98a496a3013fabf636762bf4",
+      "extractedSha256": "da14d48f7dd688884e240db7828b05a9dd6cc617ae77d15b87a5b3041586e6ab",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/store/flowStore.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "src/lib/imageConversationRules.ts",
+      "originalSha256": "c3df10bcc4d5a6cf4234ee8ce4c62b04a8cd44eb8f988129cd76c46d2dd39114",
+      "extractedSha256": "c3df10bcc4d5a6cf4234ee8ce4c62b04a8cd44eb8f988129cd76c46d2dd39114",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "src/lib/imageFormat.ts",
+      "originalSha256": "646fdd835a59851840befeccf7afda9828655f38aa91a37eb20ef28c2d7c8804",
+      "extractedSha256": "646fdd835a59851840befeccf7afda9828655f38aa91a37eb20ef28c2d7c8804",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/images.ts",
+      "originalSha256": "182cdec383bcdd633fbb0b8aad75a6aa96bba774fe52b8c622eebe5b59d1bdab",
+      "extractedSha256": "182cdec383bcdd633fbb0b8aad75a6aa96bba774fe52b8c622eebe5b59d1bdab",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/maskGeometry.ts",
+      "originalSha256": "33783c1ba56621dfbc34759a7fa02a945e3ebad3c3021caffb39bd687eb8b7c8",
+      "extractedSha256": "33783c1ba56621dfbc34759a7fa02a945e3ebad3c3021caffb39bd687eb8b7c8",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/maskRedraw.ts",
+      "originalSha256": "f6a5c1093ec64a2a46a56d37ef114862f07c399b1fcedde459fdd8b8002b9472",
+      "extractedSha256": "f6a5c1093ec64a2a46a56d37ef114862f07c399b1fcedde459fdd8b8002b9472",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/maskRepair.ts",
+      "originalSha256": "63777533861e620f45b3cd1d5ee9d8b3bdf6d0362a2c8ead4266f5d51108b487",
+      "extractedSha256": "63777533861e620f45b3cd1d5ee9d8b3bdf6d0362a2c8ead4266f5d51108b487",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/maskUpload.ts",
+      "originalSha256": "3d47419c9fdd3374604e701910001c494b408e0e5d09eec1cdc1b499e3b6a040",
+      "extractedSha256": "3d47419c9fdd3374604e701910001c494b408e0e5d09eec1cdc1b499e3b6a040",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/multiImageTryOn.ts",
+      "originalSha256": "7d112bad14bf1757ba8b924329e1a5db38a2e4a2d68da81499e9fbdfd8757d20",
+      "extractedSha256": "7d112bad14bf1757ba8b924329e1a5db38a2e4a2d68da81499e9fbdfd8757d20",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/imageModels.ts"
+      ]
+    },
+    {
+      "path": "src/lib/nodeDisplayState.ts",
+      "originalSha256": "d5a22738d55e8b0b71958a41cd6e35b59dc53777cf5437cc6bd3a9d455d7af5d",
+      "extractedSha256": "b5671244c4fd2b201f0a96ce60f9a486ae15cd298d0f5a84e1c538490e222248",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/overlayEvents.ts",
+      "originalSha256": "f719d94879bf553e1926d650d58db61d69c752a17a2b3384a6d66807be62cc48",
+      "extractedSha256": "2caa9868e1ab11e37cf5d00e98b5cc0c2647d4e26570031885d08947ad5d6e72",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/lib/imageConversationInputs.ts",
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/lib/pose3dModel.ts",
+      "originalSha256": "27898596c0f5eca6408e5b990429b600cc25e74276572b11e8b074224576b088",
+      "extractedSha256": "27898596c0f5eca6408e5b990429b600cc25e74276572b11e8b074224576b088",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/poseIk.ts",
+        "src/lib/poseTopology.ts",
+        "src/types/poseDocument.ts"
+      ]
+    },
+    {
+      "path": "src/lib/poseCredentials.ts",
+      "originalSha256": "25d4a66d0f55433b8965a26bf69587a3806cfdcb923d0bebc0f068bf7e92a898",
+      "extractedSha256": "25d4a66d0f55433b8965a26bf69587a3806cfdcb923d0bebc0f068bf7e92a898",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/poseEditorHistory.ts",
+      "originalSha256": "7724fb90615deb29ae7d486a17092732ed4eb10be59a5f11627890d704a3de1f",
+      "extractedSha256": "7724fb90615deb29ae7d486a17092732ed4eb10be59a5f11627890d704a3de1f",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/poseDocument.ts"
+      ]
+    },
+    {
+      "path": "src/lib/poseEditorModel.ts",
+      "originalSha256": "57fc375271fac9d28764a4aa44ae7db441ed187b0d9bd90fc9944b344d33f09b",
+      "extractedSha256": "57fc375271fac9d28764a4aa44ae7db441ed187b0d9bd90fc9944b344d33f09b",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/poseTopology.ts",
+        "src/types/poseDocument.ts",
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "src/lib/poseIk.ts",
+      "originalSha256": "b4bdd83f793ba5078f41b0695bcd01d481c1a36c785be6f0f251e0c3252d80ab",
+      "extractedSha256": "b4bdd83f793ba5078f41b0695bcd01d481c1a36c785be6f0f251e0c3252d80ab",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/poseTopology.ts",
+      "originalSha256": "28c8491e44069ae6ca6833dc698a144b8fcd95a2f80b322e1ef5f2496ae0d314",
+      "extractedSha256": "28c8491e44069ae6ca6833dc698a144b8fcd95a2f80b322e1ef5f2496ae0d314",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/poseDocument.ts",
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "src/lib/printAsset.ts",
+      "originalSha256": "88bb87f5fe51f9a03a92825507378d660bc9c021ccf1e8f48be54348f94ddea1",
+      "extractedSha256": "e3c043e994d45282cf0e2f30665d929540d0d0bbfa11adaf05c54a82ae16c972",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "src/lib/resultExport.ts",
+      "originalSha256": "139fd4a3eaff65d78f2fca6620051fbe439496411491855a0b3903a34768f90d",
+      "extractedSha256": "139fd4a3eaff65d78f2fca6620051fbe439496411491855a0b3903a34768f90d",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/imageFormat.ts"
+      ]
+    },
+    {
+      "path": "src/lib/sceneReferenceOrder.ts",
+      "originalSha256": "43275967609995587d80adb73aebfa3bff2eb845b1e171f06ab7a6657ff57d7b",
+      "extractedSha256": "43275967609995587d80adb73aebfa3bff2eb845b1e171f06ab7a6657ff57d7b",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/seedance.ts",
+      "originalSha256": "4da1f414c34b3a3dfbc36ef6f14a2f57be58f3fd87f16907b515ceb6c89b884f",
+      "extractedSha256": "4da1f414c34b3a3dfbc36ef6f14a2f57be58f3fd87f16907b515ceb6c89b884f",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/styling.ts",
+      "originalSha256": "bfd16d2145954bccac6dd9e721c82693d869737aff8c573bc5a86fee908eaaf1",
+      "extractedSha256": "bfd16d2145954bccac6dd9e721c82693d869737aff8c573bc5a86fee908eaaf1",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/imageModels.ts",
+        "src/types/styling.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/tabSessionStorage.ts",
+      "originalSha256": "0b95d9a7c5511207001ee6605a7faf50be42707e0e0926bad1d74dc41d683a23",
+      "extractedSha256": "0b95d9a7c5511207001ee6605a7faf50be42707e0e0926bad1d74dc41d683a23",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/templateLaunch.ts",
+      "originalSha256": "e5647ac7c5cd47375c3165c54264459942adc01482d969c419597b245df41198",
+      "extractedSha256": "cd481130aa1483b9ba670016b3652f8671a0c09a6f5ffbed62937dce01142644",
+      "aliasImportsRewritten": 3,
+      "dependencies": [
+        "src/lib/canvasLanding.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/tiAngle.ts",
+      "originalSha256": "0b6a9a3c4c5e80e9e00f1b403ca1326edf091b79a5307c3bf2e66d7f851da430",
+      "extractedSha256": "0b6a9a3c4c5e80e9e00f1b403ca1326edf091b79a5307c3bf2e66d7f851da430",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/tiAngleGeometry.ts",
+      "originalSha256": "9c6542f40e0b6735f9dfb0743a4c3f4587ef0444de1dc533eb7234c79e3c8985",
+      "extractedSha256": "9c6542f40e0b6735f9dfb0743a4c3f4587ef0444de1dc533eb7234c79e3c8985",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/tiAngleThreeRenderer.ts",
+      "originalSha256": "8604530bc8a04d6dba8054a7d0459ddbcdeb0568f6442e8ab136c2e1977ba6f4",
+      "extractedSha256": "8604530bc8a04d6dba8054a7d0459ddbcdeb0568f6442e8ab136c2e1977ba6f4",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/tiAngleThreeRuntime.ts",
+      "originalSha256": "098f3380406dff2481e1d664d7257810b4b2bed94750d8aa6c29de5b3f64b659",
+      "extractedSha256": "098f3380406dff2481e1d664d7257810b4b2bed94750d8aa6c29de5b3f64b659",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/tryOnPoseReview.ts",
+      "originalSha256": "b505655af8840846270600748eec605332de20a959273fa9064f29901b995ba6",
+      "extractedSha256": "0d5308c316c6f4ec9f8a17b53557e43c4ee364e3b28357f17d98423a1f7f5ef0",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "src/lib/tryOnStylePresets.ts",
+      "originalSha256": "497bc854c2ed1717a849400078b6f4073f89d73a3bf6f8c159177a91ad515dec",
+      "extractedSha256": "497bc854c2ed1717a849400078b6f4073f89d73a3bf6f8c159177a91ad515dec",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/utils.ts",
+      "originalSha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d",
+      "extractedSha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/workflowPorts.ts",
+      "originalSha256": "3022a4cf02fc7e1461b2b73602c8747e19fdbc304657eb5dc7f53f3d3a820549",
+      "extractedSha256": "3022a4cf02fc7e1461b2b73602c8747e19fdbc304657eb5dc7f53f3d3a820549",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/multiImageTryOn.ts",
+        "src/lib/seedance.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/lib/workspaceRestoreState.ts",
+      "originalSha256": "b73599f2cf10e89bd5597745133a60d25807efb37eba22db28227473550ae1d6",
+      "extractedSha256": "b73599f2cf10e89bd5597745133a60d25807efb37eba22db28227473550ae1d6",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/lib/workspaceUnload.ts",
+      "originalSha256": "8f3e2198f35bf274b16c532959fc9861b67b64c522c4fb4c8354a8b0170a1016",
+      "extractedSha256": "8f3e2198f35bf274b16c532959fc9861b67b64c522c4fb4c8354a8b0170a1016",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/store/customColors.ts",
+      "originalSha256": "7a0a9f3072ffdb95b0e929a347669dd3449ff32a75e1304c8ce1b42a8f55227b",
+      "extractedSha256": "207466762d416425b8a34bea61e700941a11c324e220fbd0513a18a51a56f96d",
+      "aliasImportsRewritten": 2,
+      "dependencies": [
+        "src/lib/colorPalette.ts",
+        "src/types/colorPreferences.ts"
+      ]
+    },
+    {
+      "path": "src/store/flowStore.ts",
+      "originalSha256": "75dbcf97b30d7ddb9cfb299d33e4512150c88407ead5fce27f2ca85f25a0d22f",
+      "extractedSha256": "237d5207d6e53aac2fc6d4354a19fa4238e2c57eaa1ae3378d9564597c7ea99c",
+      "aliasImportsRewritten": 16,
+      "dependencies": [
+        "src/components/drawing/drawingModel.ts",
+        "src/initialDraft/initialDraftRuntime.ts",
+        "src/lib/colorPalette.ts",
+        "src/lib/documentSnapshot.ts",
+        "src/lib/graphLayout.ts",
+        "src/lib/maskRepair.ts",
+        "src/lib/multiImageTryOn.ts",
+        "src/lib/poseTopology.ts",
+        "src/lib/seedance.ts",
+        "src/lib/styling.ts",
+        "src/lib/tabSessionStorage.ts",
+        "src/lib/tiAngle.ts",
+        "src/lib/workflowPorts.ts",
+        "src/lib/workspaceRestoreState.ts",
+        "src/store/generationSafety.ts",
+        "src/store/stylingRequestVersions.ts",
+        "src/store/stylingRuntime.ts",
+        "src/types/imageModels.ts",
+        "src/types/poseDocument.ts",
+        "src/types/poseReference.ts",
+        "src/types/workbench.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/store/generationSafety.ts",
+      "originalSha256": "cde8b421402765f95e15ed85091608f69f5bb32e367c477d1a31732ca7990336",
+      "extractedSha256": "cde8b421402765f95e15ed85091608f69f5bb32e367c477d1a31732ca7990336",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/store/imageConversationStore.ts",
+      "originalSha256": "3656a00b44cf7a9d5c1c1c8ed92f54f76ae8e318cbd6eb9f6367093408bb13dc",
+      "extractedSha256": "b9baf5abb62a5d64bc3bfc159166f3ebb86859924d28c7b7c7c73095726d29a5",
+      "aliasImportsRewritten": 4,
+      "dependencies": [
+        "src/lib/imageConversationClient.ts",
+        "src/lib/imageConversationRules.ts",
+        "src/store/flowStore.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "src/store/poseReferenceRuntime.ts",
+      "originalSha256": "1618024d416c6ada3f3bcc21d3d19fbc7756f64b6117c3d76b1cd6ec19b18ff2",
+      "extractedSha256": "1618024d416c6ada3f3bcc21d3d19fbc7756f64b6117c3d76b1cd6ec19b18ff2",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/store/flowStore.ts",
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "src/store/resultExportStore.ts",
+      "originalSha256": "399b9154f315cd94c32a18990a75cd31af7b69676d262f2a1f1348f926af5c16",
+      "extractedSha256": "e99fc339a744abc328f220e6e855bdbcd0ff02a8cd2aa7a9c7bd4e8ea263b4d2",
+      "aliasImportsRewritten": 1,
+      "dependencies": [
+        "src/lib/resultExport.ts"
+      ]
+    },
+    {
+      "path": "src/store/stylingRequestVersions.ts",
+      "originalSha256": "b0471ae60403397fdeef5b06d633f211c3ef53b046d1885a4b743f1c4c605357",
+      "extractedSha256": "b0471ae60403397fdeef5b06d633f211c3ef53b046d1885a4b743f1c4c605357",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/store/stylingRuntime.ts",
+      "originalSha256": "ea0c59baac5ff98e54cd78fc9d8c17633e49dd52ec236392918507d70dafd0c7",
+      "extractedSha256": "ea0c59baac5ff98e54cd78fc9d8c17633e49dd52ec236392918507d70dafd0c7",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/styling.ts",
+        "src/store/flowStore.ts",
+        "src/store/stylingRequestVersions.ts",
+        "src/types/styling.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/types/brandColors.ts",
+      "originalSha256": "7a319994b342f90818970257c8ca1874149af8ce9b986546867cc24fc2f74ea6",
+      "extractedSha256": "7a319994b342f90818970257c8ca1874149af8ce9b986546867cc24fc2f74ea6",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/colorImport.ts"
+      ]
+    },
+    {
+      "path": "src/types/colorCatalog.ts",
+      "originalSha256": "a859930e8514874b3c6777ff3692fbe3e9597e778a4fee41f57addee93d8d095",
+      "extractedSha256": "a859930e8514874b3c6777ff3692fbe3e9597e778a4fee41f57addee93d8d095",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/types/colorImport.ts",
+      "originalSha256": "d67158b648125ada0b28d70e7bf7e302da629afb96a13713493882dd8cd2fb00",
+      "extractedSha256": "d67158b648125ada0b28d70e7bf7e302da629afb96a13713493882dd8cd2fb00",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/colorCatalog.ts"
+      ]
+    },
+    {
+      "path": "src/types/colorManagement.ts",
+      "originalSha256": "314e52074caef434ec4fb2cea7e2d15035faf75703c9f10849257193792ecf61",
+      "extractedSha256": "314e52074caef434ec4fb2cea7e2d15035faf75703c9f10849257193792ecf61",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/colorImport.ts"
+      ]
+    },
+    {
+      "path": "src/types/colorPreferences.ts",
+      "originalSha256": "abb650069963153021b9ddaf10dde26c077eeff8f65ea9678d15eacf77da0cf3",
+      "extractedSha256": "abb650069963153021b9ddaf10dde26c077eeff8f65ea9678d15eacf77da0cf3",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/types/file-system-access.d.ts",
+      "originalSha256": "f6ca604490fe0e735f59a711c556aeb32d9d9f4d6829ec9ba9519339a3655e34",
+      "extractedSha256": "f6ca604490fe0e735f59a711c556aeb32d9d9f4d6829ec9ba9519339a3655e34",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/types/imageConversation.ts",
+      "originalSha256": "31feb32d0aaea5e359988117dacaf01059cbbaab6fb9870094ba5efdad719059",
+      "extractedSha256": "31feb32d0aaea5e359988117dacaf01059cbbaab6fb9870094ba5efdad719059",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/types/imageModels.ts",
+      "originalSha256": "9d8a97e3dd47147ff7ed2ef650c6fdee10f9d3237660ee5456a79d3eeea143dc",
+      "extractedSha256": "9d8a97e3dd47147ff7ed2ef650c6fdee10f9d3237660ee5456a79d3eeea143dc",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "docs/ai/apiyi/model-contracts.json"
+      ]
+    },
+    {
+      "path": "src/types/materialAnalysis.ts",
+      "originalSha256": "a887b2bbe6624172b78229c87ef29e2371712fa22224ed45e25584333e0b410d",
+      "extractedSha256": "a887b2bbe6624172b78229c87ef29e2371712fa22224ed45e25584333e0b410d",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/colorPreferences.ts"
+      ]
+    },
+    {
+      "path": "src/types/poseDocument.ts",
+      "originalSha256": "b4ff98cd089d2c94248af0fe6b98b24ae2d422205a77ce14ece57fecf35b2169",
+      "extractedSha256": "b4ff98cd089d2c94248af0fe6b98b24ae2d422205a77ce14ece57fecf35b2169",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/types/poseReference.ts",
+      "originalSha256": "e6459cc9e48a37d257510f9e2bf34da62c113ff608555fc0d95ba30a2080189b",
+      "extractedSha256": "e6459cc9e48a37d257510f9e2bf34da62c113ff608555fc0d95ba30a2080189b",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/types/styling.ts",
+      "originalSha256": "aa34db634849fe29d8ed4a6ad89c138d9ec1ac139770e0b04434b6cfb6404de2",
+      "extractedSha256": "aa34db634849fe29d8ed4a6ad89c138d9ec1ac139770e0b04434b6cfb6404de2",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "src/types/workbench.ts",
+      "originalSha256": "f9fe20dd808762151a8f0bbcd01551b85709e55908d535d741e19abe5d61a7e3",
+      "extractedSha256": "f9fe20dd808762151a8f0bbcd01551b85709e55908d535d741e19abe5d61a7e3",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "src/types/workflow.ts",
+      "originalSha256": "daace9b846d1871d9e28b6f1c7ca4a8f400def26317c0043fa344436ff1bf4ab",
+      "extractedSha256": "daace9b846d1871d9e28b6f1c7ca4a8f400def26317c0043fa344436ff1bf4ab",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/tryOnStylePresets.ts",
+        "src/types/imageModels.ts",
+        "src/types/materialAnalysis.ts",
+        "src/types/poseDocument.ts",
+        "src/types/poseReference.ts",
+        "src/types/styling.ts"
+      ]
+    },
+    {
+      "path": "templates/multi-image-try-on.workflow.json",
+      "originalSha256": "bb100d9f13ff258c719730e709cf720a0808872abc6a4449ca8d32ad239ca15b",
+      "extractedSha256": "bb100d9f13ff258c719730e709cf720a0808872abc6a4449ca8d32ad239ca15b",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "tests/active-document-boundary.test.ts",
+      "originalSha256": "4a10b0ed883fc8ffad6d9d929f6e8ddc32d55c9ba8714d0a1b63ec3f8d10463e",
+      "extractedSha256": "9670ed28b973a3de13039ede27c1baf3c565a2dc537fd0136882d0959ec5e01b",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/printAsset.ts",
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "tests/auth-client.test.ts",
+      "originalSha256": "0285cefd7d5c2cbde9cf91926915b5fe6718366c7d60859161c8f708dde3c0ea",
+      "extractedSha256": "0285cefd7d5c2cbde9cf91926915b5fe6718366c7d60859161c8f708dde3c0ea",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/auth/session.ts",
+        "src/lib/poseCredentials.ts",
+        "src/lib/tabSessionStorage.ts"
+      ]
+    },
+    {
+      "path": "tests/auth-storage.test.ts",
+      "originalSha256": "4d37f02a13352671950b4d8f7f216c6abf52a0f4403582de5964ff4c97672b7f",
+      "extractedSha256": "220ee6d21cb9bb7e5aaecdd480d49982099e8b62b21bc167501cfaa9af0966b9",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/runner.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/generationRecords.ts",
+        "server/lib/password.ts",
+        "server/routes/auth.ts",
+        "server/routes/projects.ts",
+        "src/types/workflow.ts",
+        "tests/postgresTestDatabase.ts"
+      ]
+    },
+    {
+      "path": "tests/authorization.test.ts",
+      "originalSha256": "395d0a51281de38fc83ab0efdbe82fd025527b56f86e537887488fc1945b3953",
+      "extractedSha256": "395d0a51281de38fc83ab0efdbe82fd025527b56f86e537887488fc1945b3953",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/dag.ts",
+        "server/engine/runner.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/executionInputFingerprint.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/imageReferenceAccess.ts",
+        "server/lib/legacyMigration.ts",
+        "server/lib/userTemplateLifecycle.ts",
+        "server/routes/assets.ts",
+        "server/routes/auth.ts",
+        "server/routes/drawingBoards.ts",
+        "server/routes/files.ts",
+        "server/routes/generate.ts",
+        "server/routes/history.ts",
+        "server/routes/projects.ts",
+        "server/routes/runPlan.ts",
+        "server/routes/templates.ts",
+        "server/routes/tryOnStylePresets.ts",
+        "server/routes/usage.ts",
+        "tests/postgresTestDatabase.ts"
+      ]
+    },
+    {
+      "path": "tests/background-extract.test.ts",
+      "originalSha256": "66308b8d8587cb3eb5d59557650639cd7a55170cd723fa9c245a3a96c365aa35",
+      "extractedSha256": "66308b8d8587cb3eb5d59557650639cd7a55170cd723fa9c245a3a96c365aa35",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/dag.ts",
+        "server/engine/runner.ts",
+        "server/lib/workflowSchema.ts",
+        "server/routes/generate.ts",
+        "src/lib/documentSnapshot.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/depth-analysis.test.ts",
+      "originalSha256": "a3a1bd574accf9af8b4479c0f6f2f5b7dceaa23ae9da3a3f009f5a22f7b02ec4",
+      "extractedSha256": "a3a1bd574accf9af8b4479c0f6f2f5b7dceaa23ae9da3a3f009f5a22f7b02ec4",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/depthAnalysis.ts"
+      ]
+    },
+    {
+      "path": "tests/document-snapshot.test.ts",
+      "originalSha256": "8bd2d2d850dc2835b7befc77f1369d5fe872517b86e54ea6f1dea59946a88c67",
+      "extractedSha256": "8bd2d2d850dc2835b7befc77f1369d5fe872517b86e54ea6f1dea59946a88c67",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/workflowSchema.ts",
+        "src/lib/documentSnapshot.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/dwpose-analysis.test.ts",
+      "originalSha256": "007c5ac78e04da1408076465bcc1c43230315048b0397fb02cc2a0ac5a0b9ca8",
+      "extractedSha256": "007c5ac78e04da1408076465bcc1c43230315048b0397fb02cc2a0ac5a0b9ca8",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/dwposeAnalysis.ts",
+        "tests/pose-editing.test.ts",
+        "tests/pose-topology.test.ts"
+      ]
+    },
+    {
+      "path": "tests/dwpose-service-protocol.test.py",
+      "originalSha256": "2fa276251f553b9f38f189e222c0abd00af784c796d364e14141cd44fe6032f3",
+      "extractedSha256": "2fa276251f553b9f38f189e222c0abd00af784c796d364e14141cd44fe6032f3",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "tests/exact-generation.test.ts",
+      "originalSha256": "33c194226147deb8568234252341ba1b5adb4f9ba0189a5b683d1d50fe681649",
+      "extractedSha256": "33c194226147deb8568234252341ba1b5adb4f9ba0189a5b683d1d50fe681649",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/runner.ts",
+        "server/lib/imagePostProcessing.ts",
+        "server/lib/imageProcessingLimit.ts",
+        "server/lib/imageValidation.ts",
+        "server/providers/base.ts",
+        "server/providers/exact.ts",
+        "server/routes/generate.ts",
+        "server/routes/runPlan.ts",
+        "src/lib/imageFormat.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/generation-safety.test.ts",
+      "originalSha256": "1446756b3efa13b674c3ec674641eca13ae21ef5832ad0f00e7e4e1c126e808b",
+      "extractedSha256": "dd7110189c3542267ebdfd4f9b624a1bfbf1a7b502aa019b00307a8cd3c0a78e",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/store/flowStore.ts",
+        "src/store/generationSafety.ts"
+      ]
+    },
+    {
+      "path": "tests/gpt-image25.test.ts",
+      "originalSha256": "be5f161e93284f124ddc892ff0d377ae5cfa6e9b15e2048f1eff7126f98cecb3",
+      "extractedSha256": "be5f161e93284f124ddc892ff0d377ae5cfa6e9b15e2048f1eff7126f98cecb3",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/imageValidation.ts",
+        "server/providers/apiyi.ts",
+        "server/providers/gptImage25.ts"
+      ]
+    },
+    {
+      "path": "tests/image-conversation-api.test.ts",
+      "originalSha256": "868f6ac222590a465fcfd4150cff144b2e855f33c54ac05434c2209345348dca",
+      "extractedSha256": "868f6ac222590a465fcfd4150cff144b2e855f33c54ac05434c2209345348dca",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/imageConversationReconciliation.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/generationLimits.ts",
+        "server/lib/imageConversationPlanner.ts",
+        "server/lib/imageConversationRequests.ts",
+        "server/lib/imageConversationStore.ts",
+        "server/routes/assets.ts",
+        "server/routes/auth.ts",
+        "server/routes/imageConversations.ts",
+        "tests/postgresTestDatabase.ts"
+      ]
+    },
+    {
+      "path": "tests/image-conversation-inputs.test.ts",
+      "originalSha256": "0d3b1ac8517c12bebbac5f213fa7c55a3c0b17a0083c099606380f96eded6e5e",
+      "extractedSha256": "0d3b1ac8517c12bebbac5f213fa7c55a3c0b17a0083c099606380f96eded6e5e",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/imageConversationInputs.ts"
+      ]
+    },
+    {
+      "path": "tests/image-conversation-lifecycle.test.ts",
+      "originalSha256": "d837ef0f0d9db7e87cb36c91a89cb42a2e00861514038835bb4f32f90ca92022",
+      "extractedSha256": "d837ef0f0d9db7e87cb36c91a89cb42a2e00861514038835bb4f32f90ca92022",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/imageConversationReconciliation.ts",
+        "server/engine/runQueue.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/imageConversationStore.ts",
+        "server/routes/projects.ts",
+        "tests/postgresTestDatabase.ts"
+      ]
+    },
+    {
+      "path": "tests/image-conversation-planner.test.ts",
+      "originalSha256": "70e1dd5dff7772f2e25cc79b2e1f961622d316938fdb12d61cfb1b0db22d3227",
+      "extractedSha256": "70e1dd5dff7772f2e25cc79b2e1f961622d316938fdb12d61cfb1b0db22d3227",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/imageConversationPlanner.ts",
+        "server/providers/base.ts",
+        "server/providers/imageConversationPlanner.ts"
+      ]
+    },
+    {
+      "path": "tests/image-conversation-queue.test.ts",
+      "originalSha256": "b32a4d8d4960c1a69d6594319afa1f5a4d48f830ca2bd96568f287a10c316913",
+      "extractedSha256": "b32a4d8d4960c1a69d6594319afa1f5a4d48f830ca2bd96568f287a10c316913",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/imageConversationExecution.ts",
+        "server/engine/imageConversationReconciliation.ts",
+        "server/lib/database.ts",
+        "server/lib/imageConversationStore.ts",
+        "tests/postgresTestDatabase.ts"
+      ]
+    },
+    {
+      "path": "tests/image-conversation-recovery.test.ts",
+      "originalSha256": "c900b1322a545d7a31fb92a7552c0070b9c0601196976e6eea870aba3be3bad2",
+      "extractedSha256": "c900b1322a545d7a31fb92a7552c0070b9c0601196976e6eea870aba3be3bad2",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/workflowSchema.ts",
+        "src/lib/documentSnapshot.ts",
+        "src/lib/imageConversationInputs.ts"
+      ]
+    },
+    {
+      "path": "tests/image-conversation-rules.test.ts",
+      "originalSha256": "7fe71d885514f57fda4c4c4bda92aca6fb8a822e33c6ae4282fb24857b68fd56",
+      "extractedSha256": "7fe71d885514f57fda4c4c4bda92aca6fb8a822e33c6ae4282fb24857b68fd56",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/imageConversationRules.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "tests/image-conversation-storage.test.ts",
+      "originalSha256": "8e02766cf3196b5757bc89c4ccc7a13b3056d7ee1c2fcdd70afb4730ab2ae7e3",
+      "extractedSha256": "8e02766cf3196b5757bc89c4ccc7a13b3056d7ee1c2fcdd70afb4730ab2ae7e3",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/database.ts",
+        "server/lib/imageConversationMigration.ts",
+        "server/lib/imageConversationRequests.ts",
+        "server/lib/imageConversationStore.ts",
+        "tests/postgresTestDatabase.ts"
+      ]
+    },
+    {
+      "path": "tests/image-conversation-ui.test.ts",
+      "originalSha256": "02703705bfd00dbdf3716f81f77d9087d2338f6da364be22a75451f26fcde333",
+      "extractedSha256": "02703705bfd00dbdf3716f81f77d9087d2338f6da364be22a75451f26fcde333",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/imageConversationResults.ts",
+        "src/store/flowStore.ts",
+        "src/store/imageConversationStore.ts",
+        "src/types/imageConversation.ts"
+      ]
+    },
+    {
+      "path": "tests/image-input-node.test.ts",
+      "originalSha256": "e06c8ac3abc5633930982b2db3f93a52cfcbc58e8c6892355bbcaddb915e3d9f",
+      "extractedSha256": "e06c8ac3abc5633930982b2db3f93a52cfcbc58e8c6892355bbcaddb915e3d9f",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/components/nodes/ImageInputNode.tsx",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/mask-processing.test.ts",
+      "originalSha256": "17114c5ff21723f596c2dda46dd1ab7219fc18be84081cad749403aa422b8bea",
+      "extractedSha256": "17114c5ff21723f596c2dda46dd1ab7219fc18be84081cad749403aa422b8bea",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/maskProcessing.ts"
+      ]
+    },
+    {
+      "path": "tests/mask-upload.test.ts",
+      "originalSha256": "44a17450146f292c108db370593b516c049c29f534d8dec6a3c32ea14676f91b",
+      "extractedSha256": "44a17450146f292c108db370593b516c049c29f534d8dec6a3c32ea14676f91b",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/maskUpload.ts"
+      ]
+    },
+    {
+      "path": "tests/multi-image-provider-recovery.test.ts",
+      "originalSha256": "44550a0232064f1e7a1eccad21ffa5d73230ccad0b950d3ef7e462f8796eb6eb",
+      "extractedSha256": "44550a0232064f1e7a1eccad21ffa5d73230ccad0b950d3ef7e462f8796eb6eb",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/runner.ts",
+        "server/providers/base.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/pose-analysis.test.ts",
+      "originalSha256": "e68f192ac443906a5a20df0f0bfc36026d7e4c70cdaba7e3acf5bead23c2e43f",
+      "extractedSha256": "e68f192ac443906a5a20df0f0bfc36026d7e4c70cdaba7e3acf5bead23c2e43f",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/poseAnalysis.ts"
+      ]
+    },
+    {
+      "path": "tests/pose-document-persistence.test.ts",
+      "originalSha256": "ff0155ef0d1b34aae7ed2a3ce168e145e3fa249bdbdaac291e31d14b856d42cf",
+      "extractedSha256": "ff0155ef0d1b34aae7ed2a3ce168e145e3fa249bdbdaac291e31d14b856d42cf",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/workflowSchema.ts",
+        "src/lib/documentSnapshot.ts",
+        "src/lib/poseEditorModel.ts",
+        "src/store/flowStore.ts"
+      ]
+    },
+    {
+      "path": "tests/pose-editing.test.ts",
+      "originalSha256": "3d059ea36b7ad682ad9a9c2297ea88b7d778e9cc18bc6829a92d0480d586b226",
+      "extractedSha256": "3d059ea36b7ad682ad9a9c2297ea88b7d778e9cc18bc6829a92d0480d586b226",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/imageValidation.ts",
+        "server/lib/poseEditing.ts",
+        "src/types/poseDocument.ts"
+      ]
+    },
+    {
+      "path": "tests/pose-editor-history.test.ts",
+      "originalSha256": "876d142918eff89d7ccd0db323720adf2f1f7399532b8cb1fec6cc8435fbb5a0",
+      "extractedSha256": "876d142918eff89d7ccd0db323720adf2f1f7399532b8cb1fec6cc8435fbb5a0",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/poseEditorHistory.ts",
+        "src/lib/poseEditorModel.ts"
+      ]
+    },
+    {
+      "path": "tests/pose-editor-model.test.ts",
+      "originalSha256": "1bd7c2782426032d3a81f6c0f7eba9b362aa242cf5c28fa67085d12e62e12cc6",
+      "extractedSha256": "1bd7c2782426032d3a81f6c0f7eba9b362aa242cf5c28fa67085d12e62e12cc6",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/poseEditorModel.ts"
+      ]
+    },
+    {
+      "path": "tests/pose-ik.test.ts",
+      "originalSha256": "bfc6989fe5be94a1fdebb6d12ec824c9e68b1a841a1cb4e27cd6de31a5c24f87",
+      "extractedSha256": "bfc6989fe5be94a1fdebb6d12ec824c9e68b1a841a1cb4e27cd6de31a5c24f87",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/pose3dModel.ts",
+        "src/lib/poseEditorModel.ts",
+        "src/lib/poseIk.ts",
+        "src/lib/poseTopology.ts",
+        "src/types/poseDocument.ts"
+      ]
+    },
+    {
+      "path": "tests/pose-prompt-runtime.test.ts",
+      "originalSha256": "642ae8c3d0df4e37393537f85d7f5803ab5332bec375f34f87302053cae006d5",
+      "extractedSha256": "642ae8c3d0df4e37393537f85d7f5803ab5332bec375f34f87302053cae006d5",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/store/flowStore.ts",
+        "src/store/poseReferenceRuntime.ts"
+      ]
+    },
+    {
+      "path": "tests/pose-reference-runtime.test.ts",
+      "originalSha256": "1e6436c4dd36de97719919a048a1c41fac2b9a0ca8805b283a16dcd72d0de1fc",
+      "extractedSha256": "1e6436c4dd36de97719919a048a1c41fac2b9a0ca8805b283a16dcd72d0de1fc",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/documentSnapshot.ts",
+        "src/store/flowStore.ts",
+        "src/store/poseReferenceRuntime.ts",
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "tests/pose-references-api.test.ts",
+      "originalSha256": "1a47a565cb5defdd30eec752c5953379e770c5d25e4ff2cdaa0aa751a7f1890f",
+      "extractedSha256": "1a47a565cb5defdd30eec752c5953379e770c5d25e4ff2cdaa0aa751a7f1890f",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/poseAnalysis.ts",
+        "server/providers/base.ts",
+        "server/routes/poseReferences.ts",
+        "src/types/poseDocument.ts",
+        "tests/postgresTestDatabase.ts"
+      ]
+    },
+    {
+      "path": "tests/pose-topology.test.ts",
+      "originalSha256": "59710b85f42aaf16dfa11c2f05e1aeb10ac7c9eaba5a13d9617515e4646ec712",
+      "extractedSha256": "59710b85f42aaf16dfa11c2f05e1aeb10ac7c9eaba5a13d9617515e4646ec712",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/poseTopology.ts",
+        "src/types/poseDocument.ts",
+        "src/types/poseReference.ts"
+      ]
+    },
+    {
+      "path": "tests/postgresTestDatabase.ts",
+      "originalSha256": "1f53f406b9b494b245fbe46db707b0081ab1c9d14ce8e433228425a5a7a9a1cf",
+      "extractedSha256": "1f53f406b9b494b245fbe46db707b0081ab1c9d14ce8e433228425a5a7a9a1cf",
+      "aliasImportsRewritten": 0,
+      "dependencies": []
+    },
+    {
+      "path": "tests/project-tabs-session.test.ts",
+      "originalSha256": "68b7aec4bcaa10d0d2a0eb747a4baf6eda9d10cd43adf25e048f4f3df01da5b5",
+      "extractedSha256": "d17dbcd1b298bc3bac697cb8128c6f8bb26c1500b7eff9f28f694987e0b029b9",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/auth/session.ts",
+        "src/components/panels/TemplatesDock.tsx",
+        "src/lib/tabSessionStorage.ts",
+        "src/store/flowStore.ts",
+        "src/store/generationSafety.ts"
+      ]
+    },
+    {
+      "path": "tests/provider-contract.test.ts",
+      "originalSha256": "2a15d0f45b984a5379f7653f002a3f5bc3730b3794c3abb114c8741f50dfa271",
+      "extractedSha256": "2a15d0f45b984a5379f7653f002a3f5bc3730b3794c3abb114c8741f50dfa271",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "docs/ai/apiyi/sources.json",
+        "server/config.ts",
+        "server/engine/runner.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/maskProcessing.ts",
+        "server/lib/rateLimit.ts",
+        "server/providers/apiyi.ts",
+        "server/providers/apiyiVideo.ts",
+        "server/providers/base.ts",
+        "server/routes/aiDiagnostics.ts",
+        "src/types/imageModels.ts"
+      ]
+    },
+    {
+      "path": "tests/provider-retry.test.ts",
+      "originalSha256": "e7097360c0741d2ecc224198743415761e968e25c4baf910e2548313123e1f71",
+      "extractedSha256": "e7097360c0741d2ecc224198743415761e968e25c4baf910e2548313123e1f71",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/providers/base.ts",
+        "server/providers/exact.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/recent-results.test.ts",
+      "originalSha256": "68990b2358dd3e9684da295f1a45a1219458947af25029df0067064a12045654",
+      "extractedSha256": "85f94c03c3c073d396836d6790b19d8556aae30b4dd7db45c62c3968acdfa6ee",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/components/nodes/ImageGrid.tsx",
+        "src/components/nodes/NodeFrame.tsx",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/run-queue.test.ts",
+      "originalSha256": "29d0b6a6ead580b09f11652f6335858850c1692ccda8f407e35b111d3447999a",
+      "extractedSha256": "29d0b6a6ead580b09f11652f6335858850c1692ccda8f407e35b111d3447999a",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/runQueue.ts",
+        "server/engine/runner.ts",
+        "server/lib/auth.ts",
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/generationRecords.ts",
+        "server/lib/sceneAnalysis.ts",
+        "server/lib/uploadImageNormalization.ts",
+        "server/providers/base.ts",
+        "server/routes/generate.ts",
+        "server/routes/runPlan.ts",
+        "src/lib/tryOnPoseReview.ts",
+        "src/types/workflow.ts",
+        "tests/postgresTestDatabase.ts"
+      ]
+    },
+    {
+      "path": "tests/ti-angle-basis.test.ts",
+      "originalSha256": "3a8439d709c68f30cdb406ffdfc4f52cbe5d73603fdce1b837e7b6621d69f5a7",
+      "extractedSha256": "3a8439d709c68f30cdb406ffdfc4f52cbe5d73603fdce1b837e7b6621d69f5a7",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/ti-angle-execution.test.ts",
+      "originalSha256": "f655bca6124e1546d7cd977fde44297414a59aed6a76097af1046161c46529fe",
+      "extractedSha256": "f655bca6124e1546d7cd977fde44297414a59aed6a76097af1046161c46529fe",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/dag.ts",
+        "server/engine/runner.ts",
+        "server/lib/executionInputFingerprint.ts",
+        "server/providers/base.ts",
+        "src/lib/tiAngle.ts",
+        "src/types/imageModels.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/ti-angle-geometry.test.ts",
+      "originalSha256": "be6ba3edd3e77b613799d28ac909b366a4132aa31a74e9b57b9e55e5cfb8a55c",
+      "extractedSha256": "be6ba3edd3e77b613799d28ac909b366a4132aa31a74e9b57b9e55e5cfb8a55c",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/tiAngleGeometry.ts"
+      ]
+    },
+    {
+      "path": "tests/ti-angle-node.test.ts",
+      "originalSha256": "1f572de90fc990958038f321e342a06f2437926d314734de34b66f9534adcdbe",
+      "extractedSha256": "9b49a88d7d62f28367b1c653f18ad7059adcf4c238595f58b941ad2468ac4c68",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/components/nodes/TiAngelNode.tsx",
+        "src/components/nodes/index.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/ti-angle-persistence.test.ts",
+      "originalSha256": "446fde7f5351ff43f060b3a78becaff7c05b6f1e0d2c45933c67d3b78e6b01da",
+      "extractedSha256": "446fde7f5351ff43f060b3a78becaff7c05b6f1e0d2c45933c67d3b78e6b01da",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/lib/workflowSchema.ts",
+        "src/lib/documentSnapshot.ts",
+        "src/store/flowStore.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/ti-angle-ports.test.ts",
+      "originalSha256": "f62c2b0637b758befce1aa89026f98b8e73ec5876b7964f253e5e7e0afeefbd5",
+      "extractedSha256": "f62c2b0637b758befce1aa89026f98b8e73ec5876b7964f253e5e7e0afeefbd5",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/dag.ts",
+        "server/engine/runner.ts",
+        "server/lib/workflowSchema.ts",
+        "src/lib/workflowPorts.ts",
+        "src/types/workflow.ts"
+      ]
+    },
+    {
+      "path": "tests/ti-angle-preview.test.ts",
+      "originalSha256": "5677d34d6ca90257b76a21226c070b0ed345afd4d2f6d6e442a3642a398cb9bd",
+      "extractedSha256": "0c61774017c2c9beabe06fb3354d7912b0a7e55d00aee1111479ba0246b7fae5",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/components/nodes/TiAnglePreview.tsx"
+      ]
+    },
+    {
+      "path": "tests/ti-angle.test.ts",
+      "originalSha256": "b6ef29ca13acc3abe1420746d9eb1f894b638c2ce8399d634724b08b87c19586",
+      "extractedSha256": "b6ef29ca13acc3abe1420746d9eb1f894b638c2ce8399d634724b08b87c19586",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "src/lib/tiAngle.ts",
+        "src/types/imageModels.ts"
+      ]
+    },
+    {
+      "path": "tests/upload-image-normalization.test.ts",
+      "originalSha256": "ee549bb80c1c8f98c7efd9002e597025906e0c7351ee84c990f371baedd8e10f",
+      "extractedSha256": "ee549bb80c1c8f98c7efd9002e597025906e0c7351ee84c990f371baedd8e10f",
+      "aliasImportsRewritten": 0,
+      "dependencies": [
+        "server/engine/runner.ts",
+        "server/lib/database.ts",
+        "server/lib/fileStore.ts",
+        "server/lib/imageValidation.ts",
+        "server/lib/uploadImageNormalization.ts",
+        "server/routes/files.ts",
+        "server/routes/projects.ts",
+        "src/types/workflow.ts",
+        "tests/postgresTestDatabase.ts"
+      ]
+    }
+  ],
+  "externalPackages": [
+    "@base-ui/react",
+    "@xyflow/react",
+    "better-sqlite3",
+    "class-variance-authority",
+    "clsx",
+    "express",
+    "konva",
+    "lucide-react",
+    "nanoid",
+    "pg",
+    "react",
+    "react-dom",
+    "react-konva",
+    "saxes",
+    "shadcn",
+    "sharp",
+    "tailwind-merge",
+    "tailwindcss",
+    "three",
+    "tw-animate-css",
+    "typescript",
+    "undici",
+    "yauzl",
+    "zundo",
+    "zustand"
+  ],
+  "focusedTests": [
+    "tests/ti-angle.test.ts",
+    "tests/ti-angle-geometry.test.ts",
+    "tests/ti-angle-preview.test.ts",
+    "tests/ti-angle-persistence.test.ts",
+    "tests/ti-angle-ports.test.ts",
+    "tests/ti-angle-basis.test.ts",
+    "tests/ti-angle-execution.test.ts",
+    "tests/ti-angle-node.test.ts",
+    "tests/pose-analysis.test.ts",
+    "tests/pose-topology.test.ts",
+    "tests/pose-editing.test.ts",
+    "tests/pose-editor-history.test.ts",
+    "tests/pose-editor-model.test.ts",
+    "tests/pose-ik.test.ts",
+    "tests/pose-reference-runtime.test.ts",
+    "tests/pose-prompt-runtime.test.ts",
+    "tests/pose-document-persistence.test.ts",
+    "tests/pose-references-api.test.ts",
+    "tests/dwpose-analysis.test.ts",
+    "tests/depth-analysis.test.ts",
+    "tests/background-extract.test.ts",
+    "tests/image-input-node.test.ts",
+    "tests/image-conversation-rules.test.ts",
+    "tests/image-conversation-inputs.test.ts",
+    "tests/image-conversation-recovery.test.ts",
+    "tests/image-conversation-ui.test.ts",
+    "tests/image-conversation-planner.test.ts",
+    "tests/image-conversation-queue.test.ts",
+    "tests/image-conversation-storage.test.ts",
+    "tests/image-conversation-api.test.ts",
+    "tests/image-conversation-lifecycle.test.ts",
+    "tests/active-document-boundary.test.ts",
+    "tests/document-snapshot.test.ts",
+    "tests/run-queue.test.ts",
+    "tests/recent-results.test.ts",
+    "tests/project-tabs-session.test.ts",
+    "tests/mask-upload.test.ts",
+    "tests/mask-processing.test.ts",
+    "tests/authorization.test.ts",
+    "tests/auth-storage.test.ts",
+    "tests/auth-client.test.ts",
+    "tests/generation-safety.test.ts",
+    "tests/gpt-image25.test.ts",
+    "tests/provider-contract.test.ts",
+    "tests/multi-image-provider-recovery.test.ts",
+    "tests/provider-retry.test.ts",
+    "tests/exact-generation.test.ts",
+    "tests/upload-image-normalization.test.ts"
+  ]
+}

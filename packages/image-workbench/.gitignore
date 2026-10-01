@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-server/
+dist-types/
+data/
+tmp/
+__pycache__/
+.env
+.env.*
+!.env.example
+*.tgz
+*.zip

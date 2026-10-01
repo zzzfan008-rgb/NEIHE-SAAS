@@ -1,0 +1,276 @@
+import type { Edge } from "@xyflow/react";
+import { nanoid } from "nanoid";
+import { flushSync } from "react-dom";
+import type { WorkflowTemplate, WorkflowNodeData } from "../types/workflow";
+import {
+  commitDocumentMutation,
+  isPristineProjectTab,
+  projectTabLifecycle,
+  selectActiveDocument,
+  useFlowStore,
+  type FlowNode,
+} from "../store/flowStore";
+import { requestCanvasLanding } from "./canvasLanding";
+
+export type TemplateLaunchMode = "default" | "upload" | "text";
+
+/**
+ * Pick the first interaction a built-in template needs after it is opened.
+ *
+ * The default mode remains available for callers that intentionally want the
+ * generic "first missing parameter" landing behavior.  Launcher cards use
+ * this helper so an image workflow opens its file input and a text workflow
+ * selects its starter prompt for immediate replacement.
+ */
+export function inferTemplateLaunchMode(
+  template: Pick<WorkflowTemplate, "flow">,
+): TemplateLaunchMode {
+  if (
+    template.flow.nodes.some(
+      (node) =>
+        node.data.kind === "image-input" ||
+        node.data.kind === "outfit-reference" ||
+        node.data.kind === "background-extract",
+    )
+  ) {
+    return "upload";
+  }
+  if (
+    template.flow.nodes.some((node) => node.data.kind === "sketch-to-render")
+  ) {
+    return "text";
+  }
+  return "default";
+}
+
+function isMissingParameter(data: WorkflowNodeData): boolean {
+  if (data.kind === "outfit-reference") return !data.mainImage;
+  if (data.kind === "ai-styling") return !data.analysisId;
+  if (data.kind === "background-extract") return !data.imageUrl;
+  if (data.kind === "image-input") return !data.imageUrl;
+  if (
+    data.kind === "sketch-optimize" ||
+    data.kind === "sketch-to-render" ||
+    data.kind === "ai-modify" ||
+    data.kind === "print-extract" ||
+    data.kind === "print-mutate" ||
+    data.kind === "mask-redraw"
+  )
+    return !data.prompt.trim();
+  if (data.kind === "fabric-recolor") {
+    return (
+      data.colors.length === 0 && !data.prompt.trim() && !data.fabricImageUrl
+    );
+  }
+  return false;
+}
+
+export function templateLandingNodeId(
+  nodes: readonly FlowNode[],
+  mode: TemplateLaunchMode,
+): string | undefined {
+  if (mode === "upload") {
+    return nodes.find(
+      (node) =>
+        (node.data.kind === "image-input" && !node.data.imageUrl) ||
+        (node.data.kind === "outfit-reference" && !node.data.mainImage) ||
+        (node.data.kind === "background-extract" && !node.data.imageUrl),
+    )?.id;
+  }
+  if (mode === "text") {
+    return nodes.find((node) => node.data.kind === "sketch-to-render")?.id;
+  }
+  return (
+    nodes.find((node) => isMissingParameter(node.data))?.id ??
+    nodes.find((node) => node.data.kind !== "result")?.id
+  );
+}
+
+type TemplateNodeIdMap = ReadonlyMap<string, string>;
+
+function createTemplateNodeIdMap(
+  nodes: WorkflowTemplate["flow"]["nodes"],
+): Map<string, string> {
+  const sourceIds = new Set(nodes.map((node) => node.id));
+  const idMap = new Map<string, string>();
+  for (const node of nodes) {
+    let clonedId = `node-${nanoid(10)}`;
+    while (sourceIds.has(clonedId) || idMapHasValue(idMap, clonedId)) {
+      clonedId = `node-${nanoid(10)}`;
+    }
+    idMap.set(node.id, clonedId);
+  }
+  return idMap;
+}
+
+function idMapHasValue(idMap: Map<string, string>, value: string): boolean {
+  for (const mappedId of idMap.values()) {
+    if (mappedId === value) return true;
+  }
+  return false;
+}
+
+export function remapWorkflowNodeDataReferences(
+  data: Record<string, unknown>,
+  idMap: TemplateNodeIdMap,
+): Record<string, unknown> {
+  const next = { ...data };
+  const autoConnectTargets = next.autoConnectTargets;
+  if (Array.isArray(autoConnectTargets)) {
+    next.autoConnectTargets = autoConnectTargets.map((target) => {
+      if (!target || typeof target !== "object") return target;
+      const candidate = target as Record<string, unknown>;
+      const targetNodeId = candidate.targetNodeId;
+      return typeof targetNodeId === "string"
+        ? { ...candidate, targetNodeId: idMap.get(targetNodeId) ?? targetNodeId }
+        : target;
+    });
+  }
+  for (const [key, value] of Object.entries(next)) {
+    if (key === "autoConnectTargets" || !key.endsWith("NodeId")) continue;
+    if (typeof value === "string") next[key] = idMap.get(value) ?? value;
+  }
+  return next;
+}
+
+function cloneNodes(
+  nodes: WorkflowTemplate["flow"]["nodes"],
+  idMap: TemplateNodeIdMap,
+): FlowNode[] {
+  return structuredClone(nodes).map((node) => {
+    const data = { ...node.data } as Record<string, unknown>;
+    delete data.error;
+    if (node.data.kind === "outfit-reference") {
+      data.images = [];
+      data.mainImage = null;
+      data.status = "idle";
+    }
+    if (node.data.kind === "ai-styling") {
+      delete data.analysisId;
+      delete data.referenceFingerprint;
+      data.preserve = null;
+      data.status = "idle";
+    }
+    if (node.data.kind === "image-input") delete data.imageUrl;
+    if (node.data.kind === "background-extract") delete data.imageUrl;
+    if (node.data.kind === "character-board") {
+      delete data.sourceImage;
+      data.status = "idle";
+    }
+    if (node.data.kind === "drawing-board") {
+      delete data.contentRef;
+      delete data.previewImageRef;
+      delete data.exportImageRef;
+    }
+    if (node.data.kind === "stage-approval") {
+      delete data.approvedSourceNodeId;
+      delete data.approvedBaselineRef;
+      delete data.approvedBasisRevision;
+      delete data.approvedAt;
+    }
+    if ("outputImages" in data) data.outputImages = [];
+    if (node.data.kind === "result") data.images = [];
+    if (node.data.kind === "fabric-recolor") delete data.fabricImageUrl;
+    if (node.data.kind === "mask-redraw") {
+      delete data.mask;
+      delete data.maskSourceRef;
+    }
+    if (node.data.kind === "print-extract") data.savedAsAssets = [];
+    return {
+      ...node,
+      id: idMap.get(node.id) ?? node.id,
+      data: remapWorkflowNodeDataReferences(data, idMap),
+    };
+  }) as FlowNode[];
+}
+
+function cloneEdges(
+  edges: WorkflowTemplate["flow"]["edges"],
+  idMap: TemplateNodeIdMap,
+): Edge[] {
+  return structuredClone(edges).map((edge) => ({
+    ...edge,
+    id: `edge-${nanoid(10)}`,
+    source: idMap.get(edge.source) ?? edge.source,
+    target: idMap.get(edge.target) ?? edge.target,
+  })) as Edge[];
+}
+
+function cloneTemplateFlow(template: WorkflowTemplate): {
+  nodes: FlowNode[];
+  edges: Edge[];
+} {
+  const idMap = createTemplateNodeIdMap(template.flow.nodes);
+  return {
+    nodes: cloneNodes(template.flow.nodes, idMap),
+    edges: cloneEdges(template.flow.edges, idMap),
+  };
+}
+
+/** 从模板始终新建独立项目页签，并登记一次性 fitView/首输入焦点。 */
+export function launchTemplateInNewTab(
+  template: WorkflowTemplate,
+  mode: TemplateLaunchMode = "default",
+): { tabId: string; projectId: string; landingNodeId?: string } {
+  const projectId = nanoid(10);
+  const { nodes, edges } = cloneTemplateFlow(template);
+  const landingNodeId = templateLandingNodeId(nodes, mode);
+  useFlowStore.getState().openFlowTab({
+    projectId,
+    projectName: `${template.name} - 副本`,
+    nodes,
+    edges,
+    markDirty: true,
+  });
+  const tabId = useFlowStore.getState().activeTabId;
+  if (landingNodeId)
+    useFlowStore.getState().setSelectedNodeIds([landingNodeId]);
+  requestCanvasLanding({
+    tabId,
+    nodeId: landingNodeId,
+    fitView: true,
+    activateFilePicker: mode === "upload",
+    selectText: mode === "text",
+  });
+  return { tabId, projectId, landingNodeId };
+}
+
+/** 首次任务直接接管唯一初始草稿；普通空白页签仍沿用“从模板新建”语义。 */
+export function launchStarterTemplate(
+  template: WorkflowTemplate,
+  mode: TemplateLaunchMode = "default",
+): { tabId: string; projectId: string; landingNodeId?: string } {
+  const active = selectActiveDocument(useFlowStore.getState());
+  if (
+    projectTabLifecycle(active) !== "initial_draft" ||
+    !isPristineProjectTab(active)
+  ) {
+    return launchTemplateInNewTab(template, mode);
+  }
+
+  const { nodes, edges } = cloneTemplateFlow(template);
+  const landingNodeId = templateLandingNodeId(nodes, mode);
+  let changed = false;
+  flushSync(() => {
+    changed = commitDocumentMutation({
+      nodes,
+      edges,
+      selectedNodeIds: [],
+      selectedNodeId: null,
+      selectedResultId: null,
+      compareIds: [],
+    });
+  });
+  if (!changed) return { tabId: active.id, projectId: active.projectId };
+  if (landingNodeId)
+    useFlowStore.getState().setSelectedNodeIds([landingNodeId]);
+  useFlowStore.getState().closeViewer();
+  requestCanvasLanding({
+    tabId: active.id,
+    nodeId: landingNodeId,
+    fitView: true,
+    activateFilePicker: mode === "upload",
+    selectText: mode === "text",
+  });
+  return { tabId: active.id, projectId: active.projectId, landingNodeId };
+}
