@@ -228,9 +228,27 @@ test('pose comparison persists, preserves partial results and fits three desktop
   const canvasBox=await canvas.boundingBox();
   expect(canvasBox?.width).toBeGreaterThan(200);
   expect(canvasBox?.height).toBeGreaterThan(250);
+  const toolsBox = await editor.getByRole('complementary', { name: '姿势编辑工具' }).boundingBox();
+  expect(toolsBox!.x).toBeGreaterThanOrEqual(canvasBox!.x + canvasBox!.width);
+  expect(toolsBox!.x + toolsBox!.width).toBeLessThan(viewportSize.width);
   await canvas.click({position:{x:canvasBox!.width/2,y:canvasBox!.height/2}});
   await expect(editor.getByRole('spinbutton',{name:'关键点 X'})).toBeVisible();
-  await editor.getByRole('button',{name:'应用到当前节点',exact:true}).click();
+  await editor.getByRole('button', { name: '新增点位', exact: true }).click();
+  await canvas.click({ position: { x: canvasBox!.width / 2 + 20, y: canvasBox!.height / 2 + 35 } });
+  await expect(editor.getByRole('button', { name: '新增点 1（手动）', exact: true })).toHaveCount(1);
+  await editor.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(editor.getByRole('button', { name: '新增点 1（手动）', exact: true })).toHaveCount(0);
+  await editor.getByRole('button', { name: '重做', exact: true }).click();
+  await expect(editor.getByRole('button', { name: '新增点 1（手动）', exact: true })).toHaveCount(1);
+  await editor.getByRole('button', { name: '新增点位', exact: true }).click();
+  await canvas.click({ position: { x: canvasBox!.width / 2 + 30, y: canvasBox!.height / 2 + 70 } });
+  await editor.getByRole('spinbutton', { name: '关键点 X 坐标' }).fill('190');
+  await editor.getByRole('button', { name: '删除当前关键点', exact: true }).click();
+  await expect(editor.getByRole('button', { name: '新增点 2（手动）', exact: true })).toHaveCount(0);
+  await editor.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(editor.getByRole('button', { name: '新增点 2（手动）', exact: true })).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath('pose-custom-points.png') });
+  await editor.getByRole('button',{name:'保存骨骼图',exact:true}).click();
   await expect(editor).toHaveCount(0);
   expect(renderRequests).toHaveLength(1);
   expect(renderRequests[0]).toMatchObject({nodeId:'pose-test',source:'/api/files/replacement.png'});
@@ -239,9 +257,13 @@ test('pose comparison persists, preserves partial results and fits three desktop
     const state=useFlowStore.getState();const tab=state.tabs.find((t:any)=>t.id===state.activeTabId);
     return tab.nodes.find((n:any)=>n.id==='pose-test')?.data;
   });
-  expect(editedPoseNode?.imageUrl).toBe('/api/files/manual-pose.png');
-  expect(editedPoseNode?.poseDocument?.imageBinding).toBe('/api/files/manual-pose.png');
-  expect(editedPoseNode?.poseReferenceSource?.kind).toBe('skeleton');
+  expect(editedPoseNode?.imageUrl).toBe('/api/files/replacement.png');
+  expect(editedPoseNode?.poseSkeletonEdits?.[0]?.poseDocument?.imageBinding).toBe('/api/files/manual-pose.png');
+  expect(editedPoseNode?.poseSkeletonEdits?.[0]?.poseDocument?.people[0].custom[1]).toMatchObject({ point: { x: 190 }, parent: { group: 'custom', index: 0 } });
+  await expect(dialog.getByAltText('骨骼图', { exact: true })).toHaveAttribute('src', '/api/files/manual-pose.png');
+  await expect(dialog.getByRole('link', { name: '下载骨骼图' })).toHaveAttribute('href', '/api/files/manual-pose.png');
+  await dialog.getByRole('button', { name: '刷新结果', exact: true }).click();
+  await expect(dialog.getByAltText('骨骼图', { exact: true })).toHaveAttribute('src', '/api/files/manual-pose.png');
   const reloadedPoseState=await page.evaluate(async()=>{
     const flowStoreModule='/src/store/flowStore.ts';
     const {useFlowStore,nodeOutputImages,selectNodeInputImages}=await import(flowStoreModule);
@@ -255,11 +277,12 @@ test('pose comparison persists, preserves partial results and fits three desktop
     const restoredState=useFlowStore.getState();
     const restoredTab=restoredState.tabs.find((candidate:any)=>candidate.id===restoredState.activeTabId)!;
     const node=restoredTab.nodes.find((candidate:any)=>candidate.id==='pose-test')!;
-    return {data:node.data,images:nodeOutputImages(node.data),downstreamImages:selectNodeInputImages(restoredTab,'target'),edges:restoredTab.edges};
+    return {data:node.data,images:nodeOutputImages(node.data),downstreamImages:selectNodeInputImages(restoredTab,'target'),edges:restoredTab.edges,nodeCount:restoredTab.nodes.length};
   });
-  expect(reloadedPoseState.data.poseDocument).toEqual(editedPoseNode?.poseDocument);
-  expect(reloadedPoseState.images).toEqual(['/api/files/manual-pose.png']);
-  expect(reloadedPoseState.downstreamImages).toEqual(['/api/files/manual-pose.png']);
+  expect(reloadedPoseState.data.poseSkeletonEdits).toEqual(editedPoseNode?.poseSkeletonEdits);
+  expect(reloadedPoseState.images).toEqual(['/api/files/replacement.png']);
+  expect(reloadedPoseState.downstreamImages).toEqual(['/api/files/replacement.png']);
+  expect(reloadedPoseState.nodeCount).toBe(2);
   expect(reloadedPoseState.edges).toHaveLength(1);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
@@ -269,13 +292,15 @@ test('pose comparison persists, preserves partial results and fits three desktop
   await dialog.getByRole('button',{name:'编辑2D骨架',exact:true}).click();
   await expect(editor).toBeVisible();
   const reeditedX=editor.getByRole('spinbutton',{name:'关键点 X 坐标'});
-  await expect(reeditedX).toHaveValue(String(editedPoseNode?.poseDocument?.people?.[0]?.body?.[0]?.x));
+  await expect(editor.getByRole('button', { name: '新增点 2（手动）', exact: true })).toHaveCount(1);
+  await expect(reeditedX).toHaveValue(String(editedPoseNode?.poseSkeletonEdits?.[0]?.poseDocument?.people?.[0]?.body?.[0]?.x));
   const nextX=Number(await reeditedX.inputValue())+1;
   await reeditedX.fill(String(nextX));
-  await editor.getByRole('button',{name:'另存为姿势参考',exact:true}).click();
+  await editor.getByRole('button',{name:'保存骨骼图',exact:true}).click();
   await expect(editor).toHaveCount(0);
   expect(renderRequests).toHaveLength(2);
-  expect(renderRequests[1]).toMatchObject({nodeId:'pose-test',source:'/api/files/manual-pose.png'});
+  expect(renderRequests[1]).toMatchObject({nodeId:'pose-test',source:'/api/files/replacement.png'});
+  await dialog.getByRole('button', { name: '添加骨骼图到画布', exact: true }).click();
   const savedAfterReload=await page.evaluate(async()=>{
     const flowStoreModule='/src/store/flowStore.ts';
     const {useFlowStore,selectNodeInputImages}=await import(flowStoreModule);
@@ -287,6 +312,83 @@ test('pose comparison persists, preserves partial results and fits three desktop
   expect(savedAfterReload.saved.poseReferenceSource.kind).toBe('skeleton');
   expect(savedAfterReload.saved.poseDocument.imageBinding).toBe('/api/files/manual-pose.png');
   expect(savedAfterReload.saved.poseDocument.people[0].body[0].x).toBe(nextX);
-  expect(savedAfterReload.downstreamImages).toEqual(['/api/files/manual-pose.png']);
+  expect(savedAfterReload.saved.poseDocument.people[0].custom).toHaveLength(2);
+  expect(savedAfterReload.downstreamImages).toEqual(['/api/files/replacement.png']);
   expect(savedAfterReload.edges).toHaveLength(1);
+});
+
+test('skeleton save can retry failure and rejects a late upload after document replacement', async ({ page }) => {
+  const png = await sharp({ create: { width: 300, height: 500, channels: 3, background: '#869ca7' } }).png().toBuffer();
+  const image = 'data:image/png;base64,' + png.toString('base64');
+  let holdUpload = false;
+  let releaseUpload: (() => void) | undefined;
+  await page.route('**/api/files/*.png', route => route.fulfill({ contentType: 'image/png', body: png }));
+  await page.route('**/api/files', async route => {
+    if (holdUpload) await new Promise<void>(resolve => { releaseUpload = resolve; });
+    await route.fulfill({ json: { url: '/api/files/saved-edit.png' } });
+  });
+  await page.route('**/api/pose-references**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/render')) return route.fulfill({ json: { image, poseDocument: route.request().postDataJSON().poseDocument } });
+    if (path.endsWith('/analyze')) return route.fulfill({ json: { prompt: '站立', model: 'test', providerRequests: 0, cacheHit: false } });
+    return route.fulfill({ json: path.endsWith('/outfit') ? { record: null } : { records: [] } });
+  });
+  await setup(page);
+  await page.evaluate(async () => {
+    const storeModule = '/src/store/flowStore.ts';
+    const modelModule = '/src/lib/poseEditorModel.ts';
+    const { useFlowStore, selectActiveDocumentTarget } = await import(storeModule);
+    const { createEmptyPoseDocument, setPosePoint } = await import(modelModule);
+    const source = '/api/files/pose-source.png';
+    const document = createEmptyPoseDocument({ image: source, width: 300, height: 500 });
+    const seeded = setPosePoint(document, { personId: document.people[0].id, group: 'body', index: 0 }, { x: 150, y: 100, confidence: 1, origin: 'manual' });
+    useFlowStore.getState().updateNodeDataInTab(selectActiveDocumentTarget(useFlowStore.getState()), 'pose-test', {
+      poseSkeletonEdits: [{ source, analysisSource: source, analysisSourceKind: 'image', image: source, poseDocument: seeded }],
+    });
+    useFlowStore.setState({ saveProjectInTab: async () => false });
+  });
+  await page.getByRole('button', { name: '查看对比', exact: true }).click();
+  const comparison = page.getByRole('dialog', { name: '姿势参考对比' });
+  await comparison.getByRole('button', { name: '编辑2D骨架', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: '2D 姿势编辑' });
+  await editor.getByRole('spinbutton', { name: '关键点 X 坐标' }).fill('160');
+  await editor.getByRole('button', { name: '新增点位', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(editor).toBeVisible();
+  await expect(editor.getByRole('button', { name: '新增点位', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await editor.getByRole('button', { name: '新增点位', exact: true }).click();
+  const canvas = editor.getByRole('group', { name: /2D 骨架编辑画布/ });
+  await canvas.focus();
+  await canvas.press('Enter');
+  await expect(editor.getByRole('button', { name: '新增点 1（手动）', exact: true })).toHaveCount(1);
+  await editor.getByRole('button', { name: '保存骨骼图', exact: true }).click();
+  await expect(editor.getByRole('alert')).toContainText('项目保存失败');
+  await page.evaluate(async () => {
+    const mod = '/src/store/flowStore.ts'; const { useFlowStore } = await import(mod);
+    useFlowStore.setState({ saveProjectInTab: async () => true });
+  });
+  await editor.getByRole('button', { name: '保存骨骼图', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(comparison.getByRole('button', { name: '编辑2D骨架', exact: true })).toBeFocused();
+  await comparison.getByRole('button', { name: '编辑2D骨架', exact: true }).click();
+  await editor.getByRole('spinbutton', { name: '关键点 X 坐标' }).fill('170');
+  holdUpload = true;
+  await editor.getByRole('button', { name: '保存骨骼图', exact: true }).click();
+  await expect.poll(() => !!releaseUpload).toBe(true);
+  await page.evaluate(async () => {
+    const mod = '/src/store/flowStore.ts'; const { useFlowStore } = await import(mod);
+    useFlowStore.getState().loadFlow({ projectName: '替换文档', nodes: [{ id: 'pose-test', type: 'image-input', position: { x: 170, y: 140 }, data: { kind: 'image-input', label: '新文档', poseReference: true, status: 'success', imageUrl: '/api/files/replacement.png' } }], edges: [] });
+  });
+  const uploadFinished = page.waitForResponse(response => new URL(response.url()).pathname === '/api/files');
+  releaseUpload!();
+  await uploadFinished;
+  await expect(editor).toHaveCount(0);
+  const current = await page.evaluate(async () => {
+    const mod = '/src/store/flowStore.ts'; const { useFlowStore } = await import(mod);
+    const state = useFlowStore.getState();
+    return state.tabs.find((tab: any) => tab.id === state.activeTabId).nodes.map((node: any) => node.data);
+  });
+  expect(current).toHaveLength(1);
+  expect(current[0].imageUrl).toBe('/api/files/replacement.png');
+  expect(current[0].poseSkeletonEdits).toBeUndefined();
 });

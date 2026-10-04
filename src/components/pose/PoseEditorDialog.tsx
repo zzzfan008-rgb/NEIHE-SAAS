@@ -8,7 +8,8 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PoseEditor2D } from "@/components/pose/PoseEditor2D";
 import { posePointOptions, posePointLabel, type PoseEditorGroupFilter, type PoseEditorLayer } from "@/components/pose/poseEditorLabels";
-import { addPosePerson, mirrorPoseDocument, movePosePoint, removePosePerson, setPosePoint, type PosePointPath } from "@/lib/poseEditorModel";
+import { addCustomPosePoint, addPosePerson, mirrorPoseDocument, movePosePoint, removePosePerson, setPosePoint, type PosePointPath } from "@/lib/poseEditorModel";
+import { MAX_CUSTOM_POSE_POINTS, poseReferencePoint } from '@/lib/poseCustomPoints';
 import { canRedoPoseEditorHistory, canUndoPoseEditorHistory, commitPoseEditorHistory, createPoseEditorHistory, redoPoseEditorHistory, undoPoseEditorHistory } from "@/lib/poseEditorHistory";
 import { ensurePose3DDocument, markPose3DStale } from "@/lib/pose3dModel";
 import type { PoseDocumentV1, PosePointV1 } from "@/types/poseDocument";
@@ -18,7 +19,7 @@ type PoseEditorDialogProps = {
   open: boolean;
   source: string;
   initialDocument: PoseDocumentV1;
-  onSave: (document: PoseDocumentV1, mode: 'apply' | 'save-as') => Promise<void>;
+  onSave: (document: PoseDocumentV1) => Promise<void>;
   onClose: () => void;
   triggerRef?: RefObject<HTMLButtonElement | null>;
 };
@@ -55,23 +56,18 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [saving, setSaving] = useState(false);
+  const [addingPoint, setAddingPoint] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const initialSerialized = useRef(JSON.stringify(initialDocument));
   const document = draftDocument ?? history.present;
   const person = document.people.find((candidate) => candidate.id === activePersonId) ?? document.people[0];
   const faceCount = person?.faceTopology === "face70" ? 70 : 68;
-  const pointOptions = useMemo(() => person ? posePointOptions(person.id, group, faceCount) : [], [person, group, faceCount]);
+  const pointOptions = useMemo(() => person ? posePointOptions(person.id, group, faceCount, person.custom?.length ?? 0) : [], [person, group, faceCount]);
   const activeOption = pointOptions.find(({ path }) => pointPathKey(path) === (activePoint ? pointPathKey(activePoint) : ""));
-  const activePointValue = activeOption && "index" in activeOption.path ? String(activeOption.path.index) : "center";
+  const activePointValue = activeOption ? "index" in activeOption.path ? String(activeOption.path.index) : "center" : null;
   const point = activePoint && person?.id === activePoint.personId
-    ? activePoint.group === "neck" || activePoint.group === "midHip"
-      ? person[activePoint.group]
-      : activePoint.group === "leftHand"
-        ? person.hands.left[activePoint.index]
-        : activePoint.group === "rightHand"
-          ? person.hands.right[activePoint.index]
-          : person[activePoint.group][activePoint.index]
+    ? poseReferencePoint(person, activePoint)
     : null;
   const isDirty = JSON.stringify(document) !== initialSerialized.current;
 
@@ -105,7 +101,8 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
   }, []);
 
   const handleOpenChange = (nextOpen: boolean) => {
-    if (nextOpen) return;
+    if (nextOpen || saving) return;
+    if (addingPoint) { setAddingPoint(false); return; }
     if (isDirty || saving) {
       setConfirmDiscard(true);
       return;
@@ -167,6 +164,7 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
   };
 
   const switchMode = (nextMode: string) => {
+    setAddingPoint(false);
     if (nextMode !== '2d' && nextMode !== '3d') return;
     if (nextMode === '3d' && person) {
       try {
@@ -187,12 +185,12 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
     setActivePoint(makePath(id, group, group === "neck" || group === "midHip" ? "center" : "0"));
   };
 
-  const save = async (saveMode: 'apply' | 'save-as') => {
+  const save = async () => {
     if (saving) return;
     setSaving(true);
     setError(null);
     try {
-      await onSave(document, saveMode);
+      await onSave(document);
       onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "保存姿势失败");
@@ -202,6 +200,13 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
   };
 
   const handleEditorKeyDown = (event: KeyboardEvent) => {
+    if (saving) return;
+    if (event.key === 'Escape' && addingPoint) {
+      event.preventDefault();
+      event.stopPropagation();
+      setAddingPoint(false);
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       event.preventDefault();
       if (event.shiftKey) redo(); else undo();
@@ -216,21 +221,21 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
           finalFocus={triggerRef}
           onKeyDown={handleEditorKeyDown}
           className="nodrag nopan flex max-w-none flex-col overflow-hidden bg-[var(--gc-panel)] text-[var(--gc-text)]"
-          style={{ width: "min(1320px, calc(100vw - 32px))", maxWidth: "none", maxHeight: "calc(100vh - 32px)" }}
+          style={{ width: "min(1320px, calc(100vw - 32px))", height: "min(900px, calc(100vh - 32px))", maxWidth: "none", maxHeight: "calc(100vh - 32px)" }}
         >
           <DialogHeader>
             <DialogTitle>{mode === '2d' ? '2D 姿势编辑' : '3D 姿势编辑'}</DialogTitle>
             <DialogDescription id="pose-editor-description">
-              2D 用于精确点位与面部、手部编辑；3D 用于当前人物的骨架 IK 调整。保存会在画布新增姿势参考，不覆盖来源图片。
+              2D 支持点位编辑与新增连线；3D 用于当前人物的骨架 IK 调整。保存仅更新当前骨骼图，不替换原图、不新增画布节点。新增点位仅参与 2D 编辑。
             </DialogDescription>
           </DialogHeader>
-          <Tabs value={mode} onValueChange={switchMode} className="flex min-h-0 flex-1 flex-col gap-2">
+          <Tabs inert={saving} value={mode} onValueChange={switchMode} className="flex min-h-0 flex-1 flex-col gap-2">
             <TabsList aria-label="姿势编辑模式" className="w-fit">
               <TabsTrigger value="2d">2D 点位</TabsTrigger>
               <TabsTrigger value="3d">3D IK</TabsTrigger>
             </TabsList>
-            <TabsContent value="2d" className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden">
-              <div className="grid min-h-full grid-cols-1 grid-rows-[minmax(320px,1fr)_auto] gap-3 xl:grid-cols-[minmax(0,1fr)_300px] xl:grid-rows-1">
+            <TabsContent value="2d" style={{ display: mode === '2d' ? undefined : 'none' }} className="min-h-0 flex-1 overflow-hidden">
+              <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_280px] grid-rows-1 gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
                 <PoseEditor2D
                   imageUrl={source}
                   document={document}
@@ -241,23 +246,41 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
                   pan={pan}
                   onZoomChange={setZoom}
                   onPanChange={setPan}
-                  onSelectPoint={setActivePoint}
+                  onSelectPoint={(path) => { setActivePoint(path); setGroup(path.group); }}
+                  addingPoint={addingPoint && !!point}
+                  onAddPoint={(coordinates) => {
+                    if (!activePoint || !person) return;
+                    try {
+                      const next = addCustomPosePoint(document, activePoint, coordinates.x, coordinates.y);
+                      commit(next);
+                      setGroup('custom');
+                      setActivePoint({ personId: person.id, group: 'custom', index: person.custom?.length ?? 0 });
+                      setAddingPoint(false);
+                      setLayers((current) => ({ ...current, body: true }));
+                      setError(null);
+                    } catch (cause) { setError(cause instanceof Error ? cause.message : '新增点位失败'); }
+                  }}
                   onBeginPointDrag={beginPointDrag}
                   onDraftPoint={draftPoint}
                   onFinishPointDrag={finishPointDrag}
                   onNudgePoint={(path, dx, dy) => commit(movePosePoint(document, path, dx, dy))}
-                  onSetMissingPoint={(path, coordinates) => commit(setPosePoint(document, path, { ...coordinates, confidence: 1, origin: "manual" }))}
+                  onSetMissingPoint={(path, coordinates) => {
+                    if (path.group === 'custom' && !person.custom?.[path.index]) return;
+                    commit(setPosePoint(document, path, { ...coordinates, confidence: 1, origin: "manual" }));
+                  }}
                 />
-                <aside aria-label="姿势编辑工具" className="flex min-h-0 flex-col gap-3 rounded-lg border border-[var(--gc-border)] bg-[var(--gc-canvas)] p-3 xl:overflow-y-auto">
+                <aside aria-label="姿势编辑工具" className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto rounded-lg border border-[var(--gc-border)] bg-[var(--gc-canvas)] p-3">
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" disabled={!canUndoPoseEditorHistory(history)} onClick={undo}>撤销</Button>
                     <Button size="sm" variant="outline" disabled={!canRedoPoseEditorHistory(history)} onClick={redo}>重做</Button>
                     <Button size="sm" variant="outline" onClick={() => commit(mirrorPoseDocument(document))}>左右镜像</Button>
+                    <Button size="sm" variant={addingPoint ? 'default' : 'outline'} aria-pressed={addingPoint} disabled={!point || (person.custom?.length ?? 0) >= MAX_CUSTOM_POSE_POINTS} onClick={() => setAddingPoint((current) => !current)}>新增点位</Button>
                   </div>
+                  <p className="text-xs text-muted-foreground" role="status">{addingPoint ? '点击图片放置新点，自动连接当前选中点；Esc 取消。' : '选中已有点位后，点击“新增点位”并在图片上放置。'}</p>
                   <div className="flex items-center gap-2">
                     <label htmlFor="pose-editor-person" className="shrink-0 text-xs">人物</label>
                     <Select value={person?.id ?? ""} onValueChange={selectPerson}>
-                      <SelectTrigger id="pose-editor-person" aria-label="选择人物"><SelectValue /></SelectTrigger>
+                      <SelectTrigger id="pose-editor-person" aria-label="选择人物" className="min-w-0 flex-1"><SelectValue>人物 {document.people.findIndex(candidate => candidate.id === person?.id) + 1}</SelectValue></SelectTrigger>
                       <SelectContent>
                         {document.people.map((candidate, index) => <SelectItem key={candidate.id} value={candidate.id}>人物 {index + 1}</SelectItem>)}
                       </SelectContent>
@@ -301,7 +324,7 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
                       setGroup(nextGroup);
                       setActivePoint(person ? makePath(person.id, nextGroup, "0") : null);
                     }}>
-                      <SelectTrigger aria-label="选择关键点分组"><SelectValue /></SelectTrigger>
+                      <SelectTrigger aria-label="选择关键点分组"><SelectValue>{({ body: '身体（COCO-17）', neck: '颈部中心', midHip: '骨盆中心', feet: '脚部（6）', face: `面部（${faceCount}）`, leftHand: '左手（21）', rightHand: '右手（21）', custom: `新增点位（${person.custom?.length ?? 0}）`, all: '全部' })[group]}</SelectValue></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="body">身体（COCO-17）</SelectItem>
                         <SelectItem value="neck">颈部中心</SelectItem>
@@ -310,13 +333,14 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
                         <SelectItem value="face">面部（{faceCount}）</SelectItem>
                         <SelectItem value="leftHand">左手（21）</SelectItem>
                         <SelectItem value="rightHand">右手（21）</SelectItem>
+                        <SelectItem value="custom">新增点位（{person.custom?.length ?? 0}）</SelectItem>
                       </SelectContent>
                     </Select>
                   </label>
                   <label className="space-y-1 text-xs">
                     关键点
                     <Select value={activePointValue} onValueChange={(value) => { if (person && value) setActivePoint(makePath(person.id, group, value)); }}>
-                      <SelectTrigger aria-label="选择关键点"><SelectValue placeholder="选择点位" /></SelectTrigger>
+                      <SelectTrigger aria-label="选择关键点"><SelectValue placeholder="选择点位">{activeOption?.label ?? '选择点位'}</SelectValue></SelectTrigger>
                       <SelectContent>
                         {pointOptions.map(({ path, label }) => <SelectItem key={pointPathKey(path)} value={"index" in path ? String(path.index) : "center"}>{label}</SelectItem>)}
                       </SelectContent>
@@ -339,7 +363,7 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
                 </aside>
               </div>
             </TabsContent>
-            <TabsContent value="3d" className="min-h-0 flex-1 data-[state=inactive]:hidden">
+            <TabsContent value="3d" style={{ display: mode === '3d' ? undefined : 'none' }} className="min-h-0 flex-1">
               <Suspense fallback={<div className="flex min-h-[320px] items-center justify-center rounded-lg border border-[var(--gc-border)] bg-[var(--gc-canvas)] text-sm text-[var(--gc-text-muted)]">正在加载 3D 姿势编辑器…</div>}>
                 <PoseEditor3D
                 key={`${activePersonId}-${document.pose3d?.stale ? 'stale' : 'fresh'}`}
@@ -356,8 +380,7 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
           </Tabs>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-[var(--gc-border)] pt-3">
             <Button variant="outline" disabled={saving} onClick={() => handleOpenChange(false)}>取消</Button>
-            <Button variant="outline" disabled={saving || !isDirty} onClick={() => void save('save-as')}>{saving ? "正在保存…" : "另存为姿势参考"}</Button>
-            <Button disabled={saving || !isDirty} onClick={() => void save('apply')}>{saving ? "正在保存…" : "应用到当前节点"}</Button>
+            <Button disabled={saving || !isDirty} onClick={() => void save()}>{saving ? "正在保存…" : "保存骨骼图"}</Button>
           </div>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </DialogContent>
@@ -366,7 +389,7 @@ export function PoseEditorDialog({ open, source, initialDocument, onSave, onClos
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>放弃未保存的姿势编辑？</AlertDialogTitle>
-            <AlertDialogDescription>当前修改尚未保存到画布。关闭后这些修改将丢失。</AlertDialogDescription>
+            <AlertDialogDescription>当前修改尚未保存到骨骼图。关闭后这些修改将丢失。</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>继续编辑</AlertDialogCancel>

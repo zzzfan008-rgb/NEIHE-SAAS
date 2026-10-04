@@ -170,6 +170,7 @@ export interface ImageInputNodeData extends BaseNodeData {
   /** Editable pose description, valid only for posePromptImage. */
   /** 仅当 imageBinding 与当前 imageUrl 一致时持久化的结构化姿势。 */
   poseDocument?: import('./poseDocument').PoseDocumentV1;
+  poseSkeletonEdits?: import('../lib/poseSkeletonEdit').PoseSkeletonEdit[];
   posePrompt?: string;
   posePromptImage?: string;
   posePromptMode?: import('./poseReference').PosePromptMode;

@@ -1,6 +1,72 @@
 import fs from "node:fs";
 import sharp from "sharp";
+import type { Page, Route } from "@playwright/test";
 import { test, expect } from "./fixtures";
+
+async function openTemplateWorkbench(page: Page) {
+  const created = await page.request.post("/api/projects", {
+    data: { name: "多图模板独立验收", flow: { nodes: [], edges: [] } },
+  });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const { id } = await created.json() as { id: string };
+  const detail = await page.request.get(`/api/projects/${id}`);
+  expect(detail.ok(), await detail.text()).toBeTruthy();
+  const project = await detail.json();
+  // The shared E2E account retains projects across specs and viewport projects.
+  // Scope only startup discovery; detail reads and all saves still use the real API.
+  const projects = async (route: Route) => route.request().method() === "GET"
+    ? route.fulfill({ json: [project] }) : route.fallback();
+  const draft = async (route: Route) => route.request().method() === "GET"
+    ? route.fulfill({ json: { draft: null } }) : route.fallback();
+  await page.route("**/api/projects", projects);
+  await page.route("**/api/projects/initial-draft", draft);
+  try {
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: "打开项目中心" })).toBeVisible();
+    await expect.poll(() => page.evaluate(async () => {
+      const path = "/src/store/flowStore.ts";
+      const { useFlowStore, selectActiveDocument } = await import(path);
+      return selectActiveDocument(useFlowStore.getState()).projectId;
+    })).toBe(id);
+  } finally {
+    await page.unroute("**/api/projects", projects);
+    await page.unroute("**/api/projects/initial-draft", draft);
+  }
+  return id;
+}
+
+test("模板验收启动隔离已有姿势项目且不修改其内容", async ({ page }) => {
+  const png = await sharp({ create: { width: 24, height: 32, channels: 3, background: "#aaa" } }).png().toBuffer();
+  const upload = await page.request.post("/api/files", { data: { dataUrl: `data:image/png;base64,${png.toString("base64")}` } });
+  expect(upload.ok(), await upload.text()).toBeTruthy();
+  const { url } = await upload.json();
+  const oldProject = await page.request.post("/api/projects", { data: { name: "隔离回归：旧姿势项目", flow: {
+    nodes: [
+      { id: "old-pose", type: "image-input", position: { x: 0, y: 0 }, data: {
+        kind: "image-input", label: "旧姿势", poseReference: true, imageUrl: url, imageRole: "reference", status: "success",
+      } },
+      { id: "old-first", type: "virtual-try-on", position: { x: 500, y: 0 }, data: {
+        kind: "virtual-try-on", label: "旧第一轮", workflowStage: "scene-stabilize", modelId: "gemini-3.1-flash-image", status: "idle", outputImages: [],
+      } },
+    ], edges: [{ id: "old-edge", source: "old-pose", sourceHandle: "image", target: "old-first", targetHandle: "pose" }],
+  } } });
+  expect(oldProject.ok(), await oldProject.text()).toBeTruthy();
+  const { id: oldId } = await oldProject.json();
+  const before = await (await page.request.get(`/api/projects/${oldId}`)).json();
+  const poseRequests: string[] = [];
+  await page.route("**/api/pose-references/analyze", async route => {
+    poseRequests.push(route.request().url());
+    await route.fulfill({ json: { prompt: "测试姿势", model: "mock", providerRequests: 0, cacheHit: true } });
+  });
+  const id = await openTemplateWorkbench(page);
+  expect(id).not.toBe(oldId);
+  await expect(page.locator('.react-flow__node[data-id="old-pose"]')).toHaveCount(0);
+  // Discovery interception must be gone after startup, not hide persisted projects.
+  const projects = await page.evaluate(async () => (await fetch("/api/projects")).json());
+  expect(projects.some((project: { id: string }) => project.id === oldId)).toBe(true);
+  expect(poseRequests).toEqual([]);
+  expect(await (await page.request.get(`/api/projects/${oldId}`)).json()).toEqual(before);
+});
 
 test("两阶段模板独立保存、角色编号、14图直传边界和桌面布局", async ({ page }, testInfo) => {
   const poseRequests: string[] = [];
@@ -8,8 +74,7 @@ test("两阶段模板独立保存、角色编号、14图直传边界和桌面布
     if (request.method() === "POST" && request.url().includes("/api/pose-references")) poseRequests.push(request.url());
   });
   const payload = JSON.parse(fs.readFileSync(new URL("../templates/multi-image-try-on.workflow.json", import.meta.url), "utf8"));
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "打开项目中心" })).toBeVisible();
+  await openTemplateWorkbench(page);
   const before = await (await page.request.get("/api/templates/builtin-tool-one-click-try-on")).json();
   const saved = await page.request.post("/api/templates", { data: payload });
   expect(saved.ok(), await saved.text()).toBeTruthy();
@@ -148,8 +213,7 @@ test("两阶段模板独立保存、角色编号、14图直传边界和桌面布
 
 test("多图模板TiAngel默认关闭、手动启用、保存恢复和键盘关闭", async ({ page }, testInfo) => {
   const payload = JSON.parse(fs.readFileSync(new URL("../templates/multi-image-try-on.workflow.json", import.meta.url), "utf8"));
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "打开项目中心" })).toBeVisible();
+  await openTemplateWorkbench(page);
   await page.evaluate(async payload => {
     const path = "/src/store/flowStore.ts";
     const landingPath = "/src/lib/canvasLanding.ts";

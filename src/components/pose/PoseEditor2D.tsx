@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { BODY_CONNECTIONS, FOOT_CONNECTIONS, HAND_CONNECTIONS } from "@/lib/poseTopology";
 import { screenToPosePoint, type PosePointPath } from "@/lib/poseEditorModel";
+import { poseReferencePoint } from '@/lib/poseCustomPoints';
 import type { PoseDocumentV1, PosePersonV1, PosePointV1 } from "@/types/poseDocument";
 import { posePointLabel, posePointLayer, type PoseEditorLayer } from "./poseEditorLabels";
 
@@ -44,6 +45,8 @@ type PoseEditor2DProps = {
   onFinishPointDrag: () => void;
   onNudgePoint: (path: PosePointPath, dx: number, dy: number) => void;
   onSetMissingPoint: (path: PosePointPath, point: { x: number; y: number }) => void;
+  addingPoint: boolean;
+  onAddPoint: (point: { x: number; y: number }) => void;
 };
 
 type PointMark = { path: PosePointPath; label: string; point: NonNullable<PosePointV1>; layer: PoseEditorLayer };
@@ -56,6 +59,7 @@ function personPoint(person: PosePersonV1, group: PosePointPath["group"], index?
   if (group === "neck" || group === "midHip") return person[group];
   if (group === "leftHand") return person.hands.left[index ?? -1] ?? null;
   if (group === "rightHand") return person.hands.right[index ?? -1] ?? null;
+  if (group === 'custom') return person.custom?.[index ?? -1]?.point ?? null;
   return person[group][index ?? -1] ?? null;
 }
 
@@ -79,6 +83,8 @@ export function PoseEditor2D({
   onFinishPointDrag,
   onNudgePoint,
   onSetMissingPoint,
+  addingPoint,
+  onAddPoint,
 }: PoseEditor2DProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragAction>(null);
@@ -112,7 +118,7 @@ export function PoseEditor2D({
         if (!point) return;
         const path: PosePointPath = group === "neck" || group === "midHip"
           ? { personId: person.id, group }
-          : { personId: person.id, group: group as "body" | "feet" | "face" | "leftHand" | "rightHand", index };
+          : { personId: person.id, group, index };
         const layer = posePointLayer(path);
         if (layers[layer]) result.push({ path, label: posePointLabel(path), point, layer });
       });
@@ -124,6 +130,7 @@ export function PoseEditor2D({
     push("rightHand", person.hands.right);
     push("neck", [person.neck]);
     push("midHip", [person.midHip]);
+    push('custom', person.custom?.map((entry) => entry.point) ?? []);
     return result;
   }, [layers, person]);
 
@@ -195,9 +202,13 @@ export function PoseEditor2D({
   const selectMissingPointAtClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || movedRef.current || !activePoint || activePoint.personId !== person.id) return;
     if (event.target instanceof Element && event.target.closest("[data-pose-editor-point]")) return;
-    if (personPoint(person, activePoint.group, "index" in activePoint ? activePoint.index : undefined)) return;
+    if (panMode) return;
+    if (!addingPoint && personPoint(person, activePoint.group, "index" in activePoint ? activePoint.index : undefined)) return;
     const point = toPosePoint(event.clientX, event.clientY);
-    if (point) onSetMissingPoint(activePoint, point);
+    if (point) {
+      if (addingPoint) onAddPoint(point);
+      else onSetMissingPoint(activePoint, point);
+    }
   };
 
   const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -206,6 +217,13 @@ export function PoseEditor2D({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' && addingPoint && event.target === event.currentTarget) {
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      const point = toPosePoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      if (point) onAddPoint(point);
+      return;
+    }
     if (event.key === " ") {
       event.preventDefault();
       setPanMode(true);
@@ -283,6 +301,7 @@ export function PoseEditor2D({
             {footLines}
             {handLines}
             {faceLines}
+            {layers.body && person.custom?.map(({ point, parent }, index) => renderLine(`custom-${index}`, poseReferencePoint(person, parent), point, 'body'))}
             {marks.map(({ path, label, point, layer }) => {
               const selected = samePath(activePoint, path);
               return (
@@ -322,7 +341,7 @@ export function PoseEditor2D({
           </svg>
         </div>
         <div className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-background/90 px-2.5 py-1.5 text-xs text-muted-foreground shadow-sm">
-          滚轮缩放 · 按住空格拖动画布 · 拖动关节点调整 · 方向键微调
+          {addingPoint ? '点击图片放置新点 · 聚焦画布按 Enter 在视野中心放置 · Esc 取消' : '滚轮缩放 · 按住空格拖动画布 · 拖动关节点调整 · 方向键微调'}
         </div>
       </div>
       <p className="sr-only" aria-live="polite">

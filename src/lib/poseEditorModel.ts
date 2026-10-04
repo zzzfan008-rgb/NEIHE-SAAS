@@ -1,6 +1,7 @@
 import type { PoseDocumentV1, PosePersonV1, PosePointV1 } from "../types/poseDocument";
 import { validatePoseDocument } from "./poseTopology";
 import { validPoseReferenceSource } from "../types/poseReference";
+import { MAX_CUSTOM_POSE_POINTS } from './poseCustomPoints';
 
 export type PosePointPath =
   | { personId: string; group: "neck" }
@@ -9,7 +10,8 @@ export type PosePointPath =
   | { personId: string; group: "feet"; index: number }
   | { personId: string; group: "face"; index: number }
   | { personId: string; group: "leftHand"; index: number }
-  | { personId: string; group: "rightHand"; index: number };
+  | { personId: string; group: "rightHand"; index: number }
+  | { personId: string; group: "custom"; index: number };
 
 
 export interface PoseEditorViewport {
@@ -74,6 +76,7 @@ function findPerson(document: PoseDocumentV1, personId: string): PosePersonV1 {
 
 function pointAt(person: PosePersonV1, path: PosePointPath): PosePointV1 {
   if (path.group === "neck" || path.group === "midHip") return person[path.group];
+  if (path.group === 'custom') return person.custom?.[path.index]?.point ?? null;
   const collection = path.group === "leftHand"
     ? person.hands.left
     : path.group === "rightHand"
@@ -95,6 +98,10 @@ function updatePoint(
   const people = source.people.map((person) => {
     if (person.id !== path.personId) return person;
     found = true;
+    if (path.group === 'custom') {
+      if (!person.custom?.[path.index]) throw new Error('新增点位不存在');
+      return { ...person, custom: person.custom.map((entry, index) => index === path.index ? { ...entry, point: update(entry.point) } : entry) };
+    }
     if (path.group === "neck" || path.group === "midHip") {
       return { ...person, [path.group]: update(person[path.group]) };
     }
@@ -192,6 +199,17 @@ export function setPosePoint(value: unknown, path: PosePointPath, point: PosePoi
   return updatePoint(validatePoseDocument(value), path, () => nextPoint);
 }
 
+export function addCustomPosePoint(value: unknown, parent: PosePointPath, x: number, y: number): PoseDocumentV1 {
+  const document = validatePoseDocument(value);
+  const person = findPerson(document, parent.personId);
+  if (!pointAt(person, parent)) throw new Error('请先选择一个已有点位');
+  if ((person.custom?.length ?? 0) >= MAX_CUSTOM_POSE_POINTS) throw new Error('每个人物最多新增 128 个点位');
+  const reference = 'index' in parent ? { group: parent.group, index: parent.index } : { group: parent.group };
+  return validatePoseDocument({ ...document, people: document.people.map((candidate) => candidate.id === person.id
+    ? { ...candidate, custom: [...(candidate.custom ?? []), { point: manualPoint(x, y), parent: reference }] }
+    : candidate) });
+}
+
 export function movePosePoint(value: unknown, path: PosePointPath, dx: number, dy: number): PoseDocumentV1 {
   if (![dx, dy].every(Number.isFinite)) throw new Error("姿势关键点位移无效");
   const document = validatePoseDocument(value);
@@ -229,6 +247,15 @@ export function mirrorPoseDocument(value: unknown): PoseDocumentV1 {
     body: mirrorPoints(person.body, BODY_MIRROR, width),
     feet: mirrorPoints(person.feet, FOOT_MIRROR, width),
     face: mirrorPoints(person.face, faceMirrorMap(person.faceTopology), width),
+    ...(person.custom ? { custom: person.custom.map((entry) => {
+      const ref = entry.parent;
+      const parent = ref.group === 'body' ? { ...ref, index: BODY_MIRROR[ref.index] }
+        : ref.group === 'feet' ? { ...ref, index: FOOT_MIRROR[ref.index] }
+          : ref.group === 'face' ? { ...ref, index: faceMirrorMap(person.faceTopology)[ref.index] }
+            : ref.group === 'leftHand' ? { ...ref, group: 'rightHand' as const }
+              : ref.group === 'rightHand' ? { ...ref, group: 'leftHand' as const } : ref;
+      return { point: reflectedPoint(entry.point, width), parent };
+    }) } : {}),
     hands: {
       left: mirrorPoints(person.hands.right, HAND_MIRROR, width),
       right: mirrorPoints(person.hands.left, HAND_MIRROR, width),

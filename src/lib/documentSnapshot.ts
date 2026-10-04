@@ -1,5 +1,6 @@
 import { optimizedPosePromptForImage, posePromptForImage, validPoseReferenceSource } from '../types/poseReference';
 import { isPoseDocumentBoundToImage } from './poseTopology';
+import { boundSkeletonEdits } from './poseSkeletonEdit';
 import {
   isSceneStabilizeModelId,
   MASK_REDRAW_MODEL_ID,
@@ -72,6 +73,7 @@ export type DocumentNodeData =
       posePromptOptimized?: string;
       poseReferenceSource?: import('../types/poseReference').PoseReferenceSource;
       poseDocument?: import('../types/poseDocument').PoseDocumentV1;
+      poseSkeletonEdits?: import('./poseSkeletonEdit').PoseSkeletonEdit[];
       imageRole: "default" | "sketch" | "garment" | "fabric" | "reference";
       imageUrl?: string;
       imageConversationSourceRef?: string;
@@ -446,6 +448,8 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
               ...optionalString("neutralSource", data.poseReferenceSource.neutralSource) } }
           : {}),
         ...optionalString("imageUrl", data.imageUrl),
+        ...(boundSkeletonEdits(data.poseSkeletonEdits, data.imageUrl).length
+          ? { poseSkeletonEdits: structuredClone(boundSkeletonEdits(data.poseSkeletonEdits, data.imageUrl)) } : {}),
         ...(isPoseDocumentBoundToImage(data.poseDocument, data.imageUrl)
           ? { poseDocument: structuredClone(data.poseDocument) }
           : {}),

@@ -9,6 +9,7 @@ import {
   setPosePoint,
   addPosePerson,
   removePosePerson,
+  addCustomPosePoint,
 } from "../src/lib/poseEditorModel";
 import type { PosePointPath, PosePointV1 } from "../src/lib/poseEditorModel";
 
@@ -32,6 +33,28 @@ function test(name: string, run: () => void): void {
 }
 
 console.log("姿势编辑器数据操作测试");
+
+test('新增点连接已有点、支持链式添加、删除不改变索引与镜像语义', () => {
+  const seeded = setPosePoint(createDocument(), path('body', 5), manualPoint(200, 100));
+  const added = addCustomPosePoint(seeded, path('body', 5), 250, 150);
+  const chained = addCustomPosePoint(added, path('custom', 0), 300, 200);
+  assert.deepEqual(chained.people[0].custom, [
+    { point: manualPoint(250, 150), parent: { group: 'body', index: 5 } },
+    { point: manualPoint(300, 200), parent: { group: 'custom', index: 0 } },
+  ]);
+  assert.deepEqual(chained.people[0].body, seeded.people[0].body);
+  const moved = movePosePoint(chained, path('custom', 1), 10, -20);
+  assert.deepEqual(getPosePoint(moved, path('custom', 1)), manualPoint(310, 180));
+  const removed = setPosePoint(moved, path('custom', 0), null);
+  assert.equal(removed.people[0].custom?.length, 2);
+  assert.equal(getPosePoint(removed, path('custom', 0)), null);
+  assert.deepEqual(getPosePoint(removed, path('custom', 1)), manualPoint(310, 180));
+  const mirrored = mirrorPoseDocument(chained);
+  assert.deepEqual(mirrored.people[0].custom?.[0], { point: manualPoint(1350, 150), parent: { group: 'body', index: 6 } });
+  assert.deepEqual(mirrorPoseDocument(mirrored).people[0].custom, chained.people[0].custom);
+  assert.throws(() => addCustomPosePoint(seeded, path('body', 0), 10, 10), /已有点位/);
+  assert.throws(() => addCustomPosePoint(seeded, path('body', 5), -1, 10), /新增点位/);
+});
 
 test("手动空姿势使用固定拓扑、完整点槽和本地图片来源", () => {
   const document = createDocument();

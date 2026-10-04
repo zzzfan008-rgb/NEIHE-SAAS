@@ -1,4 +1,5 @@
 import type { DWPoseKeypointV1, DWPosePoseV1 } from '../types/poseReference';
+import { MAX_CUSTOM_POSE_POINTS } from './poseCustomPoints';
 import type {
   PoseDocumentV1,
   PosePersonV1,
@@ -126,7 +127,7 @@ export function validatePoseDocument(value: unknown): PoseDocumentV1 {
   const { width, height } = value.canvas;
   for (const person of value.people) {
     if (!isRecord(person) || !hasOnlyKeys(person,
-      ['id', 'topology', 'neck', 'midHip', 'body', 'feet', 'face', 'hands'], ['faceTopology'])) fail('姿势人物结构无效');
+      ['id', 'topology', 'neck', 'midHip', 'body', 'feet', 'face', 'hands'], ['faceTopology', 'custom'])) fail('姿势人物结构无效');
     if (typeof person.id !== 'string' || !UUID.test(person.id) ||
         !['coco-wholebody-133', 'openpose-body-18', 'openpose-body-25'].includes(String(person.topology))) fail('姿势人物标识或拓扑无效');
     if (person.faceTopology !== undefined && !['face68', 'face70'].includes(String(person.faceTopology))) fail('人脸拓扑无效');
@@ -144,6 +145,21 @@ export function validatePoseDocument(value: unknown): PoseDocumentV1 {
         !Array.isArray(person.hands.right) || person.hands.right.length !== 21 ||
         !person.hands.left.every((point) => validatePoint(point, width, height)) ||
         !person.hands.right.every((point) => validatePoint(point, width, height))) fail('手部关键点数组长度或坐标无效');
+    if (person.custom !== undefined) {
+      if (!Array.isArray(person.custom) || person.custom.length > MAX_CUSTOM_POSE_POINTS) fail('新增点位数量无效');
+      person.custom.forEach((entry: unknown, index: number) => {
+        if (!isRecord(entry) || !hasOnlyKeys(entry, ['point', 'parent']) || !validatePoint(entry.point, width, height) || !isRecord(entry.parent)) fail('新增点位无效');
+        const parent = entry.parent;
+        if (parent.group === 'neck' || parent.group === 'midHip') {
+          if (!hasOnlyKeys(parent, ['group'])) fail('新增点位连接无效');
+        } else {
+          const lengths: Record<string, number> = { body: 17, feet: 6, face: 70, leftHand: 21, rightHand: 21, custom: index };
+          if (!hasOnlyKeys(parent, ['group', 'index']) || typeof parent.group !== 'string' ||
+              !Object.hasOwn(lengths, parent.group) || typeof parent.index !== 'number' ||
+              !Number.isInteger(parent.index) || parent.index < 0 || parent.index >= lengths[parent.group]) fail('新增点位连接无效');
+        }
+      });
+    }
   }
   if (value.pose3d !== undefined && !validatePose3D(value.pose3d)) fail('3D 姿势或相机参数无效');
   return value as unknown as PoseDocumentV1;
@@ -365,6 +381,7 @@ export interface OpenPoseJsonV1 {
 
 export function exportOpenPoseJson(value: unknown): OpenPoseJsonV1 {
   const document = validatePoseDocument(value);
+  if (document.people.some(person => person.custom?.some(entry => entry.point))) fail('标准 OpenPose 不支持新增点位，请保留完整姿势编辑稿或导出骨骼图');
   const people = document.people.map((person) => {
     const body25: PosePointV1[] = Array.from({ length: 25 }, () => null);
     BODY_25_TO_COCO_17.forEach((sourceIndex, cocoIndex) => { body25[sourceIndex] = person.body[cocoIndex]; });

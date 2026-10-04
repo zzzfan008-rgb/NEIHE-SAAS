@@ -19,6 +19,7 @@ import { PoseEditorDialog } from './pose/PoseEditorDialog';
 import { createEmptyPoseDocument } from '../lib/poseEditorModel';
 import { isPoseDocumentBoundToImage, poseDocumentFromDWPose, validatePoseDocument } from '../lib/poseTopology';
 import type { PoseDocumentV1 } from '../types/poseDocument';
+import { findSkeletonEdit, skeletonEditRevision } from '../lib/poseSkeletonEdit';
 type ComparisonPanel = {
   id: PoseReferenceCanvasKind;
   label: string;
@@ -55,6 +56,7 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
 }) {
   const key = poseReferenceKey(target, nodeId, source);
   const state = usePoseReferenceRuntime((s) => s.entries[key] ?? EMPTY_POSE_STATE);
+  const nodeData = useFlowStore(s => s.tabs.find(tab => tab.id === target.tabId && tab.projectId === target.projectId && tab.documentEpoch === target.documentEpoch)?.nodes.find(node => node.id === nodeId)?.data);
   const [zoom, setZoom] = useState<PoseReferenceCanvasKind | null>(null);
   const [sourceChoice, setSourceChoice] = useState<'auto' | 'original' | 'outfit'>('auto');
   const [skeletonSourceChoice, setSkeletonSourceChoice] = useState<'current' | 'depth'>('current');
@@ -74,11 +76,15 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
   const depthRecord = referenceState.records.depth;
   const depthReady = depthRecord?.status === 'succeeded' && Boolean(depthRecord.result?.image) && Boolean(depthRecord.id);
   const useDepthForSkeleton = skeletonSourceChoice === 'depth' && depthReady;
-  const skeletonAnalysisSource = useDepthForSkeleton ? depthRecord!.source : analysisSource;
+  const linkedSkeletonSource = nodeData?.kind === 'image-input' && isPoseDocumentBoundToImage(nodeData.poseDocument, source)
+    ? nodeData.poseDocument.source.analysisImage : undefined;
+  const useLinkedSkeleton = !useDepthForSkeleton && analysisSource === source && !!linkedSkeletonSource;
+  const skeletonAnalysisSource = useDepthForSkeleton ? depthRecord!.source : useLinkedSkeleton ? linkedSkeletonSource : analysisSource;
   const skeletonAnalysisSourceRecordId = useDepthForSkeleton ? depthRecord!.id : undefined;
   const skeletonReferenceKey = poseReferenceKey(target, nodeId, skeletonAnalysisSource, skeletonAnalysisSourceRecordId);
   const skeletonState = usePoseReferenceRuntime(s => s.entries[skeletonReferenceKey] ?? EMPTY_POSE_STATE);
   const skeletonRecord = skeletonState.records.skeleton;
+  const savedSkeleton = nodeData?.kind === 'image-input' ? findSkeletonEdit(nodeData.poseSkeletonEdits, source, skeletonAnalysisSource, skeletonAnalysisSourceRecordId) : undefined;
   const [poseEditorSession, setPoseEditorSession] = useState<PoseEditorSession | null>(null);
   const poseEditorSessionRef = useRef<PoseEditorSession | null>(null);
   const [openingPoseEditor, setOpeningPoseEditor] = useState(false);
@@ -136,20 +142,23 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
       if (!tab || tab.readOnly || !origin || origin.data.kind !== 'image-input' || origin.data.imageUrl !== source) {
         throw new Error('文档已变化，请关闭后重新打开编辑器');
       }
-      const editRevision = JSON.stringify(origin.data.poseDocument ?? null);
+      const editRevision = skeletonEditRevision(origin.data);
       const assertCurrent = () => {
         const latestTab = useFlowStore.getState().tabs.find(candidate => candidate.id === stableTarget.tabId && candidate.projectId === stableTarget.projectId && candidate.documentEpoch === stableTarget.documentEpoch);
         const latest = latestTab?.nodes.find(candidate => candidate.id === nodeId);
-        if (request !== editorRequestRef.current || !latestTab || latestTab.readOnly || latest?.data.kind !== 'image-input' || latest.data.imageUrl !== source || JSON.stringify(latest.data.poseDocument ?? null) !== editRevision) {
+        if (request !== editorRequestRef.current || !latestTab || latestTab.readOnly || latest?.data.kind !== 'image-input' || latest.data.imageUrl !== source || skeletonEditRevision(latest.data) !== editRevision) {
           throw new Error('文档已变化，请关闭后重新打开编辑器');
         }
       };
-      const storedDocument = !blank && isPoseDocumentBoundToImage(origin.data.poseDocument, source)
+      const savedEdit = findSkeletonEdit(origin.data.poseSkeletonEdits, source, skeletonAnalysisSource, skeletonAnalysisSourceRecordId);
+      const storedDocument = !blank && savedEdit
+        ? validatePoseDocument({ ...structuredClone(savedEdit.poseDocument), imageBinding: source })
+        : !blank && useLinkedSkeleton && isPoseDocumentBoundToImage(origin.data.poseDocument, source)
         ? structuredClone(origin.data.poseDocument)
         : undefined;
       let analysisSource = storedDocument?.source.analysisImage ?? skeletonAnalysisSource;
-      let analysisSourceKind: 'image' | 'depth' = storedDocument ? 'image' : useDepthForSkeleton ? 'depth' : 'image';
-      let analysisSourceRecordId = storedDocument ? undefined : useDepthForSkeleton ? skeletonAnalysisSourceRecordId : undefined;
+      let analysisSourceKind: 'image' | 'depth' = !blank && savedEdit ? savedEdit.analysisSourceKind : storedDocument ? 'image' : useDepthForSkeleton ? 'depth' : 'image';
+      let analysisSourceRecordId = !blank && savedEdit ? savedEdit.analysisSourceRecordId : storedDocument ? undefined : useDepthForSkeleton ? skeletonAnalysisSourceRecordId : undefined;
       let document: PoseDocumentV1;
       if (storedDocument) {
         document = storedDocument;
@@ -228,7 +237,7 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
     }
   };
 
-  const saveEditedPose = async (document: PoseDocumentV1, mode: 'apply' | 'save-as') => {
+  const saveEditedPose = async (document: PoseDocumentV1) => {
     const session = poseEditorSessionRef.current;
     if (!session) throw new Error('姿势编辑会话已失效');
     if (session.documentKey !== key || session.inputSource !== source) {
@@ -240,7 +249,7 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
       const origin = tab?.nodes.find(candidate => candidate.id === nodeId);
       return currentSession?.id === session.id && currentSession.editRevision === session.editRevision &&
         Boolean(tab && !tab.readOnly && origin?.data.kind === 'image-input' && origin.data.imageUrl === source &&
-          JSON.stringify(origin.data.poseDocument ?? null) === session.editRevision);
+          skeletonEditRevision(origin.data) === session.editRevision);
     };
     if (!stillCurrent()) throw new Error('文档已变化，请关闭后重新打开编辑器');
     const poseDocument = validatePoseDocument(document);
@@ -277,26 +286,21 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
     }
     if (!stillCurrent()) throw new Error('文档已变化，姿势图片未应用');
     const savedPoseDocument = validatePoseDocument({ ...renderedPoseDocument, imageBinding: file.url });
-    const label = savedPoseDocument.source.kind === 'manual' ? '手绘2D姿势骨架' : '编辑后的DWPose骨骼图';
-    const neutralSource = savedPoseDocument.source.kind !== 'depth' && savedPoseDocument.source.analysisImage !== source
-      ? savedPoseDocument.source.analysisImage
-      : undefined;
-    if (mode === 'apply') {
-      const applied = useFlowStore.getState().applyPoseDocumentToImageInput(
-        stableTarget, nodeId, source, file.url, savedPoseDocument, session.editRevision,
-      );
-      if (!applied) throw new Error('文档已变化，未应用姿势图片');
-    } else {
-      const addedNodeId = useFlowStore.getState().addPoseReferenceImageNode(
-        stableTarget, nodeId, source, file.url, label, 'skeleton', neutralSource, savedPoseDocument, session.editRevision,
-      );
-      if (!addedNodeId) throw new Error('文档已变化，未添加姿势图片');
-    }
+    const applied = useFlowStore.getState().savePoseSkeletonEdit(stableTarget, nodeId, source, {
+      source, analysisSource: session.analysisSource, analysisSourceKind: session.analysisSourceKind,
+      ...(session.analysisSourceRecordId ? { analysisSourceRecordId: session.analysisSourceRecordId } : {}),
+      image: file.url, poseDocument: savedPoseDocument,
+    }, session.editRevision);
+    if (!applied) throw new Error('文档已变化或骨骼来源编辑稿已达上限，未保存骨骼图');
+    const savedNode = useFlowStore.getState().tabs.find(tab => tab.id === stableTarget.tabId)?.nodes.find(node => node.id === nodeId);
+    if (savedNode?.data.kind === 'image-input') session.editRevision = skeletonEditRevision(savedNode.data);
+    if (!await useFlowStore.getState().saveProjectInTab(stableTarget)) throw new Error('骨骼图已更新到当前文档，但项目保存失败，请重试保存');
+    if (!stillCurrent()) throw new Error('文档已变化，请重新打开检查骨骼图');
   };
 
   const panels: ComparisonPanel[] = [
     { id: 'original', label: '原图', image: source },
-    { id: 'skeleton', label: '骨骼图', image: skeletonState.records.skeleton?.result?.image },
+    { id: 'skeleton', label: '骨骼图', image: savedSkeleton?.image ?? (useLinkedSkeleton ? source : skeletonState.records.skeleton?.result?.image) },
     { id: 'depth', label: '深度图', image: referenceState.records.depth?.result?.image },
   ];
   const neutralOutfitPanel: ComparisonPanel = {
@@ -310,7 +314,7 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
 
   return (
     <>
-      <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog open onOpenChange={(open) => { if (!open && !poseEditorSessionRef.current) onClose(); }}>
       <DialogContent
         aria-describedby="pose-comparison-description"
         finalFocus={triggerRef}

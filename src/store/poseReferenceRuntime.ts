@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { nanoid } from 'nanoid';
+import { findSkeletonEdit, skeletonEditRevision } from '../lib/poseSkeletonEdit';
+import { isPoseDocumentBoundToImage } from '../lib/poseTopology';
 import { useFlowStore, type DocumentTarget } from './flowStore';
 import { isPoseReferenceNode, posePromptForImage, type PoseOutfitReferenceRecord, type PoseReferenceCanvasKind, type PoseReferenceKind, type PoseReferenceRecord } from '../types/poseReference';
 
@@ -228,7 +230,12 @@ export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:stri
   const key=derivedKey;
   const state=usePoseReferenceRuntime.getState().entries[key];
   if(!current(target,nodeId,source,true)||state?.adding?.[kind]) return;
-  const image=kind==='original'?source:kind==='neutral-outfit'?state?.neutralOutfit?.result?.image:state?.records[kind]?.result?.image;
+  const data = useFlowStore.getState().tabs.find(tab => tab.id === target.tabId && tab.projectId === target.projectId && tab.documentEpoch === target.documentEpoch)?.nodes.find(node => node.id === nodeId)?.data;
+  const edit = kind === 'skeleton' && data?.kind === 'image-input' ? findSkeletonEdit(data.poseSkeletonEdits, source, analysisSource, analysisSourceRecordId) : undefined;
+  const linkedDocument = kind === 'skeleton' && !analysisSourceRecordId && data?.kind === 'image-input' &&
+    isPoseDocumentBoundToImage(data.poseDocument, source) && data.poseDocument.source.analysisImage === analysisSource ? data.poseDocument : undefined;
+  const revision = data?.kind === 'image-input' ? skeletonEditRevision(data) : undefined;
+  const image=edit?.image ?? (linkedDocument ? source : kind==='original'?source:kind==='neutral-outfit'?state?.neutralOutfit?.result?.image:state?.records[kind]?.result?.image);
   if(!image) return;
   patch(key,s=>({...s,adding:{...s.adding,[kind]:true},addErrors:{...s.addErrors,[kind]:undefined},added:{...s.added,[kind]:undefined}}));
   try {
@@ -238,8 +245,12 @@ export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:stri
           method:'POST',headers:{'Content-Type':'application/json'},signal:AbortSignal.timeout(30_000),body:JSON.stringify({dataUrl:image}),
         }))).url;
     if(!current(target,nodeId,source,true)) return;
+    if (kind === 'skeleton') {
+      const latest = useFlowStore.getState().tabs.find(tab => tab.id === target.tabId)?.nodes.find(node => node.id === nodeId)?.data;
+      if (latest?.kind !== 'image-input' || skeletonEditRevision(latest) !== revision) throw new Error('骨骼图已更新，请重新添加到画布');
+    }
     if(typeof url!=='string'||!/^\/api\/files\/[\w.-]+$/.test(url)) throw new Error('图片保存结果无效');
-    const baseLabel=kind==='original'?'姿势原图':kind==='neutral-outfit'?'背心+紧身裤姿势参考':kind==='skeleton'?(state?.records.skeleton?.result?.model==='dwpose-wholebody'?'DWPose 骨骼图':'旧版骨骼图'):'人物深度图';
+    const baseLabel=kind==='original'?'姿势原图':kind==='neutral-outfit'?'背心+紧身裤姿势参考':kind==='skeleton'?(edit || linkedDocument ? '编辑后的骨骼图' : state?.records.skeleton?.result?.model==='dwpose-wholebody'?'DWPose 骨骼图':'旧版骨骼图'):'人物深度图';
     const label=(kind==='skeleton'||kind==='depth')&&analysisSourceRecordId
       ? `${baseLabel}（深度图）`
       : (kind==='skeleton'||kind==='depth')&&analysisSource!==source
@@ -250,7 +261,7 @@ export async function addPoseReferenceToCanvas(target:DocumentTarget,nodeId:stri
       state?.records[kind]?.source===analysisSource && neutral?.source===source &&
       neutral.status==='succeeded' && neutral.result?.image===analysisSource
       ? analysisSource : undefined;
-    const id=useFlowStore.getState().addPoseReferenceImageNode(target,nodeId,source,url,label,kind,neutralSource);
+    const id=useFlowStore.getState().addPoseReferenceImageNode(target,nodeId,source,url,label,kind,neutralSource,edit?.poseDocument ?? linkedDocument);
     if(!id) throw new Error('文档已变化，未添加图片');
     patch(key,s=>({...s,added:{...s.added,[kind]:id}}));
   } catch(error) {

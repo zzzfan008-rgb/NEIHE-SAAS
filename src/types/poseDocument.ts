@@ -32,11 +32,17 @@ export interface PosePersonV1 {
   feet: PosePointV1[];
   face: PosePointV1[];
   faceTopology?: 'face68' | 'face70';
+  /** Append-only slots keep parent references stable when a point is deleted. */
+  custom?: Array<{ point: PosePointV1; parent: PosePointReferenceV1 }>;
   hands: {
     left: PosePointV1[];
     right: PosePointV1[];
   };
 }
+
+export type PosePointReferenceV1 =
+  | { group: 'neck' | 'midHip' }
+  | { group: 'body' | 'feet' | 'face' | 'leftHand' | 'rightHand' | 'custom'; index: number };
 
 export interface PoseCameraV1 {
   target: { x: number; y: number; z: number };

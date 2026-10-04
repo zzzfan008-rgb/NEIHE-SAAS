@@ -31,6 +31,7 @@ export function posePointLayer(path: PosePointPath): PoseEditorLayer {
 export function posePointLabel(path: PosePointPath): string {
   if (path.group === "neck") return "颈部中心";
   if (path.group === "midHip") return "骨盆中心";
+  if (path.group === 'custom') return `新增点 ${path.index + 1}`;
   if (path.group === "leftHand" || path.group === "rightHand") {
     const side = path.group === "leftHand" ? "左手" : "右手";
     return `${side} ${path.index + 1} / 21`;
@@ -47,9 +48,10 @@ export function posePointOptions(
   personId: string,
   group: PoseEditorGroupFilter,
   faceCount = 68,
+  customCount = 0,
 ): Array<{ path: PosePointPath; label: string }> {
   const groups: PoseEditorPointGroup[] = group === "all"
-    ? ["body", "neck", "midHip", "feet", "face", "leftHand", "rightHand"]
+    ? ["body", "neck", "midHip", "feet", "face", "leftHand", "rightHand", "custom"]
     : [group];
   const options: Array<{ path: PosePointPath; label: string }> = [];
   for (const pointGroup of groups) {
@@ -61,7 +63,7 @@ export function posePointOptions(
     const count = pointGroup === "body" ? BODY_LABELS.length
       : pointGroup === "feet" ? FOOT_LABELS.length
         : pointGroup === "face" ? faceCount
-          : 21;
+          : pointGroup === 'custom' ? customCount : 21;
     for (let index = 0; index < count; index += 1) {
       const path: PosePointPath = { personId, group: pointGroup, index };
       options.push({ path, label: posePointLabel(path) });

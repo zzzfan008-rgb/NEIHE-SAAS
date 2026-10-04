@@ -16,6 +16,7 @@ import {
   documentSnapshotToPersistedWorkflow,
 } from "../../src/lib/documentSnapshot";
 import { validatePoseDocument } from '../../src/lib/poseTopology';
+import { validatePoseSkeletonEdits } from '../../src/lib/poseSkeletonEdit';
 import { isLocalImageReference, validateImageDataUrl } from "./imageValidation";
 import { isLocalMediaReference } from "./fileStore";
 import {
@@ -741,6 +742,13 @@ function validateData(
           fail(`${path}.poseDocument`, error instanceof Error ? error.message : 'must be a valid pose document');
         }
         if (poseDocument.imageBinding !== raw.imageUrl) delete raw.poseDocument;
+      }
+      if (raw.poseSkeletonEdits !== undefined) {
+        try {
+          raw.poseSkeletonEdits = validatePoseSkeletonEdits(raw.poseSkeletonEdits).filter(edit => edit.source === raw.imageUrl);
+        } catch (error) {
+          fail(`${path}.poseSkeletonEdits`, error instanceof Error ? error.message : 'invalid skeleton edits');
+        }
       }
       if (raw.autoConnectTargets !== undefined) {
         if (

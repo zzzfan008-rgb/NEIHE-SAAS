@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { useFlowStore,selectActiveDocumentTarget } from '../src/store/flowStore';
 import { isPoseReferenceNode } from '../src/types/poseReference';
 import { createDocumentSnapshot,documentSnapshotToPersistedWorkflow } from '../src/lib/documentSnapshot';
+import { addCustomPosePoint, createEmptyPoseDocument, setPosePoint } from '../src/lib/poseEditorModel';
+import { skeletonEditRevision } from '../src/lib/poseSkeletonEdit';
 import { addPoseReferenceToCanvas,generatePoseOutfitReference,generatePoseReference,restorePoseOutfitReference,restorePoseReferences,poseReferenceKey,usePoseReferenceRuntime } from '../src/store/poseReferenceRuntime';
 
 const nodes:any[]=[{id:'any-id',type:'image-input',position:{x:0,y:0},data:{kind:'image-input',label:'自定义名称',status:'idle',imageRole:'reference',imageUrl:'/api/files/source.png'}},{id:'target',type:'virtual-try-on',position:{x:400,y:0},data:{kind:'virtual-try-on',workflowStage:'scene-stabilize',label:'定版',status:'idle'}}];
@@ -148,7 +150,33 @@ try {
       assert.equal(usePoseReferenceRuntime.getState().entries[depthSkeletonKey]?.records.skeleton?.result?.model,'dwpose-wholebody');
     } finally { globalThis.fetch=poseFetch; }
   } finally { globalThis.fetch=savedFetch; }
-  console.log('Pose runtime: semantic port detection, duplicate click, source and document-epoch boundaries passed');
+  useFlowStore.getState().loadFlow({ projectName: '人工编辑优先', nodes: detachedNodes, edges: [] });
+  const editedTarget = selectActiveDocumentTarget(useFlowStore.getState());
+  const editedTab = () => useFlowStore.getState().tabs.find(tab => tab.id === editedTarget.tabId)!;
+  const editedKey = poseReferenceKey(editedTarget, 'any-id', source);
+  usePoseReferenceRuntime.setState(s => ({ entries: { ...s.entries, [editedKey]: { records: { skeleton: { ...result, kind: 'skeleton' } as any }, busy: {}, errors: {} } } }));
+  const emptyDocument = createEmptyPoseDocument({ image: source, width: 300, height: 500 });
+  const parent = { personId: emptyDocument.people[0].id, group: 'body' as const, index: 5 };
+  const customDocument = addCustomPosePoint(setPosePoint(emptyDocument, parent, { x: 50, y: 50, confidence: 1, origin: 'manual' }), parent, 80, 80);
+  const edit = { source, analysisSource: source, analysisSourceKind: 'image' as const, image: '/api/files/manual-edit.png', poseDocument: { ...customDocument, imageBinding: '/api/files/manual-edit.png' } };
+  let finishUpload: (value: Response) => void = () => { throw new Error('upload not started'); };
+  globalThis.fetch = async () => new Promise<Response>(resolve => { finishUpload = resolve; });
+  const pendingRawExport = addPoseReferenceToCanvas(editedTarget, 'any-id', source, 'skeleton');
+  assert.equal(useFlowStore.getState().savePoseSkeletonEdit(editedTarget, 'any-id', source, edit, skeletonEditRevision(editedTab().nodes[0].data as any)), true);
+  finishUpload(new Response(JSON.stringify({ url: '/api/files/old-skeleton.png' })));
+  await pendingRawExport;
+  assert.equal(editedTab().nodes.length, 2, '已保存人工编辑时不得导出迟到的旧骨骼图');
+  assert.match(usePoseReferenceRuntime.getState().entries[editedKey].addErrors!.skeleton!, /骨骼图已更新/);
+  globalThis.fetch = async () => new Response(JSON.stringify({ records: [{ ...result, kind: 'skeleton' }] }));
+  await restorePoseReferences(editedTarget, 'any-id', source);
+  globalThis.fetch = async () => { throw new Error('本地编辑图不应再次上传'); };
+  await addPoseReferenceToCanvas(editedTarget, 'any-id', source, 'skeleton');
+  assert.equal(editedTab().nodes.at(-1)?.data.imageUrl, edit.image);
+  assert.deepEqual((editedTab().nodes.at(-1)?.data as any).poseDocument, edit.poseDocument);
+  assert.equal(editedTab().nodes[0].data.imageUrl, source);
+  assert.equal(editedTab().edges.length, 0);
+
+  console.log('Pose runtime: semantic port detection, duplicate click, edited skeleton export and source/document-epoch boundaries passed');
 } finally {
   globalThis.fetch=originalFetch;
   useFlowStore.setState({saveProjectInTab:originalSave});

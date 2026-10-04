@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createEmptyPoseDocument, setPosePoint } from '../src/lib/poseEditorModel';
+import { addCustomPosePoint, createEmptyPoseDocument, setPosePoint } from '../src/lib/poseEditorModel';
 import { solveTwoBoneIk, poseVectorLength, subtractPoseVectors } from '../src/lib/poseIk';
 import {
   BODY25_CONNECTIONS,
@@ -47,6 +47,13 @@ function createDocument() {
 }
 
 console.log('3D 姿势 IK 与投影模型测试');
+
+test('切换 3D 与投影保留新增 2D 点位及父点连线', () => {
+  const custom = addCustomPosePoint(createDocument(), { personId, group: 'body', index: 5 }, 420, 430);
+  const rig = ensurePose3DDocument(custom, personId);
+  const projected = projectPose3DToDocument(rig, rig.pose3d!, personId);
+  assert.deepEqual(projected.people[0].custom, custom.people[0].custom);
+});
 
 test('可达目标保持两段骨骼长度并沿偏好方向弯曲', () => {
   const result = solveTwoBoneIk({

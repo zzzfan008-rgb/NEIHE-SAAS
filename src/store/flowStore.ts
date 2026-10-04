@@ -3,6 +3,7 @@ import { invalidateStylingRequest } from "./stylingRequestVersions";
 import { temporal } from "zundo";
 import { posePromptForImage, validPoseReferenceSource } from '../types/poseReference';
 import { isPoseDocumentBoundToImage, validatePoseDocument } from '../lib/poseTopology';
+import { boundSkeletonEdits, skeletonEditKey, skeletonEditRevision, validatePoseSkeletonEdits, type PoseSkeletonEdit } from '../lib/poseSkeletonEdit';
 import { readMultiImageReferenceManifest } from '../lib/multiImageTryOn';
 import {
   applyNodeChanges,
@@ -271,6 +272,7 @@ export interface FlowState {
   addExistingNode: (node: FlowNode) => void;
   addPoseReferenceImageNode: (target: DocumentTarget, nodeId: string, source: string, image: string, label: string, kind?: import('../types/poseReference').PoseReferenceCanvasKind, neutralSource?: string, poseDocument?: import('../types/poseDocument').PoseDocumentV1, expectedEditRevision?: string) => string | null;
   applyPoseDocumentToImageInput: (target: DocumentTarget, nodeId: string, source: string, image: string, poseDocument: import('../types/poseDocument').PoseDocumentV1, expectedEditRevision: string) => boolean;
+  savePoseSkeletonEdit: (target: DocumentTarget, nodeId: string, source: string, edit: PoseSkeletonEdit, expectedEditRevision: string) => boolean;
   /** 画板会话完成时只提交一次项目历史；异步结果必须仍匹配原 DocumentTarget。 */
   commitDrawingBoard: (
     target: DocumentTarget,
@@ -1710,6 +1712,11 @@ const POSE_REFERENCE_PLACEMENT_OFFSETS = [
 ];
 
 function normalizePoseBoundImageInputData(data: ImageInputNodeData): ImageInputNodeData {
+  if (data.poseSkeletonEdits) {
+    const edits = boundSkeletonEdits(data.poseSkeletonEdits, data.imageUrl);
+    if (edits.length) data.poseSkeletonEdits = edits;
+    else delete data.poseSkeletonEdits;
+  }
   if (!isPoseDocumentBoundToImage(data.poseDocument, data.imageUrl)) delete data.poseDocument;
   if (!validPoseReferenceSource(data.poseReferenceSource, data.imageUrl)) delete data.poseReferenceSource;
   if (posePromptForImage(data) === undefined) {
@@ -5757,6 +5764,25 @@ export const useFlowStore = create<FlowState>()(
           });
         },
 
+        savePoseSkeletonEdit: (target, nodeId, source, edit, expectedEditRevision) => {
+          let saved: PoseSkeletonEdit;
+          try { saved = structuredClone(validatePoseSkeletonEdits([edit])[0]); } catch { return false; }
+          if (saved.source !== source) return false;
+          let applied = false;
+          commitDocumentMutationForTarget(set, target, current => {
+            if (current.readOnly) return {};
+            const node = current.nodes.find(candidate => candidate.id === nodeId);
+            if (node?.data.kind !== 'image-input' || node.data.imageUrl !== source || skeletonEditRevision(node.data) !== expectedEditRevision) return {};
+            const edits = boundSkeletonEdits(node.data.poseSkeletonEdits, source).filter(candidate => skeletonEditKey(candidate) !== skeletonEditKey(saved));
+            if (edits.length >= 8) return {};
+            const data = { ...node.data, poseSkeletonEdits: [...edits, saved] };
+            applied = true;
+            return { nodes: current.nodes.map(candidate => candidate.id === nodeId ? { ...candidate, data } : candidate) };
+          });
+          // A failed project write may be retried with an identical PNG/document.
+          // A validated no-op is success too; it must not add another history entry.
+          return applied;
+        },
         applyPoseDocumentToImageInput: (target, nodeId, source, image, poseDocument, expectedEditRevision) => {
           const tab = documentForTarget(get(), target);
           if (!tab || tab.readOnly || !/^\/api\/files\/[\w.-]+$/.test(image)) return false;

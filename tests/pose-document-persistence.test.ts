@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createDocumentSnapshot, documentSnapshotToPersistedWorkflow } from '../src/lib/documentSnapshot';
-import { createEmptyPoseDocument, setPosePoint } from '../src/lib/poseEditorModel';
+import { addCustomPosePoint, createEmptyPoseDocument, setPosePoint } from '../src/lib/poseEditorModel';
+import { skeletonEditRevision, findSkeletonEdit, validatePoseSkeletonEdits } from '../src/lib/poseSkeletonEdit';
 import { useFlowStore, selectActiveDocumentTarget, nodeOutputImages, selectNodeInputImages } from '../src/store/flowStore';
 import { validateAndMigrateFlow } from '../server/lib/workflowSchema';
 
@@ -40,6 +41,42 @@ const originalSave = useFlowStore.getState().saveProjectInTab;
 useFlowStore.setState({ saveProjectInTab: async () => true });
 
 try {
+  useFlowStore.getState().loadFlow({ projectName: '保存骨骼图', nodes, edges });
+  const editTarget = selectActiveDocumentTarget(useFlowStore.getState());
+  const editTab = () => useFlowStore.getState().tabs.find(tab => tab.id === editTarget.tabId)!;
+  const editNode = () => editTab().nodes.find(node => node.id === 'pose-source')!.data as any;
+  const seeded = setPosePoint(boundPoseDocument, { personId: poseDocument.people[0].id, group: 'body', index: 5 }, { x: 50, y: 50, confidence: 1, origin: 'manual' });
+  const customDocument = addCustomPosePoint(seeded, { personId: poseDocument.people[0].id, group: 'body', index: 5 }, 70, 100);
+  const edit = { source, analysisSource: source, analysisSourceKind: 'image' as const, image: skeletonImage, poseDocument: customDocument };
+  const initialRevision = skeletonEditRevision(editNode());
+  assert.equal(useFlowStore.getState().savePoseSkeletonEdit(editTarget, 'pose-source', source, edit, initialRevision), true);
+  assert.equal(editNode().imageUrl, source);
+  assert.equal(editNode().posePrompt, '旧姿势描述');
+  assert.equal(editTab().nodes.length, nodes.length);
+  assert.deepEqual(editTab().edges, edges);
+  assert.deepEqual(selectNodeInputImages(editTab(), 'try-on'), [source]);
+  assert.deepEqual(findSkeletonEdit(editNode().poseSkeletonEdits, source, source), edit);
+  assert.equal(useFlowStore.getState().savePoseSkeletonEdit(editTarget, 'pose-source', source, edit, skeletonEditRevision(editNode())), true, '相同骨骼稿重试仍允许项目重新保存');
+  assert.equal(useFlowStore.getState().savePoseSkeletonEdit(editTarget, 'pose-source', source, edit, initialRevision), false, '拒绝迟到的旧稿');
+  assert.equal(useFlowStore.getState().savePoseSkeletonEdit({ ...editTarget, documentEpoch: editTarget.documentEpoch + 1 }, 'pose-source', source, edit, skeletonEditRevision(editNode())), false);
+  const editSnapshot = documentSnapshotToPersistedWorkflow(createDocumentSnapshot(editTab()));
+  const editReload = validateAndMigrateFlow(editSnapshot);
+  assert.deepEqual((editReload.nodes[0].data as any).poseSkeletonEdits, [edit]);
+  useFlowStore.getState().undo();
+  assert.equal(editNode().poseSkeletonEdits, undefined);
+  assert.equal(editNode().imageUrl, source);
+  useFlowStore.getState().redo();
+  assert.deepEqual(editNode().poseSkeletonEdits, [edit]);
+  const depthEdit = { ...edit, analysisSourceKind: 'depth' as const, analysisSourceRecordId: 'depth-record' };
+  assert.equal(useFlowStore.getState().savePoseSkeletonEdit(editTarget, 'pose-source', source, depthEdit, skeletonEditRevision(editNode())), true);
+  assert.equal(editNode().poseSkeletonEdits.length, 2);
+  assert.deepEqual(findSkeletonEdit(editNode().poseSkeletonEdits, source, source), edit);
+  assert.deepEqual(findSkeletonEdit(editNode().poseSkeletonEdits, source, source, 'depth-record'), depthEdit);
+  assert.throws(() => validatePoseSkeletonEdits([{ ...edit, image: source }]), /绑定/);
+  assert.throws(() => validatePoseSkeletonEdits([edit, edit]), /重复/);
+  useFlowStore.getState().updateNodeDataInTab(editTarget, 'pose-source', { imageUrl: '/api/files/replacement.png' });
+  assert.equal(editNode().poseSkeletonEdits, undefined);
+
   useFlowStore.getState().loadFlow({ projectName: 'Pose document persistence', nodes, edges });
   const target = selectActiveDocumentTarget(useFlowStore.getState());
   const store = useFlowStore.getState() as any;

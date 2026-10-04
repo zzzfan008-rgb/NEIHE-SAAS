@@ -497,7 +497,10 @@ export function ImageInputNode({
       onKeyDownCapture={(event) => {
         // During dialog autofocus, Escape may still target the canvas trigger.
         // Isolate it from React Flow even before focus enters the portal.
-        if ((poseSession || posePromptSession) && event.key === "Escape" && !event.nativeEvent.isComposing) {
+        // Portal dialogs own Escape (including unsaved edits and point placement).
+        // React capture also traverses portals, so only handle physical node targets here.
+        if ((poseSession || posePromptSession) && event.key === "Escape" && !event.nativeEvent.isComposing &&
+            event.target instanceof Element && event.currentTarget.contains(event.target)) {
           event.preventDefault();
           event.stopPropagation();
           setPoseSession(null);

@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { poseReferencePoint } from '../../src/lib/poseCustomPoints';
 import {
   BODY_CONNECTIONS,
   FOOT_CONNECTIONS,
@@ -34,6 +35,10 @@ function renderPerson(person: PosePersonV1, strokeWidth: number, radius: number)
   person.body.forEach((point, index) => parts.push(dot(point, POSE_PALETTE[index % POSE_PALETTE.length], radius)));
   parts.push(dot(person.neck, '#ffffff', radius));
   parts.push(dot(person.midHip, '#ffffff', radius));
+  person.custom?.forEach(({ point, parent }) => {
+    parts.push(line(poseReferencePoint(person, parent), point, '#68a9ff', strokeWidth));
+    parts.push(dot(point, '#68a9ff', radius));
+  });
   return parts.join('');
 }
 
