@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="current">
+  <head><meta charset="UTF-8"><title>节点输入交互 · 隔离预览</title></head>
+  <body>
+    <div id="root" style="height:100vh"></div>
+    <script type="module">
+      import React from "react";
+      import { createRoot } from "react-dom/client";
+      import { ReactFlow, Background } from "@xyflow/react";
+      import { NodeFrame } from "/src/components/nodes/NodeFrame.tsx";
+      import { SceneStabilizeControls } from "/src/components/nodes/SceneStabilizeControls.tsx";
+      import { TooltipProvider } from "/src/components/ui/tooltip.tsx";
+      import { useFlowStore, selectActiveNodes, selectActiveEdges } from "/src/store/flowStore.ts";
+      import "@xyflow/react/dist/style.css";
+      import "/src/index.css";
+
+      // Only real node controls and document/history code; no persistence or generation.
+      useFlowStore.getState().loadFlow({ projectName: "节点输入回归", nodes: [], edges: [] });
+      useFlowStore.getState().addNode("virtual-try-on", { x: 0, y: 0 });
+      const nodeId = selectActiveNodes(useFlowStore.getState())[0].id;
+      useFlowStore.getState().updateNodeData(nodeId, {
+        label: "多图编辑换装", prompt: "", workflowStage: "scene-stabilize",
+        sceneInputMode: "multi-reference-edit", modelId: "gemini-3.1-flash-image",
+      });
+      useFlowStore.setState({ saveProjectInTab: async () => true });
+      const controls = window.nodeControls = {
+        viewport: null,
+        keys: [],
+        data: () => selectActiveNodes(useFlowStore.getState())[0].data,
+        undo: () => useFlowStore.getState().undo(),
+        redo: () => useFlowStore.getState().redo(),
+      };
+      // Observe keys that would otherwise reach workspace/canvas shortcuts.
+      window.addEventListener("keydown", event => controls.keys.push(event.key));
+      function PreviewNode({ id, data }) {
+        return React.createElement(NodeFrame, { nodeId: id, title: data.label, status: data.status },
+          React.createElement(SceneStabilizeControls, { nodeId: id, data }));
+      }
+      const nodeTypes = { "virtual-try-on": PreviewNode };
+      function Preview() {
+        const nodes = useFlowStore(selectActiveNodes);
+        const edges = useFlowStore(selectActiveEdges);
+        return React.createElement(TooltipProvider, null,
+          React.createElement(ReactFlow, {
+            nodes, edges, nodeTypes, onNodesChange: useFlowStore.getState().onNodesChange,
+            defaultViewport: { x: 140, y: 100, zoom: 1 }, minZoom: 0.3, maxZoom: 2,
+            onInit: instance => { controls.viewport = viewport => instance.setViewport(viewport); },
+          }, React.createElement(Background, { gap: 24, size: 1 })));
+      }
+      createRoot(document.getElementById("root")).render(React.createElement(Preview));
+    </script>
+  </body>
+</html>

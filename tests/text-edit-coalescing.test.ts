@@ -412,7 +412,10 @@ await test("页面退出、关闭页签和所有文本入口都接入统一提�
   assert.match(inspector, /field: "label"[\s\S]*field: "prompt"[\s\S]*field: "note"/);
   assert.match(nodeFrame, /labelEdit\.cancel\(\)/);
   assert.match(textEditHook, /markKeyDown\(event\.key, composing\)/);
-  assert.match(textEditHook, /consumeKeyUp\(event\.key\)\) return/);
+  // Check the shared guard wiring, not whether its early return fits on one
+  // line. Native composition and shortcut isolation are exercised in E2E.
+  assert.match(textEditHook, /consumeKeyUp\(event\.key\)/);
+  assert.match(nodeFrame, /labelEdit\.isComposing\(event\)/);
 });
 
 console.log(`\n通过 ${passed} 项`);

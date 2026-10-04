@@ -115,9 +115,19 @@ export function useCoalescedTextEdit(
     if (token) setCoalescedTextEditComposing(token, false);
   }, [updateValue]);
 
+  const isComposing = useCallback((event: KeyboardEvent<TextControl>) => {
+    // Safari can end composition before the confirming keydown (229).
+    return event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || composingRef.current;
+  }, []);
+
   const onKeyDown = useCallback((event: KeyboardEvent<TextControl>) => {
-    const composing = event.nativeEvent.isComposing || composingRef.current;
+    const composing = isComposing(event);
     compositionEnterGuardRef.current?.markKeyDown(event.key, composing);
+    if (composing) {
+      // Keep native candidate handling, but do not invoke canvas/workspace keys.
+      event.stopPropagation();
+      return;
+    }
     if (
       event.key === "Enter" &&
       !options.multiline &&
@@ -125,12 +135,18 @@ export function useCoalescedTextEdit(
     ) {
       flush();
     }
-  }, [flush, options.multiline]);
+  }, [flush, isComposing, options.multiline]);
 
   const onKeyUp = useCallback((event: KeyboardEvent<TextControl>) => {
     // Browsers usually dispatch compositionend before the keyup belonging to
     // the Enter that confirmed an IME candidate. It is not a multiline boundary.
-    if (compositionEnterGuardRef.current?.consumeKeyUp(event.key)) return;
+    if (
+      compositionEnterGuardRef.current?.consumeKeyUp(event.key) ||
+      isComposing(event)
+    ) {
+      event.stopPropagation();
+      return;
+    }
     if (
       event.key === "Enter" &&
       options.multiline &&
@@ -141,12 +157,13 @@ export function useCoalescedTextEdit(
       updateValue(event.currentTarget.value);
       flush();
     }
-  }, [flush, options.multiline, updateValue]);
+  }, [flush, isComposing, options.multiline, updateValue]);
 
   return {
     updateValue,
     flush,
     cancel,
+    isComposing,
     bind: {
       onChange,
       onBlur,

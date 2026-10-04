@@ -103,7 +103,11 @@ export function NodeFrame({
               else commit();
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.nativeEvent.isComposing) commit();
+              if (labelEdit.isComposing(event)) {
+                labelEdit.bind.onKeyDown(event);
+                return;
+              }
+              if (event.key === "Enter") commit();
               if (event.key === "Escape") {
                 cancelledRef.current = true;
                 labelEdit.cancel();
