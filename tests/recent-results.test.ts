@@ -180,6 +180,21 @@ test("点击批量生成时立即按用户选择创建对应数量的排队卡",
   assert.ok(running.every((record) => record.status === "running" && record.startedAt === 1_500));
 });
 
+test("运行事件携带最终提示词时按图片序号更新最近记录", () => {
+  const cards = createQueuedResultCards(queued, 2);
+  const running = applyRunEventToRecentResults(cards, queued.id, {
+    type: "node-status",
+    nodeId: queued.nodeId,
+    status: "running",
+    prompts: ["最终提示词 1", "最终提示词 2"],
+    startedAt: 1_600,
+  });
+  assert.deepEqual(
+    running.map((record) => record.prompt),
+    ["最终提示词 1", "最终提示词 2"],
+  );
+});
+
 test("各批量节点正确计算用户选择的卡片数量", () => {
   const modify: AiModifyNodeData = {
     kind: "ai-modify",

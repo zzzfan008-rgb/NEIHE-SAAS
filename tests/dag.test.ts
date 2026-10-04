@@ -1279,10 +1279,19 @@ async function main() {
 
   await ok("runner 印花提取：参考图走 edit，合并固定与用户提示词", async () => {
     const extra = "只要胸前的主图案";
+    const resolvedPrompts: string[][] = [];
     const { calls, providerIds, result } = await runRecordedAiStep(
       "print-extract",
       { prompt: extra },
       [SEED_DATA_URL],
+      undefined,
+      undefined,
+      undefined,
+      {
+        onPromptResolved: (prompts) => {
+          resolvedPrompts.push(prompts);
+        },
+      },
     );
     assert.deepStrictEqual(providerIds, ["gpt-image-2.5-flare"]);
     assert.strictEqual(calls.length, 1);
@@ -1292,6 +1301,8 @@ async function main() {
     assert.match(calls[0].request.prompt, new RegExp(`补充要求：${extra}`));
     assert.strictEqual(calls[0].request.batchSize, 1);
     assert.strictEqual(result.images.length, 1);
+    assert.deepStrictEqual(resolvedPrompts, [[calls[0].request.prompt]]);
+    assert.strictEqual(result.prompts?.[0], calls[0].request.prompt);
     assert.strictEqual(result.providerRequests, 1);
   });
 

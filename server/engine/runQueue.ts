@@ -455,6 +455,53 @@ async function markAttemptStarted(
   });
 }
 
+async function markPromptResolved(
+  job: ClaimedJob,
+  workerId: string,
+  prompts: string[],
+  now: number,
+): Promise<void> {
+  const resolvedPrompts = prompts.slice(0, 8);
+  if (!resolvedPrompts.length) return;
+  await transaction(async (client) => {
+    const jobRow = (await client.query<{
+      status: DurableRunStatus;
+      worker_id: string | null;
+    }>(`
+      SELECT status, worker_id FROM generation_jobs
+      WHERE id = $1 FOR UPDATE
+    `, [job.id])).rows[0];
+    if (
+      !jobRow ||
+      jobRow.worker_id !== workerId ||
+      (jobRow.status !== "running" && jobRow.status !== "cancel_requested")
+    ) {
+      throw new Error("generation job lease was lost before prompt persistence");
+    }
+    const run = await lockRun(client, job.runId);
+    if (!run || isTerminalRunStatus(run.status)) {
+      throw new Error("generation run unavailable before prompt persistence");
+    }
+    await client.query(
+      "UPDATE generation_run_steps SET prompts_json = $1 WHERE id = $2",
+      [JSON.stringify(resolvedPrompts), job.stepId],
+    );
+    if (job.nodeId === run.node_id) {
+      await client.query(
+        "UPDATE generation_runs SET prompt = $1, updated_at = $2 WHERE id = $3",
+        [resolvedPrompts.at(-1), now, job.runId],
+      );
+    }
+    await appendRunEvent(client, run.id, {
+      type: "node-status",
+      nodeId: job.nodeId,
+      status: "running",
+      prompts: resolvedPrompts,
+      startedAt: job.startedAt,
+    }, now);
+  });
+}
+
 async function markVideoTaskAccepted(
   job: ClaimedJob,
   workerId: string,
@@ -1118,6 +1165,12 @@ export async function processNextGenerationJob(
         runId: job.runId,
         stylingCompleted: job.step.kind==='ai-styling'?await query<{image:string;prompt:string;model:string|null}>('SELECT image,prompt,model FROM styling_checkpoints WHERE step_id=$1 ORDER BY ordinal',[job.stepId]):undefined,
         onStylingCheckpoint: job.step.kind==='ai-styling'?(ordinal,image,prompt,model)=>checkpointStyling(job,workerId,ordinal,image,prompt,model):undefined,
+        onPromptResolved: (prompts) => markPromptResolved(
+          job,
+          workerId,
+          prompts,
+          options.now?.() ?? Date.now(),
+        ),
         referenceRoles: input.referenceRoles,
         onSceneRequestPrepared: async request => {
           await transaction(async client => {

@@ -171,14 +171,25 @@ await test("入队立即返回且数据库重连后 queued 任务仍可执行并
   assert.deepEqual(await runRow(runId), {
     status: "succeeded", error: null, provider_requests: 1, successful_count: 1,
   });
-  const output = await database.queryOne<{ image: string; provider_output_size: string | null }>(
-    "SELECT image, provider_output_size FROM generation_outputs WHERE run_id = $1 AND status = 'success'", [runId],
+  const output = await database.queryOne<{
+    image: string;
+    prompt: string | null;
+    provider_output_size: string | null;
+  }>(
+    "SELECT image, prompt, provider_output_size FROM generation_outputs WHERE run_id = $1 AND status = 'success'", [runId],
   );
   assert.match(output?.image ?? "", /^\/api\/files\//);
   assert.equal(output?.provider_output_size, "2048x2048");
+  assert.equal(output?.prompt, fake.requests()[0]?.prompt);
+  assert.match(output?.prompt ?? "", /^提取这件衣服上的印花图案/);
 
   const allEvents = await queue.readDurableRunEvents(runId, owner.id, 0);
   assert.ok(allEvents && allEvents.length >= 4);
+  assert.ok(allEvents?.some((event) => (
+    event.type === "node-status" &&
+    event.status === "running" &&
+    event.prompts?.[0] === output?.prompt
+  )));
   assert.deepEqual(allEvents.map((event) => event.seq), allEvents.map((_event, index) => index + 1));
   const cursor = allEvents[1].seq ?? 0;
   const replay = await queue.readDurableRunEvents(runId, owner.id, cursor);

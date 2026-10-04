@@ -1056,6 +1056,16 @@ async function executeRun(run: Run): Promise<void> {
       const result = await executeStep(step, inputImages, getProvider, {
         runId: run.id,
         referenceRoles,
+        onPromptResolved:
+          run.recordContext?.nodeId === step.nodeId
+            ? (prompts) =>
+                emit(run, {
+                  type: "node-status",
+                  nodeId: step.nodeId,
+                  status: "running",
+                  prompts,
+                })
+            : undefined,
         onSceneRequestPrepared: run.recordContext
           ? async (request) => {
               await recordGenerationRequest(run.id, step.nodeId, request);
@@ -1217,6 +1227,8 @@ export interface ExecuteStepOptions {
     prompt: string,
     model: string,
   ) => Promise<string>;
+  /** Final prompts resolved for the target image/video provider call, in output order. */
+  onPromptResolved?: (prompts: string[]) => void | Promise<void>;
   runId?: string;
   beforeProviderCall?: (providerRequest: number) => void | Promise<void>;
   referenceRoles?: string[];
@@ -1371,6 +1383,7 @@ export async function executeStep(
         ? await poseReferenceAspectRatio(referenceImages[0])
         : boardLayout === "1x3" ? "21:9" : "3:4";
       const [aspectWidth, aspectHeight] = aspectRatio.split(":").map(Number);
+      await options.onPromptResolved?.([prompt]);
       const result = await generateExactImages(
         resolveProvider(modelId),
         {
@@ -1482,6 +1495,7 @@ export async function executeStep(
         ].join("\n");
         const consistency =
           index > 0 ? await resolveImageRefs([images[0]]) : [];
+        await options.onPromptResolved?.([...prompts, prompt]);
         const result = await generateExactImages(
           resolveProvider(modelId),
           {
@@ -1584,6 +1598,7 @@ export async function executeStep(
           "invalid_request",
         );
       }
+      await options.onPromptResolved?.([String(step.params.prompt ?? "")]);
       const result = await generateApiYiVideo({
         mode: step.params.mode as never,
         model: step.params.videoModel,
@@ -1799,6 +1814,7 @@ export async function executeStep(
           for (const color of colors) {
             const prompt = fabricRecolorPrompt(operationMode, color, extra);
             try {
+              await options.onPromptResolved?.([...prompts, prompt]);
               const result = await generateExactImages(
                 provider,
                 { prompt, referenceImages, modelOptions },
@@ -1870,6 +1886,9 @@ export async function executeStep(
         const prompt =
           "基于这张印花图案生成风格一致的新变体：保持原有配色体系、艺术风格与笔触质感，重新编排元素的构图与组合方式，纯白背景，适合作为印花素材复用" +
           (extra ? `。补充要求：${extra}` : "");
+        await options.onPromptResolved?.(
+          Array.from({ length: count }, () => prompt),
+        );
         const result = await generateExactImages(
           provider,
           { prompt, referenceImages, modelOptions },
@@ -2116,6 +2135,9 @@ export async function executeStep(
               : "fast") as TryOnQualityMode,
           )
         : requestedCount;
+      await options.onPromptResolved?.(
+        Array.from({ length: candidateCount }, () => prompt),
+      );
       let result: Awaited<ReturnType<typeof generateExactImages>>;
       if (sceneReferenceManifest) {
         await options.onSceneRequestPrepared?.({
@@ -2157,6 +2179,9 @@ export async function executeStep(
           } else if (error.category === "invalid_response" && error.finishReason === "NO_IMAGE") {
             const imageOnlyPrompt = `${request.prompt}\n只输出最终图片，不要输出文字`;
             usedPrompt = imageOnlyPrompt;
+            await options.onPromptResolved?.(
+              Array.from({ length: candidateCount }, () => imageOnlyPrompt),
+            );
             result = await generateIndependentTryOnCandidates(
               provider,
               { ...request, prompt: imageOnlyPrompt },
@@ -2190,6 +2215,9 @@ export async function executeStep(
             ? `${safeBasePrompt}。${angleControlText}`
             : safeBasePrompt;
           usedPrompt = safePrompt;
+          await options.onPromptResolved?.(
+            Array.from({ length: candidateCount }, () => safePrompt),
+          );
           if (sceneReferenceManifest) {
             await options.onSceneRequestPrepared?.({
               prompt: safePrompt,
@@ -2269,7 +2297,7 @@ export async function executeStep(
           : preliminaryProviderRequests + result.providerRequests,
         providerOutputSizes,
         failures: result.failures.length
-          ? result.failures.map((error) => ({ prompt, error }))
+          ? result.failures.map((error) => ({ prompt: usedPrompt, error }))
           : undefined,
         warning: candidateSelectionWarning,
         candidateSelection:

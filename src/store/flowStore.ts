@@ -4344,24 +4344,27 @@ export function applyRunEventToRecentResults(
         return cards;
       });
     }
-    return records.map((record) =>
-      isBatchSibling(record)
-        ? {
-            ...record,
-            ...requestPatch,
-            status:
-              current.kind === "ai-styling" &&
-              record.image &&
-              record.status === "success"
-                ? "success"
-                : status,
-            error: event.error,
-            model: event.model ?? record.model,
-            startedAt: event.startedAt ?? record.startedAt,
-            executionMeta: event.executionMeta ?? record.executionMeta,
-          }
-        : record,
-    );
+    let siblingIndex = 0;
+    return records.map((record) => {
+      if (!isBatchSibling(record)) return record;
+      const prompt = event.prompts?.[siblingIndex];
+      siblingIndex += 1;
+      return {
+        ...record,
+        ...requestPatch,
+        ...(prompt !== undefined ? { prompt } : {}),
+        status:
+          current.kind === "ai-styling" &&
+          record.image &&
+          record.status === "success"
+            ? "success"
+            : status,
+        error: event.error,
+        model: event.model ?? record.model,
+        startedAt: event.startedAt ?? record.startedAt,
+        executionMeta: event.executionMeta ?? record.executionMeta,
+      };
+    });
   }
   if (!isNodeRunTerminal(event.status)) return records;
 
@@ -4421,7 +4424,7 @@ export function applyRunEventToRecentResults(
           : terminalResultCardId(recordId, "failure", failureIndex),
       image: "",
       thumbnail: undefined,
-      prompt: failure?.prompt ?? current.prompt,
+      prompt: failure?.prompt ?? event.prompts?.[cardIndex] ?? current.prompt,
       status: event.status === "success" ? "error" : event.status,
       error:
         failure?.error ||
