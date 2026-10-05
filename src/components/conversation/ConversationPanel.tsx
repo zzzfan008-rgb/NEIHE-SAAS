@@ -60,6 +60,7 @@ import type {
 } from "@/types/imageConversation";
 import { ConversationComposer } from "./ConversationComposer";
 import { ConversationHistory } from "./ConversationHistory";
+import { resolveCanvasImageDrop } from "@/lib/imageConversationDrag";
 
 type SelectedCanvasSource = ImageConversationSourceSelection;
 
@@ -92,6 +93,8 @@ export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onColla
   const setSending = useImageConversationStore((state) => state.setSending);
   const setError = useImageConversationStore((state) => state.setError);
   const [uploading, setUploading] = useState(false);
+  const [clearingTargetKey, setClearingTargetKey] = useState<string | null>(null);
+  const [pendingClear, setPendingClear] = useState(false);
   const [maskEditing, setMaskEditing] = useState(false);
   const [maskEditingTargetKey, setMaskEditingTargetKey] = useState<string | null>(null);
   const [pendingBaseChange, setPendingBaseChange] = useState<ImageConversationSourceSelection | null>(null);
@@ -100,6 +103,7 @@ export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onColla
   const [reconcilingRoundId, setReconcilingRoundId] = useState<string | null>(null);
   const [uploadPurpose, setUploadPurpose] = useState<"input" | "new">("input");
   const uploadRef = useRef<HTMLInputElement>(null);
+  const clearing = clearingTargetKey === targetKey;
   const activationVersion = useRef(0);
   const isCurrentConversation = (requestedTarget: DocumentTarget, conversationId: string | null, version: number) => (
     activationVersion.current === version &&
@@ -147,7 +151,8 @@ export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onColla
     ? "请先回答澄清问题。"
     : null;
   const pendingSubmission = targetState.conversation && targetState.pendingSubmissions[targetState.conversation.id];
-  const canSend = !selection.readOnly && !activeRound && !targetState.sending && !pendingSourceChoices && !pendingSourceSwitch && (Boolean(pendingSubmission) || (!validationError && !clarificationError));
+  const canSend = !selection.readOnly && !activeRound && !targetState.sending && !clearing && !pendingSourceChoices && !pendingSourceSwitch && (Boolean(pendingSubmission) || (!validationError && !clarificationError));
+  const canClear = Boolean(targetState.conversation?.rounds.length) && !selection.readOnly && !uploading && !clearing && !activeRound && !targetState.sending && !clarification && !pendingSourceChoices && !pendingSourceSwitch;
   const maskInput = draft.inputs[0] ?? null;
   const maskPreview = maskInput
     ? targetState.sourcePreviews[maskInput.sourceRef] ?? maskInput.sourceRef
@@ -268,6 +273,8 @@ export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onColla
   useEffect(() => {
     setPendingSourceChoices(null);
     setPendingSourceSwitch(null);
+    setPendingBaseChange(null);
+    setPendingClear(false);
   }, [targetKey]);
 
   useEffect(() => {
@@ -441,6 +448,34 @@ export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onColla
     } catch (error) {
       if (version !== activationVersion.current || !documentTargetsMatch(requestedTarget, selectActiveDocumentTarget(useFlowStore.getState()))) return;
       setError(requestedTarget, error instanceof Error ? error.message : "开始新修改失败");
+    }
+  };
+
+  const clearConversationHistory = async () => {
+    const requestedTarget = target;
+    const latest = getImageConversationTargetState(useImageConversationStore.getState(), requestedTarget);
+    if (!latest?.conversation || !canClear) return;
+    const currentMode = latest.mode;
+    const currentDraft = structuredClone(latest.modeDrafts[currentMode]);
+    const source = currentDraft.inputs[0]?.sourceRef ?? latest.conversation.sourceRef;
+    const preservedDraft = currentDraft.inputs.length > 0
+      ? currentDraft
+      : { ...currentDraft, inputs: [{ role: "base" as const, ordinal: 0, sourceRef: source }] };
+    const wasDirty = latest.draftDirty[currentMode];
+    const version = ++activationVersion.current;
+    setPendingClear(false);
+    setClearingTargetKey(imageConversationTargetKey(requestedTarget));
+    setError(requestedTarget, null);
+    try {
+      const conversation = await createImageConversation(requestedTarget, source);
+      if (version !== activationVersion.current || !documentTargetsMatch(requestedTarget, selectActiveDocumentTarget(useFlowStore.getState()))) return;
+      setConversation(requestedTarget, conversation);
+      replaceDraft(requestedTarget, currentMode, preservedDraft, wasDirty);
+    } catch (error) {
+      if (version !== activationVersion.current || !documentTargetsMatch(requestedTarget, selectActiveDocumentTarget(useFlowStore.getState()))) return;
+      setError(requestedTarget, error instanceof Error ? error.message : "清空对话历史失败");
+    } finally {
+      setClearingTargetKey((current) => current === imageConversationTargetKey(requestedTarget) ? null : current);
     }
   };
 
@@ -635,6 +670,24 @@ export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onColla
     setPendingBaseChange(null);
   };
 
+  const handleCanvasImageDrop = (data: string) => {
+    const source = resolveCanvasImageDrop(data, target, useFlowStore.getState());
+    if (!source) return;
+    const latest = getImageConversationTargetState(useImageConversationStore.getState(), target);
+    const currentMode = latest?.mode ?? mode;
+    const currentDraft = latest?.modeDrafts[currentMode] ?? draft;
+    if (currentDraft.inputs.some((input) => input.sourceRef === source.sourceRef)) return;
+    if (currentMode === "fusion" || currentDraft.inputs.length === 0) {
+      addSourceToTarget(target, source);
+      return;
+    }
+    if (latest?.draftDirty[currentMode]) {
+      setPendingBaseChange(source);
+      return;
+    }
+    applyContinueFromOutput(source);
+  };
+
   const addReferenceFromOutput = (source: ImageConversationSourceSelection) => {
     addSource(source);
   };
@@ -811,9 +864,11 @@ export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onColla
               answer: clarificationAnswer,
               onAnswerChange: (answer) => setClarificationAnswer(target, clarification.id, answer),
             } : undefined}
-            disabled={selection.readOnly || uploading || Boolean(pendingSourceChoices) || Boolean(pendingSourceSwitch)}
+            disabled={selection.readOnly || uploading || clearing || Boolean(pendingSourceChoices) || Boolean(pendingSourceSwitch)}
             canSend={canSend}
             sending={targetState.sending}
+            canClear={canClear}
+            clearing={clearing}
             onDraftChange={patchDraft}
             onRemoveInput={removeInput}
             onMoveInput={moveInput}
@@ -823,6 +878,8 @@ export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onColla
             onBaseAspectRatioChange={updateBaseAspectRatio}
             onEditMask={openMaskEditor}
             onSubmit={() => void submit()}
+            onClear={() => setPendingClear(true)}
+            onCanvasImageDrop={handleCanvasImageDrop}
           />
         </TabsContent>
       </Tabs>
@@ -847,6 +904,20 @@ export function ConversationPanel({ intent = { seq: 0, wasOpen: false }, onColla
           onClose={() => setMaskEditing(false)}
         />
       )}
+      <AlertDialog open={pendingClear} onOpenChange={setPendingClear}>
+        <AlertDialogContent overlayClassName="z-[90]" className="z-[91]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>清空当前对话历史？</AlertDialogTitle>
+            <AlertDialogDescription>
+              将从当前底图开启新的空白对话。当前模式、选图、参数和未发送指令会保留；已生成结果仍可在结果记录中查看。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void clearConversationHistory()}>清空历史</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={pendingBaseChange !== null}
         onOpenChange={(open) => { if (!open) setPendingBaseChange(null); }}

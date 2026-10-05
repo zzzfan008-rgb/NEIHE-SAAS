@@ -57,6 +57,7 @@ import {
 import {
   compositeMaskedEdit,
   prepareMaskForGeneration,
+  alignMaskToProviderSource,
 } from "../lib/maskProcessing";
 import {
   completeGenerationRecord,
@@ -2044,10 +2045,17 @@ export async function executeStep(
       ) {
         throw new Error("局部修改必须先保存 PNG 蒙版");
       }
-      const mask =
+      const storedMask =
         typeof maskReference === "string"
           ? await normalizeImageRef(maskReference)
           : undefined;
+      const mask = step.kind === "mask-redraw"
+        ? await alignMaskToProviderSource(
+            await normalizeImageRef(inputImages[0]),
+            storedMask!,
+            referenceImages[0],
+          )
+        : storedMask;
       const preparedMask =
         step.kind === "mask-redraw"
           ? await prepareMaskForGeneration(referenceImages[0], mask!)

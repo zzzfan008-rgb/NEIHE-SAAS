@@ -36,6 +36,7 @@ import { NodeFrame } from "./NodeFrame";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
 import { isPoseReferenceNode } from "@/types/poseReference";
 import { isDirectMultiImagePoseNode } from "@/lib/multiImageTryOn";
+import { startCanvasImageDrag } from "@/lib/imageConversationDrag";
 
 const ImageCropEditor = lazy(() => import("./ImageCropEditor"));
 const PoseReferenceComparison = lazy(() => import("../PoseReferenceComparison"));
@@ -628,9 +629,10 @@ export function ImageInputNode({
                 src={data.imageUrl}
                 loading="lazy"
                 decoding="async"
-                draggable={false}
+                draggable={!cropSession}
+                onDragStart={(event) => startCanvasImageDrag(event, id, data.imageUrl!)}
                 alt="已上传图片"
-                className="block h-full w-full select-none object-contain"
+                className="nodrag nopan block h-full w-full select-none object-contain"
                 onLoad={(event) => {
                   const image = event.currentTarget;
                   setImageDimensions({

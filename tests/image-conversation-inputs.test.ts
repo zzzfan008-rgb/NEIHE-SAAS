@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { resolveCanvasImageDrop } from "../src/lib/imageConversationDrag";
+import { selectActiveDocumentTarget, useFlowStore } from "../src/store/flowStore";
 import {
   appendConversationInput,
   buildConversationInputManifest,
@@ -61,5 +63,27 @@ assert.equal(documentTargetsMatch(
   { tabId: "tab", projectId: "project", documentEpoch: 1 },
   { tabId: "tab", projectId: "project", documentEpoch: 2 },
 ), false);
+
+const flowStore = useFlowStore.getState();
+const nodeId = flowStore.addNode("image-input", { x: 0, y: 0 });
+assert.ok(nodeId);
+flowStore.updateNodeData(nodeId, {
+  imageUrl: "/api/files/preview-1",
+  imageConversationSourceRef: "generation-output/output-1",
+  label: "待修改图片",
+});
+const currentTarget = selectActiveDocumentTarget(useFlowStore.getState());
+const dragPayload = JSON.stringify({ target: currentTarget, nodeId, imageRef: "/api/files/preview-1" });
+assert.deepEqual(resolveCanvasImageDrop(dragPayload, currentTarget, useFlowStore.getState()), {
+  sourceRef: "generation-output/output-1",
+  previewRef: "/api/files/preview-1",
+  label: "待修改图片",
+  sourceResultId: "output-1",
+});
+assert.equal(resolveCanvasImageDrop(dragPayload, { ...currentTarget, documentEpoch: currentTarget.documentEpoch + 1 }, useFlowStore.getState()), null);
+assert.equal(resolveCanvasImageDrop(JSON.stringify({ target: currentTarget, nodeId, imageRef: "/api/files/other" }), currentTarget, useFlowStore.getState()), null);
+assert.equal(resolveCanvasImageDrop(JSON.stringify({ target: currentTarget, nodeId: "removed-node", imageRef: "/api/files/preview-1" }), currentTarget, useFlowStore.getState()), null);
+assert.equal(resolveCanvasImageDrop(JSON.stringify({ target: currentTarget, nodeId, imageRef: "https://example.com/image.png" }), currentTarget, useFlowStore.getState()), null);
+assert.equal(resolveCanvasImageDrop("invalid json", currentTarget, useFlowStore.getState()), null);
 
 console.log("图片对话输入来源与蒙版边界测试通过");

@@ -1,5 +1,5 @@
 import { ChevronDownIcon, ChevronUpIcon, ImagePlusIcon, SendIcon, SlidersHorizontalIcon, Trash2Icon, UploadIcon } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,6 +19,7 @@ import { DEFAULT_IMAGE_CONVERSATION_PARAMETERS } from "@/store/imageConversation
 import { imageModelLabel } from "@/types/imageModels";
 import { useActiveAiGateway } from "@/store/aiGatewayStore";
 import { gatewayModelUnavailableReason } from "@/lib/aiGatewayPolicy";
+import { CANVAS_IMAGE_DRAG_TYPE, isCanvasImageDrag } from "@/lib/imageConversationDrag";
 
 interface ConversationComposerProps {
   mode: ImageConversationMode;
@@ -32,6 +33,8 @@ interface ConversationComposerProps {
   disabled: boolean;
   canSend: boolean;
   sending: boolean;
+  canClear: boolean;
+  clearing: boolean;
   onDraftChange: (patch: Partial<ImageConversationModeDraft>) => void;
   onRemoveInput: (ordinal: number) => void;
   onMoveInput: (ordinal: number, direction: "up" | "down") => void;
@@ -41,6 +44,8 @@ interface ConversationComposerProps {
   onBaseAspectRatioChange: (aspectRatio: string) => void;
   onEditMask: () => void;
   onSubmit: () => void;
+  onClear: () => void;
+  onCanvasImageDrop: (data: string) => void;
 }
 
 export function ConversationComposer({
@@ -51,6 +56,8 @@ export function ConversationComposer({
   disabled,
   canSend,
   sending,
+  canClear,
+  clearing,
   onDraftChange,
   onRemoveInput,
   onMoveInput,
@@ -60,9 +67,12 @@ export function ConversationComposer({
   onBaseAspectRatioChange,
   onEditMask,
   onSubmit,
+  onClear,
+  onCanvasImageDrop,
 }: ConversationComposerProps) {
   const baseImage = useRef<HTMLImageElement>(null);
   const dragIndex = useRef<number | null>(null);
+  const [canvasDragOver, setCanvasDragOver] = useState(false);
   const parameters = draft.parameters ?? DEFAULT_IMAGE_CONVERSATION_PARAMETERS;
   const gateway = useActiveAiGateway();
   const gatewayBlock = gatewayModelUnavailableReason(gateway, parameters.modelId);
@@ -89,7 +99,30 @@ export function ConversationComposer({
         </div>
       </div>
 
-      <div className="mb-2 flex max-h-24 min-h-10 gap-2 overflow-x-auto rounded-lg border border-[var(--gc-border)] bg-[var(--gc-control)] p-2">
+      <div
+        data-testid="conversation-input-dropzone"
+        className={`relative mb-2 flex max-h-24 min-h-10 gap-2 overflow-x-auto rounded-lg border bg-[var(--gc-control)] p-2 ${canvasDragOver ? "border-[var(--gc-accent)] ring-2 ring-[var(--gc-accent)]/40" : "border-[var(--gc-border)]"}`}
+        onDragOver={(event) => {
+          if (inputDisabled || !isCanvasImageDrag(Array.from(event.dataTransfer.types))) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+          setCanvasDragOver(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node)) setCanvasDragOver(false);
+        }}
+        onDrop={(event) => {
+          if (inputDisabled || !isCanvasImageDrag(Array.from(event.dataTransfer.types))) return;
+          event.preventDefault();
+          setCanvasDragOver(false);
+          onCanvasImageDrop(event.dataTransfer.getData(CANVAS_IMAGE_DRAG_TYPE));
+        }}
+      >
+        {canvasDragOver && (
+          <span className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-[var(--gc-control)]/90 text-[11px] font-medium text-[var(--gc-accent)]">
+            {mode === "fusion" && draft.inputs.length > 0 ? "松开添加到有序输入" : "松开设为底图"}
+          </span>
+        )}
         {draft.inputs.length === 0 ? (
           <p className="self-center text-[11px] text-[var(--gc-text-muted)]">尚未选择图片；发送前需要一张底图。</p>
         ) : (
@@ -108,8 +141,10 @@ export function ConversationComposer({
                 event.preventDefault();
               }}
               onDrop={(event) => {
+                if (mode !== "fusion" || dragIndex.current === null) return;
                 event.preventDefault();
-                if (mode !== "fusion" || dragIndex.current === null || dragIndex.current === index) {
+                event.stopPropagation();
+                if (dragIndex.current === index) {
                   dragIndex.current = null;
                   return;
                 }
@@ -292,9 +327,14 @@ export function ConversationComposer({
         <p className="min-w-0 text-[10px] leading-4 text-[var(--gc-text-muted)]">
           {sending ? "本轮生成中；可以编辑下一轮草稿，但当前对话暂不能再次发送。" : clarification ? "回答澄清后提交本轮 · ⌘/Ctrl + Enter 发送" : "Enter 换行 · ⌘/Ctrl + Enter 发送"}
         </p>
-        <Button type="button" size="sm" className="shrink-0" disabled={disabled || !canSend || sending || Boolean(gatewayBlock)} onClick={onSubmit}>
-          <SendIcon aria-hidden="true" />{sending ? "发送中…" : clarification ? "提交补充" : "发送"}
-        </Button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button type="button" variant="outline" size="sm" disabled={disabled || !canClear || clearing || sending} onClick={onClear}>
+            <Trash2Icon aria-hidden="true" />{clearing ? "清空中…" : "清空"}
+          </Button>
+          <Button type="button" size="sm" disabled={disabled || !canSend || sending || Boolean(gatewayBlock)} onClick={onSubmit}>
+            <SendIcon aria-hidden="true" />{sending ? "发送中…" : clarification ? "提交补充" : "发送"}
+          </Button>
+        </div>
       </div>
     </div>
   );

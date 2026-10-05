@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
+import { useNodeId } from "@xyflow/react";
 import { EyeIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFlowStore } from "@/store/flowStore";
+import { startCanvasImageDrag } from "@/lib/imageConversationDrag";
 
 interface ImageGridProps {
   images?: string[] | null;
@@ -14,6 +16,7 @@ interface ImageGridProps {
 
 /** 生成结果缩略图网格（单击弹出全局查看器，滚轮缩放） */
 export function ImageGrid({ images, empty = "暂无生成结果", renderAction, selectedIndex, onSelect }: ImageGridProps) {
+  const nodeId = useNodeId();
   const openViewer = useFlowStore((s) => s.openViewer);
   const safeImages = Array.isArray(images)
     ? images.filter((image): image is string => typeof image === "string" && image.length > 0)
@@ -45,6 +48,8 @@ export function ImageGrid({ images, empty = "暂无生成结果", renderAction, 
             <img
               src={url}
               alt={`生成结果 ${i + 1}`}
+              draggable={Boolean(nodeId)}
+              onDragStart={(event) => { if (nodeId) startCanvasImageDrag(event, nodeId, url); }}
               loading="lazy"
               decoding="async"
               className="block h-auto w-full object-contain"

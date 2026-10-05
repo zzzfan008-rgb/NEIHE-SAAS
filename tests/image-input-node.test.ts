@@ -100,10 +100,11 @@ test("姿势参考图节点提供独立的姿势提示词反推入口", () => {
   assert.match(source, /默认用于第一轮生图/);
 });
 
-test("已上传图片区域只负责节点选择与拖动，不再打开查看器", () => {
+test("已上传图片可拖入侧栏，图片拖动不接管画布节点，也不打开查看器", () => {
   const html = renderNode({ ...baseData, imageUrl: "/api/files/source.png" });
   const source = readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
-  assert.match(html, /<img[^>]*draggable="false"[^>]*alt="已上传图片"/);
+  assert.match(html, /<img[^>]*draggable="true"[^>]*alt="已上传图片"[^>]*class="nodrag nopan/);
+  assert.match(source, /startCanvasImageDrag\(event, id, data\.imageUrl!\)/);
   assert.doesNotMatch(html, /单击查看大图|cursor-zoom-in/);
   assert.doesNotMatch(source, /openViewer/);
   assert.match(source, /className=\{`gc-image-input-media relative/);
@@ -175,7 +176,7 @@ test("所有参考图节点提供四角实时缩放、自然尺寸初始值和�
   assert.match(source, /keepAspectRatio=\{hasDisplayImage\}/);
   assert.match(source, /IMAGE_RESIZE_CORNERS\s*=\s*\[\s*"top-left",\s*"top-right",\s*"bottom-right",\s*"bottom-left",?\s*\]/, "只提供四角缩放控制，不增加边线拖动");
   assert.match(source, /explicitWidth[\s\S]*?selectActiveNodes/, "只有显式节点宽高才能覆盖图片自然适配尺寸");
-  assert.match(source, /className="block h-full w-full select-none object-contain"/);
+  assert.match(source, /className="nodrag nopan block h-full w-full select-none object-contain"/);
   assert.match(source, /height: "100%"/);
   assert.doesNotMatch(source, /MinusIcon|PlusIcon|aria-label="(?:缩小|放大)参考图节点"/);
   assert.match(source, /gc-image-resize-keyboard[\s\S]*?onKeyDown=/, "四角缩放保留键盘操作");

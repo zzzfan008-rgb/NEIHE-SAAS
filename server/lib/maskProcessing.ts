@@ -305,6 +305,32 @@ export async function validateMaskForSource(
   });
 }
 
+/** 上传时验证原图和蒙版；运行时原图缩小后，只重采样请求副本的蒙版。 */
+export async function alignMaskToProviderSource(
+  originalSourceDataUrl: string,
+  originalMaskDataUrl: string,
+  providerSourceDataUrl: string,
+): Promise<string> {
+  const original = await validateMaskForSource(originalSourceDataUrl, originalMaskDataUrl);
+  const providerSource = validateImageDataUrl(providerSourceDataUrl);
+  const dimensions = await withImageProcessingSlot(() => sharp(providerSource.buffer, SHARP_MASK_INPUT).metadata());
+  if (!dimensions.width || !dimensions.height) {
+    throw new ProviderError("无法读取生成原图尺寸", 400, "gpt-image-2", "invalid_request");
+  }
+  if (dimensions.width === original.width && dimensions.height === original.height) return originalMaskDataUrl;
+  const aligned = await withImageProcessingSlot(async () => {
+    const alpha = await sharp(original.maskBuffer, SHARP_MASK_INPUT)
+      .extractChannel("alpha")
+      .resize(dimensions.width, dimensions.height, { fit: "fill", kernel: "lanczos3" })
+      .raw()
+      .toBuffer();
+    return rgbaMaskFromAlpha(alpha, dimensions.width!, dimensions.height!);
+  });
+  const dataUrl = toDataUrl(aligned.toString("base64"), "image/png");
+  await validateMaskForSource(providerSourceDataUrl, dataUrl);
+  return dataUrl;
+}
+
 /**
  * 给模型使用的蒙版比用户核心选区略宽，避免新内容在核心边缘被硬截断。
  * 返回值仍保持 GPT Image 的“透明处可编辑、白色不透明处保留”契约。

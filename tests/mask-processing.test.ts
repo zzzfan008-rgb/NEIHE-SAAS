@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import {
+  alignMaskToProviderSource,
   compositeMaskedEdit,
   maskGenerationDimensions,
   prepareMaskForGeneration,
@@ -307,6 +308,26 @@ await test("节点只展示统一局部修改说明，不再暴露技术处理�
   assert.match(sourceCode, /整幅服装自动延展并融合/);
   assert.doesNotMatch(sourceCode, /保持原图|替换选区|maskMode|蒙版处理方式/);
   assert.doesNotMatch(processingCode, /preserveGeneratedLayer|opaqueGeneratedLayer|MaskCompositeMode/);
+});
+
+await test("上传蒙版保持原尺寸校验，生成请求副本对齐 1374x2048 原图", async () => {
+  const original = await solidImage(3392, 5056, { r: 35, g: 92, b: 165 });
+  const originalMask = await rectangularMask(3392, 5056, { left: 900, top: 1400, width: 700, height: 900 });
+  const providerSource = await solidImage(1374, 2048, { r: 35, g: 92, b: 165 });
+  await assert.rejects(prepareMaskForGeneration(providerSource, originalMask), /蒙版尺寸必须与原图完全一致/);
+  const aligned = await alignMaskToProviderSource(original, originalMask, providerSource);
+  const decoded = await rawImage(aligned);
+  assert.equal(decoded.info.width, 1374);
+  assert.equal(decoded.info.height, 2048);
+  assert.equal(pixel(decoded, 500, 700).a, 0, "编辑核心必须保留透明 Alpha");
+  assert.equal(pixel(decoded, 10, 10).a, 255, "未编辑区域必须保持不透明");
+  const prepared = await prepareMaskForGeneration(providerSource, aligned);
+  assert.equal((await rawImage(prepared.guide)).info.width, 1374);
+  await assert.rejects(
+    alignMaskToProviderSource(providerSource, originalMask, providerSource),
+    /蒙版尺寸必须与原图完全一致/,
+    "错误绑定的原始蒙版仍必须拒绝",
+  );
 });
 
 console.log(`\n${passed} 项蒙版合成测试全部通过`);
