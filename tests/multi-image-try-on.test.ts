@@ -12,7 +12,7 @@ import { buildExecutionPlan, assertPlanInputs } from "../server/engine/dag";
 import { executeStep } from "../server/engine/runner";
 import { parseDataUrl } from "../server/providers/base";
 import { apiyiProviders } from "../server/providers/apiyi";
-import { selectActiveDocument, selectCanRetryMultiImage, useFlowStore, applyRunEventToRecentResults, type RecentResult } from "../src/store/flowStore";
+import { selectActiveDocument, selectCanRetryMultiImage, useFlowStore, applyRunEventToRecentResults, normalizeTabSessionValue, persistedWorkflowForProjectTab, type RecentResult } from "../src/store/flowStore";
 import type { GenerationRequestSnapshot } from "../server/lib/generationRecords";
 import type { ImageGenRequest, VirtualTryOnNodeData, WorkflowTemplate } from "../src/types/workflow";
 
@@ -298,6 +298,62 @@ assert.throws(() => assertPlanInputs(flashPlan, flow.edges), /at most/, "Flash�
 const oldFetch = globalThis.fetch;
 globalThis.fetch = async () => { throw new Error("禁止网络：测试不能调用真实模型"); };
 try {
+  // Reproduce the successful six-role pipeline through document/session/DAG
+  // boundaries, rather than testing the prompt builder in isolation.
+  for (const enabled of [false, true]) {
+    const roles = ["pose", "person", "scene", "outfit", "shoes", "hat"];
+    const replay = structuredClone(roundtrip);
+    replay.nodes = replay.nodes.filter(node => roles.includes(node.id) || node.id === "stabilize" || node.data.kind === "ti-angle");
+    const ids = new Set(replay.nodes.map(node => node.id));
+    replay.edges = replay.edges.filter(edge => ids.has(edge.source) && ids.has(edge.target));
+    for (const node of replay.nodes) {
+      if (node.data.kind === "image-input") {
+        node.data.imageUrl = images[roles.indexOf(node.id)];
+        if (node.id === "pose") Object.assign(node.data, {
+          posePrompt: "校准动作：双手插袋，双脚前后错位", posePromptMode: "three-view", posePromptImage: node.data.imageUrl,
+        });
+        if (!replay.edges.some(edge => edge.source === node.id && edge.target === "stabilize")) {
+          replay.edges.push({ id: `replay-${node.id}`, source: node.id, sourceHandle: "image", target: "stabilize", targetHandle: node.id });
+        }
+      }
+      if (node.data.kind === "ti-angle") node.data.angle.enabled = enabled;
+    }
+    useFlowStore.getState().loadFlow({ ...replay, projectId: "mode-replay", projectName: "恢复多图模式" });
+    useFlowStore.getState().updateNodeData("stabilize", { prompt: "不要墨镜", modelId: "gemini-3.1-flash-image" });
+    const tab = selectActiveDocument(useFlowStore.getState());
+    const recovered = normalizeTabSessionValue({ activeTabId: tab.id, tabs: [tab] });
+    assert.ok(recovered);
+    const restored = validateAndMigrateFlow(persistedWorkflowForProjectTab(recovered.tabs[0]));
+    const compiled = buildExecutionPlan(restored.nodes, restored.edges, { onlyNodeId: "stabilize", includeDownstream: false });
+    const step = compiled.steps[0];
+    assert.equal(step.params.sceneInputMode, "multi-reference-edit");
+    assert.equal(step.params.posePromptMode, "three-view");
+    let snapshot: GenerationRequestSnapshot | undefined;
+    let calls = 0;
+    await executeStep(step, images.slice(0, 6), () => ({ id: "mock", generate: async () => { throw new Error("仅使用多图编辑"); },
+      edit: async request => {
+        calls++;
+        assert.equal(snapshot?.prompt, request.prompt);
+        assert.deepEqual(snapshot?.references.map(ref => ref.role), roles);
+        assert.deepEqual(request.referenceImages.slice(1), images.slice(1, 6));
+        assert.match(request.prompt, /^以参考图2提供的人物造型基调/);
+        assert.match(request.prompt, /三图校准姿势约束：\n校准动作：双手插袋，双脚前后错位/);
+        assert.match(request.prompt, /参考图3：场景/);
+        assert.match(request.prompt, /参考图4：主穿搭/);
+        assert.match(request.prompt, /生成全原创形象/);
+        assert.match(request.prompt, /不要墨镜/);
+        assert.doesNotMatch(request.prompt, /建立第一轮人物场景基准|锁定同一人物|场景分析作为环境辅助/);
+        assertPhotographicRealism(request.prompt);
+        assert.equal(request.prompt.includes("受控相机视角"), enabled);
+        return { images: [images[0]], model: "mock" };
+      },
+    }), { referenceRoles: roles,
+      sceneAnalyzer: async () => { throw new Error("多图模式不应执行旧场景分析链路"); },
+      onSceneRequestPrepared: async request => { snapshot = request; },
+      candidateSelector: async () => ({ selectedIndex: 0, scores: [], model: "mock", providerRequests: 0, allHardFail: false }),
+    });
+    assert.equal(calls, 1);
+  }
   // Compile the connected TiAngel through the real DAG for the supported Flash path.
   for (const modelId of ["gemini-3.1-flash-image"] as const) {
     for (const enabled of [false, true]) {

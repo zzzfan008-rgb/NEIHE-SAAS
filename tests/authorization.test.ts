@@ -1398,6 +1398,59 @@ await test("简化提示词拒绝无目标、下游执行、非法模式与旧�
   }
 });
 
+await test("多图模式丢失不能覆盖保存项目或初始草稿，也不能通过旧页面入队", async () => {
+  const template = JSON.parse(fs.readFileSync(new URL("../templates/multi-image-try-on.workflow.json", import.meta.url), "utf8"));
+  const original = template.flow;
+  const generation = original.nodes.find((node: { id: string }) => node.id === "stabilize");
+  delete generation.data.candidateReviewMode;
+  generation.data.label = "用户自定义节点名";
+  const projectId = "mode-continuity-project";
+  const draftId = "mode-continuity-draft";
+  const incomplete = structuredClone(original);
+  delete incomplete.nodes.find((node: { id: string }) => node.id === "stabilize").data.sceneInputMode;
+  const save = (flow: unknown, actor: keyof typeof users = "owner") => request("/projects", actor, {
+    method: "POST", body: JSON.stringify({ id: projectId, name: "模式保护", flow }),
+  });
+  try {
+    assert.equal((await save(original)).status, 200);
+    const before = await queryOne("SELECT flow_json, updated_at FROM projects WHERE id = $1", [projectId]);
+    const rejected = await save(incomplete);
+    assert.equal(rejected.status, 409, await rejected.text());
+    assert.deepEqual(await queryOne("SELECT flow_json, updated_at FROM projects WHERE id = $1", [projectId]), before);
+    assert.equal((await save(incomplete, "other")).status, 403, "授权先于模式比较");
+    const staleRun = await request("/run-plan", "owner", { method: "POST", body: JSON.stringify({
+      ...incomplete, projectId, onlyNodeId: "stabilize", clientRequestId: "missing-mode-stale-request",
+    }) });
+    assert.equal(staleRun.status, 409, await staleRun.text());
+    assert.equal((await queryOne<{ count: number }>("SELECT count(*)::int AS count FROM generation_runs WHERE project_id = $1", [projectId]))?.count, 0);
+    const edited = structuredClone(original);
+    edited.nodes.find((node: { id: string }) => node.id === "stabilize").data.prompt = "保留皮肤纹理";
+    assert.equal((await save(edited)).status, 200, "正常编辑仍可保存");
+
+    const bootstrap = await request("/projects/initial-draft/bootstrap", "owner", { method: "POST",
+      body: JSON.stringify({ id: draftId, flow: original }) });
+    assert.equal(bootstrap.status, 201, await bootstrap.text());
+    const draftBefore = await queryOne("SELECT flow_json, draft_revision FROM projects WHERE id = $1", [draftId]);
+    const draftRejected = await request(`/projects/initial-draft/${draftId}`, "owner", { method: "PUT",
+      body: JSON.stringify({ expectedRevision: 0, name: "模式保护", flow: incomplete }) });
+    assert.equal(draftRejected.status, 409, await draftRejected.text());
+    assert.deepEqual(await queryOne("SELECT flow_json, draft_revision FROM projects WHERE id = $1", [draftId]), draftBefore);
+    const promoteRejected = await request("/projects", "owner", { method: "POST",
+      body: JSON.stringify({ id: draftId, expectedDraftRevision: 0, name: "模式保护", flow: incomplete }) });
+    assert.equal(promoteRejected.status, 409, await promoteRejected.text());
+
+    // Missing mode is still legitimate for a new legacy project, not for
+    // overwriting an established multi-image node with the same ID.
+    const legacy = await request("/projects", "owner", { method: "POST",
+      body: JSON.stringify({ id: "mode-continuity-legacy", name: "旧模式", flow: incomplete }) });
+    assert.equal(legacy.status, 200, await legacy.text());
+    const removed = { ...edited, nodes: [], edges: [] };
+    assert.equal((await save(removed)).status, 200, "用户仍可主动删除节点");
+  } finally {
+    await query("DELETE FROM projects WHERE id = ANY($1::text[])", [[projectId, draftId, "mode-continuity-legacy"]]);
+  }
+});
+
 await test("多图简化仅进入本次运行，保留项目快照、权限和请求去重", async () => {
   const template = JSON.parse(fs.readFileSync(new URL("../templates/multi-image-try-on.workflow.json", import.meta.url), "utf8"));
   const generation = template.flow.nodes.find((node: { id: string }) => node.id === "stabilize");

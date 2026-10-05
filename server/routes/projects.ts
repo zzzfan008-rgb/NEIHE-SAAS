@@ -6,6 +6,7 @@ import { asyncHandler } from "../lib/asyncHandler";
 import { query, queryOne, transaction } from "../lib/database";
 import { deleteStoredImage, resolveToDataUrl, saveDataUrl } from "../lib/fileStore";
 import { validateAndMigrateFlow, WorkflowValidationError } from "../lib/workflowSchema";
+import { assertTryOnModeContinuity, TryOnModeConflictError } from "../lib/tryOnModeContinuity";
 import { assertWorkflowPantoneReferences } from "../lib/workflowPantoneValidation";
 import {
   assertImageReferencesAccessible,
@@ -312,8 +313,9 @@ projectsRouter.post("/", asyncHandler(async (req, res) => {
         deleted_at: string | null;
         lifecycle: "initial_draft" | "copy_draft" | "saved";
         draft_revision: number;
+        flow_json: string;
       }>(
-        "SELECT owner_id, deleted_at, lifecycle, draft_revision FROM projects WHERE id = $1 FOR UPDATE",
+        "SELECT owner_id, deleted_at, lifecycle, draft_revision, flow_json FROM projects WHERE id = $1 FOR UPDATE",
         [projectId],
         client,
       );
@@ -336,6 +338,7 @@ projectsRouter.post("/", asyncHandler(async (req, res) => {
           currentRevision: existing.draft_revision,
         };
       }
+      if (existing) assertTryOnModeContinuity(JSON.parse(existing.flow_json), normalized);
       await assertWorkflowPantoneReferences(normalized, client);
       await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update" });
       await assertDrawingBoardReferences(client, user.id, projectId, normalized);
@@ -387,7 +390,7 @@ projectsRouter.post("/", asyncHandler(async (req, res) => {
     }
     res.json({ ok: true, id: projectId });
   } catch (error) {
-    res.status(error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : error instanceof DrawingBoardAccessError ? 409 : 500)
+    res.status(error instanceof TryOnModeConflictError ? 409 : error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : error instanceof DrawingBoardAccessError ? 409 : 500)
       .json({ error: error instanceof Error ? error.message : String(error) });
   }
 }));
@@ -718,8 +721,9 @@ projectsRouter.put("/initial-draft/:id", asyncHandler(async (req, res) => {
         deleted_at: string | null;
         lifecycle: "initial_draft" | "saved";
         draft_revision: number;
+        flow_json: string;
       }>(`
-        SELECT deleted_at, lifecycle, draft_revision
+        SELECT deleted_at, lifecycle, draft_revision, flow_json
         FROM projects WHERE id = $1 AND owner_id = $2 FOR UPDATE
       `, [req.params.id, user.id], client);
       if (!existing) return { status: "not_found" as const };
@@ -732,6 +736,7 @@ projectsRouter.put("/initial-draft/:id", asyncHandler(async (req, res) => {
         };
       }
 
+      assertTryOnModeContinuity(JSON.parse(existing.flow_json), normalized);
       const now = new Date();
       const nowIso = now.toISOString();
       await assertWorkflowPantoneReferences(normalized, client);
@@ -774,7 +779,7 @@ projectsRouter.put("/initial-draft/:id", asyncHandler(async (req, res) => {
     }
     res.json({ draft: initialDraftPayload(outcome.row) });
   } catch (error) {
-    res.status(error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : error instanceof DrawingBoardAccessError ? 409 : 500)
+    res.status(error instanceof TryOnModeConflictError ? 409 : error instanceof WorkflowValidationError ? 400 : error instanceof ImageReferenceAccessError ? 403 : error instanceof DrawingBoardAccessError ? 409 : 500)
       .json({ error: error instanceof Error ? error.message : String(error) });
   }
 }));
