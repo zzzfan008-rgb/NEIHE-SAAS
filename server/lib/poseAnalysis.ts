@@ -58,6 +58,7 @@ export interface PoseAnalysisResult {
   prompt: string;
   optimizedPrompt?: string;
   optimizedPromptVerified?: true;
+  optimizationError?: string;
   providerRequests: number;
   model: string;
   cacheHit: boolean;
@@ -596,7 +597,7 @@ function calibrationExtras(options: PoseAnalysisOptions | undefined, analysis: P
       optimizedPromptVerified: true as const,
     };
   } catch (error) {
-    if (error instanceof PoseAnalysisResponseError) return { calibrationMode: 'three-view' as const };
+    if (error instanceof PoseAnalysisResponseError) return { calibrationMode: 'three-view' as const, optimizationError: error.message };
     throw error;
   }
 }
@@ -621,6 +622,46 @@ async function readCache(filePath: string, model: string, requireCalibration = f
     return parseAnalysis(parsed.analysis, requireCalibration);
   } catch {
     return undefined;
+  }
+}
+
+/** Validate edited supplements against existing evidence only; never calls a provider. */
+export async function validateEditedPosePrompt(imageDataUrl: string, prompt: string, options: PoseAnalysisOptions): Promise<{ verified: boolean; reason?: string }> {
+  if (!isCalibratedPoseSupplement(prompt)) return { verified: false, reason: '请使用三图校准补充格式，仅填写前后深度、手部接触、视线方向、面部神态，并使用画面左/画面右；姿势几何由原图约束。' };
+  if (!options.calibration) return { verified: false, reason: '缺少当前原图对应的三图证据。' };
+  const deepseek = options.provider === 'deepseek';
+  if (deepseek && (!options.ownerId || !options.apiKey)) return { verified: false, reason: '请填写原分析使用的 DeepSeek 密钥以读取该账号的校准证据。' };
+  const model = deepseek ? DEEPSEEK_POSE_MODEL : validateModel(config.poseAnalysisModel());
+  const cacheModel = deepseek ? `${model}:${options.ownerId}:${createHash('sha256').update(options.apiKey!).digest('hex')}` : model;
+  const { mime, buffer } = parseDataUrl(imageDataUrl);
+  const analysis = await readCache(path.join(config.dataDir(), 'pose-analysis-cache', `${cacheKey(cacheModel, mime, buffer, options.calibration)}.json`), model, true);
+  if (!analysis?.calibration) return { verified: false, reason: '未找到当前图片及所选模型的校准证据；草稿可保存，生图暂不采用。' };
+  const fields = Object.fromEntries(prompt.split('\n').map(line => line.trim()).filter(Boolean).slice(1).map(line => {
+    const split = line.indexOf('：');
+    return [line.slice(0, split).trim(), line.slice(split + 1).trim()];
+  }));
+  const evidence: Record<string, string> = {
+    '前后深度': analysis.calibration.depthEvidence,
+    '手部接触': analysis.calibration.originalEvidence,
+    '视线方向': analysis.gazeDirection,
+    '面部神态': analysis.facialExpression,
+  };
+  const normalize = (text: string) => text.replace(/[\s，；。！？、,.!?;：:]/g, '');
+  for (const [label, value] of Object.entries(fields)) {
+    if (poseClauses(value).some(clause => !normalize(evidence[label] ?? '').includes(normalize(clause)))) {
+      return { verified: false, reason: `${label}中有现有三图证据无法确认的内容；已保留编辑稿，生图暂不采用。` };
+    }
+  }
+  try {
+    validateCalibratedStructure({ ...analysis,
+      points: Object.fromEntries(POSE_POINT_NAMES.map(name => [name, null])) as PoseAnalysis['points'],
+      bodyPose: fields['前后深度'] ?? '', torsoPose: '', legPose: '', headPose: '',
+      handPose: fields['手部接触'] ?? '', gazeDirection: fields['视线方向'] ?? '', facialExpression: fields['面部神态'] ?? '',
+    }, options.calibration.pose);
+    return { verified: true };
+  } catch (error) {
+    if (error instanceof PoseAnalysisResponseError) return { verified: false, reason: error.message };
+    throw error;
   }
 }
 

@@ -54,7 +54,7 @@ const router = fs.existsSync('server/routes/poseReferences.ts')
         promptCalibration = options?.calibration;
         promptCalls++;
         assert.equal(image,png);
-        return {prompt:'身体姿势：肩线左高右低；手部姿势：右手靠近髋部；头部姿势：头部向画面右侧旋转；视线方向：朝向画面右上方。',providerRequests:1,model:'test-pose-analysis',cacheHit:false,...(options?.calibration?{calibrationMode:'three-view' as const}:{})};
+        return {prompt:'身体姿势：肩线左高右低；手部姿势：右手靠近髋部；头部姿势：头部向画面右侧旋转；视线方向：朝向画面右上方。',providerRequests:1,model:'test-pose-analysis',cacheHit:false,...(options?.calibration?{calibrationMode:'three-view' as const, optimizationError:'文字交叉结论与DWPose骨骼不一致'}:{})};
       },
     }) : express.Router();
 app.use('/api/pose-references',router);
@@ -89,6 +89,17 @@ const renderReq = (data: unknown = renderBody, user='owner') => fetch(base+'/api
 const outfitBody = {projectId:'project',nodeId:'pose',source:stored.url,requestId:'outfit-request-123'};
 const outfitReq = (method: string, data: unknown = outfitBody, user='owner') => fetch(base+'/api/pose-references/outfit'+(method==='GET'?'?'+new URLSearchParams({projectId:'project',nodeId:'pose',source:stored.url}):''),{method,headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},...(method==='POST'?{body:JSON.stringify(data)}:{})});
 try {
+  const validateReq = (user: string, extra = {}) => fetch(base+'/api/pose-references/validate-prompt', {
+    method:'POST',headers:{'content-type':'application/json',cookie:`${SESSION_COOKIE}=${sessions[user]??''}`},
+    body:JSON.stringify({...analyzeBody,prompt:'三图校准补充（仅补充图1不可见关系）\n视线方向：视线朝画面右侧',...extra}),
+  });
+  assert.equal((await validateReq('none')).status,401);
+  assert.equal((await validateReq('other')).status,404,'不同账号不能校验其他账号的项目');
+  assert.equal((await validateReq('owner',{prompt:''})).status,400);
+  const missingEvidence = await validateReq('owner');
+  assert.equal(missingEvidence.status,200);
+  assert.equal((await missingEvidence.json()).verified,false,'证据缺失应给出草稿状态而非伪造通过');
+  assert.equal(promptCalls,0,'手动校验不得调用模型');
   assert.equal((await analyzeReq(analyzeBody,'none')).status,401);
   const unavailableCalibration = await analyzeReq({ ...analyzeBody, calibrationMode: 'three-view' });
   assert.equal(unavailableCalibration.status, 409, '缺少当前来源深度图或结构化 DWPose 点位时不得启动校准推理');
@@ -355,6 +366,7 @@ try {
   assert.equal(calibratedResponse.status,200,'已就绪的三图证据应通过当前所有权与来源验证');
   const calibratedResult=await calibratedResponse.json();
   assert.equal(calibratedResult.calibrationMode,'three-view');
+  assert.equal(calibratedResult.optimizationError,'文字交叉结论与DWPose骨骼不一致','原始反推成功也必须返回优化失败原因');
   assert.deepEqual(promptCalibration,{depthImageDataUrl:depthPng,skeletonImageDataUrl:png,pose:calibrationPose});
   assert.equal(promptCalls,3);
   const { PoseAnalysisResponseError } = await import('../server/lib/poseAnalysis');

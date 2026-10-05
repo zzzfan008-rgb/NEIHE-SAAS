@@ -71,7 +71,7 @@ globalThis.fetch = async (_input, init) => {
 };
 
 try {
-  const { analyzePoseReference, optimizeCalibratedPrompt } = await import("../server/lib/poseAnalysis");
+  const { analyzePoseReference, optimizeCalibratedPrompt, validateEditedPosePrompt } = await import("../server/lib/poseAnalysis");
   const optimized = optimizeCalibratedPrompt({ ...CALIBRATED_ANALYSIS,
     handPose: '画面右肘弯曲，画面右腕靠近髋部，手指状态无法判断',
     gazeDirection: '无法识别',
@@ -217,6 +217,12 @@ try {
   assert.ok(calibratedParts[0].text.includes("原始姿势图"));
   assert.equal(calibrated.calibrationMode, 'three-view');
   assert.equal(calibrated.optimizedPromptVerified, true, '只有通过结构门禁的自动优化稿才能标记为可信');
+  const edited = '三图校准补充（仅补充图1不可见关系）\n视线方向：视线朝画面右侧';
+  assert.deepEqual(await validateEditedPosePrompt(IMAGE, edited, { calibration }), { verified: true });
+  assert.equal((await validateEditedPosePrompt(IMAGE, edited.replace('画面右侧', '画面左侧'), { calibration })).verified, false, '无证据支持的手动反向描述不可用于生图');
+  assert.equal((await validateEditedPosePrompt(IMAGE, '下肢姿态：双腿交叉', { calibration })).verified, false, '手动稿不能覆盖原图几何');
+  assert.equal((await validateEditedPosePrompt(ALT_IMAGE, edited, { calibration })).verified, false, '其他图片不能复用缓存证据');
+  assert.equal(calibrationCalls, 1, '手动校验不得调用收费模型');
   assert.ok(calibrated.prompt.includes('三图校准结果'));
   assert.match(calibrated.prompt, /肩线向画面右侧略低，躯干微向画面左侧倾斜，重心落在画面左腿/, '原始校准稿应保持原方向');
   assert.match(calibrated.optimizedPrompt ?? '', /^三图校准补充（仅补充图1不可见关系）/, '优化稿只能包含通过结构校验的补充关系');
@@ -308,6 +314,14 @@ try {
     responseFailures.push(`request-contract: ${error instanceof Error ? error.message : String(error)}`);
   }
   assert.deepEqual(responseFailures, [], '三图校准响应与请求契约回归');
+  process.env.POSE_ANALYSIS_MODEL = 'gemini-rejected-optimization';
+  globalThis.fetch = async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+    ...CALIBRATED_ANALYSIS, legPose: '画面左腿越过中线交叉于画面右腿前侧',
+  }) }] } }] });
+  const rejectedOptimization = await analyzePoseReference(IMAGE, { calibration });
+  assert.equal(rejectedOptimization.optimizedPrompt, undefined);
+  assert.match(rejectedOptimization.optimizationError ?? '', /文字交叉结论与DWPose骨骼不一致/);
+  assert.equal((await analyzePoseReference(IMAGE, { calibration })).optimizationError, rejectedOptimization.optimizationError, '缓存结果也要保留优化失败原因');
   console.log("姿势分析测试通过：Gemini/DeepSeek、Base64、账户缓存隔离、密钥脱敏与结构验证");
 } finally {
   globalThis.fetch = originalFetch;

@@ -4,6 +4,86 @@ import { expect, test } from './fixtures';
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
+test('普通账号可编辑三图草稿，校验结果决定是否用于生图', async ({ page }) => {
+  const source = '/api/files/pose-e2e.png';
+  const png = await sharp({ create: { width: 30, height: 50, channels: 3, background: '#777' } }).png().toBuffer();
+  const image = `data:image/png;base64,${png.toString('base64')}`;
+  let analysisCalls = 0;
+  let validationCalls = 0;
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/me') return route.fulfill({ json: { user: { id:'ordinary-pose-user',accountId:'ordinary-pose-user',displayName:'普通用户',role:'user',mustChangePassword:false } } });
+    if (path === source) return route.fulfill({contentType:'image/png',body:png});
+    if (path === '/api/pose-references') return route.fulfill({json:{records:[
+      {id:'depth',kind:'depth',source,status:'succeeded',result:{image,model:'mock',convention:'near-white'}},
+      {id:'skeleton',kind:'skeleton',source,status:'succeeded',result:{image,model:'mock',pose:{schemaVersion:1,canvas:{width:30,height:50},people:[{keypoints:[{x:0.5,y:0.5,confidence:1}]}]}}},
+    ]}});
+    if (path === '/api/pose-references/analyze') {
+      analysisCalls++;
+      return route.fulfill({json:{prompt:'原始校准结果',calibrationMode:'three-view',optimizationError:'文字交叉结论与DWPose骨骼不一致',model:'mock',providerRequests:0,cacheHit:true}});
+    }
+    if (path === '/api/pose-references/validate-prompt') {
+      validationCalls++;
+      const verified = !route.request().postDataJSON().prompt.includes('画面左侧');
+      return route.fulfill({json:{verified,...(!verified?{reason:'视线方向中有现有三图证据无法确认的内容'}:{})}});
+    }
+    return route.fulfill({json:{}});
+  });
+  await page.goto('/e2e/fixtures/pose-prompt.html');
+  await page.getByRole('button',{name:'反推人物姿势',exact:true}).click();
+  const dialog = page.getByRole('dialog',{name:'反推人物姿势',exact:true});
+  await dialog.getByRole('combobox',{name:'分析方式'}).click();
+  await page.getByRole('option',{name:'原图 + 深度图 + DWPose 三图校准'}).click();
+  await dialog.getByRole('button',{name:'开始反推',exact:true}).click();
+  await expect(dialog.getByText(/三图反推已完成，优化文本未通过校验/)).toContainText('文字交叉结论与DWPose骨骼不一致');
+  await dialog.getByRole('button',{name:'确认并替换当前提示词'}).click();
+  await dialog.getByRole('button',{name:'编辑优化提示词',exact:true}).click();
+  const editor = dialog.getByRole('textbox',{name:'优化后姿势提示词',exact:true});
+  await expect(editor).toBeFocused();
+  await expect(editor).toBeEditable();
+  const box = await editor.boundingBox();
+  expect(box!.width).toBeGreaterThan(0);
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  const text = '三图校准补充（仅补充图1不可见关系）\n视线方向：视线朝画面右侧';
+  await editor.fill(text);
+  await dialog.getByRole('button',{name:'保存优化提示词',exact:true}).click();
+  await expect(dialog.getByText('优化提示词已保存并通过证据校验，将作为原姿势图的补充用于生图。',{exact:true})).toBeVisible();
+  const stored = () => page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const {useFlowStore,selectActiveNodes} = await import(module);
+    return selectActiveNodes(useFlowStore.getState()).find((n:{id:string})=>n.id==='pose')?.data;
+  });
+  expect(await stored()).toMatchObject({posePromptMode:'three-view',posePromptOptimized:text,posePromptOptimizedVerified:true});
+  await editor.fill(text.replace('画面右侧','画面左侧'));
+  await dialog.getByRole('button',{name:'保存优化提示词',exact:true}).click();
+  await expect(dialog.getByText(/编辑稿已保存，尚未通过证据校验/)).toBeVisible();
+  expect((await stored()).posePromptOptimizedVerified).toBeUndefined();
+  await expect(editor).toBeEditable();
+  expect(analysisCalls).toBe(1);
+  expect(validationCalls).toBe(2);
+  let releaseValidation!: () => void;
+  const pendingValidation = new Promise<void>(resolve => { releaseValidation = resolve; });
+  await page.route('**/api/pose-references/validate-prompt', async route => {
+    await pendingValidation;
+    await route.fulfill({json:{verified:true}});
+  });
+  await editor.fill(text);
+  const request = page.waitForRequest('**/api/pose-references/validate-prompt');
+  await dialog.getByRole('button',{name:'保存优化提示词',exact:true}).click();
+  await request;
+  await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const {useFlowStore} = await import(module);
+    useFlowStore.getState().loadFlow({projectId:'replacement-project',projectName:'新文档',nodes:[{
+      id:'pose',type:'image-input',position:{x:0,y:0},data:{kind:'image-input',label:'新节点',imageUrl:'/api/files/pose-e2e.png',status:'idle',poseReference:true},
+    }],edges:[]});
+  });
+  releaseValidation();
+  await expect(dialog.getByText('姿势来源或提示词已变化，编辑稿未写入其他文档',{exact:true})).toBeVisible();
+  expect((await stored()).posePromptOptimized).toBeUndefined();
+});
+
 test('pose model selection, credential persistence, candidate application and logout', async ({ page }) => {
   let owner = 'pose-owner-a';
   let calls = 0;
@@ -175,7 +255,7 @@ test('optimization stays visible and manual edits persist without a model call',
   const editor = dialog.getByRole('textbox', { name: '优化后姿势提示词', exact: true });
   const save = dialog.getByRole('button', { name: '保存优化提示词', exact: true });
   await expect(editor).toBeVisible();
-  await expect(dialog.getByText('尚未生成优化结果', { exact: false })).toBeVisible();
+  await expect(editor).toBeEditable();
   await expect(save).toBeDisabled();
   await expect(editor).toHaveAttribute('maxlength', '4000');
   await editor.fill('用户手动修订：右手贴近髋部，左膝弯曲。');

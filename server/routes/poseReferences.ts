@@ -12,6 +12,7 @@ import { resolveToDataUrl } from '../lib/fileStore';
 import { analyzeDWPoseReference } from '../lib/dwposeAnalysis';
 import { analyzeDepthReference } from '../lib/depthAnalysis';
 import { analyzePoseReference, DEEPSEEK_POSE_MODEL, PoseAnalysisResponseError, type PoseAnalysisCalibration, type PoseAnalysisOptions, type PoseAnalysisResult } from '../lib/poseAnalysis';
+import { validateEditedPosePrompt } from '../lib/poseAnalysis';
 import { config } from '../config';
 import { ProviderError } from '../providers/base';
 import { isPoseReferenceNode, type PoseOutfitReferenceRecord, type PoseOutfitReferenceStatus, type PoseReferenceKind, type PoseReferenceRecord } from '../../src/types/poseReference';
@@ -57,7 +58,7 @@ interface PoseOutfitRow {
   provider_output_size: string | null;
 }
 type Analyzer = (image: string, kind: PoseReferenceKind, markProvider: () => Promise<void>) => Promise<NonNullable<PoseReferenceRecord['result']>>;
-type PosePromptAnalyzer = (image: string, options?: PoseAnalysisOptions) => Promise<Pick<PoseAnalysisResult,'prompt'|'optimizedPrompt'|'optimizedPromptVerified'|'providerRequests'|'model'|'cacheHit'|'calibrationMode'>>;
+type PosePromptAnalyzer = (image: string, options?: PoseAnalysisOptions) => Promise<Pick<PoseAnalysisResult,'prompt'|'optimizedPrompt'|'optimizedPromptVerified'|'optimizationError'|'providerRequests'|'model'|'cacheHit'|'calibrationMode'>>;
 class RequestError extends Error { constructor(public status: number, message: string) { super(message); } }
 const record = (row: Row): PoseReferenceRecord => ({id:row.id,kind:row.kind,source:row.source,status:row.status,...(row.result?{result:row.result}:{}),...(row.error?{error:row.error}:{})});
 const POSE_OUTFIT_REFERENCE_KIND = 'pose-reference-outfit';
@@ -209,12 +210,13 @@ function parsePosePromptInput(body: Record<string,unknown>): PoseReferenceInput 
   return input;
 }
 
-function posePromptResult(value:unknown): Pick<PoseAnalysisResult,'prompt'|'optimizedPrompt'|'optimizedPromptVerified'|'providerRequests'|'model'|'cacheHit'|'calibrationMode'> {
+function posePromptResult(value:unknown): Pick<PoseAnalysisResult,'prompt'|'optimizedPrompt'|'optimizedPromptVerified'|'optimizationError'|'providerRequests'|'model'|'cacheHit'|'calibrationMode'> {
   if (!value || typeof value!=='object') throw new RequestError(502,'姿势反推结果格式无效');
   const result=value as Partial<PoseAnalysisResult>;
   if (typeof result.prompt!=='string' || !result.prompt.trim() || result.prompt.length>4000 ||
       (result.optimizedPrompt !== undefined && (typeof result.optimizedPrompt!=='string' || !result.optimizedPrompt.trim() || result.optimizedPrompt.length>4000)) ||
       (result.optimizedPromptVerified !== undefined && result.optimizedPromptVerified !== true) ||
+      (result.optimizationError !== undefined && (typeof result.optimizationError !== 'string' || result.optimizationError.length > 1000)) ||
       (result.optimizedPromptVerified === true && (typeof result.optimizedPrompt !== 'string' || result.calibrationMode !== 'three-view')) ||
       typeof result.providerRequests!=='number' || !Number.isInteger(result.providerRequests) || result.providerRequests<0 ||
       typeof result.model!=='string' || !result.model.trim() || typeof result.cacheHit!=='boolean' ||
@@ -224,6 +226,7 @@ function posePromptResult(value:unknown): Pick<PoseAnalysisResult,'prompt'|'opti
   return {prompt:result.prompt,providerRequests:result.providerRequests,model:result.model,cacheHit:result.cacheHit,
     ...(typeof result.optimizedPrompt==='string' && result.optimizedPrompt.trim() ? {optimizedPrompt:result.optimizedPrompt} : {}),
     ...(result.optimizedPromptVerified === true ? {optimizedPromptVerified:true as const} : {}),
+    ...(result.optimizationError ? {optimizationError:result.optimizationError} : {}),
     ...(result.calibrationMode ? {calibrationMode:result.calibrationMode} : {})};
 }
 
@@ -246,6 +249,22 @@ function isCalibratableDWPose(value: unknown): value is NonNullable<NonNullable<
       (point as Record<string, number>).confidence > 0 && (point as Record<string, number>).confidence <= 1
     ));
   });
+}
+
+async function loadCalibrationEvidence(owner: string, input: PoseReferenceInput, client: PoolClient): Promise<PoseAnalysisCalibration> {
+  const rows = await query<{kind: PoseReferenceKind; result: PoseReferenceRecord['result']}>(`SELECT kind,result FROM pose_references
+    WHERE owner_id=$1 AND project_id=$2 AND node_id=$3 AND source=$4 AND status='succeeded'
+      AND ((kind='depth' AND configuration=$5) OR (kind='skeleton' AND configuration=$6)) ORDER BY updated_at DESC`,
+    [owner,input.projectId,input.nodeId,input.source,configuration('depth'),configuration('skeleton')],client);
+  const depth = rows.find(row => row.kind === 'depth')?.result;
+  const skeleton = rows.find(row => row.kind === 'skeleton')?.result;
+  if (!depth || !skeleton || typeof depth.image !== 'string' || depth.convention !== 'near-white' ||
+      typeof skeleton.image !== 'string' || !isCalibratableDWPose(skeleton.pose)) {
+    throw new RequestError(409,'三图校准需要当前原图对应的深度图和结构化 DWPose 骨骼点位');
+  }
+  try { validateImageDataUrl(depth.image); validateImageDataUrl(skeleton.image); }
+  catch { throw new RequestError(409,'当前深度图或骨骼图已失效，请重新生成姿势参考'); }
+  return { depthImageDataUrl: depth.image, skeletonImageDataUrl: skeleton.image, pose: skeleton.pose };
 }
 
 async function expire(owner: string, client: PoolClient) {
@@ -334,6 +353,33 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer; analyze
     } catch(error) { handleError(error,res); }
   }));
 
+  router.post('/validate-prompt',asyncHandler(async(req,res)=>{
+    try {
+      const input = parsePosePromptInput(req.body ?? {});
+      const prompt = req.body.prompt;
+      if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4000) throw new RequestError(400,'优化提示词不能为空且最多 4000 字');
+      const provider = req.body.provider ?? 'gemini';
+      if (provider !== 'gemini' && provider !== 'deepseek') throw new RequestError(400,'不支持的姿势反推模型');
+      const apiKey = typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '';
+      if (provider === 'deepseek' && apiKey && !/^[\x21-\x7e]{8,512}$/.test(apiKey)) throw new RequestError(400,'DeepSeek 密钥格式无效');
+      const owner = requestUser(req).id;
+      const result = await transaction(async client => {
+        await authorizeProjectAndSource(owner,input,client);
+        const image = resolveToDataUrl(input.source);
+        validateImageDataUrl(image);
+        let calibration: PoseAnalysisCalibration;
+        try { calibration = await loadCalibrationEvidence(owner,input,client); }
+        catch (error) {
+          if (error instanceof RequestError && error.status === 409) return { verified: false, reason: error.message };
+          throw error;
+        }
+        return validateEditedPosePrompt(image,prompt.trim(),{provider,apiKey,ownerId:owner,calibration});
+      });
+      res.setHeader('Cache-Control','no-store');
+      res.json(result);
+    } catch(error) { handleError(error,res); }
+  }));
+
   router.post('/analyze',asyncHandler(async(req,res)=>{
     try {
       const input=parsePosePromptInput(req.body ?? {});
@@ -349,34 +395,7 @@ export function createPoseReferencesRouter(options: {analyze?: Analyzer; analyze
         const image=resolveToDataUrl(input.source);
         validateImageDataUrl(image);
         if (calibrationMode !== 'three-view') return {image};
-        const evidenceRows = await query<{kind: PoseReferenceKind; result: unknown}>(`SELECT kind,result FROM pose_references
-          WHERE owner_id=$1 AND project_id=$2 AND node_id=$3 AND source=$4 AND status='succeeded'
-            AND ((kind='depth' AND configuration=$5) OR (kind='skeleton' AND configuration=$6))
-          ORDER BY updated_at DESC`,
-          [owner,input.projectId,input.nodeId,input.source,configuration('depth'),configuration('skeleton')],client);
-        const depthRow = evidenceRows.find((row) => row.kind === 'depth');
-        const skeletonRow = evidenceRows.find((row) => row.kind === 'skeleton');
-        if (!depthRow?.result || typeof depthRow.result !== 'object' || Array.isArray(depthRow.result) ||
-            !skeletonRow?.result || typeof skeletonRow.result !== 'object' || Array.isArray(skeletonRow.result)) {
-          throw new RequestError(409,'三图校准需要当前原图对应的深度图和结构化 DWPose 骨骼点位');
-        }
-        const depthResult = depthRow.result as {image?: unknown; convention?: unknown};
-        const skeletonResult = skeletonRow.result as {image?: unknown; pose?: unknown};
-        if (typeof depthResult.image !== 'string' || depthResult.convention !== 'near-white' ||
-            typeof skeletonResult.image !== 'string' || !isCalibratableDWPose(skeletonResult.pose)) {
-          throw new RequestError(409,'当前深度图约定或 DWPose 关键点数据无效，请重新生成姿势参考');
-        }
-        try {
-          validateImageDataUrl(depthResult.image);
-          validateImageDataUrl(skeletonResult.image);
-        } catch {
-          throw new RequestError(409,'当前深度图或骨骼图已失效，请重新生成姿势参考');
-        }
-        const calibration: PoseAnalysisCalibration = {
-          depthImageDataUrl: depthResult.image,
-          skeletonImageDataUrl: skeletonResult.image,
-          pose: skeletonResult.pose,
-        };
+        const calibration = await loadCalibrationEvidence(owner,input,client);
         return {image,calibration};
       });
       const analysisOptions: PoseAnalysisOptions | undefined = (provider === 'deepseek' || analysisInput.calibration) ? {
