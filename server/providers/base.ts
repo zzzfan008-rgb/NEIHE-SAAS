@@ -4,6 +4,8 @@
  */
 import { config } from "../config";
 import { Agent } from "undici";
+import { portkeyRequest } from "./portkey";
+import type { AiGatewayId } from "../../src/types/aiGateway";
 
 type ProviderFetchInit = RequestInit & { dispatcher: Agent };
 
@@ -195,15 +197,17 @@ export class NotImplementedError extends ProviderError {
  * 网络错误、超时或连接中断可能已经产生计费，因此标记为 outcome_unknown，
  * Worker 会按用户确认的策略最多自动重试两次。
  */
+interface ProviderRequestOptions {
+  timeoutMs?: number;
+  minimumResponseTimeoutMs?: number;
+  maxRetries?: number;
+  providerId?: string;
+}
+
 export async function fetchWithRetry(
   url: string,
   initFactory: () => RequestInit,
-  opts?: {
-    timeoutMs?: number;
-    minimumResponseTimeoutMs?: number;
-    maxRetries?: number;
-    providerId?: string;
-  },
+  opts?: ProviderRequestOptions,
 ): Promise<Response> {
   let parsedUrl: URL;
   try {
@@ -220,6 +224,25 @@ export async function fetchWithRetry(
       `Blocked non-HTTPS provider URL with protocol ${parsedUrl.protocol}`,
     );
   }
+  return performProviderRequest(url, initFactory, opts);
+}
+
+/** AI traffic always uses the official Portkey gateway; there is no direct-provider fallback. */
+export async function fetchAiWithRetry(
+  url: string,
+  initFactory: () => RequestInit,
+  opts?: ProviderRequestOptions & { gateway?: AiGatewayId; video?: boolean },
+): Promise<Response> {
+  let request: ReturnType<typeof portkeyRequest>;
+  try {
+    request = portkeyRequest(url, initFactory(), { ...opts, timeoutMs: opts?.timeoutMs ?? config.aiTimeoutMs() });
+  } catch {
+    throw new ProviderError("Portkey 或供应商配置无效，请联系管理员检查配置", 400, opts?.providerId, "invalid_request");
+  }
+  return performProviderRequest(request.url, () => request.init, opts);
+}
+
+async function performProviderRequest(url: string, initFactory: () => RequestInit, opts?: ProviderRequestOptions): Promise<Response> {
   const timeoutMs = opts?.timeoutMs ?? config.aiTimeoutMs();
   void opts?.maxRetries;
   try {

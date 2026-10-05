@@ -21,13 +21,15 @@ if (process.env.E2E_ISOLATED_RUN !== "1") {
 if (process.env.NODE_ENV !== "test" || process.env.COOKIE_SECURE !== "false") {
   throw new Error("E2E safety check failed: NODE_ENV=test and COOKIE_SECURE=false are required");
 }
-if (requiredEnv("APIYI_API_KEY") !== "e2e-disabled") {
+if (requiredEnv("APIYI_API_KEY") !== "e2e-disabled" || requiredEnv("TUZI_API_KEY") !== "e2e-disabled") {
   throw new Error("E2E safety check failed: the real AI key must never reach browser regressions");
 }
 
 const baseURL = loopbackUrl("E2E_BASE_URL", "http:").href.replace(/\/$/, "");
 const apiURL = loopbackUrl("E2E_API_URL", "http:").href.replace(/\/$/, "");
 loopbackUrl("APIYI_BASE_URL", "https:");
+loopbackUrl("TUZI_BASE_URL", "https:");
+loopbackUrl("PORTKEY_GATEWAY_URL", "http:");
 const databaseURL = loopbackUrl("DATABASE_URL", "postgresql:");
 if (databaseURL.pathname !== "/garment_canvas_test") {
   throw new Error("E2E safety check failed: DATABASE_URL must target garment_canvas_test");

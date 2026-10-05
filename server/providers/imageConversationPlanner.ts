@@ -1,5 +1,5 @@
 import { config } from "../config";
-import { fetchWithRetry, ProviderError, sanitizedProviderDiagnostic } from "./base";
+import { fetchAiWithRetry as fetchWithRetry, ProviderError, sanitizedProviderDiagnostic } from "./base";
 import type {
   ImageConversationPlannerModel,
   ImageConversationPlannerRequest,
@@ -12,9 +12,9 @@ export class ApiYiImageConversationPlannerModel implements ImageConversationPlan
     const startedAt = Date.now();
     let apiKey: string | undefined;
     try {
-      apiKey = config.apiyiApiKey();
+      apiKey = config.aiApiKey();
       const response = await fetchWithRetry(
-        `${config.apiyiBaseUrl()}/v1/chat/completions`,
+        `${config.aiBaseUrl()}/v1/chat/completions`,
         () => ({
           method: "POST",
           headers: {

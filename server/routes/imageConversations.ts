@@ -35,6 +35,8 @@ import type {
   ImageConversationParameters,
 } from "../../src/types/imageConversation";
 import { validateImageConversationParameters } from "../../src/lib/imageConversationRules";
+import { assertGatewayStep } from "../providers/gatewayPolicy";
+import { ProviderError, publicProviderErrorMessage } from "../providers/base";
 import { pendingImageConversationRequestIds, reserveImageConversationRequest, settleImageConversationRequest } from "../lib/imageConversationRequests";
 
 export const imageConversationsRouter = Router();
@@ -304,6 +306,7 @@ imageConversationsRouter.post("/:conversationId/rounds/plan", asyncHandler(async
       mode,
       parameters as unknown as ImageConversationParameters,
     );
+    assertGatewayStep({ kind: mode === "mask" ? "mask-redraw" : "ai-modify", params: parameters as Record<string, unknown> });
     const sourceContext = await resolveImageConversationContext(
       user.id,
       projectId,
@@ -359,6 +362,10 @@ imageConversationsRouter.post("/:conversationId/rounds/plan", asyncHandler(async
         error: error.message,
         code: error.code,
       });
+      return;
+    }
+    if (error instanceof ProviderError) {
+      await finish(error.status ?? 400, { error: publicProviderErrorMessage(error) });
       return;
     }
     if (error instanceof ActiveRunLimitError) {
@@ -439,6 +446,10 @@ const imageConversationErrorHandler: ErrorRequestHandler = (error, _req, res, ne
 imageConversationsRouter.use(imageConversationErrorHandler);
 
 function respondStoreError(res: Response, error: unknown): void {
+  if (error instanceof ProviderError) {
+    res.status(error.status ?? 400).json({ error: publicProviderErrorMessage(error) });
+    return;
+  }
   if (error instanceof ImageConversationAccessError) {
     res.status(404).json({ error: "image conversation or source not found" });
     return;

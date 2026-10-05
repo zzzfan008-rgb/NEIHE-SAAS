@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { unwrapPortkeyRequest } from "./portkeyMock";
 import fs from "node:fs";
 import sharp from "sharp";
 import { PROVIDER_TARGET_BYTES } from "../server/lib/uploadImageNormalization";
@@ -479,6 +480,7 @@ try {
       let calls = 0;
       let recorded: GenerationRequestSnapshot | undefined;
       globalThis.fetch = async (url, init) => {
+        [url, init] = unwrapPortkeyRequest(url, init);
         calls++;
         assert.equal(String(url), "https://gateway.example/v1beta/models/gemini-3-pro-image:generateContent");
         assert.equal(init?.method, "POST");
@@ -533,6 +535,7 @@ try {
       let calls = 0;
       let recorded: GenerationRequestSnapshot | undefined;
       globalThis.fetch = async (url, init) => {
+        [url, init] = unwrapPortkeyRequest(url, init);
         calls++;
         assert.equal(init?.method, "POST");
         let prompt: string;

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { unwrapPortkeyRequest } from './portkeyMock';
 import sharp from 'sharp';
 import { isImageModelId, imageModelOptionsError } from '../src/types/imageModels';
 import { createDocumentSnapshot, documentSnapshotToPersistedWorkflow } from '../src/lib/documentSnapshot';
@@ -41,6 +42,7 @@ const image = `data:image/png;base64,${png.toString('base64')}`;
 const requests: Array<{ url: string; body: string | FormData }> = [];
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url, init) => {
+  [url, init] = unwrapPortkeyRequest(url, init);
   assert.ok(String(url).startsWith('https://mock.invalid/'));
   requests.push({ url: String(url), body: init!.body as string | FormData });
   return Response.json(String(url).includes('generateContent')

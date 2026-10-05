@@ -37,6 +37,8 @@ import {
 } from "./lib/userTemplateLifecycle";
 import { purgeExpiredMaterialDrafts } from "./lib/materialAnalysisStore";
 import { imageConversationsRouter } from "./routes/imageConversations";
+import { aiGatewayRouter, captureAiGateway } from "./routes/aiGateway";
+import { readAiGatewaySelection } from "./lib/aiGatewayStore";
 
 const app = express();
 
@@ -83,11 +85,13 @@ function dataDirWritable(): boolean {
 }
 
 async function readiness() {
+  const database = await databaseReady();
+  const selection = database ? await readAiGatewaySelection().catch(() => undefined) : undefined;
   const checks = {
     dataDirWritable: dataDirWritable(),
     frontend: !isProduction || apiOnly || fs.existsSync(distIndex),
-    aiConfigured: config.aiConfigReady(),
-    database: await databaseReady(),
+    aiConfigured: Boolean(selection && config.aiConfigReady(selection.activeGateway)),
+    database,
     usersConfigured: await hasUsers(),
   };
   return { ok: Object.values(checks).every(Boolean), checks, mode: apiOnly ? "api-only" : "full" };
@@ -101,6 +105,11 @@ app.get("/api/ready", asyncHandler(async (_req, res) => {
 app.use("/api/auth/login", loginRateLimit);
 app.use("/api/auth", authRouter);
 app.use("/api", requireAuth, requirePasswordChanged);
+app.use("/api/ai-gateway", aiGatewayRouter);
+app.use([
+  "/api/generate", "/api/run-plan", "/api/prompt-optimize", "/api/image-conversations",
+  "/api/outfit-analysis", "/api/pose-references", "/api/material-analyses", "/api/ai-diagnostics",
+], captureAiGateway);
 app.use("/api/generate", aiRateLimit, generateRouter);
 app.use("/api/prompt-optimize", aiRateLimit, promptOptimizeRouter);
 // 仅入队请求消耗 AI 限流额度；状态与 SSE 重连必须始终可达。

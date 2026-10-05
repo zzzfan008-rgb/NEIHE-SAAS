@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { unwrapPortkeyRequest } from "./portkeyMock";
 import sharp from "sharp";
 import { randomBytes } from "node:crypto";
 import { apiyiProviders } from "../server/providers/apiyi";
@@ -18,6 +19,7 @@ const timeouts: number[] = [];
 AbortSignal.timeout = (milliseconds) => { timeouts.push(milliseconds); return originalTimeout(milliseconds); };
 process.env.AI_TIMEOUT_MS = "1000";
 globalThis.fetch = async (url, init) => {
+  [url, init] = unwrapPortkeyRequest(url, init);
   assert.ok(String(url).startsWith("https://mock.invalid/v1/images/"));
   requests.push({ url: String(url), body: init!.body as string | FormData });
   return Response.json({ data: [{ b64_json: png.toString("base64") }], usage: {

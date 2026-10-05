@@ -1,0 +1,75 @@
+{
+  "supplier": "tuzi",
+  "baseUrl": "https://api.tu-zi.com",
+  "verifiedAt": "2026-10-05",
+  "sources": [
+    "https://api.tu-zi.com/docs/api/images",
+    "https://api.tu-zi.com/docs/api/gemini",
+    "https://api.tu-zi.com/docs/api/openai",
+    "https://api.tu-zi.com/docs/api/seedance-real-person-video",
+    "https://api.tu-zi.com/pricing"
+  ],
+  "models": [
+    {
+      "id": "gpt-image-2.5-flare",
+      "upstreamModelId": "gpt-image-2.5-flare",
+      "protocol": "gpt-image",
+      "maxReferences": 16
+    },
+    {
+      "id": "gpt-image-2.5-sunburst",
+      "upstreamModelId": "gpt-image-2.5-sunburst",
+      "protocol": "gpt-image",
+      "maxReferences": 16
+    },
+    {
+      "id": "gpt-image-2",
+      "upstreamModelId": "gpt-image-2",
+      "protocol": "gpt-image",
+      "maxReferences": 16
+    },
+    {
+      "id": "gpt-image-2-vip",
+      "upstreamModelId": "gpt-image-2-vip",
+      "protocol": "openai-images",
+      "maxReferences": 8
+    },
+    {
+      "id": "gemini-3-pro-image-preview",
+      "upstreamModelId": "gemini-3-pro-image-preview",
+      "protocol": "gemini",
+      "maxReferences": 14
+    },
+    {
+      "id": "gemini-3.1-flash-image",
+      "upstreamModelId": "gemini-3.1-flash-image",
+      "protocol": "gemini",
+      "maxReferences": 14
+    },
+    {
+      "id": "seedream-5-0-260128",
+      "upstreamModelId": "doubao-seedream-5-0-260128",
+      "protocol": "openai-images",
+      "maxReferences": 8
+    }
+  ],
+  "unsupportedImageModels": [
+    "flux-2-pro",
+    "grok-imagine-image"
+  ],
+  "unsupportedReason": "TuziAPI 模型广场暂无该型号，请选择已接入模型或切回 APIYI",
+  "video": {
+    "createPath": "/v1/videos",
+    "assetsPath": "/v1/seedance/assets",
+    "unsupportedModes": [
+      "video-edit"
+    ],
+    "unsupportedReason": "TuziAPI 暂不支持视频编辑，请切回 APIYI"
+  },
+  "notes": [
+    "GPT Image 2.5 完整参数要求令牌可访问 image（绘画）分组。",
+    "参考图数量沿用项目本地上限；实际可用能力和额度取决于令牌分组，尚未做付费实测。",
+    "Seedream 使用 TuziAPI 的 doubao 前缀，并通过 multipart /v1/images/edits 编辑。",
+    "不把 flux-kontext 替代为 flux-2-pro，不自动切换不同模型。"
+  ]
+}

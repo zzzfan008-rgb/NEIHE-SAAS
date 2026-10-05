@@ -2,11 +2,17 @@
 import type { AIProvider } from "../../src/types/workflow";
 import { apiyiProviders } from "./apiyi";
 import { ProviderError } from "./base";
+import { tuziProviders } from "./tuzi";
+import { currentAiGateway } from "./gatewayContext";
+import { gatewayModelUnavailableReason } from "../../src/lib/aiGatewayPolicy";
 
 const providers: Record<string, AIProvider> = { ...apiyiProviders };
 
 export function getProvider(id: string): AIProvider {
-  const p = providers[id];
+  const gateway = currentAiGateway();
+  const reason = gatewayModelUnavailableReason(gateway, id);
+  if (reason) throw new ProviderError(reason, 400, id, "invalid_request");
+  const p = (gateway === "tuzi" ? tuziProviders : providers)[id];
   if (!p) {
     throw new ProviderError(`Unknown provider id: ${id}`, 400);
   }
@@ -14,7 +20,7 @@ export function getProvider(id: string): AIProvider {
 }
 
 export function listProviderIds(): string[] {
-  return Object.keys(providers);
+  return Object.keys(currentAiGateway() === "tuzi" ? tuziProviders : providers);
 }
 
 export * from "./base";

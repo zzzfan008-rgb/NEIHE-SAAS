@@ -1,10 +1,15 @@
-import { useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useRef, useState, type ReactNode } from "react";
+import { selectActiveNodes, useFlowStore } from "@/store/flowStore";
+import { useActiveAiGateway } from "@/store/aiGatewayStore";
+import { gatewayNodeUnavailableReason } from "@/lib/aiGatewayPolicy";
 import { isNodeRunActive, type NodeDisplayState, type NodeRunStatus } from "@/types/workflow";
 import { useGenerationSafetyBlockReason } from "@/store/generationSafety";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
 import { deriveNodeDisplayState } from "@/lib/nodeDisplayState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+const GatewayBlockContext = createContext<string | undefined>(undefined);
 
 export const STATUS_TEXT: Record<NodeRunStatus, string> = {
   idle: "空闲",
@@ -58,6 +63,9 @@ export function NodeFrame({
   toolbar,
   children,
 }: NodeFrameProps) {
+  const gateway = useActiveAiGateway();
+  const nodeData = useFlowStore((state) => selectActiveNodes(state).find((node) => node.id === nodeId)?.data);
+  const gatewayBlock = nodeData ? gatewayNodeUnavailableReason(gateway, nodeData.kind, nodeData) : undefined;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
   const cancelledRef = useRef(false);
@@ -81,6 +89,7 @@ export function NodeFrame({
   };
 
   return (
+    <GatewayBlockContext.Provider value={gatewayBlock}>
     <div className="gc-node-frame relative w-[280px]">
       {selected && toolbar && (
         <div className="gc-node-floating-toolbar nodrag nopan absolute bottom-[calc(100%+27px)] left-1/2 z-20 -translate-x-1/2">
@@ -137,6 +146,7 @@ export function NodeFrame({
         <div className="gc-node-body space-y-2 p-2.5">
           {summary && <div className="gc-node-summary">{summary}</div>}
           {children}
+          {gatewayBlock && !isNodeRunActive(status) && <p role="status" className="text-[10px] leading-relaxed text-amber-500">{gatewayBlock}</p>}
           {primaryAction && <div className="gc-node-primary-action">{primaryAction}</div>}
           {latestOutput && <div className="gc-node-latest-output">{latestOutput}</div>}
         </div>
@@ -147,6 +157,7 @@ export function NodeFrame({
         )}
       </div>
     </div>
+    </GatewayBlockContext.Provider>
   );
 }
 
@@ -159,7 +170,9 @@ interface RunButtonProps {
 
 export function RunButton({ status, onClick, label = "运行", disabled }: RunButtonProps) {
   const active = isNodeRunActive(status);
-  const safetyBlockReason = useGenerationSafetyBlockReason();
+  const generationBlock = useGenerationSafetyBlockReason();
+  const gatewayBlock = useContext(GatewayBlockContext);
+  const safetyBlockReason = generationBlock || gatewayBlock;
   const newGenerationBlocked = !active && Boolean(safetyBlockReason);
   return (
     <Button

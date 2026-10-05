@@ -260,6 +260,7 @@ const failedIntents = (await getImageConversation(ownerId, projectId, conversati
   .filter((intent) => intent.status === "failed") ?? [];
 assert.equal(failedIntents.length, 2);
 const failedIntent = failedIntents[0]!;
+await database.query("UPDATE ai_gateway_settings SET active_gateway = 'tuzi', revision = revision + 1");
 const retry = await retryImageConversationIntent({
   ownerId,
   projectId,
@@ -269,6 +270,8 @@ const retry = await retryImageConversationIntent({
 });
 assert.equal(retry.replayed, false);
 assert.equal(retry.attemptNumber, 2);
+assert.equal((await database.queryOne<{ gateway_id: string }>("SELECT gateway_id FROM generation_runs WHERE id = $1", [retry.generationRunId]))?.gateway_id, "apiyi");
+await database.query("UPDATE ai_gateway_settings SET active_gateway = 'apiyi', revision = revision + 1");
 assert.equal(retry.round.status, "queued");
 assert.equal((await database.queryOne<{ count: string }>(
   "SELECT COUNT(*)::text AS count FROM generation_runs WHERE owner_id = $1 AND project_id = $2",

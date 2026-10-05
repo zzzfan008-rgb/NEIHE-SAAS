@@ -87,13 +87,14 @@ import {
 import { isSeedanceVideoModel } from "../../src/lib/seedance";
 import { validateTiAngleConfig } from "../../src/lib/tiAngle";
 import {
-  generateApiYiVideo,
   isLegacyVeoTask,
   resumeLegacyVeoTask,
   type ApiYiVideoReference,
   type ApiYiVideoReferenceRole,
   type ApiYiVideoTask,
 } from "../providers/apiyiVideo";
+import { generateGatewayVideo } from "../providers/gatewayVideo";
+import { assertGatewayStep } from "../providers/gatewayPolicy";
 
 export interface RunFailure {
   prompt?: string;
@@ -1362,6 +1363,7 @@ export async function executeStep(
   resolveProvider: ProviderResolver = getProvider,
   runIdOrOptions?: string | ExecuteStepOptions,
 ): Promise<StepResult> {
+  assertGatewayStep(step);
   const options: ExecuteStepOptions =
     typeof runIdOrOptions === "string"
       ? { runId: runIdOrOptions }
@@ -1602,7 +1604,7 @@ export async function executeStep(
         );
       }
       await options.onPromptResolved?.([String(step.params.prompt ?? "")]);
-      const result = await generateApiYiVideo({
+      const result = await generateGatewayVideo({
         mode: step.params.mode as never,
         model: step.params.videoModel,
         prompt: String(step.params.prompt ?? ""),

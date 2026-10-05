@@ -155,7 +155,11 @@ async function main() {
     composeEnv = { ...composeEnv, POSTGRES_TEST_PORT: String(postgresPort) };
     const databaseUrl = `postgresql://garment_test:garment_test@127.0.0.1:${postgresPort}/garment_canvas_test`;
     run("docker", [...compose, "up", "-d", "--wait"], { env: composeEnv });
-    runNpmScript("test:suite", { ...composeEnv, DATABASE_URL: databaseUrl });
+    runNpmScript("test:suite", { ...composeEnv, DATABASE_URL: databaseUrl,
+      APIYI_API_KEY: "test-disabled", APIYI_BASE_URL: "https://127.0.0.1:9",
+      SEEDANCE_API_KEY: "test-disabled", SEEDANCE_API_BASE_URL: "https://127.0.0.1:9",
+      PORTKEY_GATEWAY_URL: "http://127.0.0.1:9",
+      TUZI_API_KEY: "test-disabled", TUZI_BASE_URL: "https://127.0.0.1:9" });
   } catch (error) {
     spawnSync("docker", [...compose, "logs", "--no-color"], {
       stdio: "inherit",

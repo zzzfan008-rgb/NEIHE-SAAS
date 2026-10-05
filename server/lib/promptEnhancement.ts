@@ -1,9 +1,10 @@
+import { currentAiGateway } from "../providers/gatewayContext";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { config } from "../config";
-import { fetchWithRetry, ProviderError } from "../providers/base";
+import { fetchAiWithRetry as fetchWithRetry, ProviderError } from "../providers/base";
 
 export const PROMPT_ENHANCER_MODEL = "gpt-5.6-terra";
 const CACHE_VERSION = 2;
@@ -94,10 +95,10 @@ function parseStructuredEnhancement(payload: unknown): Pick<TryOnPromptEnhanceme
 
 async function chat(messages: Array<{ role: "system" | "user"; content: string }>): Promise<unknown> {
   const response = await fetchWithRetry(
-    `${config.apiyiBaseUrl()}/v1/chat/completions`,
+    `${config.aiBaseUrl()}/v1/chat/completions`,
     () => ({
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiyiApiKey()}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.aiApiKey()}` },
       body: JSON.stringify({ model: PROMPT_ENHANCER_MODEL, temperature: 0.1, messages }),
     }),
     { timeoutMs: config.aiTimeoutMs(120_000), providerId: PROMPT_ENHANCER_MODEL, maxRetries: 0 },
@@ -120,7 +121,7 @@ export async function optimizePromptText(text: string): Promise<string> {
 
 function cacheKey(input: TryOnPromptEnhancementInput): string {
   return createHash("sha256")
-    .update(JSON.stringify({ version: CACHE_VERSION, model: PROMPT_ENHANCER_MODEL, ...input }))
+    .update(JSON.stringify({ gateway: currentAiGateway(), version: CACHE_VERSION, model: PROMPT_ENHANCER_MODEL, ...input }))
     .digest("hex");
 }
 

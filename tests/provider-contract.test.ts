@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { unwrapPortkeyRequest } from "./portkeyMock";
 import fs from "node:fs";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -55,7 +56,7 @@ function installFetchMock(
   implementation: (input: string | URL | Request, init?: RequestInit) => Response | Promise<Response>,
 ): () => void {
   const original = globalThis.fetch;
-  globalThis.fetch = implementation as typeof fetch;
+  globalThis.fetch = ((input, init) => implementation(...unwrapPortkeyRequest(input, init))) as typeof fetch;
   return () => { globalThis.fetch = original; };
 }
 

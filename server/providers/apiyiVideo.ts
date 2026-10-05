@@ -3,7 +3,7 @@ import path from "node:path";
 import { config } from "../config";
 import sharp from "sharp";
 import { mimeOfFile, normalizeImageRef, storedMediaPath } from "../lib/fileStore";
-import { fetchWithRetry, parseDataUrl, ProviderError, toDataUrl } from "./base";
+import { fetchWithRetry, fetchAiWithRetry, parseDataUrl, ProviderError, toDataUrl } from "./base";
 import {
   SEEDANCE_MODEL_CAPABILITIES,
   SEEDANCE_OUTPUT_FORMATS,
@@ -102,7 +102,7 @@ type SeedanceContent =
 export class AcceptedVideoTaskPersistenceError extends Error {
   constructor(cause: unknown) {
     super(
-      `视频任务已受理但状态保存失败，结果状态未知；请核对 API易消耗记录后再决定是否重试：${cause instanceof Error ? cause.message : String(cause)}`,
+      `视频任务已受理但状态保存失败，结果状态未知；请核对该任务供应商的消耗记录后再决定是否重试：${cause instanceof Error ? cause.message : String(cause)}`,
     );
     this.name = "AcceptedVideoTaskPersistenceError";
   }
@@ -140,7 +140,7 @@ function isAssetReference(value: string): boolean {
   return ASSET_REFERENCE.test(value);
 }
 
-async function imageReference(value: string): Promise<string> {
+export async function imageReference(value: string): Promise<string> {
   if (isAssetReference(value)) return value;
   const normalized = await normalizeImageRef(value);
   const { buffer } = parseDataUrl(normalized);
@@ -201,7 +201,7 @@ async function assetFetch(url: string, initFactory: () => RequestInit): Promise<
   }
 }
 
-async function uploadLocalVideoReference(value: string, model: SeedanceVideoModelId): Promise<string> {
+export async function uploadLocalVideoReference(value: string, model: SeedanceVideoModelId): Promise<string> {
   let filePath: string;
   try {
     filePath = storedMediaPath(value, ["video/mp4", "video/quicktime"]);
@@ -278,7 +278,7 @@ async function contentFor(request: ApiYiVideoRequest): Promise<SeedanceContent[]
 async function submit(request: ApiYiVideoRequest): Promise<ApiYiVideoTask> {
   const content = await contentFor(request);
   await request.beforeProviderCall?.(1);
-  const response = await fetchWithRetry(endpoint(), () => ({
+  const response = await fetchAiWithRetry(endpoint(), () => ({
     method: "POST",
     headers: {
       ...apiHeaders(),
@@ -301,6 +301,7 @@ async function submit(request: ApiYiVideoRequest): Promise<ApiYiVideoTask> {
     providerId: request.model,
     timeoutMs: config.aiTimeoutMs(90_000),
     maxRetries: 0,
+    gateway: "apiyi", video: true,
   });
   return acceptedTask(await response.json(), request.model);
 }
@@ -309,12 +310,13 @@ async function waitUntilComplete(task: ApiYiVideoTask): Promise<SeedanceTaskPayl
   const deadline = Date.now() + 15 * 60_000;
   await wait(25_000);
   while (Date.now() < deadline) {
-    const response = await fetchWithRetry(endpoint(`/${encodeURIComponent(task.id)}`), () => ({
+    const response = await fetchAiWithRetry(endpoint(`/${encodeURIComponent(task.id)}`), () => ({
       headers: apiHeaders(),
     }), {
       providerId: task.model,
       timeoutMs: config.aiTimeoutMs(30_000),
       maxRetries: 0,
+      gateway: "apiyi", video: true,
     });
     const payload = await response.json() as SeedanceTaskPayload;
     if (payload.status === "succeeded") return payload;
@@ -384,7 +386,7 @@ async function download(
   return toDataUrl(buffer.toString("base64"), mime);
 }
 
-function assertRequest(request: ApiYiVideoRequest): void {
+export function assertRequest(request: ApiYiVideoRequest): void {
   const fail = (message: string): never => {
     throw new ProviderError(message, 400, request.model, "invalid_request");
   };
@@ -476,7 +478,7 @@ async function waitForLegacyVeoTask(task: ApiYiVideoTask): Promise<void> {
   while (Date.now() < deadline) {
     if (!firstPoll) await wait(8_000);
     firstPoll = false;
-    const response = await fetchWithRetry(
+    const response = await fetchAiWithRetry(
       `${config.apiyiBaseUrl()}/v1/videos/${encodeURIComponent(task.id)}`,
       () => ({ headers: { Authorization: `Bearer ${config.apiyiApiKey()}` } }),
       { providerId: task.model, timeoutMs: config.aiTimeoutMs(30_000), maxRetries: 0 },
@@ -496,7 +498,7 @@ async function waitForLegacyVeoTask(task: ApiYiVideoTask): Promise<void> {
 }
 
 async function downloadLegacyVeoTask(task: ApiYiVideoTask): Promise<string> {
-  const response = await fetchWithRetry(
+  const response = await fetchAiWithRetry(
     `${config.apiyiBaseUrl()}/v1/videos/${encodeURIComponent(task.id)}/content`,
     () => ({ headers: { Authorization: `Bearer ${config.apiyiApiKey()}` } }),
     { providerId: task.model, timeoutMs: config.aiTimeoutMs(180_000), maxRetries: 0 },

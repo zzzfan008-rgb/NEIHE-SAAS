@@ -1,10 +1,11 @@
+import { currentAiGateway } from "../providers/gatewayContext";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { config } from "../config";
-import { fetchWithRetry, parseDataUrl, toDataUrl } from "../providers/base";
+import { fetchAiWithRetry as fetchWithRetry, parseDataUrl, toDataUrl } from "../providers/base";
 
 interface FaceBox {
   x: number;
@@ -84,10 +85,10 @@ async function analyzeBox(imageDataUrl: string, model: string, options: Identity
   const { mime, base64 } = parseDataUrl(imageDataUrl);
   await options.beforeProviderCall?.(1);
   const response = await fetchWithRetry(
-    `${config.apiyiBaseUrl()}/v1beta/models/${model}:generateContent`,
+    `${config.aiBaseUrl()}/v1beta/models/${model}:generateContent`,
     () => ({
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiyiApiKey()}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.aiApiKey()}` },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [
           { text: "定位画面中主要人物的脸部边界框。只返回 JSON，坐标归一化到 0-1：{\"x\":0.0,\"y\":0.0,\"width\":0.0,\"height\":0.0}。边界框只包住完整脸部和下巴，不描述身份、性别、年龄、服装或背景。" },
@@ -121,7 +122,7 @@ async function writeBox(filePath: string, model: string, box: FaceBox): Promise<
 export const createIdentityAnchor: IdentityAnchorer = async (imageDataUrl, options = {}) => {
   const model = validModel(config.identityAnalysisModel());
   const parsed = parseDataUrl(imageDataUrl);
-  const key = createHash("sha256").update(`identity:${CACHE_VERSION}:${model}:${parsed.mime}:`).update(parsed.buffer).digest("hex");
+  const key = createHash("sha256").update(`identity:${currentAiGateway()}:${CACHE_VERSION}:${model}:${parsed.mime}:`).update(parsed.buffer).digest("hex");
   const filePath = path.join(config.dataDir(), "identity-anchor-cache", `${key}.json`);
   const existing = inFlight.get(key);
   if (existing) {

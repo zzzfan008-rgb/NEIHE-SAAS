@@ -1,6 +1,6 @@
 import { config } from "../config";
 import sharp from "sharp";
-import { fetchWithRetry, parseDataUrl, ProviderError } from "../providers/base";
+import { fetchAiWithRetry as fetchWithRetry, parseDataUrl, ProviderError } from "../providers/base";
 import { publicProviderErrorMessage } from '../providers/base';
 import { POSE_REVIEW_LABELS, parsePoseReviewCandidates, poseReviewReferenceType, type PoseReviewReferenceType, type TryOnPoseReview } from '../../src/lib/tryOnPoseReview';
 
@@ -196,9 +196,9 @@ async function requestCandidateReview<T>(
   for (let attempt = 0; ; attempt += 1) {
     await beforeCall();
     try {
-      const response = await fetchWithRetry(`${config.apiyiBaseUrl()}/v1/chat/completions`, () => ({
+      const response = await fetchWithRetry(`${config.aiBaseUrl()}/v1/chat/completions`, () => ({
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiyiApiKey()}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.aiApiKey()}` },
         body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'user', content }] }),
       }), { timeoutMs: config.aiTimeoutMs(180_000), providerId: model, maxRetries: 0 });
       return parse(await response.json());

@@ -1,9 +1,10 @@
+import { currentAiGateway } from "../providers/gatewayContext";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { config } from "../config";
-import { fetchWithRetry, parseDataUrl, ProviderError } from "../providers/base";
+import { fetchAiWithRetry as fetchWithRetry, parseDataUrl, ProviderError } from "../providers/base";
 
 const SCENE_ANALYSIS_SCHEMA_VERSION = 3;
 const SCENE_FIELDS = [
@@ -104,7 +105,7 @@ function analysisPrompt(analysis: SceneAnalysis): string {
 
 function cacheKey(model: string, mime: string, image: Buffer): string {
   return createHash("sha256")
-    .update(`scene-analysis:${SCENE_ANALYSIS_SCHEMA_VERSION}:${model}:${mime}:`)
+    .update(`scene-analysis:${currentAiGateway()}:${SCENE_ANALYSIS_SCHEMA_VERSION}:${model}:${mime}:`)
     .update(image)
     .digest("hex");
 }
@@ -140,12 +141,12 @@ async function analyzeUncached(
   const { mime, base64 } = parseDataUrl(imageDataUrl);
   await options?.beforeProviderCall?.(1);
   const response = await fetchWithRetry(
-    `${config.apiyiBaseUrl()}/v1beta/models/${model}:generateContent`,
+    `${config.aiBaseUrl()}/v1beta/models/${model}:generateContent`,
     () => ({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiyiApiKey()}`,
+        Authorization: `Bearer ${config.aiApiKey()}`,
       },
       body: JSON.stringify({
         contents: [{

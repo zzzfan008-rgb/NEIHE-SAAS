@@ -17,6 +17,8 @@ import {
 } from "@/lib/imageConversationRules";
 import { DEFAULT_IMAGE_CONVERSATION_PARAMETERS } from "@/store/imageConversationStore";
 import { imageModelLabel } from "@/types/imageModels";
+import { useActiveAiGateway } from "@/store/aiGatewayStore";
+import { gatewayModelUnavailableReason } from "@/lib/aiGatewayPolicy";
 
 interface ConversationComposerProps {
   mode: ImageConversationMode;
@@ -62,6 +64,8 @@ export function ConversationComposer({
   const baseImage = useRef<HTMLImageElement>(null);
   const dragIndex = useRef<number | null>(null);
   const parameters = draft.parameters ?? DEFAULT_IMAGE_CONVERSATION_PARAMETERS;
+  const gateway = useActiveAiGateway();
+  const gatewayBlock = gatewayModelUnavailableReason(gateway, parameters.modelId);
   const capabilities = getImageConversationModelCapabilities(parameters.modelId);
   const availableModels = getImageConversationModelsForMode(mode);
   const inputDisabled = disabled || Boolean(clarification);
@@ -181,7 +185,7 @@ export function ConversationComposer({
                 <SelectTrigger aria-label="图片模型" className="w-full text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent positionerClassName="z-[90]">
                   {availableModels.map((modelId) => (
-                    <SelectItem key={modelId} value={modelId}>{imageModelLabel(modelId)}</SelectItem>
+                    <SelectItem key={modelId} value={modelId} disabled={Boolean(gatewayModelUnavailableReason(gateway, modelId))}>{imageModelLabel(modelId)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -263,7 +267,7 @@ export function ConversationComposer({
               if (event.nativeEvent.isComposing) return;
               if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
               event.preventDefault();
-              if (canSend && !sending) onSubmit();
+              if (canSend && !sending && !gatewayBlock) onSubmit();
             }}
           />
         </div>
@@ -280,14 +284,15 @@ export function ConversationComposer({
           if (event.nativeEvent.isComposing) return;
           if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
           event.preventDefault();
-          if (canSend && !sending) onSubmit();
+          if (canSend && !sending && !gatewayBlock) onSubmit();
         }}
       />
+      {gatewayBlock && <p role="status" className="mt-2 text-[10px] text-amber-500">{gatewayBlock}</p>}
       <div className="mt-2 flex items-center justify-between gap-2">
         <p className="min-w-0 text-[10px] leading-4 text-[var(--gc-text-muted)]">
           {sending ? "本轮生成中；可以编辑下一轮草稿，但当前对话暂不能再次发送。" : clarification ? "回答澄清后提交本轮 · ⌘/Ctrl + Enter 发送" : "Enter 换行 · ⌘/Ctrl + Enter 发送"}
         </p>
-        <Button type="button" size="sm" className="shrink-0" disabled={disabled || !canSend || sending} onClick={onSubmit}>
+        <Button type="button" size="sm" className="shrink-0" disabled={disabled || !canSend || sending || Boolean(gatewayBlock)} onClick={onSubmit}>
           <SendIcon aria-hidden="true" />{sending ? "发送中…" : clarification ? "提交补充" : "发送"}
         </Button>
       </div>

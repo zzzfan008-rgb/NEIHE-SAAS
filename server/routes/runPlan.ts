@@ -1,3 +1,4 @@
+import { ProviderError, publicProviderErrorMessage } from "../providers/base";
 /**
  * 工作流执行：
  *   POST /api/run-plan            { clientRequestId, projectId, nodes, edges, onlyNodeId?, includeDownstream? }
@@ -245,6 +246,8 @@ runPlanRouter.post("/", asyncHandler(async (req, res) => {
   } catch (err) {
     if (err instanceof DagError || err instanceof WorkflowValidationError) {
       res.status(400).json({ error: err.message });
+    } else if (err instanceof ProviderError) {
+      res.status(err.status ?? 400).json({ error: publicProviderErrorMessage(err) });
     } else if (err instanceof ImageReferenceAccessError) {
       res.status(403).json({ error: err.message });
     } else if (err instanceof GenerationRequestConflictError) {

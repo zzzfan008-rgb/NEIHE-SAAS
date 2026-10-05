@@ -981,7 +981,7 @@ await test("视频已受理但任务状态落库失败时终止为未知且不�
     assert.equal(pollCalls, 0);
     assert.deepEqual(await runRow(runId), {
       status: "outcome_unknown",
-      error: "视频任务已受理但状态保存失败，结果状态未知；请核对 API易消耗记录后再决定是否重试：simulated provider task persistence failure",
+      error: "视频任务已受理但状态保存失败，结果状态未知；请核对该任务供应商的消耗记录后再决定是否重试：simulated provider task persistence failure",
       provider_requests: 1,
       successful_count: 0,
     });
@@ -1113,7 +1113,7 @@ await test("超时或连接不确定结果最多自动重放两次，耗尽后�
   const unknown = await runRow(runId);
   assert.equal(unknown?.status, "outcome_unknown");
   assert.equal(unknown?.provider_requests, 3);
-  assert.match(unknown?.error ?? "", /核对 API易消耗记录/);
+  assert.match(unknown?.error ?? "", /核对该任务供应商的消耗记录/);
   assert.match(unknown?.error ?? "", /最多 2 次自动重试/);
   assert.equal(await queue.processNextGenerationJob("worker-unknown", {
     resolveProvider: fake.resolveProvider, now: () => now, random: () => 0, retryDelaysMs: [0, 0],
@@ -1189,7 +1189,7 @@ await test("租约在上游调用前过期可安全重排，调用开始后中�
   const unknown = await runRow(unknownRunId);
   assert.equal(unknown?.status, "outcome_unknown");
   assert.equal(unknown?.provider_requests, 3);
-  assert.match(unknown?.error ?? "", /核对 API易消耗记录/);
+  assert.match(unknown?.error ?? "", /核对该任务供应商的消耗记录/);
 });
 
 await test("GPT 2.5 调用后 Worker 租约过期保留未知结果且不自动重放", async () => {

@@ -1,3 +1,4 @@
+import { ProviderError, publicProviderErrorMessage } from "../providers/base";
 /**
  * POST /api/generate  { clientRequestId, modelId, kind?, request: ImageGenRequest, projectId? } → 202 { runId, status }
  * 请求事务入队后立即返回，由 PostgreSQL Worker 根据参考图选择生成或编辑。
@@ -240,6 +241,10 @@ generateRouter.post("/", asyncHandler(async (req, res) => {
       res.status(202).json({ runId: outcome.runId, status: "queued" });
     }
   } catch (error) {
+    if (error instanceof ProviderError) {
+      res.status(error.status ?? 400).json({ error: publicProviderErrorMessage(error) });
+      return;
+    }
     if (error instanceof ImageReferenceAccessError) {
       res.status(403).json({ error: error.message });
       return;

@@ -1,6 +1,17 @@
 name: garment-canvas
 
 services:
+  portkey:
+    build:
+      context: ./deploy/portkey
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
@@ -29,6 +40,7 @@ services:
       NODE_ENV: production
       PORT: 3002
       DATA_DIR: /app/data
+      PORTKEY_GATEWAY_URL: http://portkey:8787
       PGHOST: postgres
       PGPORT: 5432
       PGDATABASE: ${POSTGRES_DB:-garment_canvas}
@@ -37,6 +49,8 @@ services:
     ports:
       - "127.0.0.1:3002:3002"
     depends_on:
+      portkey:
+        condition: service_healthy
       postgres:
         condition: service_healthy
     volumes:

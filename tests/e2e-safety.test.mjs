@@ -15,6 +15,9 @@ const safeEnv = {
   COOKIE_SECURE: "false",
   APIYI_API_KEY: "e2e-disabled",
   APIYI_BASE_URL: "https://127.0.0.1:9",
+  TUZI_API_KEY: "e2e-disabled",
+  TUZI_BASE_URL: "https://127.0.0.1:9",
+  PORTKEY_GATEWAY_URL: "http://127.0.0.1:9",
   E2E_BASE_URL: "http://127.0.0.1:45173",
   E2E_API_URL: "http://127.0.0.1:43001",
   DATABASE_URL: "postgresql://garment_test:garment_test@127.0.0.1:45432/garment_canvas_test",
@@ -94,6 +97,21 @@ try {
       name: "real AI key",
       result: listTests({ APIYI_API_KEY: "real-key-must-be-rejected" }),
       message: /real AI key must never reach browser regressions/,
+    },
+    {
+      name: "real TuziAPI key",
+      result: listTests({ TUZI_API_KEY: "real-key-must-be-rejected" }),
+      message: /real AI key must never reach browser regressions/,
+    },
+    {
+      name: "non-loopback TuziAPI",
+      result: listTests({ TUZI_BASE_URL: "https://api.tu-zi.com" }),
+      message: /TUZI_BASE_URL must use https:\/\/127\.0\.0\.1/,
+    },
+    {
+      name: "external Portkey gateway",
+      result: listTests({ PORTKEY_GATEWAY_URL: "https://gateway.example.com" }),
+      message: /PORTKEY_GATEWAY_URL must use http:\/\/127\.0\.0\.1/,
     },
     {
       name: "non-loopback API",

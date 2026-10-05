@@ -1,3 +1,5 @@
+import { currentAiGateway } from "../providers/gatewayContext";
+import { gatewayModelUnavailableReason } from "../../src/lib/aiGatewayPolicy";
 import sharp from "sharp";
 import { Router, type RequestHandler } from "express";
 import {
@@ -17,14 +19,16 @@ import { getProvider, ProviderError, publicProviderErrorMessage } from "../provi
 type DiagnosticProbeMode = "generate" | "edit";
 
 function configuredGateway(): { host: string } {
-  const url = new URL(config.apiyiBaseUrl());
-  if (url.protocol !== "https:") throw new Error("APIYI_BASE_URL 必须使用 HTTPS");
-  config.apiyiApiKey();
+  const url = new URL(config.aiBaseUrl());
+  if (url.protocol !== "https:") throw new Error("AI 供应商地址必须使用 HTTPS");
+  config.aiApiKey();
   return { host: url.host };
 }
 
 function providerSettings(providerId: ImageModelId) {
   configuredGateway();
+  const reason = gatewayModelUnavailableReason(currentAiGateway(), providerId);
+  if (reason) throw new ProviderError(reason, 400, providerId, "invalid_request");
   const contract = getImageModelContract(providerId);
   const probes: DiagnosticProbeMode[] = [
     ...(contract.generation ? ["generate" as const] : []),
@@ -72,7 +76,7 @@ const getDiagnostics = asyncHandler(async (_req, res) => {
       };
     }
   });
-  res.json({ gateway, providers });
+  res.json({ gateway, supplier: currentAiGateway(), providers });
 });
 
 function diagnosticModelOptions(modelId: ImageModelId): ImageModelOptions {
@@ -131,6 +135,8 @@ const probeDiagnostics = asyncHandler(async (req, res) => {
     res.status(400).json({ error: "providerId 或诊断方式无效" });
     return;
   }
+  const reason = gatewayModelUnavailableReason(currentAiGateway(), providerId);
+  if (reason) { res.status(400).json({ error: reason }); return; }
   const settings = providerSettings(providerId);
   if (!settings.probes.includes(mode)) {
     res.status(400).json({ error: `${providerId} 不支持${mode === "generate" ? "文生图" : "参考图编辑"}诊断` });

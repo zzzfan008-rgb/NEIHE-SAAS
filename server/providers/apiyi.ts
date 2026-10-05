@@ -22,7 +22,7 @@ import { detectImageMime, validateImageDataUrl } from "../lib/imageValidation";
 import { withImageProcessingSlot } from "../lib/imageProcessingLimit";
 import { normalizeProviderReferenceImages } from "../lib/uploadImageNormalization";
 import {
-  fetchWithRetry,
+  fetchAiWithRetry as fetchWithRetry,
   parseDataUrl,
   ProviderError,
   providerErrorFromMessage,
@@ -254,7 +254,7 @@ function logProviderResponseShape(
   }));
 }
 
-async function readJson(response: Response, modelId: ImageModelId): Promise<unknown> {
+export async function readJson(response: Response, modelId: ImageModelId): Promise<unknown> {
   try {
     const contentLength = response.headers.get("content-length");
     if (contentLength || !response.body || process.env.AI_IMAGE_TAIL_RECOVERY === "false") {
@@ -428,7 +428,7 @@ async function parseOpenAiImageResponse(
   return { images, providerOutputSizes: opts?.requireOutputSize ? providerOutputSizes : undefined };
 }
 
-async function parseOpenAiImages(
+export async function parseOpenAiImages(
   payload: unknown,
   modelId: ImageModelId,
   opts?: { urlOnly?: boolean; maxImages?: number },
@@ -609,7 +609,7 @@ export async function processGeminiResponse(
   return failure("UNKNOWN", "生成失败，未找到图片或文字说明，请检查提示词后重试", "no image data or text response");
 }
 
-async function parseGeminiImages(
+export async function parseGeminiImages(
   payload: unknown, modelId: ImageModelId, context: Record<string, unknown> = {},
 ): Promise<string[]> {
   const result = await processGeminiResponse(payload, modelId);
@@ -670,7 +670,7 @@ async function geminiInlineData(
   }
 }
 
-async function geminiReferenceParts(refs: string[], modelId: ImageModelId, encode: { quality?: number; longEdge?: number } = {}) {
+export async function geminiReferenceParts(refs: string[], modelId: ImageModelId, encode: { quality?: number; longEdge?: number } = {}) {
   let parts = await Promise.all(refs.map((ref) => geminiInlineData(ref, modelId, GEMINI_COMPRESSION_THRESHOLD, encode)));
   const byteCount = () => parts.reduce((total, part) => total + Buffer.byteLength(part.inlineData.data, "base64"), 0);
   if (byteCount() > GEMINI_TOTAL_REFERENCE_BYTES) {

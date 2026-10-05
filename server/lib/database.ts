@@ -11,6 +11,7 @@ import { migrateImageConversations } from "./imageConversationMigration";
 import { migrateImageConversationPlanning } from "./imageConversationPlanningMigration";
 import { migrateImageConversationStartNew } from "./imageConversationStartNewMigration";
 import { migrateImageConversationRequests } from "./imageConversationRequestsMigration";
+import { migrateAiGateways } from "./aiGatewayMigration";
 
 const { Pool, types } = pg;
 types.setTypeParser(20, Number);
@@ -775,6 +776,8 @@ async function migrate(): Promise<void> {
         ["project_resource_copy_drafts", new Date().toISOString()],
       );
     }
+
+    if (!applied.has(29)) await migrateAiGateways(client);
 
     // SQLite can be restored after an empty database has already applied migration 17.
     if (!applied.has(17) || imported !== undefined) {

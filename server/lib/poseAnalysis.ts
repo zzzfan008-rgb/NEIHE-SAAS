@@ -1,10 +1,11 @@
+import { currentAiGateway } from "../providers/gatewayContext";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { config } from "../config";
-import { fetchWithRetry, parseDataUrl, ProviderError, toDataUrl } from "../providers/base";
+import { fetchAiWithRetry as fetchWithRetry, parseDataUrl, ProviderError, toDataUrl } from "../providers/base";
 import type { DWPosePoseV1 } from '../../src/types/poseReference';
 
 const POSE_ANALYSIS_SCHEMA_VERSION = 5;
@@ -359,7 +360,7 @@ function parseResponseText(payload: unknown, requireCalibration = false): PoseAn
   const parts = candidate?.content?.parts;
   const text = Array.isArray(parts) ? parts.filter((part) => part && part.thought !== true && typeof part.text === 'string').map((part) => part.text).join('') : '';
   if (!text.trim()) throw new PoseAnalysisResponseError('姿势分析未返回可用文字');
-  const apiKey = config.apiyiApiKey();
+  const apiKey = config.aiApiKey();
   if (apiKey && text.includes(apiKey)) throw new PoseAnalysisResponseError('姿势分析返回格式无效');
   const normalized = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   try {
@@ -442,7 +443,7 @@ function calibrationExtras(options: PoseAnalysisOptions | undefined, analysis: P
 }
 
 function cacheKey(model: string, mime: string, image: Buffer, calibration?: PoseAnalysisCalibration): string {
-  const hash = createHash("sha256").update(`pose-analysis:${POSE_ANALYSIS_SCHEMA_VERSION}:${model}:${mime}:`).update(image);
+  const hash = createHash("sha256").update(`pose-analysis:${currentAiGateway()}:${POSE_ANALYSIS_SCHEMA_VERSION}:${model}:${mime}:`).update(image);
   if (calibration) {
     for (const [label, dataUrl] of [["depth", calibration.depthImageDataUrl], ["skeleton", calibration.skeletonImageDataUrl]] as const) {
       const input = parseDataUrl(dataUrl);
@@ -543,10 +544,10 @@ async function analyzeUncached(
     return { guideImage: await renderPoseGuide(imageDataUrl, analysis), prompt: analysisPrompt(analysis), providerRequests: 1, model, cacheHit: false, ...calibrationExtras(options, analysis) };
   }
   const response = await fetchWithRetry(
-    `${config.apiyiBaseUrl()}/v1beta/models/${model}:generateContent`,
+    `${config.aiBaseUrl()}/v1beta/models/${model}:generateContent`,
     () => ({
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiyiApiKey()}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.aiApiKey()}` },
       body: JSON.stringify({
         contents: [{ role: "user", parts: (() => {
           const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [

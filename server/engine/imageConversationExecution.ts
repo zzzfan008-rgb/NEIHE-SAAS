@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
+import type { AiGatewayId } from "../../src/types/aiGateway";
+import { withAiGateway } from "../providers/gatewayContext";
 import { nanoid } from "nanoid";
 import type { ExecutionPlan, NodeExecution, NodeKind } from "../../src/types/workflow";
 import {
@@ -256,8 +258,9 @@ export async function enqueueImageConversationIntentRetryInTransaction(
     id: string;
     attempt_number: number;
     status: ImageConversationAttemptStatus;
+    generation_run_id: string;
   }>(`
-    SELECT id, attempt_number, status
+    SELECT id, attempt_number, status, generation_run_id
     FROM image_conversation_attempts
     WHERE intent_id = $1 AND owner_id = $2
     ORDER BY attempt_number DESC
@@ -296,9 +299,13 @@ export async function enqueueImageConversationIntentRetryInTransaction(
   const optionError = imageModelOptionsError(modelId, modelOptions);
   if (optionError) throw new ImageConversationExecutionError(`model parameters are incompatible: ${optionError}`);
   const attemptNumber = latest.attempt_number + 1;
+  const originalRun = await queryOne<{ gateway_id: AiGatewayId }>(
+    "SELECT gateway_id FROM generation_runs WHERE id = $1 AND owner_id = $2", [latest.generation_run_id, ownerId], client,
+  );
+  if (!originalRun) throw new ImageConversationExecutionError("original generation run not found");
   const nodeId = `image-conversation-${intent.id}`;
   const step = buildNodeExecution(round, intent, nodeId, nodeKind, modelId, modelOptions, resolvedInputs);
-  const run = await enqueueGenerationRunInTransaction(
+  const run = await withAiGateway(originalRun.gateway_id, async () => enqueueGenerationRunInTransaction(
     client,
     { steps: [step] },
     ownerId,
@@ -320,7 +327,7 @@ export async function enqueueImageConversationIntentRetryInTransaction(
       requestedCount: 1,
     },
     "direct",
-  );
+  ));
   const attemptId = nanoid(16);
   const now = new Date().toISOString();
   await client.query(`

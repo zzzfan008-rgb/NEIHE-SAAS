@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { config } from "../config";
-import { fetchWithRetry, ProviderError } from "../providers/base";
+import { fetchAiWithRetry as fetchWithRetry, ProviderError } from "../providers/base";
 import { parseColorValue } from "../../src/lib/colorPalette";
 import type {
   MaterialAnalysisSuggestion,
@@ -267,12 +267,12 @@ export async function analyzeMaterialImage(
   const mimeType = cropDataUrl.slice(5, cropDataUrl.indexOf(";"));
   const data = cropDataUrl.slice(comma + 1);
   const response = await fetcher(
-    `${config.apiyiBaseUrl()}/v1beta/models/${modelId}:generateContent`,
+    `${config.aiBaseUrl()}/v1beta/models/${modelId}:generateContent`,
     () => ({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiyiApiKey()}`,
+        Authorization: `Bearer ${config.aiApiKey()}`,
       },
       body: JSON.stringify({
         contents: [

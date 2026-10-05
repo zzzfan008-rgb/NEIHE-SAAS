@@ -49,6 +49,7 @@ assert.deepEqual(versions, [
   { version: 26, name: "image_conversation_start_new" },
   { version: 27, name: "image_conversation_requests" },
   { version: 28, name: "project_resource_copy_drafts" },
+  { version: 29, name: "global_ai_gateway_and_run_routing" },
 ]);
 console.log("  ✓ 新数据库记录全部编号迁移");
 const projectLifecycleConstraint = await queryOne<{ definition: string }>(`

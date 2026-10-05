@@ -2,8 +2,9 @@ import sharp from "sharp";
 import { config } from "../config";
 import { validateImageDataUrl } from "../lib/imageValidation";
 import { withImageProcessingSlot } from "../lib/imageProcessingLimit";
-import { fetchWithRetry, ProviderError, toDataUrl } from "./base";
+import { fetchAiWithRetry as fetchWithRetry, ProviderError, toDataUrl } from "./base";
 import type { ImageGenRequest } from "../../src/types/workflow";
+import type { AiGatewayId } from "../../src/types/aiGateway";
 
 const THRESHOLD = 1.5 * 1024 * 1024;
 const TOTAL = 6 * 1024 * 1024;
@@ -41,7 +42,7 @@ export async function prepareGptReferences(refs: string[]): Promise<string[]> {
   return result;
 }
 
-export async function requestGptImage25(req: ImageGenRequest, mode: "generate" | "edit", selectedModel?: string) {
+export async function requestGptImage25(req: ImageGenRequest, mode: "generate" | "edit", selectedModel?: string, gateway: AiGatewayId = "apiyi") {
   const model = selectedModel ?? (mode === "generate" ? config.gptImageGenerationModel() : config.gptImageEditModel());
   if (!/^gpt-image-(?:2(?:-\d{4}-\d{2}-\d{2})?|2\.5-(?:flare|sunburst)(?:-\d{4}-\d{2}-\d{2})?)$/.test(model)) {
     throw new ProviderError("GPT 图片模型环境配置无效", 400, model, "invalid_request");
@@ -81,9 +82,9 @@ export async function requestGptImage25(req: ImageGenRequest, mode: "generate" |
     }
     body = form;
   }
-  const response = await fetchWithRetry(`${config.apiyiBaseUrl()}/v1/images/${mode === "generate" ? "generations" : "edits"}`, () => ({
+  const response = await fetchWithRetry(`${config.aiBaseUrl(gateway)}/v1/images/${mode === "generate" ? "generations" : "edits"}`, () => ({
     method: "POST", body,
-    headers: { Authorization: `Bearer ${config.apiyiApiKey()}`, ...(mode === "generate" ? { "Content-Type": "application/json" } : {}) },
-  }), { providerId: model, timeoutMs, minimumResponseTimeoutMs: minimum, maxRetries: 0 });
+    headers: { Authorization: `Bearer ${config.aiApiKey(gateway)}`, ...(mode === "generate" ? { "Content-Type": "application/json" } : {}) },
+  }), { providerId: model, timeoutMs, minimumResponseTimeoutMs: minimum, maxRetries: 0, gateway });
   return { response, model };
 }

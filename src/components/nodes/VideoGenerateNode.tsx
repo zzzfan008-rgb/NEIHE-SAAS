@@ -17,6 +17,7 @@ import {
 } from "@/lib/seedance";
 import { inputPortSpecs } from "@/lib/workflowPorts";
 import { useFlowStore } from "@/store/flowStore";
+import { useActiveAiGateway } from "@/store/aiGatewayStore";
 import {
   isNodeRunActive,
   type SeedanceOutputFormat,
@@ -38,6 +39,7 @@ const MODES: ReadonlyArray<{ value: VideoGenerationMode; label: string }> = [
 ];
 
 export function VideoGenerateNode({ id, data, selected }: NodeProps<Node<VideoGenerateNodeData>>) {
+  const gateway = useActiveAiGateway();
   const runNode = useFlowStore((state) => state.runNode);
   const updateNodeData = useFlowStore((state) => state.updateNodeData);
   const updateVideoNodeSettings = useFlowStore((state) => state.updateVideoNodeSettings);
@@ -118,7 +120,7 @@ export function VideoGenerateNode({ id, data, selected }: NodeProps<Node<VideoGe
                 <SelectItem
                   key={mode.value}
                   value={mode.value}
-                  disabled={!seedanceModeSupported(data.videoModel, mode.value)}
+                  disabled={!seedanceModeSupported(data.videoModel, mode.value) || (gateway === "tuzi" && mode.value === "video-edit")}
                   className="min-h-8 text-xs"
                 >
                   {mode.label}
@@ -170,7 +172,7 @@ export function VideoGenerateNode({ id, data, selected }: NodeProps<Node<VideoGe
           <Switch
             id={`video-smart-duration-${id}`}
             checked={data.seconds === -1}
-            disabled={durationLocked}
+            disabled={durationLocked || (gateway === "tuzi" && data.seconds !== -1)}
             onCheckedChange={(checked) => updateSettings({ duration: checked ? -1 : 5 })}
             className="nodrag"
           />

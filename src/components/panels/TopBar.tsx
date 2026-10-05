@@ -7,6 +7,7 @@ import {
 } from "@/store/flowStore";
 import { OPEN_TUTORIAL_EVENT } from "@/tutorials/tutorialRuntime";
 import { AccountMenu } from "./AccountMenu";
+import { AiGatewayMenu } from "./AiGatewayMenu";
 
 export function TopBar() {
   const readOnly = useFlowStore(selectActiveReadOnly);
@@ -18,6 +19,7 @@ export function TopBar() {
         <span className="whitespace-nowrap text-sm font-semibold tracking-[0.08em] text-[var(--gc-accent)]">Coin AI - Canvas</span>
         <span aria-hidden="true" className="h-5 w-px bg-[var(--gc-border)]" />
         <AccountMenu />
+        <AiGatewayMenu />
       </div>
 
       <div className="flex min-w-0 items-center justify-end gap-2 justify-self-end">

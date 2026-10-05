@@ -36,6 +36,10 @@ import {
   type StepResult,
 } from "./runner";
 import { reconcileImageConversationRun } from "./imageConversationReconciliation";
+import type { AiGatewayId } from "../../src/types/aiGateway";
+import { readAiGatewaySelection } from "../lib/aiGatewayStore";
+import { capturedAiGateway, withAiGateway } from "../providers/gatewayContext";
+import { assertGatewayStep } from "../providers/gatewayPolicy";
 
 export type DurableRunStatus =
   | "queued"
@@ -58,7 +62,7 @@ const DEFAULT_HEARTBEAT_MS = 10_000;
 const DEFAULT_RETRY_DELAYS_MS = [5_000, 30_000] as const;
 export const MAX_AUTOMATIC_RETRIES = 2;
 const CANCELLED_AFTER_START_WARNING = "取消请求未能中止已经开始的上游调用，结果已按实际返回保存";
-const OUTCOME_UNKNOWN_GUIDANCE = "系统已达到最多 2 次自动重试（最多 3 次上游请求）；请核对 API易消耗记录后再决定是否手动提交，避免重复扣费";
+const OUTCOME_UNKNOWN_GUIDANCE = "系统已达到最多 2 次自动重试（最多 3 次上游请求）；请核对该任务供应商的消耗记录后再决定是否手动提交，避免重复扣费";
 export const DURABLE_RUN_EVENT_BATCH_SIZE = 500;
 export const CLIENT_REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 export { ACTIVE_RUN_LIMIT } from "../lib/generationLimits";
@@ -106,6 +110,7 @@ interface DurableRunRow {
 
 interface ClaimedJob {
   id: string;
+  gatewayId: AiGatewayId;
   runId: string;
   stepId: string;
   nodeId: string;
@@ -119,6 +124,7 @@ interface ClaimedJob {
 
 interface JobLockRow {
   id: string;
+  gateway_id: AiGatewayId;
   run_id: string;
   step_id: string;
   status: DurableRunStatus;
@@ -253,15 +259,18 @@ async function insertGenerationRun(
   `, [ownerId])).rows[0]?.count ?? 0;
   if (activeCount >= ACTIVE_RUN_LIMIT) throw new ActiveRunLimitError();
 
+  const gatewayId = capturedAiGateway() ?? (await readAiGatewaySelection(client)).activeGateway;
+  for (const step of plan.steps) assertGatewayStep(step, gatewayId);
+
   const inserted = await client.query<{ id: string }>(`
       INSERT INTO generation_runs (
         id, owner_id, project_id, project_name, node_id, node_label, kind, prompt,
         parameters_json, reference_images_json, model, requested_count, status,
         started_at, plan_json, target_step_id, run_type, updated_at,
-        client_request_id, request_fingerprint
+        client_request_id, request_fingerprint, gateway_id
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'queued',
-        $13, $14, $15, $16, $13, $17, $18
+        $13, $14, $15, $16, $13, $17, $18, $19
       )
       ON CONFLICT (owner_id, client_request_id)
         WHERE client_request_id IS NOT NULL
@@ -272,7 +281,7 @@ async function insertGenerationRun(
       context.nodeId, context.nodeLabel, context.kind, context.prompt ?? null,
       JSON.stringify(context.parameters ?? {}), JSON.stringify(context.referenceImages ?? targetStep.inputImages ?? []),
       initialModel, context.requestedCount, createdAt, planJson, targetStepId, runType,
-      clientRequestId ?? null, requestFingerprint,
+      clientRequestId ?? null, requestFingerprint, gatewayId,
     ]);
 
   if (inserted.rowCount === 0) {
@@ -329,7 +338,7 @@ export async function enqueueGenerationRun(
 export const CLAIM_NEXT_JOB_SQL = `
   SELECT j.id, j.run_id, j.step_id, j.status, j.retry_count, j.attempt_started_at, j.worker_id,
     j.idempotency_key, j.provider_task_id, j.provider_model,
-    s.node_id, s.step_index, s.step_json, s.started_at AS step_started_at, r.target_step_id
+    s.node_id, s.step_index, s.step_json, s.started_at AS step_started_at, r.target_step_id, r.gateway_id
   FROM generation_jobs j
   JOIN generation_run_steps s ON s.id = j.step_id
   JOIN generation_runs r ON r.id = j.run_id
@@ -383,6 +392,7 @@ export async function claimNextJob(
     }, now);
     return {
       id: row.id,
+      gatewayId: row.gateway_id,
       runId: row.run_id,
       stepId: row.step_id,
       nodeId: row.node_id,
@@ -1023,7 +1033,7 @@ async function handleJobError(
       || error instanceof ProviderError && Boolean(error.providerId?.startsWith("gpt-image-2.5-"));
     if (gpt25 && error instanceof ProviderError && error.category === "outcome_unknown") {
       await terminateRun(client, row, "outcome_unknown",
-        "GPT Image 2.5 请求超时或连接中断，结果未知；未自动重试。请先核对 API易消耗记录，避免重复扣费", now);
+        "GPT Image 2.5 请求超时或连接中断，结果未知；未自动重试。请先核对该任务供应商的消耗记录，避免重复扣费", now);
       return;
     }
     const automaticallyRetryable = isRetryableProviderError(error) || (
@@ -1144,84 +1154,86 @@ export async function processNextGenerationJob(
   await recoverExpiredGenerationJobs(now);
   const job = await claimNextJob(workerId, now, leaseMs);
   if (!job) return false;
-  const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
-  const heartbeat = setInterval(() => {
-    const heartbeatNow = options.now?.() ?? Date.now();
-    void db().query(`
-      UPDATE generation_jobs SET lease_expires_at = $1, updated_at = $2
-      WHERE id = $3 AND worker_id = $4 AND status IN ('running','cancel_requested')
-    `, [heartbeatNow + leaseMs, heartbeatNow, job.id, workerId]).catch((error) => {
-      console.error("[garment-canvas] generation lease heartbeat failed", error);
-    });
-  }, heartbeatMs);
-  heartbeat.unref();
-  try {
-    const input = await inputImagesForStep(job.runId, job.step);
-    const result = await executeStep(
-      job.step,
-      input.images,
-      options.resolveProvider ?? getProvider,
-      {
-        runId: job.runId,
-        stylingCompleted: job.step.kind==='ai-styling'?await query<{image:string;prompt:string;model:string|null}>('SELECT image,prompt,model FROM styling_checkpoints WHERE step_id=$1 ORDER BY ordinal',[job.stepId]):undefined,
-        onStylingCheckpoint: job.step.kind==='ai-styling'?(ordinal,image,prompt,model)=>checkpointStyling(job,workerId,ordinal,image,prompt,model):undefined,
-        onPromptResolved: (prompts) => markPromptResolved(
-          job,
-          workerId,
-          prompts,
-          options.now?.() ?? Date.now(),
-        ),
-        referenceRoles: input.referenceRoles,
-        onSceneRequestPrepared: async request => {
-          await transaction(async client => {
-            const owned = (await client.query(`
-              SELECT id FROM generation_jobs WHERE id = $1 AND worker_id = $2
-                AND status = 'running' FOR UPDATE
-            `, [job.id, workerId])).rows[0];
-            if (!owned) throw new Error("generation job lease was lost before request recording");
-            await recordGenerationRequest(job.runId, job.nodeId, request, client);
-            await appendRunEvent(client, job.runId, {
-              type: "node-status", nodeId: job.nodeId, status: "running",
-              executionMeta: { sceneRequest: request },
-            }, options.now?.() ?? Date.now());
-          });
-        },
-        sceneAnalyzer: options.sceneAnalyzer,
-        promptEnhancer: options.promptEnhancer,
-        candidateSelector: options.candidateSelector,
-        videoTask: job.videoTask,
-        videoIdempotencyKey: job.idempotencyKey,
-        onVideoTaskAccepted: async (task) => {
-          await markVideoTaskAccepted(
+  return withAiGateway(job.gatewayId, async () => {
+    const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+    const heartbeat = setInterval(() => {
+      const heartbeatNow = options.now?.() ?? Date.now();
+      void db().query(`
+        UPDATE generation_jobs SET lease_expires_at = $1, updated_at = $2
+        WHERE id = $3 AND worker_id = $4 AND status IN ('running','cancel_requested')
+      `, [heartbeatNow + leaseMs, heartbeatNow, job.id, workerId]).catch((error) => {
+        console.error("[garment-canvas] generation lease heartbeat failed", error);
+      });
+    }, heartbeatMs);
+    heartbeat.unref();
+    try {
+      const input = await inputImagesForStep(job.runId, job.step);
+      const result = await executeStep(
+        job.step,
+        input.images,
+        options.resolveProvider ?? getProvider,
+        {
+          runId: job.runId,
+          stylingCompleted: job.step.kind==='ai-styling'?await query<{image:string;prompt:string;model:string|null}>('SELECT image,prompt,model FROM styling_checkpoints WHERE step_id=$1 ORDER BY ordinal',[job.stepId]):undefined,
+          onStylingCheckpoint: job.step.kind==='ai-styling'?(ordinal,image,prompt,model)=>checkpointStyling(job,workerId,ordinal,image,prompt,model):undefined,
+          onPromptResolved: (prompts) => markPromptResolved(
             job,
             workerId,
-            task,
+            prompts,
             options.now?.() ?? Date.now(),
-            leaseMs,
-          );
+          ),
+          referenceRoles: input.referenceRoles,
+          onSceneRequestPrepared: async request => {
+            await transaction(async client => {
+              const owned = (await client.query(`
+                SELECT id FROM generation_jobs WHERE id = $1 AND worker_id = $2
+                  AND status = 'running' FOR UPDATE
+              `, [job.id, workerId])).rows[0];
+              if (!owned) throw new Error("generation job lease was lost before request recording");
+              await recordGenerationRequest(job.runId, job.nodeId, request, client);
+              await appendRunEvent(client, job.runId, {
+                type: "node-status", nodeId: job.nodeId, status: "running",
+                executionMeta: { sceneRequest: request },
+              }, options.now?.() ?? Date.now());
+            });
+          },
+          sceneAnalyzer: options.sceneAnalyzer,
+          promptEnhancer: options.promptEnhancer,
+          candidateSelector: options.candidateSelector,
+          videoTask: job.videoTask,
+          videoIdempotencyKey: job.idempotencyKey,
+          onVideoTaskAccepted: async (task) => {
+            await markVideoTaskAccepted(
+              job,
+              workerId,
+              task,
+              options.now?.() ?? Date.now(),
+              leaseMs,
+            );
+          },
+          beforeProviderCall: async () => {
+            await markAttemptStarted(job, workerId, options.now?.() ?? Date.now(), leaseMs);
+          },
         },
-        beforeProviderCall: async () => {
-          await markAttemptStarted(job, workerId, options.now?.() ?? Date.now(), leaseMs);
-        },
-      },
-    );
-    await assertJobOwnedForCompletion(job, workerId);
-    const persistedImages = await persistStepImages(result.images, job);
-    try {
-      await completeJobSuccess(job, workerId, result, persistedImages, options.now?.() ?? Date.now());
+      );
+      await assertJobOwnedForCompletion(job, workerId);
+      const persistedImages = await persistStepImages(result.images, job);
+      try {
+        await completeJobSuccess(job, workerId, result, persistedImages, options.now?.() ?? Date.now());
+      } catch (error) {
+        await compensatePersistedImages(persistedImages, job, workerId);
+        throw error;
+      }
     } catch (error) {
-      await compensatePersistedImages(persistedImages, job, workerId);
-      throw error;
+      await handleJobError(job, workerId, error, options);
+    } finally {
+      clearInterval(heartbeat);
+      await reconcileImageConversationRun(job.runId).catch((error) => {
+        console.error("[garment-canvas] image conversation reconciliation failed", error);
+      });
     }
-  } catch (error) {
-    await handleJobError(job, workerId, error, options);
-  } finally {
-    clearInterval(heartbeat);
-    await reconcileImageConversationRun(job.runId).catch((error) => {
-      console.error("[garment-canvas] image conversation reconciliation failed", error);
-    });
-  }
-  return true;
+    return true;
+  });
 }
 
 export function startGenerationWorker(): () => void {

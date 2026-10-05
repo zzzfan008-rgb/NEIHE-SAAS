@@ -5,6 +5,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { AiGatewayId } from "../src/types/aiGateway";
+import { currentAiGateway } from "./providers/gatewayContext";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** 项目根目录（server/ 的上一级） */
@@ -40,11 +42,23 @@ function required(name: string): string {
 }
 
 export const config = {
+  /** 自托管 Portkey；明文 HTTP 仅允许本机或 Compose 内部服务。 */
+  portkeyBaseUrl: (): string => {
+    const value = (process.env.PORTKEY_GATEWAY_URL?.trim() || "http://127.0.0.1:8787").replace(/\/+$/, "");
+    const url = new URL(value);
+    if ((url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]", "portkey"].includes(url.hostname)))
+      || url.username || url.password || url.search || url.hash || url.pathname !== "/") throw new Error("PORTKEY_GATEWAY_URL 必须是可信网关根地址");
+    return value;
+  },
   /** API易图片接口；路径由本地模型知识库逐模型声明。 */
   apiyiBaseUrl: () => required("APIYI_BASE_URL").replace(/\/+$/, "").replace(/\/v1$/, ""),
   gptImageGenerationModel: () => process.env.APIYI_GPT_IMAGE_GENERATION_MODEL?.trim() || "gpt-image-2.5-flare-2026-09-08",
   gptImageEditModel: () => process.env.APIYI_GPT_IMAGE_EDIT_MODEL?.trim() || "gpt-image-2.5-sunburst-2026-09-08",
   apiyiApiKey: () => required("APIYI_API_KEY"),
+  tuziBaseUrl: () => (process.env.TUZI_BASE_URL?.trim() || "https://api.tu-zi.com").replace(/\/+$/, "").replace(/\/v1$/, ""),
+  tuziApiKey: () => required("TUZI_API_KEY"),
+  aiBaseUrl: (gateway: AiGatewayId = currentAiGateway()): string => gateway === "tuzi" ? config.tuziBaseUrl() : config.apiyiBaseUrl(),
+  aiApiKey: (gateway: AiGatewayId = currentAiGateway()): string => gateway === "tuzi" ? config.tuziApiKey() : config.apiyiApiKey(),
   /** Seedance 视频接口使用独立网关和凭据，不与图片模型共享令牌。 */
   seedanceApiBaseUrl: () => required("SEEDANCE_API_BASE_URL").replace(/\/+$/, ""),
   seedanceApiKey: () => required("SEEDANCE_API_KEY"),
@@ -82,13 +96,13 @@ export const config = {
   imageConversationPlannerModel: () => process.env.IMAGE_CONVERSATION_PLANNER_MODEL?.trim() || "gpt-5.6-terra",
 
   /** 不发外部请求的 AI 配置就绪检查，供 readiness 使用。 */
-  aiConfigReady: () => {
-    const key = process.env.APIYI_API_KEY?.trim();
-    if (!key) return false;
+  aiConfigReady: (gateway: AiGatewayId = currentAiGateway()) => {
     try {
-      const baseUrl = config.apiyiBaseUrl();
+      config.portkeyBaseUrl();
+      if (!config.aiApiKey(gateway).trim()) return false;
+      const baseUrl = config.aiBaseUrl(gateway);
       const url = new URL(baseUrl);
-      return url.protocol === "https:";
+      return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash;
     } catch {
       return false;
     }

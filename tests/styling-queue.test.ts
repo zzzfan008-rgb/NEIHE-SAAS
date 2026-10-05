@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { unwrapPortkeyRequest } from './portkeyMock';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -147,6 +148,7 @@ try {
     const originalFetch = globalThis.fetch;
     let visionCalls = 0;
     globalThis.fetch = async (input, init) => {
+        [input, init] = unwrapPortkeyRequest(input, init);
         if (String(input).startsWith('https:')) {
             visionCalls++;
             return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(analysis) }] } }] }), { status: 200 });

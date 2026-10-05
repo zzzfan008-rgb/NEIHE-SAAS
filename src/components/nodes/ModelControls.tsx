@@ -1,4 +1,6 @@
 import { useFlowStore } from "@/store/flowStore";
+import { useActiveAiGateway } from "@/store/aiGatewayStore";
+import { gatewayModelUnavailableReason } from "@/lib/aiGatewayPolicy";
 import { inputClass } from "./NodeFrame";
 import { GptQualityControls } from "./GptQualityControls";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,6 +31,7 @@ export function ModelControls({
   disabled = false,
 }: ModelControlsProps) {
   const updateNodeData = useFlowStore((state) => state.updateNodeData);
+  const gateway = useActiveAiGateway();
   const options = normalizeImageModelOptions(modelId, modelOptions, preferredAspectRatio);
   const updateOptions = (patch: Partial<ImageModelOptions>) => {
     updateNodeData(nodeId, { modelOptions: { ...options, ...patch }, error: undefined });
@@ -54,7 +57,9 @@ export function ModelControls({
           <SelectTrigger aria-label="图片模型" className="nodrag nopan w-full text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
           {GENERATION_IMAGE_MODEL_IDS.map((id) => (
-            <SelectItem key={id} value={id}>{imageModelLabel(id)}</SelectItem>
+            <SelectItem key={id} value={id} disabled={Boolean(gatewayModelUnavailableReason(gateway, id))}>
+              {imageModelLabel(id)}{gatewayModelUnavailableReason(gateway, id) ? "（当前供应商不可用）" : ""}
+            </SelectItem>
           ))}
           </SelectContent>
         </Select>
