@@ -21,9 +21,9 @@ test('从添加节点创建姿势参考，通用入口连接并保留旧连线',
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   await item.click();
-  const poseNode = page.locator('.react-flow__node').filter({ hasText: '人物姿势参考图' });
+  const poseNode = page.locator('.react-flow__node-image-input').filter({ hasText: '人物姿势参考图' });
   await poseNode.locator('input[type="file"]').setInputFiles({ name: 'pose.png', mimeType: 'image/png', buffer: png });
-  await expect(poseNode.getByRole('textbox', { name: '姿势提示词', exact: true })).toBeVisible();
+  await expect(poseNode.getByRole('textbox', { name: '姿势提示词', exact: true })).toHaveCount(0);
   await expect.poll(async () => page.evaluate(async () => {
     const path = '/src/store/flowStore.ts';
     const { useFlowStore, selectActiveNodes } = await import(path);
@@ -63,6 +63,7 @@ test('从添加节点创建姿势参考，通用入口连接并保留旧连线',
     const { useFlowStore, selectActiveNodes } = await import(path);
     return selectActiveNodes(useFlowStore.getState()).find((node: { data: { poseReference?: boolean } }) => node.data.poseReference)?.data.posePrompt;
   })).toBe('人物自然站立，双手下垂。');
+  await expect(poseNode).not.toContainText('人物自然站立，双手下垂。');
   const saved = await page.evaluate(async () => {
     const path = '/src/store/flowStore.ts';
     const snapshotPath = '/src/lib/documentSnapshot.ts';
