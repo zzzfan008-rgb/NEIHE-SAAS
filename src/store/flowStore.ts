@@ -5389,6 +5389,14 @@ export const useFlowStore = create<FlowState>()(
                 : [],
             ),
           );
+          const removedNodeIds = new Set(
+            allowed.flatMap((change) =>
+              change.type === "remove" &&
+              tab.nodes.some((node) => node.id === change.id)
+                ? [change.id]
+                : [],
+            ),
+          );
           let nodes = applyNodeChanges(allowed, tab.nodes);
           if (nodes === tab.nodes) return;
           if (resizePositionIds.size > 0) {
@@ -5439,6 +5447,15 @@ export const useFlowStore = create<FlowState>()(
           );
           const patch = {
             ...selection,
+            ...(removedNodeIds.size > 0
+              ? {
+                  edges: tab.edges.filter(
+                    (edge) =>
+                      !removedNodeIds.has(edge.source) &&
+                      !removedNodeIds.has(edge.target),
+                  ),
+                }
+              : {}),
             ...(selection.selectedNodeIds.length > 0
               ? { selectedResultId: null }
               : {}),

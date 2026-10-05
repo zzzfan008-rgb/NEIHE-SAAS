@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { validateAndMigrateFlow } from "../server/lib/workflowSchema";
+import {
+  createDocumentSnapshot,
+  documentSnapshotToPersistedWorkflow,
+} from "../src/lib/documentSnapshot";
 import {
   recentResultsPatch,
   reconcileRunHistory,
@@ -57,6 +62,15 @@ function node(id: string, selected = false): FlowNode {
     position: { x: id === "a" ? 0 : 320, y: 0 },
     selected,
     data: { kind: "image-input", label: id, status: "idle", imageRole: "default" },
+  };
+}
+
+function resultNode(id: string): FlowNode {
+  return {
+    id,
+    type: "result",
+    position: { x: 640, y: id === "c" ? 0 : 320 },
+    data: { kind: "result", label: id, status: "idle", images: [] },
   };
 }
 
@@ -153,6 +167,32 @@ test("新增、删除和撤销始终清理 dangling selection", () => {
   useFlowStore.getState().undo();
   assert.deepEqual(activeDocument().selectedNodeIds, []);
   assert.equal(activeDocument().nodes.some((candidate) => candidate.selected), false);
+});
+
+test("删除节点原子清理关联边，撤销恢复完整拓扑", () => {
+  useFlowStore.getState().loadFlow({
+    projectId: "node-removal-topology-project",
+    projectName: "节点删除拓扑测试",
+    nodes: [node("a"), node("b"), resultNode("c"), resultNode("d")],
+    edges: [
+      { id: "a-to-c", source: "a", sourceHandle: "image", target: "c", targetHandle: "references" },
+      { id: "b-to-d", source: "b", sourceHandle: "image", target: "d", targetHandle: "references" },
+    ],
+  });
+  useFlowStore.temporal.getState().clear();
+
+  useFlowStore.getState().onNodesChange([{ id: "c", type: "remove" }]);
+  const removed = activeDocument();
+  assert.deepEqual(removed.nodes.map((candidate) => candidate.id), ["a", "b", "d"]);
+  assert.deepEqual(removed.edges.map((edge) => edge.id), ["b-to-d"]);
+  assert.doesNotThrow(() => validateAndMigrateFlow(
+    documentSnapshotToPersistedWorkflow(createDocumentSnapshot(removed)),
+  ));
+
+  useFlowStore.getState().undo();
+  const restored = activeDocument();
+  assert.deepEqual(restored.nodes.map((candidate) => candidate.id), ["a", "b", "c", "d"]);
+  assert.deepEqual(restored.edges.map((edge) => edge.id), ["a-to-c", "b-to-d"]);
 });
 
 test("选择结果会清空全部节点选择且不写文档历史", () => {
