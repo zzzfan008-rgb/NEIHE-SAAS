@@ -19,19 +19,23 @@ import type { ImageGenRequest, VirtualTryOnNodeData, WorkflowTemplate } from "..
 const pro = "gemini-3-pro-image-preview";
 const referenceMap = "参考图1：姿势。\n参考图2：人物。\n参考图3：场景。\n参考图4：主穿搭。\n参考图5拼图第1行第1列：鞋子。\n参考图5拼图第1行第2列：袜子。";
 function assertPhotographicRealism(prompt: string): void {
-  assert.match(prompt, /自然、具有真实摄影质感的人物形象/);
+  assert.match(prompt, /真实摄影质感/);
   assert.doesNotMatch(prompt, /风格化/);
-  assert.match(prompt, /不磨皮、不美颜/);
-  assert.match(prompt, /毛孔.*汗毛/);
-  assert.match(prompt, /虹膜.*放射状纤维/);
-  assert.match(prompt, /瞳孔边界/);
-  assert.match(prompt, /场景光源/);
-  assert.match(prompt, /发丝.*碎发/);
-  assert.match(prompt, /不.*强行新增/);
+  assert.match(prompt, /真实自然肤质/);
+  assert.match(prompt, /细小汗毛.*肤色细微起伏/);
+  assert.match(prompt, /轻微雀斑.*局部泛红.*细小痘印/);
+  assert.match(prompt, /鼻翼与脸颊自然凹凸/);
+  assert.match(prompt, /唇纹细腻自然/);
+  assert.match(prompt, /虹膜呈现复杂放射状纤维结构/);
+  assert.match(prompt, /瞳孔边缘锐利清晰/);
+  assert.match(prompt, /角膜拥有真实湿润反射/);
+  assert.match(prompt, /睫毛粗细不一/);
+  assert.match(prompt, /眉毛浓密.*自然生长方向/);
+  assert.match(prompt, /发丝.*碎发.*绒毛.*飞发/);
+  assert.match(prompt, /符合真实人体解剖比例/);
   assert.match(prompt, /细节服从当前拍摄距离/);
-  assert.match(prompt, /不.*改变姿势、取景、服装.*场景光照/);
   assert.ok(prompt.indexOf("动作（最高优先级）") < prompt.indexOf("真实摄影质感："));
-  assert.ok(prompt.indexOf("完整保留原始商品") < prompt.indexOf("真实摄影质感："), "写实细节必须服从姿势、服装与场景要求");
+  assert.ok(prompt.indexOf("完整呈现原始商品") < prompt.indexOf("真实摄影质感："), "写实细节必须服从姿势、服装与场景要求");
 }
 for (const concise of [false, true]) {
   for (const angleControlled of [false, true]) {
@@ -39,21 +43,21 @@ for (const concise of [false, true]) {
     assert.ok(prompt.includes(referenceMap));
     assert.match(prompt, /以参考图2提供的人物造型基调/);
     assertPhotographicRealism(prompt);
-    assert.match(prompt, /公众人物/);
-    assert.match(prompt, /不复制参考图中任何真实可识别个人/);
+    assert.match(prompt, /全新的原创模特/);
+    assert.match(prompt, /生成全原创形象/);
+    assert.match(prompt, /内容边界：仅展示原创服装与配饰的原创造型/);
+    assert.doesNotMatch(prompt, /原创虚构模特|真实可识别个人|身份复刻|真实品牌/);
     assert.match(prompt, /动作（最高优先级）.*身体朝向.*手部动作.*双腿弯曲/);
-    assert.match(prompt, /图1是唯一姿势锚点/);
-    assert.match(prompt, /一律禁止进入成片/);
+    assert.match(prompt, /可参照图1的骨架动作方向/);
     assert.match(prompt, /采用图3的场景、光照/);
     assert.match(prompt, /保留胸前印花和项链/);
     assert.match(prompt, /版型、颜色/);
     assert.match(prompt, /针织组织、蕾丝、缝线/);
     assert.match(prompt, /体型、发型方向、肤色基调/);
     assert.doesNotMatch(prompt, /换脸|身份替换|执行一次多图编辑换装/);
-    if (angleControlled) assert.match(prompt, /在已逐关节1:1复刻的图1姿势基础上/);
+    if (angleControlled) assert.match(prompt, /在图1动作方向基础上/);
     else {
-      assert.match(prompt, /保持姿势参考的动作与左右关系，不镜像/);
-      assert.match(prompt, /取景以图1姿势参考为准/);
+      assert.match(prompt, /取景以图1动作方向为准/);
       assert.doesNotMatch(prompt, /遵循下方的3D视角/);
     }
   }
@@ -61,16 +65,16 @@ for (const concise of [false, true]) {
 assert.doesNotMatch(multiImageTryOnPrompt("参考图1：姿势。参考图2：人物。参考图3：场景。参考图4：主穿搭。", "", false), /拼图|网格/);
 // 骨骼图姿势参考按 DWPose 语义编译：1:1 关节对齐，骨骼线条不渲染
 const skeletonPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "skeleton");
-assert.match(skeletonPrompt, /DWPose骨骼图/);
-assert.match(skeletonPrompt, /1:1复刻人物动作/);
-assert.match(skeletonPrompt, /骨骼线条与关键点不得渲染到成图/);
+assert.match(skeletonPrompt, /骨架动作方向/);
+assert.match(skeletonPrompt, /可参照图1的骨架动作方向/);
+assert.match(skeletonPrompt, /成图呈现自然人物摄影效果/);
 assert.match(skeletonPrompt, /逐点对齐/);
 assert.doesNotMatch(skeletonPrompt, /参照图1提取身体朝向/);
-assert.match(multiImageTryOnPrompt(referenceMap, "", true, false, "skeleton"), /在已逐关节1:1复刻的图1姿势基础上/);
+assert.match(multiImageTryOnPrompt(referenceMap, "", true, false, "skeleton"), /在图1动作方向基础上/);
 assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "skeleton"), /取景以场景图与构图需要为准/);
-assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /逐关节1:1复刻图1的动作/);
+assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /按照图1动作方向呈现/);
 const orderedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original");
-assert.ok(orderedPrompt.indexOf("动作（最高优先级）") < orderedPrompt.indexOf("人物：参考图2仅提供"), "姿势约束先于人物描述");
+assert.ok(orderedPrompt.indexOf("动作（最高优先级）") < orderedPrompt.indexOf("人物：参考图2提供"), "姿势约束先于人物描述");
 const promptedPose = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "画面左腿交叉，肩线倾斜");
 assert.match(promptedPose, /姿势补充描述（仅在图1无法判定的项目上参考）：画面左腿交叉，肩线倾斜/);
 assert.match(promptedPose, /身体朝向、肩髋倾斜、四肢弯曲、手脚位置与接触、双腿交叉与前后关系、重心与承重一律以图1可见几何为准/);
@@ -323,10 +327,10 @@ try {
           assertPhotographicRealism(request.prompt);
           if (control) {
             assert.ok(request.prompt.includes(control.text));
-            assert.match(request.prompt, /在已逐关节1:1复刻的图1姿势基础上/);
+            assert.match(request.prompt, /在图1动作方向基础上/);
             assert.doesNotMatch(request.prompt, /取景以图1姿势参考为准/);
           } else {
-            assert.match(request.prompt, /取景以图1姿势参考为准/);
+            assert.match(request.prompt, /取景以图1动作方向为准/);
             assert.doesNotMatch(request.prompt, /3D视角指令|FUJIFILM/);
           }
           return { images: [images[0]], model: modelId };

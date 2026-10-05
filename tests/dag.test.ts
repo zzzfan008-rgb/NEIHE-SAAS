@@ -967,7 +967,7 @@ async function main() {
     assert.doesNotMatch(stageOne.calls[0].request.prompt, /可能|结合场景文字中的手部动作/);
     assert.match(stageOne.calls[0].request.prompt, /真实存在且清晰可见的金属装饰图案与五金/);
     assert.match(stageOne.calls[0].request.prompt, /只提取戒指本体/);
-    assert.match(stageOne.calls[0].request.prompt, /目标商品本体上已有的金属装饰图案与五金保持来源外观/);
+    assert.match(stageOne.calls[0].request.prompt, /目标商品本体上已有的金属装饰图案与五金沿用来源外观/);
 
     for (const modelId of ['gemini-3-pro-image-preview', 'gpt-image-2', 'gpt-image-2.5-flare']) {
       const first = await runRecordedAiStep('virtual-try-on', {
@@ -1019,10 +1019,10 @@ async function main() {
       assert.deepEqual(Array.from(prompt.matchAll(/^【([^】]+)】/gm), ([, section]) => section),
         ['姿势', '身份', '服装', '场景', '配饰与结构', '风格', '输出']);
       const poseSection = prompt.split('【姿势】')[1].split('【身份】')[0];
-      assert.match(poseSection, /最终动作仅由姿势参考图中可见的动作几何决定/);
-      assert.match(poseSection, /人物身份图、主穿搭图、场景图及配饰图均不提供动作依据/);
-      assert.match(poseSection, /忽略姿势参考中的服装、身份和背景，不忽略其动作/);
-      assert.match(poseSection, /不得擅自摆正躯干、拉直四肢、改变手部位置或调整为左右对称站姿/);
+      assert.match(poseSection, /最终动作依据姿势参考图中可见的动作几何呈现/);
+      assert.match(poseSection, /人物身份图、主穿搭图、场景图及配饰图分别提供各自职责信息/);
+      assert.match(poseSection, /动作沿用姿势参考中的可见方向/);
+      assert.match(poseSection, /关节与手部位置自然协调/);
       assert.doesNotMatch(poseSection, /其中原服装、姿势、以及非身份物体全忽略/);
       const outfitSection = prompt.split('【服装】')[1].split('【场景】')[0];
       assert.match(outfitSection, /服装类别、整体版型、上下装比例、衣长、袖长、裤长或裙长、腰线位置、裤腿宽度/);
