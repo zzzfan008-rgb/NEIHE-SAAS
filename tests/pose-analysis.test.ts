@@ -71,7 +71,7 @@ globalThis.fetch = async (_input, init) => {
 };
 
 try {
-  const { analyzePoseReference, optimizeCalibratedPrompt, validateEditedPosePrompt } = await import("../server/lib/poseAnalysis");
+  const { analyzePoseReference, calibratedPoseSupplement, optimizeCalibratedPrompt, validateEditedPosePrompt } = await import("../server/lib/poseAnalysis");
   const optimized = optimizeCalibratedPrompt({ ...CALIBRATED_ANALYSIS,
     handPose: '画面右肘弯曲，画面右腕靠近髋部，手指状态无法判断',
     gazeDirection: '无法识别',
@@ -81,33 +81,46 @@ try {
   assert.match(optimized, /嘴唇闭合/);
   assert.doesNotMatch(optimized, /整体姿态|躯干姿态|下肢姿态|画面右肘|无法判断|无法识别|原图证据|跨图冲突|视线方向/);
   assert.match(CALIBRATED_ANALYSIS.calibration.unknowns, /无法判断/, '优化不能修改原始校准证据');
-  assert.throws(() => optimizeCalibratedPrompt({
+  const crossingConflict = calibratedPoseSupplement({
     ...CALIBRATED_ANALYSIS,
     legPose: '画面左腿越过中线并交叉于画面右腿前侧',
-  }, CALIBRATION_POSE), /交叉.*DWPose|DWPose.*交叉/, '非交叉骨骼不能被文字改写为交叉');
+  }, CALIBRATION_POSE);
+  assert.match(crossingConflict.notes.join('；'), /交叉/, '非交叉骨骼的文字交叉结论只作为提示');
+  assert.match(crossingConflict.prompt, /^三图校准补充/, '交叉提示不阻断优化稿');
   const lowConfidencePose: DWPosePoseV1 = structuredClone(CALIBRATION_POSE);
   for (const index of [11, 12, 13, 14, 15, 16]) lowConfidencePose.people[0].keypoints[index] = null;
-  assert.throws(() => optimizeCalibratedPrompt({
+  const noPointSupport = calibratedPoseSupplement({
     ...CALIBRATED_ANALYSIS,
     legPose: '画面左腿与画面右腿不交叉',
-  }, lowConfidencePose), /交叉.*DWPose|DWPose.*交叉/, 'DWPose腿部点缺失时不能输出肯定的交叉结论');
-  assert.throws(() => optimizeCalibratedPrompt({
+  }, lowConfidencePose);
+  assert.match(noPointSupport.notes.join('；'), /交叉/, 'DWPose腿部点缺失时交叉结论只作为提示，不阻断优化稿');
+  const weightMismatch = calibratedPoseSupplement({
     ...CALIBRATED_ANALYSIS,
     bodyPose: '人物站立，重心落在画面右腿',
-  }, CALIBRATION_POSE), /承重|重心/, '承重结论必须与原图证据一致');
+  }, CALIBRATION_POSE);
+  assert.match(weightMismatch.notes.join('；'), /承重|重心/, '与原图证据冲突的承重结论只作为提示');
+  assert.match(weightMismatch.prompt, /^三图校准补充/, '承重提示不阻断优化稿');
   assert.throws(() => optimizeCalibratedPrompt({
     ...CALIBRATED_ANALYSIS,
     handPose: '画面右手贴在身体侧面',
   }, CALIBRATION_POSE), /手部接触/, '手部接触必须得到原图证据支持');
-  assert.throws(() => optimizeCalibratedPrompt({
+  const frontMismatch = calibratedPoseSupplement({
     ...CALIBRATED_ANALYSIS,
     legPose: '画面右膝位于画面左膝前侧',
-  }, CALIBRATION_POSE), /前后关系|深度图/, '前后关系必须与深度图证据一致');
+  }, CALIBRATION_POSE);
+  assert.match(frontMismatch.notes.join('；'), /前后关系|深度图/, '与深度图证据不一致的前后关系只作为提示');
+  assert.match(frontMismatch.prompt, /^三图校准补充/, '前后关系提示不阻断优化稿');
   assert.throws(() => optimizeCalibratedPrompt({
     ...CALIBRATED_ANALYSIS,
     handPose: '右手贴在身体侧面',
     calibration: { ...CALIBRATED_ANALYSIS.calibration, originalEvidence: '原图可见右手贴在身体侧面' },
   }, CALIBRATION_POSE), /画面左|画面右/, '校准输出必须统一使用画面坐标');
+  const outsideEmitted = calibratedPoseSupplement({
+    ...CALIBRATED_ANALYSIS,
+    torsoPose: '躯干向右侧倾斜',
+    headPose: '头部略向右倾',
+  }, CALIBRATION_POSE);
+  assert.match(outsideEmitted.prompt, /^三图校准补充/, '未进入优化稿的字段使用相对左右时不阻断优化稿');
   let marked = 0;
   const first = await analyzePoseReference(IMAGE, {
     beforeProviderCall: async (providerRequest) => { marked = providerRequest; },
@@ -318,10 +331,10 @@ try {
   globalThis.fetch = async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({
     ...CALIBRATED_ANALYSIS, legPose: '画面左腿越过中线交叉于画面右腿前侧',
   }) }] } }] });
-  const rejectedOptimization = await analyzePoseReference(IMAGE, { calibration });
-  assert.equal(rejectedOptimization.optimizedPrompt, undefined);
-  assert.match(rejectedOptimization.optimizationError ?? '', /文字交叉结论与DWPose骨骼不一致/);
-  assert.equal((await analyzePoseReference(IMAGE, { calibration })).optimizationError, rejectedOptimization.optimizationError, '缓存结果也要保留优化失败原因');
+  const crossingNote = await analyzePoseReference(IMAGE, { calibration });
+  assert.match(crossingNote.optimizedPrompt ?? '', /^三图校准补充/, '交叉不一致不再丢弃优化稿');
+  assert.equal(crossingNote.optimizationNotes?.some((note) => /交叉/.test(note)), true, '交叉不一致必须作为提示返回');
+  assert.deepEqual((await analyzePoseReference(IMAGE, { calibration })).optimizationNotes, crossingNote.optimizationNotes, '缓存结果也要保留校准提示');
   console.log("姿势分析测试通过：Gemini/DeepSeek、Base64、账户缓存隔离、密钥脱敏与结构验证");
 } finally {
   globalThis.fetch = originalFetch;

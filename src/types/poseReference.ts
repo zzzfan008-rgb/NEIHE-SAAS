@@ -3,14 +3,25 @@ export type PoseReferenceKind = 'skeleton' | 'depth';
 export const CALIBRATED_POSE_SUPPLEMENT_HEADER = '三图校准补充（仅补充图1不可见关系）';
 const CALIBRATED_POSE_SUPPLEMENT_LABELS = ['前后深度', '手部接触', '视线方向', '面部神态'] as const;
 
-function usesExplicitScreenDirections(text: string): boolean {
+/** 画面左/画面右是唯一允许的方位写法；“偏/略/稍/微 + 左/右”只是方向修饰，仍是画面方向。 */
+const SCREEN_DIRECTION_MODIFIER = /[偏略稍微]$/;
+export function usesExplicitScreenDirections(text: string): boolean {
   for (let index = 0; index < text.length; index++) {
     const direction = text[index];
     if (direction !== '左' && direction !== '右') continue;
     if ((direction === '左' && text[index + 1] === '右') || (direction === '右' && text[index - 1] === '左')) continue;
+    if (SCREEN_DIRECTION_MODIFIER.test(text.slice(Math.max(0, index - 1), index))) continue;
     if (text.slice(Math.max(0, index - 2), index) !== '画面') return false;
   }
   return true;
+}
+
+/** 不得进入生图的措辞：不确定、交叉、重心或坐标类表达。 */
+const CALIBRATED_DETAIL_FORBIDDEN = /无法判断|无法识别|无法确认|无法确定|不构成.*约束|交叉|越过.*中线|重心|承重|支撑腿|二维|坐标|关节位置|肩线|髋线/;
+
+/** 可放入校准补充的细节文本：非空且不含不得进入生图的措辞。 */
+export function isCalibratedPoseDetail(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && !CALIBRATED_DETAIL_FORBIDDEN.test(value);
 }
 
 /** Only server-validated, non-geometric three-view supplements may reach image generation. */
@@ -25,7 +36,7 @@ export function isCalibratedPoseSupplement(value: unknown): value is string {
     const label = line.slice(0, separator);
     const detail = line.slice(separator + 1).trim();
     if (!(CALIBRATED_POSE_SUPPLEMENT_LABELS as readonly string[]).includes(label) || seen.has(label) || !detail) return false;
-    if (/无法判断|无法识别|无法确认|无法确定|不构成.*约束|交叉|越过.*中线|重心|承重|支撑腿|二维|坐标|关节位置|肩线|髋线/.test(detail)) return false;
+    if (!isCalibratedPoseDetail(detail)) return false;
     if (!usesExplicitScreenDirections(detail)) return false;
     seen.add(label);
   }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { analyzePosePrompt, EMPTY_POSE_STATE, posePromptRuntimeKey, poseReferenceKey, restorePoseReferences, usePoseReferenceRuntime } from '../store/poseReferenceRuntime';
+import { analyzePosePrompt, clearPosePromptAppliedFlag, EMPTY_POSE_STATE, posePromptRuntimeKey, poseReferenceKey, restorePoseReferences, usePoseReferenceRuntime } from '../store/poseReferenceRuntime';
 import { useAuth } from '../auth/AuthContext';
 import { readPoseCredential, savePoseCredential } from '../lib/poseCredentials';
 import { useFlowStore, type DocumentTarget } from '../store/flowStore';
@@ -148,6 +148,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         throw new Error('姿势来源或提示词已变化，请重新打开检查保存结果');
       }
       setPendingSave(false);
+      clearPosePromptAppliedFlag(stableTarget, nodeId, source, provider, user?.id, calibrationMode);
       setSaveMessage(editorMode !== 'three-view' ? '优化提示词已保存' : verified
         ? '优化提示词已保存并通过证据校验，将作为原姿势图的补充用于生图。'
         : `编辑稿已保存，尚未通过证据校验，生图不采用此文本。${reason ?? ''}`);
@@ -182,6 +183,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
       if (!await useFlowStore.getState().saveProjectInTab(stableTarget)) throw new Error('当前提示词尚未保存到项目，请重试');
       if (!matches()) throw new Error('项目或提示词已变化，请重新打开检查保存结果');
       setPendingSave(false);
+      clearPosePromptAppliedFlag(stableTarget, nodeId, source, provider, user?.id, calibrationMode);
       setSaveMessage('当前姿势提示词已保存到项目。');
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '项目保存失败，请重试');
@@ -216,7 +218,8 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
   const canAnalyze = writable && Boolean(user) && !running && !saving && (provider !== 'deepseek' || /^[\x21-\x7e]{8,512}$/.test(apiKey.trim())) && (calibrationMode !== 'three-view' || threeViewReady);
   const startAnalysis = () => {
     if (!canAnalyze) return;
-    void analyzePosePrompt(stableTarget, nodeId, source, true, { provider, apiKey: apiKey.trim(), ownerId: user?.id, candidateOnly: true, calibrationMode });
+    void analyzePosePrompt(stableTarget, nodeId, source, true, { provider, apiKey: apiKey.trim(), ownerId: user?.id, candidateOnly: true, calibrationMode,
+      autoApplyVerified: !dirty && !pendingSave && !conflict && !saving });
   };
 
   return (
@@ -340,9 +343,16 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
                   <h4 className="text-sm font-medium">优化后提示词（将用于生图）</h4>
                   <pre data-pose-prompt="candidate-optimized" className="whitespace-pre-wrap break-words text-sm leading-6">{result.optimizedPrompt}</pre>
                 </div>}
+                {result.optimizationNotes?.length ? <p role="status" data-pose-prompt="notes" className="mt-3 text-xs text-[var(--gc-text-muted)]">校准提示：{result.optimizationNotes.join('；')}</p> : null}
                 {resultMatchesSaved
-                  ? <p role="status" className="text-xs text-[var(--gc-text-muted)]">本次反推结果与当前保存内容一致。</p>
+                  ? <p role="status" className="text-xs text-[var(--gc-text-muted)]">{promptState?.applied === 'saved' ? '已将本次反推结果替换为当前姿势提示词。' : '本次反推结果与当前保存内容一致。'}</p>
                   : <Button type="button" size="sm" disabled={!writable || dirty || pendingSave || saving} onClick={applyResult}>{savedPrompt === undefined ? '使用此姿势提示词' : '确认并替换当前提示词'}</Button>}
+                {promptState?.applied === 'unsaved' && <div className="mt-3 space-y-2">
+                  <p role="alert" className="text-sm text-destructive">已将本次结果写入当前文档，但项目保存失败，请重试保存。</p>
+                  <Button type="button" size="sm" variant="outline" disabled={!writable || saving} onClick={() => { if (!result) return;
+                    void persistAppliedResult({ prompt: result.prompt, mode: result.calibrationMode ?? 'single',
+                      optimized: savedOptimizedPrompt, verified: savedOptimizedPromptVerified ? true : undefined }); }}>重试保存本次替换结果</Button>
+                </div>}
                 {!resultMatchesSaved && (dirty || pendingSave) && <p className="text-xs text-[var(--gc-text-muted)]">请先保存或恢复下方优化文本，再替换反推结果。</p>}
               </Card>
             )}

@@ -27,12 +27,15 @@ export interface PosePromptInferenceResult {
   optimizedPrompt?: string;
   optimizedPromptVerified?: true;
   optimizationError?: string;
+  optimizationNotes?: string[];
   calibrationMode?: 'three-view';
 }
 export interface PosePromptInferenceState {
   status: 'running' | 'succeeded' | 'failed';
   result?: PosePromptInferenceResult;
   error?: string;
+  /** 默认替换结果：'unsaved' 表示已写入当前文档但项目保存失败。 */
+  applied?: 'saved' | 'unsaved';
 }
 export const EMPTY_POSE_STATE: PoseReferenceState = {records:{},busy:{},errors:{}};
 export const usePoseReferenceRuntime = create<{entries:Record<string,PoseReferenceState>}>(()=>({entries:{}}));
@@ -73,13 +76,15 @@ function validateOutfit(value:PoseOutfitReferenceRecord|undefined|null,source:st
   if(value.status==='succeeded'&&(!value.result||!isLocalImageReference(value.result.image)||typeof value.result.model!=='string')) throw new Error('服饰替换图片格式无效');
   return value;
 }
-function validatePosePrompt(value:unknown):PosePromptInferenceResult {
+function validatePosePrompt(value:unknown): PosePromptInferenceResult {
   if (!value || typeof value !== 'object') throw new Error('姿势反推结果格式无效');
   const result=value as Partial<PosePromptInferenceResult>;
   if (typeof result.prompt!=='string' || !result.prompt.trim() || result.prompt.length>4000 ||
       (result.optimizedPrompt !== undefined && (typeof result.optimizedPrompt!=='string' || !result.optimizedPrompt.trim() || result.optimizedPrompt.length>4000)) ||
       (result.optimizedPromptVerified !== undefined && result.optimizedPromptVerified !== true) ||
       (result.optimizationError !== undefined && (typeof result.optimizationError !== 'string' || result.optimizationError.length > 1000)) ||
+      (result.optimizationNotes !== undefined && (!Array.isArray(result.optimizationNotes) || result.optimizationNotes.length < 1 || result.optimizationNotes.length > 8 ||
+        result.optimizationNotes.some((note) => typeof note !== 'string' || !note.trim() || note.length > 300))) ||
       (result.optimizedPromptVerified === true && (typeof result.optimizedPrompt !== 'string' || result.calibrationMode !== 'three-view')) ||
       typeof result.model!=='string' || !result.model.trim() ||
       typeof result.providerRequests!=='number' || !Number.isInteger(result.providerRequests) || result.providerRequests<0 ||
@@ -89,6 +94,7 @@ function validatePosePrompt(value:unknown):PosePromptInferenceResult {
   return {prompt:result.prompt,model:result.model,providerRequests:result.providerRequests,cacheHit:result.cacheHit,
     ...(typeof result.optimizedPrompt==='string' && result.optimizedPrompt.trim() ? {optimizedPrompt:result.optimizedPrompt} : {}),
     ...(result.optimizedPromptVerified === true ? {optimizedPromptVerified:true as const} : {}),
+    ...(result.optimizationNotes?.length ? {optimizationNotes:result.optimizationNotes} : {}),
     ...(result.optimizationError ? {optimizationError:result.optimizationError} : {}),
     ...(result.calibrationMode ? {calibrationMode:result.calibrationMode} : {})};
 }
@@ -135,6 +141,8 @@ export interface PosePromptRequestOptions {
   ownerId?: string;
   candidateOnly?: boolean;
   calibrationMode?: 'single' | 'three-view';
+  /** 弹窗默认替换：三图校准通过证据校验后自动写入文档并保存项目。 */
+  autoApplyVerified?: boolean;
 }
 export function posePromptRuntimeKey(target:DocumentTarget,nodeId:string,source:string,provider:'gemini'|'deepseek'='gemini',ownerId='',calibrationMode:'single'|'three-view'='single') {
   const base=poseReferenceKey(target,nodeId,source);
@@ -176,7 +184,8 @@ export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,sour
     if (options?.calibrationMode === 'three-view' && result.calibrationMode !== 'three-view') throw new Error('三图校准未返回完整证据，请重试');
     if (current(target,nodeId,source)&&(promptVersions.get(key)??0)===version) {
       adopt(result);
-      patch(key,s=>({...s,posePrompt:{status:'succeeded',result}}));
+      const applied = options?.autoApplyVerified ? await applyVerifiedSupplement(target,nodeId,source,result) : undefined;
+      patch(key,s=>({...s,posePrompt:{status:'succeeded',result,...(applied ? {applied} : {})}}));
     }
   } catch(error) {
     if (current(target,nodeId,source)&&(promptVersions.get(key)??0)===version) patch(key,s=>({...s,posePrompt:{status:'failed',error:error instanceof Error?error.message:'反推失败，请重试'}}));
@@ -186,6 +195,30 @@ export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,sour
       patch(key,s=>({...s,posePrompt:undefined}));
     }
   }
+}
+
+/**
+ * 三图校准通过证据校验后默认替换：写入当前图片的姿势提示词与优化稿，并保存项目。
+ * 文档只读、节点或图片已变化、优化稿未通过校验时不做替换。
+ */
+async function applyVerifiedSupplement(target: DocumentTarget, nodeId: string, source: string, result: PosePromptInferenceResult): Promise<'saved' | 'unsaved' | undefined> {
+  if (result.calibrationMode !== 'three-view' || result.optimizedPromptVerified !== true || !result.optimizedPrompt) return undefined;
+  if (!current(target, nodeId, source, true)) return undefined;
+  useFlowStore.getState().updateNodeDataInTab(target, nodeId, {
+    posePrompt: result.prompt,
+    posePromptImage: source,
+    posePromptMode: 'three-view',
+    posePromptOptimized: result.optimizedPrompt,
+    posePromptOptimizedVerified: true,
+  });
+  return await useFlowStore.getState().saveProjectInTab(target) ? 'saved' : 'unsaved';
+}
+
+/** 弹窗手动保存成功后清除“已替换但未保存”标记。 */
+export function clearPosePromptAppliedFlag(target: DocumentTarget, nodeId: string, source: string, provider: 'gemini' | 'deepseek' = 'gemini', ownerId = '', calibrationMode: 'single' | 'three-view' = 'single') {
+  const key = posePromptRuntimeKey(target, nodeId, source, provider, ownerId, calibrationMode);
+  const prompt = usePoseReferenceRuntime.getState().entries[key]?.posePrompt;
+  if (prompt?.applied) patch(key, s => ({ ...s, posePrompt: { ...prompt, applied: undefined } }));
 }
 
 export async function restorePoseOutfitReference(target:DocumentTarget,nodeId:string,source:string) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { useFlowStore, selectActiveDocumentTarget, updateCoalescedTextEdit, flushActiveTextEdit } from '../src/store/flowStore';
-import { analyzePosePrompt, poseReferenceKey, posePromptRuntimeKey, usePoseReferenceRuntime } from '../src/store/poseReferenceRuntime';
+import { analyzePosePrompt, clearPosePromptAppliedFlag, poseReferenceKey, posePromptRuntimeKey, usePoseReferenceRuntime } from '../src/store/poseReferenceRuntime';
 
 const source = '/api/files/pose.png';
 const nodes = [{
@@ -162,6 +162,49 @@ try {
   assert.equal(usePoseReferenceRuntime.getState().entries[calibratedKey]?.posePrompt?.result?.calibrationMode, 'three-view');
   assert.equal(useFlowStore.getState().tabs.find(t => t.id === renameTarget.tabId)!.nodes[0].data.posePrompt, beforeDeepseek, '三图结果保留为候选，不覆盖现有用户文本');
   assert.ok(!JSON.stringify(usePoseReferenceRuntime.getState()).includes('test-deepseek-secret'));
+  // 默认替换：三图校准通过证据校验后自动写入并保存；未通过校验、保存失败各自的行为单独覆盖。
+  const savedSnapshots: Array<Record<string, unknown>> = [];
+  useFlowStore.setState({ saveProjectInTab: async (savedTarget) => {
+    savedSnapshots.push({ ...(useFlowStore.getState().tabs.find(t => t.id === savedTarget.tabId)!.nodes[0].data as Record<string, unknown>) });
+    return true;
+  } });
+  globalThis.fetch = async () => Response.json({
+    prompt: '三图校准：站立姿态。',
+    optimizedPrompt: '三图校准补充（仅补充图1不可见关系）\n视线方向：视线朝画面右侧',
+    optimizedPromptVerified: true,
+    optimizationNotes: ['文字交叉结论与DWPose骨骼不一致，交叉关系以图1可见几何为准'],
+    model: 'test', providerRequests: 0, cacheHit: true, calibrationMode: 'three-view',
+  });
+  await analyzePosePrompt(renameTarget, 'pose', source, true, { provider: 'gemini', candidateOnly: true, calibrationMode: 'three-view', autoApplyVerified: true });
+  const applied = useFlowStore.getState().tabs.find(t => t.id === renameTarget.tabId)!.nodes[0].data as Record<string, unknown>;
+  assert.equal(applied.posePrompt, '三图校准：站立姿态。', '默认替换必须写入原始校准稿');
+  assert.equal(applied.posePromptMode, 'three-view');
+  assert.equal(applied.posePromptOptimized, '三图校准补充（仅补充图1不可见关系）\n视线方向：视线朝画面右侧');
+  assert.equal(applied.posePromptOptimizedVerified, true);
+  assert.equal(savedSnapshots.at(-1)?.posePromptOptimized, applied.posePromptOptimized, '写入后必须保存项目');
+  assert.equal(usePoseReferenceRuntime.getState().entries[calibratedKey]?.posePrompt?.applied, 'saved');
+  assert.deepEqual(usePoseReferenceRuntime.getState().entries[calibratedKey]?.posePrompt?.result?.optimizationNotes,
+    ['文字交叉结论与DWPose骨骼不一致，交叉关系以图1可见几何为准'], '校准提示必须随结果保留');
+
+  globalThis.fetch = async () => Response.json({ prompt: '三图校准：未校验', model: 'test', providerRequests: 0, cacheHit: true, calibrationMode: 'three-view' });
+  await analyzePosePrompt(renameTarget, 'pose', source, true, { provider: 'gemini', candidateOnly: true, calibrationMode: 'three-view', autoApplyVerified: true });
+  const unverified = useFlowStore.getState().tabs.find(t => t.id === renameTarget.tabId)!.nodes[0].data as Record<string, unknown>;
+  assert.equal(unverified.posePrompt, '三图校准：站立姿态。', '未通过校验的候选不得自动替换');
+  assert.equal(usePoseReferenceRuntime.getState().entries[calibratedKey]?.posePrompt?.applied, undefined);
+
+  let saveCalls = 0;
+  useFlowStore.setState({ saveProjectInTab: async () => { saveCalls += 1; return saveCalls !== 2; } });
+  globalThis.fetch = async () => Response.json({
+    prompt: '三图校准：保存失败用例。',
+    optimizedPrompt: '三图校准补充（仅补充图1不可见关系）\n面部神态：嘴角平直',
+    optimizedPromptVerified: true, model: 'test', providerRequests: 0, cacheHit: true, calibrationMode: 'three-view',
+  });
+  await analyzePosePrompt(renameTarget, 'pose', source, true, { provider: 'gemini', candidateOnly: true, calibrationMode: 'three-view', autoApplyVerified: true });
+  const unsaved = useFlowStore.getState().tabs.find(t => t.id === renameTarget.tabId)!.nodes[0].data as Record<string, unknown>;
+  assert.equal(unsaved.posePrompt, '三图校准：保存失败用例。', '保存失败也要保留已写入结果');
+  assert.equal(usePoseReferenceRuntime.getState().entries[calibratedKey]?.posePrompt?.applied, 'unsaved', '保存失败必须标记为待重试');
+  clearPosePromptAppliedFlag(renameTarget, 'pose', source, 'gemini', '', 'three-view');
+  assert.equal(usePoseReferenceRuntime.getState().entries[calibratedKey]?.posePrompt?.applied, undefined, '手动保存成功后必须清除待重试标记');
 } finally {
   globalThis.fetch = originalFetch;
   useFlowStore.setState({ saveProjectInTab: originalSave });

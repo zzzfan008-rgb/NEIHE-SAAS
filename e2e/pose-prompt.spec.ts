@@ -22,7 +22,7 @@ test('普通账号可编辑三图草稿，校验结果决定是否用于生图',
     ]}});
     if (path === '/api/pose-references/analyze') {
       analysisCalls++;
-      return route.fulfill({json:{prompt:'原始校准结果',calibrationMode:'three-view',optimizationError:'文字交叉结论与DWPose骨骼不一致',model:'mock',providerRequests:0,cacheHit:true}});
+      return route.fulfill({json:{prompt:'原始校准结果',calibrationMode:'three-view',optimizationError:'手部接触结论未得到原图证据一致支持',model:'mock',providerRequests:0,cacheHit:true}});
     }
     if (path === '/api/pose-references/validate-prompt') {
       validationCalls++;
@@ -58,7 +58,7 @@ test('普通账号可编辑三图草稿，校验结果决定是否用于生图',
   await dialog.getByRole('combobox',{name:'分析方式'}).click();
   await page.getByRole('option',{name:'原图 + 深度图 + DWPose 三图校准'}).click();
   await dialog.getByRole('button',{name:'开始反推',exact:true}).click();
-  await expect(dialog.getByText(/三图反推已完成，优化文本未通过校验/)).toContainText('文字交叉结论与DWPose骨骼不一致');
+  await expect(dialog.getByText(/三图反推已完成，优化文本未通过校验/)).toContainText('手部接触结论未得到原图证据一致支持');
   await expect(dialog.locator('[data-pose-prompt="candidate"]')).toHaveText('原始校准结果');
   await expect(dialog.getByText('命中缓存，未重复调用')).toBeVisible();
   failNextProjectSave = true;
@@ -273,6 +273,57 @@ test('three-view calibration preserves user text on failure and applies a retrie
   expect(replaced.posePrompt).toBeUndefined();
   expect(replaced.posePromptOptimized).toBeUndefined();
   expect(calls).toEqual({ gemini: 2, deepseek: 2 });
+});
+
+test('三图校准通过校验后默认替换当前提示词', async ({ page }) => {
+  const source = '/api/files/pose-e2e.png';
+  const png = await sharp({ create: { width: 120, height: 200, channels: 3, background: '#8a9aa5' } }).png().toBuffer();
+  const image = `data:image/png;base64,${png.toString('base64')}`;
+  const optimized = '三图校准补充（仅补充图1不可见关系）\n视线方向：视线朝画面右侧';
+  const note = '文字交叉结论与DWPose骨骼不一致，交叉关系以图1可见几何为准';
+  const records: PoseReferenceRecord[] = [
+    { id: 'depth', kind: 'depth', source, status: 'succeeded', result: { image, model: 'test-depth', convention: 'near-white' } },
+    { id: 'skeleton', kind: 'skeleton', source, status: 'succeeded', result: { image, model: 'test-dwpose', pose: {
+      schemaVersion: 1, canvas: { width: 120, height: 200 }, people: [{ keypoints: Array.from({ length: 133 }, (_, index) => index === 0 ? { x: 0.5, y: 0.2, confidence: 0.9 } : null) }],
+    } } },
+  ];
+  let analyses = 0;
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/me') return route.fulfill({ json: { user: { id: 'default-replace', accountId: 'default-replace', displayName: '默认替换', role: 'user', mustChangePassword: false } } });
+    if (path === source) return route.fulfill({ contentType: 'image/png', body: png });
+    if (path === '/api/pose-references') return route.fulfill({ json: { records } });
+    if (path === '/api/pose-references/analyze') {
+      analyses += 1;
+      return route.fulfill({ json: { prompt: '三图校准结果：站立姿态。', optimizedPrompt: optimized, optimizedPromptVerified: true,
+        optimizationNotes: [note], model: 'mock', providerRequests: 0, cacheHit: true, calibrationMode: 'three-view' } });
+    }
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/e2e/fixtures/pose-prompt.html');
+  await page.getByRole('button', { name: '反推人物姿势', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '反推人物姿势', exact: true });
+  await dialog.getByRole('combobox', { name: '分析方式' }).click();
+  await page.getByRole('option', { name: '原图 + 深度图 + DWPose 三图校准' }).click();
+  await expect(dialog.getByRole('img', { name: '当前原图对应的 DWPose 骨骼图', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: '开始反推', exact: true }).click();
+  await expect(dialog.getByText('已将本次反推结果替换为当前姿势提示词。', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '确认并替换当前提示词' })).toHaveCount(0);
+  await expect(dialog.locator('[data-pose-prompt="notes"]')).toHaveText(`校准提示：${note}`);
+  const notesBox = await dialog.locator('[data-pose-prompt="notes"]').boundingBox();
+  expect(notesBox!.width).toBeGreaterThan(0);
+  expect(notesBox!.x).toBeGreaterThanOrEqual(0);
+  expect(notesBox!.x + notesBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText('三图校准结果：站立姿态。');
+  await expect(dialog.locator('[data-pose-prompt="saved-optimized"]')).toHaveValue(optimized);
+  expect(analyses).toBe(1);
+  const applied = await page.evaluate(async () => {
+    const modulePath = '/src/store/flowStore.ts';
+    const { useFlowStore, selectActiveDocument } = await import(modulePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((node: { id: string }) => node.id === 'pose')?.data;
+  });
+  expect(applied).toMatchObject({ posePrompt: '三图校准结果：站立姿态。', posePromptImage: source, posePromptMode: 'three-view',
+    posePromptOptimized: optimized, posePromptOptimizedVerified: true });
 });
 
 test('optimization stays visible and manual edits persist without a model call', async ({ page }, testInfo) => {

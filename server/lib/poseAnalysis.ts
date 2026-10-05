@@ -8,7 +8,9 @@ import { config } from "../config";
 import { fetchAiWithRetry as fetchWithRetry, parseDataUrl, ProviderError, toDataUrl } from "../providers/base";
 import {
   CALIBRATED_POSE_SUPPLEMENT_HEADER,
+  isCalibratedPoseDetail,
   isCalibratedPoseSupplement,
+  usesExplicitScreenDirections,
   type DWPoseKeypointV1,
   type DWPosePoseV1,
 } from '../../src/types/poseReference';
@@ -59,6 +61,7 @@ export interface PoseAnalysisResult {
   optimizedPrompt?: string;
   optimizedPromptVerified?: true;
   optimizationError?: string;
+  optimizationNotes?: string[];
   providerRequests: number;
   model: string;
   cacheHit: boolean;
@@ -411,7 +414,7 @@ function prunePoseField(text: string): string {
   return text
     .split(/[，；。]/)
     .map((clause) => clause.trim())
-    .filter((clause) => clause.length > 0 && !POSE_UNCERTAINTY_PATTERN.test(clause))
+    .filter((clause) => clause.length > 0 && !POSE_UNCERTAINTY_PATTERN.test(clause) && isCalibratedPoseDetail(clause))
     .join('，');
 }
 
@@ -421,34 +424,33 @@ function poseClauses(text: string): string[] {
   return text.split(/[，；。]/).map(clause => clause.trim()).filter(Boolean);
 }
 
-function usesOnlyScreenDirections(text: string): boolean {
-  for (let index = 0; index < text.length; index++) {
-    const direction = text[index];
-    if (direction !== '左' && direction !== '右') continue;
-    if ((direction === '左' && text[index + 1] === '右') || (direction === '右' && text[index - 1] === '左')) continue;
-    if (text.slice(Math.max(0, index - 2), index) !== '画面') return false;
-  }
-  return true;
-}
-
 function relationSide(left: boolean, right: boolean, both = false): PoseRelationSide | undefined {
   if (both) return 'both';
   if (left && right) return 'conflict';
   return left ? 'screen-left' : right ? 'screen-right' : undefined;
 }
 
+/**
+ * 直立站姿的“双腿/两腿支撑”是姿态常规描述，不构成重心分布结论；只有“重心/承重”这类
+ * 重量结论才需要原图证据复述同一方向，否则普通站立描述会整体否决三图校准优化稿。
+ */
 function weightBearingSide(text: string): PoseRelationSide | undefined {
-  const both = /(?:双腿|两腿)[^，；。]{0,10}(?:共同)?(?:支撑|承重)|重心[^，；。]{0,10}(?:居中|位于双腿之间)/.test(text);
+  const both = /(?:双腿|两腿)[^，；。]{0,10}(?:共同)?承重|重心[^，；。]{0,10}(?:居中|位于双腿之间)/.test(text);
   const left = /重心[^，；。]{0,16}画面左|画面左(?:侧)?(?:腿|脚)[^，；。]{0,10}(?:支撑|承重)|支撑腿[^，；。]{0,10}画面左/.test(text);
   const right = /重心[^，；。]{0,16}画面右|画面右(?:侧)?(?:腿|脚)[^，；。]{0,10}(?:支撑|承重)|支撑腿[^，；。]{0,10}画面右/.test(text);
   return relationSide(left, right, both);
 }
 
 const HAND_CONTACT_PATTERN = /接触|贴住|贴在|扶住|搭在|按在|握住|撑住|抱住|挽住/;
+/** 手部接触只统计手、腕、指或掌参与的关系，避免把“物品接触上肢”当作手部接触结论。 */
+const HAND_CONTACT_SUBJECT_PATTERN = /手|腕|指|掌/;
+function isHandContactClause(clause: string): boolean {
+  return HAND_CONTACT_PATTERN.test(clause) && HAND_CONTACT_SUBJECT_PATTERN.test(clause);
+}
 function handContactSides(text: string): Set<'screen-left' | 'screen-right'> {
   const sides = new Set<'screen-left' | 'screen-right'>();
   for (const clause of poseClauses(text)) {
-    if (!HAND_CONTACT_PATTERN.test(clause)) continue;
+    if (!isHandContactClause(clause)) continue;
     if (/双手|两手/.test(clause)) {
       sides.add('screen-left');
       sides.add('screen-right');
@@ -472,7 +474,8 @@ function frontSide(text: string): PoseRelationSide | undefined {
 }
 
 function crossingClaim(text: string): boolean | undefined {
-  if (/不交叉|未交叉|没有交叉|前后错位|双腿并拢|两腿并拢/.test(text)) return false;
+  // “未(发生|出现)交叉”“没有(发生)交叉”等否定写法必须先按未交叉识别，否则会被当成肯定交叉结论。
+  if (/不(?:发生|出现|存在)?交叉|未(?:发生|出现|见到?|形成)?交叉|没(?:有)?(?:发生|出现)?交叉|无(?:明显)?交叉|前后错位|双腿并拢|两腿并拢/.test(text)) return false;
   if (/交叉|越过[^，；。]{0,10}中线|跨过[^，；。]{0,10}中线/.test(text)) return true;
   return undefined;
 }
@@ -517,33 +520,32 @@ function analysisLegCrossing(analysis: PoseAnalysis): boolean | undefined {
     rightKnee ?? undefined, leftAnkle ?? undefined, rightAnkle ?? undefined);
 }
 
-function validateCalibratedStructure(analysis: PoseAnalysis, pose: DWPosePoseV1): void {
+/**
+ * 审计类不一致只记入 optimizationNotes：交叉、承重与前后关系未得到证据一致支持时不丢弃优化稿，
+ * 生图始终以图1可见几何为准；只有手部接触与未解决的跨图冲突仍阻断优化稿。
+ */
+function validateCalibratedStructure(analysis: PoseAnalysis, pose: DWPosePoseV1): string[] {
   if (!analysis.calibration) throw new PoseAnalysisResponseError('三图校准缺少来源证据');
-  const calibrationText = Object.values(analysis.calibration).join('；');
-  const poseText = POSE_TEXT_FIELDS.map(field => analysis[field]).join('；');
-  if (!usesOnlyScreenDirections(`${poseText}；${calibrationText}`)) {
-    throw new PoseAnalysisResponseError('三图校准必须统一使用画面左/画面右坐标');
-  }
+  const notes: string[] = [];
 
   const skeletonCrossing = dwposeLegCrossing(pose);
   const pointCrossing = analysisLegCrossing(analysis);
   const statedCrossing = crossingClaim(`${analysis.bodyPose}；${analysis.legPose}`);
   if (statedCrossing !== undefined && skeletonCrossing === undefined) {
-    throw new PoseAnalysisResponseError('文字交叉结论缺少可靠DWPose腿部点位支持');
+    notes.push('文字交叉结论缺少可靠DWPose腿部点位支持，交叉关系以图1可见几何为准');
   }
   if (skeletonCrossing !== undefined && pointCrossing !== undefined && skeletonCrossing !== pointCrossing) {
-    throw new PoseAnalysisResponseError('姿势分析点位的交叉关系与DWPose骨骼不一致');
+    notes.push('姿势分析点位的交叉关系与DWPose骨骼不一致，交叉关系以图1可见几何为准');
   }
   if (skeletonCrossing !== undefined && statedCrossing !== undefined && skeletonCrossing !== statedCrossing) {
-    throw new PoseAnalysisResponseError('文字交叉结论与DWPose骨骼不一致');
+    notes.push('文字交叉结论与DWPose骨骼不一致，交叉关系以图1可见几何为准');
   }
 
   const statedWeight = weightBearingSide(`${analysis.bodyPose}；${analysis.legPose}`);
   const evidencedWeight = weightBearingSide(analysis.calibration.originalEvidence);
   if (statedWeight && (statedWeight === 'conflict' || evidencedWeight !== statedWeight)) {
-    throw new PoseAnalysisResponseError('承重与重心结论未得到原图证据一致支持');
+    notes.push('承重与重心结论未得到原图证据一致支持，承重以图1可见几何为准');
   }
-
   const statedContacts = handContactSides(analysis.handPose);
   const evidencedContacts = handContactSides(analysis.calibration.originalEvidence);
   if ([...statedContacts].some(side => !evidencedContacts.has(side))) {
@@ -553,48 +555,67 @@ function validateCalibratedStructure(analysis: PoseAnalysis, pose: DWPosePoseV1)
   const statedFront = frontSide(`${analysis.bodyPose}；${analysis.legPose}；${analysis.handPose}`);
   const evidencedFront = frontSide(analysis.calibration.depthEvidence);
   if (statedFront && (statedFront === 'conflict' || evidencedFront !== statedFront)) {
-    throw new PoseAnalysisResponseError('肢体前后关系未得到深度图证据一致支持');
+    notes.push('肢体前后关系未得到深度图证据一致支持，前后关系以图1可见几何为准');
   }
 
   if (!/^无(?:。)?$/.test(analysis.calibration.conflicts) && /交叉|重心|承重|支撑|接触|前后|深度/.test(analysis.calibration.conflicts)) {
     throw new PoseAnalysisResponseError('关键姿势关系仍存在跨图冲突，不能生成优化提示词');
   }
+  return notes;
+}
+
+export interface CalibratedPoseSupplement {
+  prompt: string;
+  /** 审计类不一致的说明：不阻断优化稿，供前端提示用户。 */
+  notes: string[];
 }
 
 /**
- * 三图校准后的从属补充：先校验交叉、承重、手部接触和前后关系，再只保留图1无法直接表达的
+ * 三图校准后的从属补充：先记录交叉、承重与前后关系的审计提示，再只保留图1无法直接表达的
  * 深度、接触、视线与神态。图1可见人体几何始终由原图本身约束。
+ * 坐标规则只检查真正进入优化稿的句子，未被采用的字段不阻断优化稿。
  */
-export function optimizeCalibratedPrompt(analysis: PoseAnalysis, pose: DWPosePoseV1): string {
-  validateCalibratedStructure(analysis, pose);
+export function calibratedPoseSupplement(analysis: PoseAnalysis, pose: DWPosePoseV1): CalibratedPoseSupplement {
+  // 只保留可进入生图的子句：含交叉、重心或坐标类措辞的混合句整句丢弃，避免一句否决整份优化稿。
   const depth = poseClauses(`${analysis.bodyPose}；${analysis.legPose}；${analysis.handPose}`)
     .filter(clause => /前侧|前方|后侧|后方|靠近镜头|远离镜头|前后遮挡/.test(clause))
+    .filter(isCalibratedPoseDetail)
     .join('，');
-  const contact = poseClauses(analysis.handPose).filter(clause => HAND_CONTACT_PATTERN.test(clause)).join('，');
+  const contact = poseClauses(analysis.handPose).filter(isHandContactClause).filter(isCalibratedPoseDetail).join('，');
   const fields = [
     ['前后深度', depth],
     ['手部接触', contact],
     ['视线方向', prunePoseField(analysis.gazeDirection)],
     ['面部神态', prunePoseField(analysis.facialExpression)],
   ] as const;
+  if (!usesExplicitScreenDirections(fields.map(([, value]) => value).filter(value => value.length > 0).join('；'))) {
+    throw new PoseAnalysisResponseError('三图校准必须统一使用画面左/画面右坐标');
+  }
+  const notes = validateCalibratedStructure(analysis, pose);
   const details = fields
     .filter(([, value]) => value.length > 0)
     .map(([label, value]) => `${label}：${value}`)
     .join('\n');
+  if (!details) throw new PoseAnalysisResponseError('校准后无法生成通过结构门禁的姿势补充');
   const prompt = `${CALIBRATED_POSE_SUPPLEMENT_HEADER}\n${details}`;
-  if (!details || !isCalibratedPoseSupplement(prompt)) {
-    throw new PoseAnalysisResponseError('校准后无法生成通过结构门禁的姿势补充');
-  }
-  return prompt;
+  if (!isCalibratedPoseSupplement(prompt)) throw new PoseAnalysisResponseError('校准后无法生成通过结构门禁的姿势补充');
+  return { prompt, notes };
+}
+
+/** 兼容既有调用方：只取优化稿文本。 */
+export function optimizeCalibratedPrompt(analysis: PoseAnalysis, pose: DWPosePoseV1): string {
+  return calibratedPoseSupplement(analysis, pose).prompt;
 }
 
 function calibrationExtras(options: PoseAnalysisOptions | undefined, analysis: PoseAnalysis) {
   if (!options?.calibration) return {};
   try {
+    const supplement = calibratedPoseSupplement(analysis, options.calibration.pose);
     return {
       calibrationMode: 'three-view' as const,
-      optimizedPrompt: optimizeCalibratedPrompt(analysis, options.calibration.pose),
+      optimizedPrompt: supplement.prompt,
       optimizedPromptVerified: true as const,
+      ...(supplement.notes.length ? { optimizationNotes: supplement.notes } : {}),
     };
   } catch (error) {
     if (error instanceof PoseAnalysisResponseError) return { calibrationMode: 'three-view' as const, optimizationError: error.message };
