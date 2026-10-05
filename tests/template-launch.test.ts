@@ -1,4 +1,12 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { buildExecutionPlan } from "../server/engine/dag";
+import { validateAndMigrateFlow } from "../server/lib/workflowSchema";
+import {
+  createDocumentSnapshot,
+  documentSnapshotToPersistedWorkflow,
+} from "../src/lib/documentSnapshot";
+import { copyMultiImageTryOnTemplate } from "../src/lib/multiImageTryOnTemplate";
 import { launchTemplateInNewTab } from "../src/lib/templateLaunch";
 import { selectActiveDocument, useFlowStore } from "../src/store/flowStore";
 import {
@@ -168,3 +176,76 @@ assert.deepEqual(
 );
 
 console.log("通过模板克隆节点、边、TiAngelNode 内部引用与端口契约");
+
+const multiImageTemplate = JSON.parse(
+  fs.readFileSync(
+    new URL("../templates/multi-image-try-on.workflow.json", import.meta.url),
+    "utf8",
+  ),
+);
+const validatedMultiImage = validateAndMigrateFlow(multiImageTemplate.flow);
+const multiImageGeneration = validatedMultiImage.nodes.find(
+  (node) => node.id === "stabilize",
+);
+assert.equal(
+  multiImageGeneration?.data.kind === "virtual-try-on"
+    ? multiImageGeneration.data.candidateReviewMode
+    : undefined,
+  "disabled",
+  "多图编辑换装模板第一阶段必须默认关闭候选评审",
+);
+
+const persistedMultiImage = documentSnapshotToPersistedWorkflow(
+  createDocumentSnapshot({
+    projectName: multiImageTemplate.name,
+    ...validatedMultiImage,
+  }),
+);
+const reloadedMultiImage = validateAndMigrateFlow(persistedMultiImage);
+const reloadedGeneration = reloadedMultiImage.nodes.find(
+  (node) => node.id === "stabilize",
+);
+assert.equal(
+  reloadedGeneration?.data.kind === "virtual-try-on"
+    ? reloadedGeneration.data.candidateReviewMode
+    : undefined,
+  "disabled",
+  "候选评审配置必须跨文档快照保存和重载保留",
+);
+const multiImagePlan = buildExecutionPlan(
+  reloadedMultiImage.nodes,
+  reloadedMultiImage.edges,
+  { onlyNodeId: "stabilize", includeDownstream: false },
+);
+assert.equal(
+  multiImagePlan.steps[0]?.params.candidateReviewMode,
+  "disabled",
+  "执行计划必须携带模板的关闭评审配置",
+);
+const copiedMultiImage = copyMultiImageTryOnTemplate(validatedMultiImage);
+const copiedGeneration = copiedMultiImage.flow.nodes.find(
+  (node) => node.id === "stabilize",
+);
+assert.equal(
+  copiedGeneration?.data.kind === "virtual-try-on"
+    ? copiedGeneration.data.candidateReviewMode
+    : undefined,
+  "disabled",
+  "从已有项目复制多图模板时必须默认关闭候选评审",
+);
+
+const invalidReviewScope = structuredClone(multiImageTemplate.flow);
+const invalidReviewNode = invalidReviewScope.nodes.find(
+  (node) => node.id === "stabilize",
+);
+if (invalidReviewNode?.data.kind !== "virtual-try-on") {
+  throw new Error("缺少多图模板第一阶段节点");
+}
+invalidReviewNode.data.sceneInputMode = "composed-person";
+assert.throws(
+  () => validateAndMigrateFlow(invalidReviewScope),
+  /candidateReviewMode/,
+  "关闭候选评审不能泄漏到其他第一阶段模式",
+);
+
+console.log("通过多图模板候选评审配置的模板、快照、执行计划与复制链路测试");

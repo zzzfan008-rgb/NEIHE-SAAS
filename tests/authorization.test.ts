@@ -452,6 +452,24 @@ await test("已退役的配色替换内置模板即使被旧服务重写也不�
   assert.equal((await request("/templates/builtin-tool-color-replace", "owner")).status, 404);
 });
 
+await test("多图编辑换装内置模板对不同普通账号均可读取", async () => {
+  for (const account of ["owner", "other"]) {
+    const listResponse = await request("/templates", account);
+    assert.equal(listResponse.status, 200);
+    const templates = await listResponse.json() as Array<{ id: string; builtIn: boolean }>;
+    assert.equal(templates.find((template) => template.id === "builtin-tool-multi-image-try-on")?.builtIn, true);
+
+    const detailResponse = await request("/templates/builtin-tool-multi-image-try-on", account);
+    assert.equal(detailResponse.status, 200);
+    const template = await detailResponse.json() as {
+      name: string;
+      flow: { nodes: Array<{ id: string; data: { candidateReviewMode?: string } }> };
+    };
+    assert.equal(template.name, "多图编辑换装+修改");
+    assert.equal(template.flow.nodes.find((node) => node.id === "stabilize")?.data.candidateReviewMode, "disabled");
+  }
+});
+
 await test("托管内置模板刷新不改写旧用户项目或用户模板", async () => {
   const projectId = "managed-refresh-preserves-project";
   const projectFlow = generationFlow("旧用户项目内容不得改写");

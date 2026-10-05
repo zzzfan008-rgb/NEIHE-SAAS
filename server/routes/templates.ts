@@ -9,7 +9,9 @@
 import { Router } from "express";
 import fs from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { nanoid } from "nanoid";
+import multiImageTryOnTemplate from "../../templates/multi-image-try-on.workflow.json";
 import { config } from "../config";
 import { writeJsonAtomicSync } from "../lib/atomicJson";
 import { validateAndMigrateFlow, WorkflowValidationError } from "../lib/workflowSchema";
@@ -408,6 +410,15 @@ function builtinTemplates(): WorkflowTemplate[] {
     ...toolWorkflowTemplates(),
     {
       schemaVersion: WORKFLOW_SCHEMA_VERSION,
+      id: "builtin-tool-multi-image-try-on",
+      name: multiImageTryOnTemplate.name,
+      description: multiImageTryOnTemplate.description,
+      builtIn: true,
+      createdAt: "2026-10-04T00:00:00.000Z",
+      flow: sanitizeTemplateFlow(validateAndMigrateFlow(multiImageTryOnTemplate.flow)),
+    },
+    {
+      schemaVersion: WORKFLOW_SCHEMA_VERSION,
       id: "builtin-sketch-recolor",
       name: "草图→效果图→改款→多配色",
       description: "上传草图，渲染效果图后 AI 改款，再按配色批量出图",
@@ -768,7 +779,7 @@ function builtinTemplateIsReadable(filePath: string): boolean {
   }
 }
 
-function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boolean {
+function managedBuiltinNeedsRefresh(filePath: string, template: WorkflowTemplate): boolean {
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as {
       schemaVersion?: unknown;
@@ -778,6 +789,10 @@ function managedBuiltinNeedsRefresh(filePath: string, templateId: string): boole
         edges?: Array<{ id?: unknown; source?: unknown; target?: unknown; targetHandle?: unknown }>;
       };
     };
+    const templateId = template.id;
+    if (templateId === "builtin-tool-multi-image-try-on") {
+      return !isDeepStrictEqual(raw, template);
+    }
     if (SKETCH_OPTIMIZATION_TEMPLATE_IDS.has(templateId)) {
       const optimize = raw.flow?.nodes?.find((node) => node.type === "sketch-optimize");
       // 可迁移的旧模板继续保留原始文件；读取时由 schema migration 补齐默认模型。
@@ -847,7 +862,7 @@ export function ensureBuiltinTemplates(): void {
   }
   for (const tpl of builtinTemplates()) {
     const filePath = templatePath("builtin", tpl.id);
-    if (!fs.existsSync(filePath) || !builtinTemplateIsReadable(filePath) || managedBuiltinNeedsRefresh(filePath, tpl.id)) {
+    if (!fs.existsSync(filePath) || !builtinTemplateIsReadable(filePath) || managedBuiltinNeedsRefresh(filePath, tpl)) {
       writeJsonAtomicSync(filePath, tpl);
     }
   }

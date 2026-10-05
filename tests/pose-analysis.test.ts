@@ -59,13 +59,17 @@ globalThis.fetch = async (_input, init) => {
 };
 
 try {
-  const { analyzePoseReference, optimizeCalibratedPrompt } = await import("../server/lib/poseAnalysis");
+  const { analyzePoseReference, optimizeCalibratedPrompt, swapPosePromptLeftRight } = await import("../server/lib/poseAnalysis");
   const optimized = optimizeCalibratedPrompt({ ...CALIBRATED_ANALYSIS,
     handPose: '右肘弯曲，右腕靠近髋部，手指状态无法判断',
     gazeDirection: '无法识别',
     facialExpression: '嘴唇闭合，嘴角方向无法判断',
   });
-  assert.match(optimized, /右肘弯曲，右腕靠近髋部/);
+  assert.match(optimized, /肩线向画面左侧略低，躯干微向画面右侧倾斜，重心落在画面右腿/);
+  assert.match(optimized, /左肘弯曲，左腕靠近髋部/);
+  const leftRight = '左臂在左侧、右腿在右侧，左右错位';
+  assert.equal(swapPosePromptLeftRight(leftRight), '右臂在右侧、左腿在左侧，左右错位');
+  assert.equal(swapPosePromptLeftRight(swapPosePromptLeftRight(leftRight)), leftRight, '左右互换应可逆');
   assert.match(optimized, /嘴唇闭合/);
   assert.doesNotMatch(optimized, /无法判断|无法识别|原图证据|跨图冲突|视线方向/);
   assert.match(CALIBRATED_ANALYSIS.calibration.unknowns, /无法判断/, '优化不能修改原始校准证据');
@@ -180,6 +184,8 @@ try {
   assert.ok(calibratedParts[0].text.includes("原始姿势图"));
   assert.equal(calibrated.calibrationMode, 'three-view');
   assert.ok(calibrated.prompt.includes('三图校准结果'));
+  assert.match(calibrated.prompt, /肩线向画面右侧略低，躯干微向画面左侧倾斜，重心落在画面左腿/, '原始校准稿应保持原方向');
+  assert.match(calibrated.optimizedPrompt ?? '', /肩线向画面左侧略低，躯干微向画面右侧倾斜，重心落在画面右腿/, '优化稿应交换左右方向');
   assert.match(calibratedParts[0].text, /原始姿势图/);
   assert.equal(calibratedParts[2].inlineData.data, IMAGE.split(",")[1]);
   assert.match(calibratedParts[3].text, /深度图/);

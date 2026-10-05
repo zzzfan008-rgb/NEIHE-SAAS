@@ -144,6 +144,22 @@ try {
   const downloadedPixels = await sharp(Buffer.from(await downloaded.arrayBuffer())).ensureAlpha().raw().toBuffer();
   assert.ok(downloadedPixels[(28 * 30 + 28) * 4 + 3] > 0, '保存后下载的骨骼 PNG 必须包含新增点');
   assert.equal((await renderReq({ ...renderBody, poseDocument: { ...reloaded.flow.nodes[0].data.poseSkeletonEdits[0].poseDocument, imageBinding: stored.url } })).status, 200);
+  for (const posePromptMode of ['single', 'three-view']) {
+    const promptFlow = structuredClone(flow);
+    Object.assign(promptFlow.nodes[0].data, {
+      posePrompt: '保留的原始反推结果', posePromptImage: stored.url, posePromptMode,
+      posePromptOptimized: '用户编辑后的姿势：画面左膝弯曲，右手贴近髋部',
+    });
+    const saved = await fetch(base + '/api/projects', { method: 'POST', headers: ownerHeaders, body: JSON.stringify({ id: 'project', name: '手动优化姿势', flow: promptFlow }) });
+    assert.equal(saved.status, 200, await saved.text());
+    const read = await fetch(base + '/api/projects/project', { headers: ownerHeaders });
+    assert.equal(read.status, 200);
+    const restored = (await read.json()).flow.nodes[0].data;
+    assert.equal(restored.posePrompt, '保留的原始反推结果');
+    assert.equal(restored.posePromptOptimized, '用户编辑后的姿势：画面左膝弯曲，右手贴近髋部', '真实项目 API 保存/读取必须保留用户的优化文本');
+    assert.equal(restored.posePromptMode ?? 'single', posePromptMode);
+    assert.equal(restored.posePromptImage, stored.url);
+  }
   await query('UPDATE projects SET flow_json=$1 WHERE id=$2', [JSON.stringify(flow), 'project']);
   const appliedImage=saveDataUrl(depthPng);
   await query("INSERT INTO files(id,owner_id,created_at) VALUES($1,'owner',$2)", [appliedImage.id,now]);

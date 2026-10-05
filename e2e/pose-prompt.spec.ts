@@ -125,7 +125,7 @@ test('three-view calibration preserves user text on failure and applies a retrie
     await dialog.getByRole('button', { name: '确认并替换当前提示词' }).click();
     savedPrompt = `${provider}：三图校准结果：左腿交叉，头部偏向画面左侧。`;
     await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText(savedPrompt);
-    await expect(dialog.locator('[data-pose-prompt="saved-optimized"]')).toHaveText('下肢姿态：左腿交叉\n头部姿态：向画面左侧倾斜');
+    await expect(dialog.locator('[data-pose-prompt="saved-optimized"]')).toHaveValue('下肢姿态：左腿交叉\n头部姿态：向画面左侧倾斜');
     const optimizedBox = await dialog.locator('[data-pose-prompt="saved-optimized"]').boundingBox();
     expect(optimizedBox!.width).toBeGreaterThan(0);
     expect(optimizedBox!.x + optimizedBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
@@ -145,7 +145,8 @@ test('three-view calibration preserves user text on failure and applies a retrie
   expect(persisted).toMatchObject({ posePrompt: savedPrompt, posePromptOptimized: '下肢姿态：左腿交叉\n头部姿态：向画面左侧倾斜', posePromptImage: source, posePromptMode: 'three-view' });
   await trigger.click();
   await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText(savedPrompt);
-  await expect(dialog.locator('[data-pose-prompt="saved-optimized"]')).toHaveText(persisted.posePromptOptimized);
+  await expect(dialog.locator('[data-pose-prompt="saved-optimized"]')).toHaveValue(persisted.posePromptOptimized);
+  await expect(dialog.getByRole('combobox', { name: '分析方式' })).toContainText('原图 + 深度图 + DWPose 三图校准');
   await page.keyboard.press('Escape');
   const replaced = await page.evaluate(async () => {
     const modulePath = '/src/store/flowStore.ts';
@@ -157,4 +158,177 @@ test('three-view calibration preserves user text on failure and applies a retrie
   expect(replaced.posePrompt).toBeUndefined();
   expect(replaced.posePromptOptimized).toBeUndefined();
   expect(calls).toEqual({ gemini: 2, deepseek: 2 });
+});
+
+test('optimization stays visible and manual edits persist without a model call', async ({ page }, testInfo) => {
+  let analyses = 0;
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/me') return route.fulfill({ json: { user: { id: 'editor', accountId: 'editor', displayName: '编辑测试', role: 'user', mustChangePassword: false } } });
+    if (path === '/api/pose-references/analyze') analyses++;
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/e2e/fixtures/pose-prompt.html');
+  const trigger = page.getByRole('button', { name: '反推人物姿势', exact: true });
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '反推人物姿势', exact: true });
+  const editor = dialog.getByRole('textbox', { name: '优化后姿势提示词', exact: true });
+  const save = dialog.getByRole('button', { name: '保存优化提示词', exact: true });
+  await expect(editor).toBeVisible();
+  await expect(dialog.getByText('尚未生成优化结果', { exact: false })).toBeVisible();
+  await expect(save).toBeDisabled();
+  await expect(editor).toHaveAttribute('maxlength', '4000');
+  await editor.fill('用户手动修订：右手贴近髋部，左膝弯曲。');
+  const box = await editor.boundingBox();
+  expect(box!.width).toBeGreaterThan(200);
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  const contrast = await editor.evaluate(element => {
+    const background = getComputedStyle(element.closest('[data-slot="card"]')!).backgroundColor;
+    const luminance = (color: string) => {
+      const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(Number).map(value => value / 255)
+        .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const foreground = luminance(getComputedStyle(element).color), surface = luminance(background);
+    return (Math.max(foreground, surface) + 0.05) / (Math.min(foreground, surface) + 0.05);
+  });
+  expect(contrast).toBeGreaterThanOrEqual(4.5);
+  await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText('原有用户编辑');
+  await page.keyboard.press('Escape');
+  const discard = page.getByRole('alertdialog');
+  await expect(discard).toContainText('放弃未保存的优化提示词');
+  await discard.getByRole('button', { name: '继续编辑' }).click();
+  await expect(editor).toHaveValue('用户手动修订：右手贴近髋部，左膝弯曲。');
+  await save.click();
+  await expect(dialog.getByText('优化提示词已保存', { exact: true })).toBeVisible();
+  await expect(save).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath('pose-optimized-editor.png') });
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  const persisted = await page.evaluate(async () => {
+    const storeModule = '/src/store/flowStore.ts';
+    const snapshotModule = '/src/lib/documentSnapshot.ts';
+    const { useFlowStore, selectActiveDocument } = await import(storeModule);
+    const { createDocumentSnapshot, documentSnapshotToPersistedWorkflow } = await import(snapshotModule);
+    const flow = documentSnapshotToPersistedWorkflow(createDocumentSnapshot(selectActiveDocument(useFlowStore.getState())));
+    useFlowStore.getState().loadFlow({ ...flow, projectId: 'pose-e2e' });
+    return selectActiveDocument(useFlowStore.getState()).nodes[0].data;
+  });
+  expect(persisted.posePromptOptimized).toBe('用户手动修订：右手贴近髋部，左膝弯曲。');
+  expect(persisted.posePrompt).toBe('原有用户编辑');
+  expect(persisted.posePromptMode ?? 'single').toBe('single');
+  await trigger.click();
+  await expect(editor).toHaveValue(persisted.posePromptOptimized);
+  await expect(dialog.getByRole('combobox', { name: '分析方式' })).toContainText('单图反推');
+  await editor.fill('   ');
+  await expect(save).toBeDisabled();
+  await editor.fill('未保存的新草稿');
+  await page.keyboard.press('Escape');
+  await discard.getByRole('button', { name: '放弃修改', exact: true }).click();
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(editor).toHaveValue(persisted.posePromptOptimized);
+  expect(analyses).toBe(0);
+});
+
+test('optimization draft rejects concurrent source changes and read-only documents', async ({ page }) => {
+  await page.route('**/api/**', route => route.fulfill({ json: new URL(route.request().url()).pathname === '/api/auth/me'
+    ? { user: { id: 'editor', accountId: 'editor', displayName: '编辑测试', role: 'user', mustChangePassword: false } } : {} }));
+  await page.goto('/e2e/fixtures/pose-prompt.html');
+  await page.getByRole('button', { name: '反推人物姿势', exact: true }).click();
+  const editor = page.getByRole('textbox', { name: '优化后姿势提示词', exact: true });
+  const save = page.getByRole('button', { name: '保存优化提示词', exact: true });
+  await editor.fill('旧稿不得覆盖新稿');
+  await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const { useFlowStore, selectActiveDocumentTarget } = await import(module);
+    const store = useFlowStore.getState();
+    store.updateNodeDataInTab(selectActiveDocumentTarget(store), 'pose', { posePromptOptimized: '另一处保存的新稿' });
+  });
+  await expect(page.getByRole('alert')).toContainText('姿势来源或提示词已变化');
+  await expect(save).toBeDisabled();
+  await page.getByRole('button', { name: '恢复当前保存内容' }).click();
+  await expect(editor).toHaveValue('另一处保存的新稿');
+  await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(module);
+    useFlowStore.setState((state: import('../src/store/flowStore').FlowState) => ({ tabs: state.tabs.map(tab => ({ ...tab, readOnly: true })) }));
+  });
+  await expect(editor).toBeDisabled();
+  await expect(save).toBeDisabled();
+});
+
+test('manual optimization also supplies an initially empty pose prompt', async ({ page }) => {
+  await page.route('**/api/**', route => route.fulfill({ json: new URL(route.request().url()).pathname === '/api/auth/me'
+    ? { user: { id: 'editor', accountId: 'editor', displayName: '编辑测试', role: 'user', mustChangePassword: false } } : {} }));
+  await page.goto('/e2e/fixtures/pose-prompt.html');
+  const trigger = page.getByRole('button', { name: '反推人物姿势', exact: true });
+  await expect(trigger).toBeVisible();
+  await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const { useFlowStore, selectActiveDocumentTarget } = await import(module);
+    useFlowStore.getState().updateNodeDataInTab(selectActiveDocumentTarget(useFlowStore.getState()), 'pose', { posePrompt: '   ' });
+  });
+  await trigger.click();
+  await page.getByRole('textbox', { name: '优化后姿势提示词', exact: true }).fill('手工姿势：抬起右臂');
+  await page.getByRole('button', { name: '保存优化提示词', exact: true }).click();
+  await expect(page.getByText('优化提示词已保存', { exact: true })).toBeVisible();
+  const data = await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const { useFlowStore, selectActiveDocument } = await import(module);
+    return selectActiveDocument(useFlowStore.getState()).nodes[0].data;
+  });
+  expect(data.posePrompt).toBe('手工姿势：抬起右臂');
+  expect(data.posePromptOptimized).toBe(data.posePrompt);
+});
+
+test('optimization save can retry without losing text and late saves cannot target a new document', async ({ page }) => {
+  await page.route('**/api/**', route => route.fulfill({ json: new URL(route.request().url()).pathname === '/api/auth/me'
+    ? { user: { id: 'editor', accountId: 'editor', displayName: '编辑测试', role: 'user', mustChangePassword: false } } : {} }));
+  await page.goto('/e2e/fixtures/pose-prompt.html');
+  await expect(page.getByRole('button', { name: '反推人物姿势', exact: true })).toBeVisible();
+  await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(module);
+    let calls = 0;
+    useFlowStore.setState({ saveProjectInTab: async () => ++calls > 1 });
+  });
+  await page.getByRole('button', { name: '反推人物姿势', exact: true }).click();
+  const editor = page.getByRole('textbox', { name: '优化后姿势提示词', exact: true });
+  const save = page.getByRole('button', { name: '保存优化提示词', exact: true });
+  await editor.fill('失败后保留的优化文本');
+  await save.click();
+  await expect(page.getByRole('alert')).toContainText('项目保存失败');
+  await expect(editor).toHaveValue('失败后保留的优化文本');
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.getByText('优化提示词已保存', { exact: true })).toBeVisible();
+  await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(module);
+    useFlowStore.setState({ saveProjectInTab: () => new Promise<boolean>(resolve => {
+      (window as Window & { finishPoseSave?: () => void }).finishPoseSave = () => resolve(true);
+    }) });
+  });
+  await editor.fill('不得污染后来打开的项目');
+  await save.click();
+  await expect(page.getByRole('button', { name: '正在保存…', exact: true })).toBeDisabled();
+  await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(module);
+    useFlowStore.getState().loadFlow({ projectId: 'new-document', projectName: '后来打开的项目', nodes: [{
+      id: 'pose', type: 'image-input', position: { x: 0, y: 0 },
+      data: { kind: 'image-input', label: '新图', imageRole: 'reference', status: 'idle', imageUrl: '/api/files/new.png' },
+    }], edges: [] });
+    (window as Window & { finishPoseSave?: () => void }).finishPoseSave?.();
+  });
+  await expect(page.getByText('优化提示词已保存', { exact: true })).toHaveCount(0);
+  const data = await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const { useFlowStore, selectActiveDocument } = await import(module);
+    return selectActiveDocument(useFlowStore.getState()).nodes[0].data;
+  });
+  expect(data.imageUrl).toBe('/api/files/new.png');
+  expect(data.posePromptOptimized).toBeUndefined();
 });

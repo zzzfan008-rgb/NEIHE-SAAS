@@ -158,6 +158,28 @@ const calibrationSnapshot = createDocumentSnapshot({ projectName: "calibrated po
 const persistedCalibration = documentSnapshotToPersistedWorkflow(calibrationSnapshot);
 const persistedCalibrationNode = persistedCalibration.nodes.find(node => node.id === "pose")!;
 assert.equal((persistedCalibrationNode.data as any).posePromptMode, "three-view", "校准语义必须跨保存/重载保留");
+for (const mode of ['single', 'three-view'] as const) {
+  const editedFlow = structuredClone(calibrationFlow);
+  const poseNode = editedFlow.nodes.find(node => node.id === 'pose')!;
+  if (poseNode.data.kind !== 'image-input') throw new Error('missing pose input');
+  poseNode.data.posePromptMode = mode;
+  poseNode.data.posePromptOptimized = '用户编辑：画面右手贴近髋部';
+  const normalized = validateAndMigrateFlow(editedFlow);
+  const persisted = documentSnapshotToPersistedWorkflow(createDocumentSnapshot({ projectName: 'editable pose', ...normalized }));
+  const reloaded = validateAndMigrateFlow(persisted);
+  const reloadedPose = reloaded.nodes.find(node => node.id === 'pose')!;
+  assert.equal((reloadedPose.data as any).posePromptOptimized, poseNode.data.posePromptOptimized, '手工优化结果不依赖三图模式，保存后不能丢失');
+  const first = reloaded.nodes.find(node => node.data.kind === 'virtual-try-on')!;
+  const step = buildExecutionPlan(reloaded.nodes, reloaded.edges, { onlyNodeId: first.id, includeDownstream: false }).steps.find(step => step.nodeId === first.id)!;
+  assert.equal(step.params.posePrompt, poseNode.data.posePromptOptimized, '第一阶段必须读取已保存的手工优化文本');
+  assert.equal(step.params.posePromptMode, mode, '手工编辑不能伪装成三图校准');
+  assert.equal((reloadedPose.data as any).posePrompt, calibrationNode.data.posePrompt, '保留原始反推用于对比');
+  for (const invalid of [123, 'x'.repeat(4001)]) {
+    const malformed = structuredClone(editedFlow);
+    (malformed.nodes.find(node => node.id === 'pose')!.data as any).posePromptOptimized = invalid;
+    assert.throws(() => validateAndMigrateFlow(malformed), /posePromptOptimized/);
+  }
+}
 const invalidCalibrationFlow = structuredClone(calibrationFlow);
 const invalidCalibrationNode = invalidCalibrationFlow.nodes.find(node => node.id === "pose")!;
 if (invalidCalibrationNode.data.kind === "image-input") invalidCalibrationNode.data.posePromptMode = "invented" as never;

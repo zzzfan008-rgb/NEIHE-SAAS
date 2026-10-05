@@ -7,8 +7,10 @@ import { optimizedPosePromptForImage, posePromptForImage, type PosePromptMode } 
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 
 export default function PosePromptInferenceDialog({ target, nodeId, source, onClose, triggerRef }: {
   target: DocumentTarget;
@@ -19,7 +21,10 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
 }) {
   const { user } = useAuth();
   const [provider, setProvider] = useState<'gemini'|'deepseek'>('gemini');
-  const [calibrationMode, setCalibrationMode] = useState<PosePromptMode>('single');
+  const [calibrationMode, setCalibrationMode] = useState<PosePromptMode>(() => {
+    const data = useFlowStore.getState().tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch)?.nodes.find(n => n.id === nodeId)?.data;
+    return data?.kind === 'image-input' && data.imageUrl === source && posePromptForImage(data) !== undefined && data.posePromptMode === 'three-view' ? 'three-view' : 'single';
+  });
   const [credential, setCredential] = useState(() => ({ owner: user?.id, value: user ? readPoseCredential(user.id) : '' }));
   const apiKey = credential.owner === user?.id ? credential.value : '';
   const [showKey, setShowKey] = useState(false);
@@ -59,21 +64,80 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     const tab = s.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch);
     return Boolean(tab && !tab.readOnly && tab.nodes.some(n => n.id === nodeId && n.data.kind === 'image-input' && n.data.imageUrl === source));
   });
+  const revision = JSON.stringify([target, nodeId, source, savedPrompt, savedPromptMode, savedOptimizedPrompt]);
+  const [draft, setDraft] = useState<{ revision: string; text: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [pendingSave, setPendingSave] = useState(false);
+  const [saveError, setSaveError] = useState<string>();
+  const [saveMessage, setSaveMessage] = useState<string>();
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const optimizedText = draft?.text ?? savedOptimizedPrompt ?? '';
+  const dirty = draft !== null && draft.text !== (savedOptimizedPrompt ?? '');
+  const conflict = dirty && draft.revision !== revision;
+  const currentData = () => {
+    const tab = useFlowStore.getState().tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch);
+    const data = tab?.nodes.find(n => n.id === nodeId)?.data;
+    return tab && !tab.readOnly && data?.kind === 'image-input' && data.imageUrl === source ? data : undefined;
+  };
+  const saveOptimized = async () => {
+    if (!writable || saving || running || conflict || (!dirty && !pendingSave) || !optimizedText.trim() || optimizedText.length > 4000) return;
+    const data = currentData();
+    if (!data || posePromptForImage(data) !== savedPrompt || optimizedPosePromptForImage(data) !== savedOptimizedPrompt || (data.posePromptMode ?? 'single') !== savedPromptMode) {
+      setSaveError('姿势来源或提示词已变化，请重新打开后编辑');
+      return;
+    }
+    setSaving(true);
+    setSaveError(undefined);
+    setSaveMessage(undefined);
+    if (dirty) {
+      useFlowStore.getState().updateNodeDataInTab(stableTarget, nodeId, {
+        posePrompt: savedPrompt?.trim() ? savedPrompt : optimizedText.trim(),
+        posePromptImage: source,
+        posePromptMode: savedPromptMode ?? 'single',
+        posePromptOptimized: optimizedText.trim(),
+      });
+      setDraft(null);
+    }
+    setPendingSave(true);
+    const written = currentData();
+    try {
+      if (!await useFlowStore.getState().saveProjectInTab(stableTarget)) throw new Error('优化文本已更新到当前文档，但项目保存失败，请重试保存');
+      const latest = currentData();
+      if (!latest || latest.posePrompt !== written?.posePrompt || latest.posePromptOptimized !== written?.posePromptOptimized || latest.posePromptMode !== written?.posePromptMode) {
+        throw new Error('姿势来源或提示词已变化，请重新打开检查保存结果');
+      }
+      setPendingSave(false);
+      setSaveMessage('优化提示词已保存');
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '项目保存失败，请重试保存');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const close = () => {
+    if (saving) return;
+    if (dirty || pendingSave) setDiscardOpen(true);
+    else onClose();
+  };
 
   const applyResult = () => {
     const store = useFlowStore.getState();
     const tab = store.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch);
-    if (!result || !tab || tab.readOnly || !tab.nodes.some(n => n.id === nodeId && n.data.kind === 'image-input' && n.data.imageUrl === source)) return;
+    if (!result || dirty || pendingSave || saving || !tab || tab.readOnly || !tab.nodes.some(n => n.id === nodeId && n.data.kind === 'image-input' && n.data.imageUrl === source)) return;
+    setDraft(null);
+    setSaveMessage(undefined);
+    setSaveError(undefined);
     store.updateNodeDataInTab(target, nodeId, { posePrompt: result.prompt, posePromptImage: source, posePromptMode: result.calibrationMode ?? 'single', posePromptOptimized: result.calibrationMode === 'three-view' && typeof result.optimizedPrompt === 'string' && result.optimizedPrompt.trim() ? result.optimizedPrompt : undefined });
   };
-  const canAnalyze = writable && Boolean(user) && !running && (provider !== 'deepseek' || /^[\x21-\x7e]{8,512}$/.test(apiKey.trim())) && (calibrationMode !== 'three-view' || threeViewReady);
+  const canAnalyze = writable && Boolean(user) && !running && !saving && (provider !== 'deepseek' || /^[\x21-\x7e]{8,512}$/.test(apiKey.trim())) && (calibrationMode !== 'three-view' || threeViewReady);
   const startAnalysis = () => {
     if (!canAnalyze) return;
     void analyzePosePrompt(stableTarget, nodeId, source, true, { provider, apiKey: apiKey.trim(), ownerId: user?.id, candidateOnly: true, calibrationMode });
   };
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <>
+    <Dialog open onOpenChange={(open) => { if (!open) close(); }}>
       <DialogContent
         aria-describedby="pose-prompt-inference-description"
         finalFocus={triggerRef}
@@ -167,21 +231,12 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         {(result || savedPrompt !== undefined) && (
           <div className="space-y-3">
             {savedPrompt !== undefined && <Card className="gap-0 border border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
-              <h3 className="mb-2 text-sm font-medium">{savedPromptMode === 'three-view' ? '当前校准原始提示词（用于对比）' : '当前用于生图的姿势提示词'}</h3>
+              <h3 className="mb-2 text-sm font-medium">{savedPromptMode === 'three-view' ? '当前校准原始提示词（用于对比）' : savedOptimizedPrompt !== undefined ? '原始反推提示词（用于对比）' : '当前用于生图的姿势提示词'}</h3>
               <pre
                 data-pose-prompt="result"
                 className="whitespace-pre-wrap break-words text-sm leading-6"
               >
                 {savedPrompt}
-              </pre>
-            </Card>}
-            {savedOptimizedPrompt !== undefined && <Card className="gap-0 border border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
-              <h3 className="mb-2 text-sm font-medium">当前优化后提示词（用于生图）</h3>
-              <pre
-                data-pose-prompt="saved-optimized"
-                className="whitespace-pre-wrap break-words text-sm leading-6"
-              >
-                {savedOptimizedPrompt}
               </pre>
             </Card>}
             {result && (result.prompt !== savedPrompt || result.optimizedPrompt !== savedOptimizedPrompt || (result.calibrationMode ?? 'single') !== (savedPromptMode ?? 'single')) && !running && !failed && (
@@ -192,7 +247,8 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
                   <h4 className="text-sm font-medium">优化后提示词（将用于生图）</h4>
                   <pre data-pose-prompt="candidate-optimized" className="whitespace-pre-wrap break-words text-sm leading-6">{result.optimizedPrompt}</pre>
                 </div>}
-                <Button type="button" size="sm" disabled={!writable} onClick={applyResult}>{savedPrompt === undefined ? '使用此姿势提示词' : '确认并替换当前提示词'}</Button>
+                <Button type="button" size="sm" disabled={!writable || dirty || pendingSave || saving} onClick={applyResult}>{savedPrompt === undefined ? '使用此姿势提示词' : '确认并替换当前提示词'}</Button>
+                {(dirty || pendingSave) && <p className="text-xs text-[var(--gc-text-muted)]">请先保存或恢复下方优化文本，再替换反推结果。</p>}
               </Card>
             )}
             {result && <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-[var(--gc-text-muted)]">
@@ -206,7 +262,46 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
             </dl>}
           </div>
         )}
+        <Card className="gap-3 border-[var(--gc-border)] bg-[var(--gc-panel)] p-4 text-[var(--gc-text)]">
+          <label htmlFor="pose-optimized-prompt" className="text-sm font-medium">优化后姿势提示词</label>
+          <p id="pose-optimized-help" className="text-xs text-[var(--gc-text-muted)]">
+            {savedOptimizedPrompt === undefined
+              ? '尚未生成优化结果。三图校准会自动生成优化文本；也可在下方手动填写，保存后用于生图。'
+              : '下方为当前已保存的优化文本，可自行编辑。保存后用于生图，原始反推结果保留用于对比。'}
+            手动编辑不会调用模型，也不会把单图反推标记为三图校准。
+          </p>
+          <Textarea id="pose-optimized-prompt" data-pose-prompt="saved-optimized" aria-describedby="pose-optimized-help"
+            value={optimizedText} maxLength={4000} disabled={!writable || saving} placeholder="填写或编辑最终用于生图的姿势提示词"
+            className="min-h-40 max-h-64 resize-y overflow-y-auto"
+            onChange={event => {
+              setDraft(previous => ({ revision: previous?.revision ?? revision, text: event.target.value }));
+              setSaveMessage(undefined);
+            }} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" disabled={!writable || saving || running || conflict || (!dirty && !pendingSave) || !optimizedText.trim() || optimizedText.length > 4000}
+              onClick={() => void saveOptimized()}>{saving ? '正在保存…' : '保存优化提示词'}</Button>
+            <Button type="button" size="sm" variant="outline" disabled={!draft || saving}
+              onClick={() => { setDraft(null); setSaveMessage(undefined); setSaveError(undefined); }}>恢复当前保存内容</Button>
+            <span className="ml-auto text-xs text-[var(--gc-text-muted)]">{optimizedText.length} / 4000</span>
+          </div>
+          {conflict && <p role="alert" className="text-sm text-destructive">姿势来源或提示词已变化，请恢复当前保存内容后再编辑，避免覆盖新结果。</p>}
+          {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
+          {saveMessage && <p role="status" className="text-sm text-[var(--gc-text-muted)]">{saveMessage}</p>}
+        </Card>
       </DialogContent>
     </Dialog>
+    <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>放弃未保存的优化提示词？</AlertDialogTitle>
+          <AlertDialogDescription>{pendingSave ? '项目尚未保存成功，关闭不会撤销已更新到当前文档的文本，但刷新可能丢失。' : '关闭后将丢弃本次尚未保存的编辑，当前已保存的提示词不会改变。'}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>继续编辑</AlertDialogCancel>
+          <AlertDialogAction onClick={onClose}>放弃修改</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

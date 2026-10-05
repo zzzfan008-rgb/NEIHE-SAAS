@@ -2,8 +2,18 @@ import sharp from 'sharp';
 import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
 
+// Exercise the editor's entire open/edit/save/reopen flow with LAN HTTP crypto
+// capabilities, while keeping the runner on its required isolated loopback URL.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: undefined });
+  });
+});
+
 async function setup(page: Page) {
   await page.goto('/e2e/fixtures/node-geometry.html');
+  expect(await page.evaluate(() => ({ uuid: typeof crypto.randomUUID, random: typeof crypto.getRandomValues })))
+    .toEqual({ uuid: 'undefined', random: 'function' });
   await page.evaluate(async()=>{
     const mod='/src/store/flowStore.ts';
     const {useFlowStore}=await import(mod);

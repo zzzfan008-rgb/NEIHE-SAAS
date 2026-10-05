@@ -12,6 +12,7 @@ import {
 } from '../src/lib/poseTopology';
 import type { DWPosePoseV1 } from '../src/types/poseReference';
 import type { PoseDocumentV1 } from '../src/types/poseDocument';
+import { createPoseId } from '../src/lib/poseId';
 
 const image = '/api/files/pose-source.png';
 const id = '00000000-0000-4000-8000-000000000001';
@@ -30,6 +31,47 @@ const openPosePerson = (bodyCount: 18 | 25, face: number[] = [], left: number[] 
 });
 
 const source = { analysisImage: image, kind: 'image' as const, model: 'dwpose-wholebody', checkpoint: 'a'.repeat(64), recordId: id };
+// LAN HTTP retains getRandomValues but does not expose randomUUID.
+const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto')!;
+const nativeCrypto = globalThis.crypto;
+try {
+  Object.defineProperty(globalThis, 'crypto', {
+    configurable: true,
+    value: { getRandomValues: nativeCrypto.getRandomValues.bind(nativeCrypto) },
+  });
+  const lanPose = poseDocumentFromDWPose(emptyDWPose(), { source, imageBinding: image });
+  const lanImport = importOpenPoseJson({
+    canvas_width: 30, canvas_height: 50, people: [openPosePerson(18)],
+  }, { analysisImage: image, imageBinding: image });
+  for (const person of [...lanPose.people, ...lanImport.people]) {
+    assert.match(person.id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  }
+  assert.notEqual(lanPose.people[0].id, lanImport.people[0].id);
+  const generated = new Set(Array.from({ length: 256 }, () => createPoseId()));
+  assert.equal(generated.size, 256);
+  for (const fill of [0, 255]) {
+    const crypto = {
+      getRandomValues(bytes: Uint8Array) {
+        assert.equal(this, crypto, '保留 Web Crypto receiver');
+        assert.equal(bytes.length, 16);
+        return bytes.fill(fill);
+      },
+    };
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: crypto });
+    assert.equal(createPoseId(), fill === 0
+      ? '00000000-0000-4000-8000-000000000000'
+      : 'ffffffff-ffff-4fff-bfff-ffffffffffff');
+  }
+  const native = { randomUUID() { assert.equal(this, native); return id; } };
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: native });
+  assert.equal(createPoseId(), id, '有原生接口时优先使用');
+  for (const unavailable of [undefined, {}]) {
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: unavailable });
+    assert.throws(() => createPoseId(), /当前环境无法生成姿势人物标识/, '没有安全随机源时不降级到 Math.random');
+  }
+} finally {
+  Object.defineProperty(globalThis, 'crypto', cryptoDescriptor);
+}
 const detected = poseDocumentFromDWPose(emptyDWPose(), { source, imageBinding: image, idFactory });
 assert.equal(detected.canvas.width, 30);
 assert.equal(detected.people[0].body.length, 17);

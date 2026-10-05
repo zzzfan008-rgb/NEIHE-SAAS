@@ -412,6 +412,8 @@ export interface VirtualTryOnNodeData extends BaseNodeData {
   sceneFraming?: "scene" | "custom";
   /** 前置改款已确定身份、动作与场景；第一轮只替换穿搭。 */
   sceneInputMode?: "composed-person" | "multi-reference-edit";
+  /** 仅多图编辑换装模板可声明；省略时保留候选质量与姿势评审。 */
+  candidateReviewMode?: "disabled";
   /** 标准换装和第一轮自选画幅使用此比例；跟随场景及第二轮由参考图推导。 */
   aspectRatio: "1:1" | "4:5" | "3:4" | "2:3" | "9:16" | "16:9";
   /** 第一轮语义输入、参数、输出或重跑发生变化时递增。 */

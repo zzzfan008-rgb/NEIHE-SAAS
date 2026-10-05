@@ -358,6 +358,7 @@
           "workflowStage": "scene-stabilize",
           "sceneFraming": "scene",
           "sceneInputMode": "multi-reference-edit",
+          "candidateReviewMode": "disabled",
           "prompt": "",
           "imageSize": "2K",
           "aspectRatio": "3:4",

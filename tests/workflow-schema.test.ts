@@ -18,7 +18,8 @@ import {
   validateImageDataUrl,
 } from "../server/lib/imageValidation";
 import { validateAndMigrateFlow, WorkflowValidationError } from "../server/lib/workflowSchema";
-import { ensureBuiltinTemplates } from "../server/routes/templates";
+import { ensureBuiltinTemplates, sanitizeTemplateFlow } from "../server/routes/templates";
+import multiImageTryOnTemplate from "../templates/multi-image-try-on.workflow.json";
 import { DEFAULT_GENERATION_MODEL_ID, getImageModelContract, MASK_REDRAW_MODEL_ID } from "../src/types/imageModels";
 import { WORKFLOW_SCHEMA_VERSION } from "../src/types/workflow";
 
@@ -1090,9 +1091,10 @@ async function main() {
       assert.equal(fs.existsSync(path.join(builtinDir, "builtin-dual-model-staged-try-on.json")), false);
       assert.equal(fs.existsSync(path.join(builtinDir, "builtin-tool-color-replace.json")), false);
       const refreshedFiles = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(refreshedFiles.length, 21);
+      assert.equal(refreshedFiles.length, 22);
       for (const required of [
         "builtin-sketch-recolor.json",
+        "builtin-tool-multi-image-try-on.json",
         "builtin-tool-one-click-try-on.json",
         "builtin-tool-text-to-video.json",
         "builtin-tool-first-frame-to-video.json",
@@ -1240,8 +1242,14 @@ async function main() {
 
       const builtinDir = path.join(dir, "templates", "builtin");
       const files = fs.readdirSync(builtinDir).filter((name) => name.endsWith(".json")).sort();
-      assert.equal(files.length, 21);
+      assert.equal(files.length, 22);
       assert.equal(files.includes("builtin-tool-color-replace.json"), false);
+      const multiImage = JSON.parse(fs.readFileSync(path.join(builtinDir, "builtin-tool-multi-image-try-on.json"), "utf-8"));
+      assert.equal(multiImage.builtIn, true);
+      assert.equal(multiImage.name, multiImageTryOnTemplate.name);
+      assert.equal(multiImage.description, multiImageTryOnTemplate.description);
+      assert.deepEqual(multiImage.flow, sanitizeTemplateFlow(validateAndMigrateFlow(multiImageTryOnTemplate.flow)));
+      assert.equal(multiImage.flow.nodes.find((node: { id: string }) => node.id === "stabilize")?.data.candidateReviewMode, "disabled");
       for (const file of files) {
         const template = JSON.parse(fs.readFileSync(path.join(builtinDir, file), "utf-8")) as {
           schemaVersion: unknown;
@@ -1250,6 +1258,32 @@ async function main() {
         assert.equal(template.schemaVersion, WORKFLOW_SCHEMA_VERSION, file);
         assert.equal(validateAndMigrateFlow(template.flow).schemaVersion, WORKFLOW_SCHEMA_VERSION, file);
       }
+    } finally {
+      if (originalDataDir === undefined) delete process.env.DATA_DIR;
+      else process.env.DATA_DIR = originalDataDir;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await test("旧版多图内置模板按当前完整提示词与节点配置刷新且保持幂等", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "garment-canvas-multi-image-builtin-"));
+    const originalDataDir = process.env.DATA_DIR;
+    try {
+      process.env.DATA_DIR = dir;
+      ensureBuiltinTemplates();
+      const filePath = path.join(dir, "templates", "builtin", "builtin-tool-multi-image-try-on.json");
+      const expected = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      const stale = structuredClone(expected);
+      stale.description = "旧版说明";
+      stale.flow.nodes.find((node: { id: string }) => node.id === "guide").data.text = "旧版操作提示";
+      delete stale.flow.nodes.find((node: { id: string }) => node.id === "stabilize").data.candidateReviewMode;
+      fs.writeFileSync(filePath, JSON.stringify(stale, null, 2), "utf-8");
+
+      ensureBuiltinTemplates();
+      const restored = fs.readFileSync(filePath, "utf-8");
+      assert.deepEqual(JSON.parse(restored), expected);
+      ensureBuiltinTemplates();
+      assert.equal(fs.readFileSync(filePath, "utf-8"), restored);
     } finally {
       if (originalDataDir === undefined) delete process.env.DATA_DIR;
       else process.env.DATA_DIR = originalDataDir;

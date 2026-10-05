@@ -2,6 +2,7 @@ import type { PoseDocumentV1, PosePersonV1, PosePointV1 } from "../types/poseDoc
 import { validatePoseDocument } from "./poseTopology";
 import { validPoseReferenceSource } from "../types/poseReference";
 import { MAX_CUSTOM_POSE_POINTS } from './poseCustomPoints';
+import { createPoseId } from './poseId';
 
 export type PosePointPath =
   | { personId: string; group: "neck" }
@@ -136,12 +137,7 @@ export function createEmptyPoseDocument(options: {
   idFactory?: () => string;
 }): PoseDocumentV1 {
   const { image, width, height } = options;
-  const idFactory = options.idFactory ?? (() => {
-    if (typeof globalThis.crypto?.randomUUID !== "function") {
-      throw new Error("当前环境无法生成姿势人物标识");
-    }
-    return globalThis.crypto.randomUUID();
-  });
+  const idFactory = options.idFactory ?? createPoseId;
   const emptyPoints = (length: number) => Array.from({ length }, () => null);
   return validatePoseDocument({
     version: 1,

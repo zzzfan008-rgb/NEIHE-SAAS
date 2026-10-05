@@ -716,11 +716,16 @@ function validateData(
         stringValue(raw.posePrompt, `${path}.posePrompt`);
         if ((raw.posePrompt as string).length > 4000) fail(`${path}.posePrompt`, 'must be at most 4000 characters');
       }
+      if (raw.posePromptOptimized !== undefined) {
+        stringValue(raw.posePromptOptimized, `${path}.posePromptOptimized`);
+        if ((raw.posePromptOptimized as string).length > 4000) fail(`${path}.posePromptOptimized`, 'must be at most 4000 characters');
+      }
       optionalImageReference(raw.posePromptImage, `${path}.posePromptImage`);
       if (!raw.imageUrl || raw.posePromptImage !== raw.imageUrl || raw.posePrompt === undefined) {
         delete raw.posePrompt;
         delete raw.posePromptMode;
         delete raw.posePromptImage;
+        delete raw.posePromptOptimized;
       }
       if (raw.poseReferenceSource !== undefined) {
         const source = record(raw.poseReferenceSource, `${path}.poseReferenceSource`);
@@ -1036,6 +1041,12 @@ function validateData(
       oneOf(raw.imageSize, raw.workflowStage === "scene-stabilize" && String(raw.modelId).startsWith("gemini-") ? ["1K", "2K", "4K"] : IMAGE_SIZES, `${path}.imageSize`);
       if (raw.sceneFraming !== undefined) oneOf(raw.sceneFraming, ["scene", "custom"] as const, `${path}.sceneFraming`);
       if (raw.sceneInputMode !== undefined) oneOf(raw.sceneInputMode, ["composed-person", "multi-reference-edit"] as const, `${path}.sceneInputMode`);
+      if (raw.candidateReviewMode !== undefined) {
+        oneOf(raw.candidateReviewMode, ["disabled"] as const, `${path}.candidateReviewMode`);
+        if (raw.workflowStage !== "scene-stabilize" || raw.sceneInputMode !== "multi-reference-edit") {
+          fail(`${path}.candidateReviewMode`, "is only supported for multi-reference scene-stabilize");
+        }
+      }
       oneOf(
         raw.aspectRatio,
         ["1:1", "4:5", "3:4", "2:3", "9:16", "16:9"] as const,

@@ -1,5 +1,6 @@
 import type { DWPoseKeypointV1, DWPosePoseV1 } from '../types/poseReference';
 import { MAX_CUSTOM_POSE_POINTS } from './poseCustomPoints';
+import { createPoseId } from './poseId';
 import type {
   PoseDocumentV1,
   PosePersonV1,
@@ -214,11 +215,6 @@ function midpoint(a: PosePointV1, b: PosePointV1): PosePointV1 {
   };
 }
 
-function createId(): string {
-  if (typeof globalThis.crypto?.randomUUID !== 'function') fail('当前环境无法生成姿势人物标识');
-  return globalThis.crypto.randomUUID();
-}
-
 export function poseDocumentFromDWPose(
   pose: DWPosePoseV1,
   options: { source: PoseSourceV1; imageBinding: string | null; idFactory?: () => string },
@@ -227,7 +223,7 @@ export function poseDocumentFromDWPose(
   if (!validCanvas(pose.canvas) || pose.schemaVersion !== 1 || !Array.isArray(pose.people) || pose.people.length < 1 || pose.people.length > 8) {
     fail('DWPose 结果画布或人物结构无效');
   }
-  const idFactory = options.idFactory ?? createId;
+  const idFactory = options.idFactory ?? createPoseId;
   const people: PosePersonV1[] = pose.people.map(({ keypoints }) => {
     if (!Array.isArray(keypoints) || keypoints.length !== 133) fail('DWPose 关键点数量必须为 133');
     const pointAt = (index: number): PosePointV1 => detectedPoint(normalizedToCanvas(keypoints[index], width, height));
@@ -304,7 +300,7 @@ export function importOpenPoseJson(
       !Array.isArray(value.people) || value.people.length < 1 || value.people.length > 8) fail('OpenPose JSON 画布或人物结构无效');
   const width = value.canvas_width as number;
   const height = value.canvas_height as number;
-  const idFactory = options.idFactory ?? createId;
+  const idFactory = options.idFactory ?? createPoseId;
   const people: PosePersonV1[] = value.people.map((rawPerson) => {
     if (!isRecord(rawPerson) || !hasOnlyKeys(rawPerson, ['pose_keypoints_2d'], [
       'face_keypoints_2d', 'hand_left_keypoints_2d', 'hand_right_keypoints_2d',

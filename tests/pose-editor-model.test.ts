@@ -34,6 +34,26 @@ function test(name: string, run: () => void): void {
 
 console.log("姿势编辑器数据操作测试");
 
+test('局域网 HTTP 缺少 randomUUID 时仍可创建骨架和增加人物', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto')!;
+  const crypto = globalThis.crypto;
+  try {
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { getRandomValues: crypto.getRandomValues.bind(crypto) },
+    });
+    const document = createEmptyPoseDocument({ image, width: 1600, height: 900 });
+    const added = addPosePerson(document);
+    assert.equal(added.people.length, 2);
+    const ids = added.people.map(person => person.id);
+    for (const id of ids) assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.equal(new Set(ids).size, 2);
+    assert.deepEqual(added.people[0], document.people[0]);
+  } finally {
+    Object.defineProperty(globalThis, 'crypto', descriptor);
+  }
+});
+
 test('新增点连接已有点、支持链式添加、删除不改变索引与镜像语义', () => {
   const seeded = setPosePoint(createDocument(), path('body', 5), manualPoint(200, 100));
   const added = addCustomPosePoint(seeded, path('body', 5), 250, 150);

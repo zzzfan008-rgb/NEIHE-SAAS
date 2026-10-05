@@ -20,6 +20,7 @@ import { createEmptyPoseDocument } from '../lib/poseEditorModel';
 import { isPoseDocumentBoundToImage, poseDocumentFromDWPose, validatePoseDocument } from '../lib/poseTopology';
 import type { PoseDocumentV1 } from '../types/poseDocument';
 import { findSkeletonEdit, skeletonEditRevision } from '../lib/poseSkeletonEdit';
+import { createPoseId } from '../lib/poseId';
 type ComparisonPanel = {
   id: PoseReferenceCanvasKind;
   label: string;
@@ -219,7 +220,7 @@ export default function PoseReferenceComparison({ target, nodeId, source, readOn
       }
       assertCurrent();
       const session: PoseEditorSession = {
-        id: globalThis.crypto.randomUUID(),
+        id: createPoseId(),
         documentKey: key,
         inputSource: source,
         document,

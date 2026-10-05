@@ -205,6 +205,7 @@ export type DocumentNodeData =
       imageSize: "1K" | "2K" | "4K";
       sceneFraming?: "scene" | "custom";
       sceneInputMode?: "composed-person" | "multi-reference-edit";
+      candidateReviewMode?: "disabled";
       aspectRatio: "1:1" | "4:5" | "3:4" | "2:3" | "9:16" | "16:9";
       garmentCategory?: "knit" | "woven" | "other";
       materialSpec?: string;
@@ -442,7 +443,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         ...(data.poseReference === true ? { poseReference: true } : {}),
         ...(posePromptForImage(data) !== undefined ? { posePrompt: data.posePrompt, posePromptImage: data.imageUrl } : {}),
         ...(posePromptForImage(data) !== undefined && data.posePromptMode === 'three-view' ? { posePromptMode: 'three-view' } : {}),
-        ...(optimizedPosePromptForImage(data) !== undefined && data.posePromptMode === 'three-view' ? { posePromptOptimized: data.posePromptOptimized } : {}),
+        ...(posePromptForImage(data) !== undefined && optimizedPosePromptForImage(data) !== undefined ? { posePromptOptimized: data.posePromptOptimized } : {}),
         ...(validPoseReferenceSource(data.poseReferenceSource, data.imageUrl)
           ? { poseReferenceSource: { kind: data.poseReferenceSource.kind, image: data.poseReferenceSource.image,
               ...optionalString("neutralSource", data.poseReferenceSource.neutralSource) } }
@@ -639,6 +640,7 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         workflowStage: data.workflowStage,
         ...(data.sceneFraming ? { sceneFraming: data.sceneFraming } : {}),
         ...(data.sceneInputMode === "composed-person" || data.sceneInputMode === "multi-reference-edit" ? { sceneInputMode: data.sceneInputMode } : {}),
+        ...(data.candidateReviewMode === "disabled" ? { candidateReviewMode: data.candidateReviewMode } : {}),
         prompt: data.prompt,
         imageSize: data.imageSize,
         aspectRatio: data.aspectRatio,

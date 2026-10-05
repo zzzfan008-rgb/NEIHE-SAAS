@@ -406,6 +406,13 @@ function prunePoseField(text: string): string {
     .filter((clause) => clause.length > 0 && !POSE_UNCERTAINTY_PATTERN.test(clause))
     .join('，');
 }
+/** Swap explicit left/right markers while preserving the compound meaning "both sides". */
+export function swapPosePromptLeftRight(prompt: string): string {
+  return prompt.replace(/左右|左|右/g, (direction) => {
+    if (direction === '左右') return direction;
+    return direction === '左' ? '右' : '左';
+  });
+}
 
 /**
  * 三图校准后的干净提示词：分层合并后的七个字段（原图确定主体动作与手部、骨骼关节点核对头部
@@ -426,7 +433,7 @@ export function optimizeCalibratedPrompt(analysis: PoseAnalysis): string {
     .map(([label, value]) => `${label}：${value}`)
     .join('\n');
   if (!prompt) throw new PoseAnalysisResponseError('校准后无法生成有效的优化姿势提示词');
-  return prompt;
+  return swapPosePromptLeftRight(prompt);
 }
 
 function calibrationExtras(options: PoseAnalysisOptions | undefined, analysis: PoseAnalysis) {

@@ -41,7 +41,7 @@ export function copyMultiImageTryOnTemplate(source: PersistedWorkflow): Pick<Wor
   }
   nodes.push({ ...generation, position: { x: 2060, y: 0 }, data: {
     ...generation.data, label: "第一阶段 · 多图编辑换装", sceneInputMode: MULTI_IMAGE_TRY_ON_MODE,
-    modelId: "gemini-3.1-flash-image", modelOptions: { aspectRatio: generation.data.aspectRatio, imageSize: generation.data.imageSize },
+    candidateReviewMode: "disabled", modelId: "gemini-3.1-flash-image", modelOptions: { aspectRatio: generation.data.aspectRatio, imageSize: generation.data.imageSize },
     qualityMode: "fast", promptEnhancement: false, safetyFallback: false, basisRevision: 0, outputImages: [], status: "idle",
   } });
   const angle = original.nodes.find(node => node.data.kind === "ti-angle");
