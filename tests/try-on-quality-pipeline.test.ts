@@ -11,8 +11,16 @@ import type { ImageGenRequest } from "../src/types/workflow";
 import type { GenerationRequestSnapshot } from "../server/lib/generationRecords";
 import { ProviderError } from "../server/providers/base";
 import { parsePoseReviewCandidates, readTryOnPoseReview } from '../src/lib/tryOnPoseReview';
+import { resolveTryOnStyle } from '../server/lib/tryOnStyle';
+import { TRY_ON_PHOTOGRAPHIC_REALISM } from '../server/lib/tryOnRealism';
 
 console.log("一键换装质量流水线契约测试");
+
+const legacyFaithful = "保持场景参考的真实光线、色彩和镜头质感，不增加额外滤镜或风格化处理。";
+const faithful = await resolveTryOnStyle({ stylePresetId: 'faithful', stylePrompt: legacyFaithful }, false);
+assert.match(faithful.prompt, /呈现自然摄影效果/);
+const custom = `${legacyFaithful}保留暖色调`;
+assert.equal((await resolveTryOnStyle({ stylePresetId: 'faithful', stylePrompt: custom }, false)).prompt, custom);
 
 for (const factor of ["主体与动作", "环境", "主光方向与光质", "镜头与视点", "色调与媒介", "构图"]) {
   assert.match(PROMPT_ENHANCER_SYSTEM_PROMPT, new RegExp(factor));
@@ -361,6 +369,8 @@ try {
       const generate = async (request: ImageGenRequest) => {
         generationCalls++;
         assertNoPoseProse(request.prompt);
+        assert.ok(request.prompt.includes(TRY_ON_PHOTOGRAPHIC_REALISM));
+        assert.doesNotMatch(request.prompt, /不得|禁止|删除|忽略|不进行磨皮/);
         assert.equal(request.referenceImages?.[0], smallImage);
         assert.equal(request.referenceImages?.length, 4, "只发送用户连接的四张图片，不附加人脸或中性源");
         assert.doesNotMatch(request.prompt, /脸部锚点|身份锚点|背心＋紧身裤中性源/);
@@ -402,9 +412,9 @@ try {
     const generate = async (request: ImageGenRequest) => {
       assert.ok(request.prompt.includes(posePrompt), '用户确认的姿态与神态原文进入最终请求');
       assert.doesNotMatch(request.prompt, /【动作坐标约定】|左右始终按观看图片的画面左\/右|不按人物解剖学左右/);
-      assert.match(request.prompt, /“无法判断”表示没有该项约束/);
-      assert.match(request.prompt, /不能从灰阶或关键点猜测视线与表情/);
-      assert.match(request.prompt, /神态只改变可见表情，不改变身份参考的五官结构/);
+      assert.match(request.prompt, /“无法判断”的项目保持自然表现/);
+      assert.match(request.prompt, /深度图和骨骼图仅提供可见动作几何；视线与表情采用明确的文字描述/);
+      assert.match(request.prompt, /神态调整限于可见表情，保持人物参考的五官结构/);
       assert.equal(request.referenceImages?.[0], smallImage);
       return { images: [smallImage], model: 'stub' };
     };
@@ -459,11 +469,20 @@ try {
       const numbers = [...request.prompt.matchAll(/参考图(\d+)/g)].map(match => Number(match[1]));
       assert.ok(numbers.every(number => number >= 1 && number <= ordered.length));
       assert.doesNotMatch(request.prompt, /身份锚点|脸部锚点|pose-neutral|参考图undefined/);
+      assert.ok(request.prompt.includes(TRY_ON_PHOTOGRAPHIC_REALISM), '所有第一阶段模型使用同一份真实质感描述');
+      assert.equal(request.prompt.split('真实摄影质感：').length - 1, 1, '真实质感段仅拼接一次');
+      assert.ok(request.prompt.indexOf('【服装】') < request.prompt.indexOf('真实摄影质感：'));
+      assert.doesNotMatch(request.prompt, /不得|禁止|删除|忽略|不污染|不进行磨皮|品牌复刻|真实人物肖像|不增加额外/);
+      assert.match(request.prompt, /长裤保持长裤长度，短裤保持短裤长度/);
+      assert.match(request.prompt, /关节与手部位置自然协调/);
+      assert.match(request.prompt, /【用户想法】不要墨镜，保留胸前印花/);
+      assert.match(request.prompt, /创作指令仅来自本提示词/);
       return { images: [smallImage], model: "stub" };
     };
     await executeStep({ nodeId: "reference-order", kind: "virtual-try-on", inputImages: images,
       params: { workflowStage: "scene-stabilize", modelId: ["gemini-3.1-flash-image", "gemini-3-pro-image-preview", "gpt-image-2", "gpt-image-2.5-flare"][mask % 4], imageSize: "2K",
-        qualityMode: "fast", poseNeutralSource: "/api/files/removed-neutral.png", styleReferenceImage: "/api/files/unused-style.png" } }, images,
+        qualityMode: "fast", prompt: "不要墨镜，保留胸前印花", stylePresetId: "faithful", stylePrompt: legacyFaithful,
+        poseNeutralSource: "/api/files/removed-neutral.png", styleReferenceImage: "/api/files/unused-style.png" } }, images,
     () => ({ id: "stub", generate, edit: generate }), {
       referenceRoles: incoming.map(item => item.role),
       onSceneRequestPrepared: async request => { snapshot = request; },

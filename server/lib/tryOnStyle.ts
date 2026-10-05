@@ -25,9 +25,14 @@ export async function resolveTryOnStyle(params: Record<string, unknown>, include
     ? params.stylePresetId.trim()
     : DEFAULT_TRY_ON_STYLE_PRESET_ID;
   const builtIn = builtInTryOnStylePreset(requestedId);
-  const prompt = typeof params.stylePrompt === "string" && params.stylePrompt.trim()
+  const requestedPrompt = typeof params.stylePrompt === "string" && params.stylePrompt.trim()
     ? params.stylePrompt.trim()
     : builtIn?.prompt ?? builtInTryOnStylePreset(DEFAULT_TRY_ON_STYLE_PRESET_ID)!.prompt;
+  // Saved nodes can carry the former built-in text. Match it exactly so custom
+  // style instructions remain verbatim.
+  const prompt = requestedId === "faithful" && requestedPrompt === "保持场景参考的真实光线、色彩和镜头质感，不增加额外滤镜或风格化处理。"
+    ? builtInTryOnStylePreset("faithful")!.prompt
+    : requestedPrompt;
   const name = typeof params.stylePresetName === "string" && params.stylePresetName.trim()
     ? params.stylePresetName.trim()
     : builtIn?.name ?? "自定义风格";

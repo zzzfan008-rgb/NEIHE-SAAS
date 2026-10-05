@@ -963,10 +963,10 @@ async function main() {
     assert.match(stageOne.calls[0].request.prompt, /参考图9只控制目标耳环/);
     assert.match(stageOne.calls[0].request.prompt, /参考图10只控制目标手镯/);
     assert.match(stageOne.calls[0].request.prompt, /佩戴适配姿势/);
-    assert.match(stageOne.calls[0].request.prompt, /不为展示包袋改变手臂动作/);
+    assert.match(stageOne.calls[0].request.prompt, /手腕和手指几何服从姿势参考.*保持既定手臂动作/);
     assert.doesNotMatch(stageOne.calls[0].request.prompt, /可能|结合场景文字中的手部动作/);
     assert.match(stageOne.calls[0].request.prompt, /真实存在且清晰可见的金属装饰图案与五金/);
-    assert.match(stageOne.calls[0].request.prompt, /只提取戒指本体/);
+    assert.match(stageOne.calls[0].request.prompt, /参考范围限于戒指本体/);
     assert.match(stageOne.calls[0].request.prompt, /目标商品本体上已有的金属装饰图案与五金沿用来源外观/);
 
     for (const modelId of ['gemini-3-pro-image-preview', 'gpt-image-2', 'gpt-image-2.5-flare']) {
@@ -981,7 +981,7 @@ async function main() {
       assert.deepEqual(first.calls[0].request.modelOptions, modelId.startsWith('gemini')
         ? { aspectRatio: '1:1', imageSize: '2K' } : { size: '2048x2048', quality: 'high' });
       assert.match(first.calls[0].request.prompt, /【用户想法】.*自然画册质感/);
-      assert.match(first.calls[0].request.prompt, /长裤不得改成短裤/);
+      assert.match(first.calls[0].request.prompt, /长裤保持长裤长度/);
       assert.match(first.calls[0].request.prompt, modelId.startsWith('gemini') ? /场景融合/ : modelId === 'gpt-image-2' ? /必须保持/ : /关键约束/);
       assert.equal(first.calls[0].request.referenceImages?.[0], POSE_DATA_URL);
     }
@@ -999,13 +999,13 @@ async function main() {
     );
     assert.match(bagOnly.calls[0].request.prompt, /只控制目标包袋/);
     assert.doesNotMatch(bagOnly.calls[0].request.prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
-    assert.match(bagOnly.calls[0].request.prompt, /未连接的配饰只沿用主穿搭中清晰可见的同类物品，不额外添加/);
+    assert.match(bagOnly.calls[0].request.prompt, /未连接的配饰仅采用主穿搭中清晰可见的同类物品/);
 
     for (const [kind, expected] of [
       ['original', /类型：原始人物照片/],
       ['neutral-outfit', /浅白色背心与下装仅用于姿势观察/],
-      ['skeleton', /不从线条推断视线/],
-      ['depth', /不将衣物表面当作真实身体轮廓/],
+      ['skeleton', /约束范围限于可见关键点的二维几何；视线与表情采用明确的文字描述/],
+      ['depth', /衣物表面仅提供可见外轮廓，身体比例采用人物参考/],
     ] as const) {
       const typed = await runRecordedAiStep('virtual-try-on', {
         workflowStage: 'scene-stabilize', poseReferenceType: kind,
@@ -1026,8 +1026,8 @@ async function main() {
       assert.doesNotMatch(poseSection, /其中原服装、姿势、以及非身份物体全忽略/);
       const outfitSection = prompt.split('【服装】')[1].split('【场景】')[0];
       assert.match(outfitSection, /服装类别、整体版型、上下装比例、衣长、袖长、裤长或裙长、腰线位置、裤腿宽度/);
-      assert.match(outfitSection, /长裤不得改成短裤，短裤不得延长为长裤/);
-      assert.match(outfitSection, /相对腰、髋、膝、踝的位置还原，不照搬参考人物的像素尺寸/);
+      assert.match(outfitSection, /长裤保持长裤长度，短裤保持短裤长度/);
+      assert.match(outfitSection, /相对腰、髋、膝、踝的位置还原，并适配目标人物比例/);
       assert.equal(typed.calls[0].request.referenceImages?.[0], POSE_DATA_URL);
     }
 

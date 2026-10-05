@@ -107,7 +107,8 @@ const generateBaseline = async (request: ImageGenRequest) => {
   generated++;
   assert.match(request.prompt, /局部换装编辑/);
   assert.match(request.prompt, /【服装】参考图2/);
-  assert.match(request.prompt, /禁止重新换脸、换姿势或生成新场景/);
+  assert.match(request.prompt, /完整保留人物基准图中的人物身份.*动作.*背景.*构图与画幅/);
+  assert.match(request.prompt, /保留基准图已有的自然肤质与面部细节/);
   assert.doesNotMatch(request.prompt, /自然安排人物动作|纯场景环境参考|不是修改或放大/);
   assert.equal(request.referenceImages?.length, 2);
   assert.equal(request.modelOptions?.aspectRatio, '1:1', '画幅跟随人物基准');

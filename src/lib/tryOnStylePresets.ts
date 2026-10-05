@@ -15,7 +15,7 @@ export const BUILT_IN_TRY_ON_STYLE_PRESETS: readonly TryOnStylePresetDefinition[
     id: DEFAULT_TRY_ON_STYLE_PRESET_ID,
     name: "忠实还原",
     description: "服从场景参考的原始光线与色彩，不额外增加风格化。",
-    prompt: "保持场景参考的真实光线、色彩和镜头质感，不增加额外滤镜或风格化处理。",
+    prompt: "保持场景参考的真实光线、色彩和镜头质感，呈现自然摄影效果。",
   },
   {
     id: "commerce",
