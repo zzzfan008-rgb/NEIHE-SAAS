@@ -40,7 +40,7 @@ import { isDirectMultiImagePoseNode } from "@/lib/multiImageTryOn";
 const ImageCropEditor = lazy(() => import("./ImageCropEditor"));
 const PoseReferenceComparison = lazy(() => import("../PoseReferenceComparison"));
 const PosePromptInferenceDialog = lazy(() => import("../PosePromptInferenceDialog"));
-const PosePromptAutoInference = lazy(() => import("../PosePromptAutoInference"));
+const PosePromptEditor = lazy(() => import("../PosePromptEditor"));
 interface CropSession {
   source: string;
   target: DocumentTarget;
@@ -734,7 +734,7 @@ export function ImageInputNode({
         <div className="nodrag nopan absolute left-1/2 top-[calc(100%+48px)] z-20 flex -translate-x-1/2 gap-2 whitespace-nowrap rounded-lg border border-[var(--gc-border)] bg-[var(--gc-panel)] p-1 shadow-xl">
           {!readOnly && <Button size="xs" variant="outline" onClick={(event) => { poseTriggerRef.current = event.currentTarget; setPoseSession({ source: data.imageUrl!, target: selectActiveDocumentTarget(useFlowStore.getState()) }); }}>生成姿势参考</Button>}
           <Button ref={poseTriggerRef} size="xs" variant="outline" onClick={(event) => { poseTriggerRef.current = event.currentTarget; setPoseSession({ source: data.imageUrl!, target: selectActiveDocumentTarget(useFlowStore.getState()) }); }}>查看对比</Button>
-          {canInferPosePrompt(isPose, data.imageUrl) && <Button ref={posePromptTriggerRef} size="xs" variant="outline" title="反推姿势提示词，默认用于第一轮生图，可在弹窗中查看和编辑" onClick={(event) => { posePromptTriggerRef.current = event.currentTarget; setPosePromptSession({ source: data.imageUrl!, target: selectActiveDocumentTarget(useFlowStore.getState()) }); }}>反推人物姿势</Button>}
+          {canInferPosePrompt(isPose, data.imageUrl) && <Button ref={posePromptTriggerRef} size="xs" variant="outline" title="反推姿势提示词，默认用于第一轮生图，可在节点下方编辑" onClick={(event) => { posePromptTriggerRef.current = event.currentTarget; setPosePromptSession({ source: data.imageUrl!, target: selectActiveDocumentTarget(useFlowStore.getState()) }); }}>反推人物姿势</Button>}
         </div>
       )}
       {poseSession && <Suspense fallback={<span role="status">正在加载姿势对比…</span>}>
@@ -743,8 +743,8 @@ export function ImageInputNode({
       {posePromptSession && <Suspense fallback={<span role="status">正在加载姿势反推…</span>}>
         <PosePromptInferenceDialog target={posePromptSession.target} nodeId={id} source={posePromptSession.source} triggerRef={posePromptTriggerRef} onClose={() => setPosePromptSession(null)} />
       </Suspense>}
-      {isPose && !directPose && data.imageUrl && !cropSession && <Suspense fallback={null}>
-        <PosePromptAutoInference key={`${activeDocumentKey}:${id}:${data.imageUrl}`} target={selectActiveDocumentTarget(useFlowStore.getState())} nodeId={id} source={data.imageUrl} connected={poseConnected} readOnly={readOnly} />
+      {isPose && !directPose && data.imageUrl && !cropSession && <Suspense fallback={<span role="status">正在加载姿势提示词…</span>}>
+        <PosePromptEditor key={`${activeDocumentKey}:${id}:${data.imageUrl}`} target={selectActiveDocumentTarget(useFlowStore.getState())} nodeId={id} source={data.imageUrl} connected={poseConnected} readOnly={readOnly} />
       </Suspense>}
     </div>
   );

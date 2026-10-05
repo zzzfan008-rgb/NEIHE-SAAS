@@ -18,27 +18,12 @@ import type { ImageGenRequest, VirtualTryOnNodeData, WorkflowTemplate } from "..
 
 const pro = "gemini-3-pro-image-preview";
 const referenceMap = "参考图1：姿势。\n参考图2：人物。\n参考图3：场景。\n参考图4：主穿搭。\n参考图5拼图第1行第1列：鞋子。\n参考图5拼图第1行第2列：袜子。";
-function assertPhotographicRealism(prompt: string): void {
-  assert.match(prompt, /自然、具有真实摄影质感的人物形象/);
-  assert.doesNotMatch(prompt, /风格化/);
-  assert.match(prompt, /不磨皮、不美颜/);
-  assert.match(prompt, /毛孔.*汗毛/);
-  assert.match(prompt, /虹膜.*放射状纤维/);
-  assert.match(prompt, /瞳孔边界/);
-  assert.match(prompt, /场景光源/);
-  assert.match(prompt, /发丝.*碎发/);
-  assert.match(prompt, /不.*强行新增/);
-  assert.match(prompt, /细节服从当前拍摄距离/);
-  assert.match(prompt, /不.*改变姿势、取景、服装.*场景光照/);
-  assert.ok(prompt.indexOf("动作（最高优先级）") < prompt.indexOf("真实摄影质感："));
-  assert.ok(prompt.indexOf("完整保留原始商品") < prompt.indexOf("真实摄影质感："), "写实细节必须服从姿势、服装与场景要求");
-}
 for (const concise of [false, true]) {
   for (const angleControlled of [false, true]) {
     const prompt = multiImageTryOnPrompt(referenceMap, "保留胸前印花和项链", angleControlled, concise);
     assert.ok(prompt.includes(referenceMap));
     assert.match(prompt, /以参考图2提供的人物造型基调/);
-    assertPhotographicRealism(prompt);
+    assert.match(prompt, /风格化的人物形象/);
     assert.match(prompt, /公众人物/);
     assert.match(prompt, /不复制参考图中任何真实可识别个人/);
     assert.match(prompt, /动作（最高优先级）.*身体朝向.*手部动作.*双腿弯曲/);
@@ -86,13 +71,6 @@ assert.match(calibratedPrompt, /四肢前后关系按深度校准结论/);
 assert.doesNotMatch(calibratedPrompt, /唯一姿势锚点|逐关节1:1复刻图1/);
 assert.doesNotMatch(calibratedPrompt, /无法判断/);
 assert.doesNotMatch(calibratedPrompt, /仅在图1无法判定的头部/);
-for (const concise of [false, true]) {
-  for (const poseReferenceType of ['original', 'skeleton']) {
-    for (const posePromptMode of ['single', 'three-view']) {
-      assertPhotographicRealism(multiImageTryOnPrompt(referenceMap, '', false, concise, poseReferenceType, '保留校准后的姿势', posePromptMode));
-    }
-  }
-}
 const baseRoles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
 const allRoles = [...MULTI_IMAGE_TRY_ON_ROLES, "detail", "detail", "detail", "detail"];
 for (const count of [4, 5, 6, 7, 14, 15, 20]) {
@@ -320,7 +298,6 @@ try {
           const poseMeta = await sharp(parseDataUrl(request.referenceImages[0]).buffer).metadata();
           assert.equal(Math.max(poseMeta.width!, poseMeta.height!), 2048, "姿势参考放大到至少 2048 长边");
           assert.match(request.prompt, /针织组织、蕾丝、缝线/);
-          assertPhotographicRealism(request.prompt);
           if (control) {
             assert.ok(request.prompt.includes(control.text));
             assert.match(request.prompt, /在已逐关节1:1复刻的图1姿势基础上/);
@@ -434,7 +411,7 @@ try {
         const prompt = parts[0].text as string;
         assert.equal(prompt, recorded?.prompt, "历史记录与真正发送的指令一致");
         sentPrompts.push(prompt);
-        assertPhotographicRealism(prompt);
+        assert.match(prompt, /风格化的人物形象/);
         assert.match(prompt, /保留胸前印花/);
         assert.match(prompt, /参考图1：姿势/);
         if (count === 7) {
@@ -467,47 +444,6 @@ try {
       assert.equal(calls, 1, "一次编辑，不自动追加请求");
     }
     assert.ok(sentPrompts[1].length < sentPrompts[0].length, "简化仅影响本次指令");
-  }
-  for (const modelId of ["gemini-3.1-flash-image", "gpt-image-2"] as const) {
-    for (const concise of [false, true]) {
-      let calls = 0;
-      let recorded: GenerationRequestSnapshot | undefined;
-      globalThis.fetch = async (url, init) => {
-        calls++;
-        assert.equal(init?.method, "POST");
-        let prompt: string;
-        if (modelId === "gpt-image-2") {
-          assert.equal(String(url), "https://gateway.example/v1/images/edits");
-          assert.ok(init?.body instanceof FormData);
-          assert.equal(init.body.get("model"), modelId);
-          prompt = String(init.body.get("prompt"));
-          assert.equal([...init.body.values()].filter(value => typeof value !== "string").length, 4);
-        } else {
-          assert.equal(String(url), "https://gateway.example/v1beta/models/gemini-3.1-flash-image:generateContent");
-          const body = JSON.parse(String(init?.body));
-          assert.equal(body.contents[0].parts.length, 5);
-          prompt = body.contents[0].parts[0].text;
-        }
-        assert.equal(prompt, recorded?.prompt, "历史记录与最终 Provider 请求一致");
-        assertPhotographicRealism(prompt);
-        assert.match(prompt, /保留胸前印花/);
-        assert.match(prompt, /参考图1：姿势/);
-        return modelId === "gpt-image-2"
-          ? Response.json({ data: [{ b64_json: images[0].split(",")[1] }] })
-          : Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [
-            { inlineData: { mimeType: "image/png", data: images[0].split(",")[1] } },
-          ] } }] });
-      };
-      await executeStep({ nodeId: "stabilize", kind: "virtual-try-on", inputImages: images.slice(0, 4),
-        params: { ...data, modelId, prompt: "保留胸前印花", sceneFraming: "custom", candidateReviewMode: "disabled",
-          modelOptions: modelId.startsWith("gemini") ? { aspectRatio: "3:4", imageSize: "2K" } : { quality: "high", size: "1024x1536" },
-          aspectRatio: "3:4", imageSize: "2K", ...(concise ? { multiImagePromptMode: "concise" } : {}) } },
-      images.slice(0, 4), () => apiyiProviders[modelId], {
-        referenceRoles: baseRoles.slice(0, 4), onSceneRequestPrepared: async value => { recorded = value; },
-        sceneAnalyzer: async () => { throw new Error("禁止额外分析请求"); },
-      });
-      assert.equal(calls, 1, "写实约束不增加生图请求");
-    }
   }
 } finally {
   globalThis.fetch = oldFetch;

@@ -3,10 +3,10 @@ import { expect, test } from './fixtures';
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test('pose prompt stays off canvas while auto inference and dialog editing persist', async ({ page }, testInfo) => {
+test('connected pose text is editable, source-bound and preserved through save/load', async ({ page }, testInfo) => {
   await page.route('**/api/auth/me', route => route.fulfill({ json: { user: { id: 'pose-test-user', accountId: 'pose-test-user', displayName: '姿势测试', role: 'user', mustChangePassword: false } } }));
   const png = await sharp({ create: { width: 300, height: 300, channels: 3, background: '#869ca7' } }).png().toBuffer();
-  await page.route('**/api/files/pose-*.png', route => route.fulfill({ contentType: 'image/png', body: png }));
+  await page.route('**/api/files/pose-*.png', r => r.fulfill({ contentType: 'image/png', body: png }));
   let calls = 0;
   await page.route('**/api/pose-references/analyze', async route => {
     calls++;
@@ -23,87 +23,85 @@ test('pose prompt stays off canvas while auto inference and dialog editing persi
     ], edges: [] });
     useFlowStore.setState({ saveProjectInTab: async () => true });
   });
-  const poseNode = page.locator('.react-flow__node[data-id="pose"]');
-  const poseText = async () => page.evaluate(async () => {
-    const module = '/src/store/flowStore.ts';
-    const { useFlowStore, selectActiveNodes } = await import(module);
-    return selectActiveNodes(useFlowStore.getState()).find((node: { id: string }) => node.id === 'pose')?.data.posePrompt;
-  });
-  await expect(page.locator('[data-pose-prompt-editor]')).toHaveCount(0);
-  await expect(poseNode.getByRole('textbox', { name: '姿势提示词', exact: true })).toHaveCount(0);
+  const text = page.getByRole('textbox', { name: '姿势提示词', exact: true });
+  await expect(text).toBeVisible();
   expect(calls).toBe(0);
-
   await page.evaluate(async () => {
     const module = '/src/store/flowStore.ts';
     const { useFlowStore } = await import(module);
     useFlowStore.getState().onConnect({ source: 'pose', sourceHandle: 'image', target: 'first', targetHandle: 'pose' });
     if (!useFlowStore.getState().confirmPendingConnection('pose')) throw new Error('姿势连线确认失败');
   });
-  await expect.poll(poseText).toBe('画面左腿交叉，肩线倾斜。');
+  await expect(text).toHaveValue('画面左腿交叉，肩线倾斜。');
   expect(calls).toBe(1);
-  await expect(poseNode).not.toContainText('画面左腿交叉，肩线倾斜。');
-  const originalViewport = page.viewportSize()!;
-  for (const width of [1024, 1280, 1440]) {
-    await page.setViewportSize({ width, height: originalViewport.height });
-    await expect(page.locator('[data-pose-prompt-editor]')).toHaveCount(0);
-    const box = await poseNode.boundingBox();
-    expect(box!.width).toBeGreaterThan(0);
-    expect(box!.x).toBeGreaterThanOrEqual(0);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
-  }
-  await page.setViewportSize(originalViewport);
-
-  const reload = async () => page.evaluate(async () => {
+  const box = await text.boundingBox();
+  expect(box!.width).toBeGreaterThan(180);
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await text.fill('用户修订：画面右手贴近髋部。');
+  await page.mouse.click(80, 80);
+  await page.evaluate(async () => {
     const storeModule = '/src/store/flowStore.ts';
     const snapshotModule = '/src/lib/documentSnapshot.ts';
     const { useFlowStore, selectActiveDocument } = await import(storeModule);
     const { createDocumentSnapshot, documentSnapshotToPersistedWorkflow } = await import(snapshotModule);
-    const flow = documentSnapshotToPersistedWorkflow(createDocumentSnapshot(selectActiveDocument(useFlowStore.getState())));
+    const document = selectActiveDocument(useFlowStore.getState());
+    const flow = documentSnapshotToPersistedWorkflow(createDocumentSnapshot(document));
     useFlowStore.getState().loadFlow({ ...flow, projectName: '重新打开' });
+  });
+  await expect(text).toHaveValue('用户修订：画面右手贴近髋部。');
+  expect(calls).toBe(1);
+  await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(module);
     useFlowStore.getState().setSelectedNodeIds(['pose']);
   });
-  await reload();
-  await expect.poll(poseText).toBe('画面左腿交叉，肩线倾斜。');
-  expect(calls).toBe(1);
   const inference = page.getByRole('button', { name: '反推人物姿势', exact: true });
   await inference.click();
   const dialog = page.getByRole('dialog', { name: '反推人物姿势', exact: true });
-  const optimized = dialog.getByRole('textbox', { name: '优化后姿势提示词', exact: true });
-  await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText('画面左腿交叉，肩线倾斜。');
-  await optimized.fill('用户修订：画面右手贴近髋部。');
-  await dialog.getByRole('button', { name: '保存优化提示词', exact: true }).click();
-  await expect(dialog.getByText('优化提示词已保存', { exact: true })).toBeVisible();
-  await expect(poseNode).not.toContainText('用户修订：画面右手贴近髋部。');
-  await page.screenshot({ path: testInfo.outputPath('pose-prompt-dialog-only.png') });
-  await page.keyboard.press('Escape');
-  await expect(inference).toBeFocused();
-  await reload();
-  await inference.click();
-  await expect(optimized).toHaveValue('用户修订：画面右手贴近髋部。');
-  await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText('画面左腿交叉，肩线倾斜。');
-  expect(calls).toBe(1);
+  await expect(dialog.locator('[data-pose-prompt="result"]')).toHaveText('用户修订：画面右手贴近髋部。');
   await dialog.getByRole('button', { name: '开始反推', exact: true }).click();
   await expect(dialog.locator('[data-pose-prompt="candidate"]')).toHaveText('画面左腿交叉，肩线倾斜。');
-  expect(calls).toBe(2);
+  await expect(page.locator('#pose-prompt-pose')).toHaveValue('用户修订：画面右手贴近髋部。');
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
   await dialog.getByRole('button', { name: '确认并替换当前提示词', exact: true }).click();
-  await expect(optimized).toHaveValue('');
+  await expect(page.locator('#pose-prompt-pose')).toHaveValue('画面左腿交叉，肩线倾斜。');
+  await expect(dialog.locator('[data-pose-prompt="candidate"]')).toHaveCount(0);
   const analysisMode = dialog.getByRole('combobox', { name: '分析方式' });
   await analysisMode.click();
   await page.getByRole('option', { name: '原图 + 深度图 + DWPose 三图校准' }).click();
   await expect(dialog.getByRole('status')).toContainText('请先在姿势参考结果中生成当前原图的深度图和 DWPose 骨骼图。');
   await expect(dialog.getByRole('button', { name: '开始反推', exact: true })).toBeDisabled();
+  const originalViewport = page.viewportSize()!;
+  for (const width of [1024, 1280, 1440]) {
+    await page.setViewportSize({ width, height: originalViewport.height });
+    const calibrationBox = await dialog.boundingBox();
+    expect(calibrationBox!.x).toBeGreaterThanOrEqual(0);
+    expect(calibrationBox!.x + calibrationBox!.width).toBeLessThanOrEqual(width);
+    expect(calibrationBox!.y + calibrationBox!.height).toBeLessThanOrEqual(originalViewport.height);
+  }
+  await page.setViewportSize(originalViewport);
   await analysisMode.click();
   await page.getByRole('option', { name: '单图反推', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: '重新反推', exact: true })).toBeEnabled();
   await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
   await expect(inference).toBeFocused();
-
+  expect(calls).toBe(2);
+  await text.focus();
+  await page.screenshot({ path: testInfo.outputPath('pose-prompt-editor.png') });
+  await text.fill('');
+  await page.mouse.click(80, 80);
   const blockedError = await page.evaluate(async () => {
     const module = '/src/store/flowStore.ts';
     const safetyModule = '/src/store/generationSafety.ts';
     const { setGenerationSafetyBlockReason, getGenerationSafetyBlockReason } = await import(safetyModule);
-    const { useFlowStore, selectActiveNodes, selectActiveDocumentTarget } = await import(module);
+    const { useFlowStore, selectActiveNodes } = await import(module);
     const previous = getGenerationSafetyBlockReason();
-    useFlowStore.getState().updateNodeDataInTab(selectActiveDocumentTarget(useFlowStore.getState()), 'pose', { posePrompt: '', posePromptOptimized: undefined });
     setGenerationSafetyBlockReason(null);
     try { await useFlowStore.getState().runNode('first'); }
     finally { setGenerationSafetyBlockReason(previous); }
@@ -115,7 +113,6 @@ test('pose prompt stays off canvas while auto inference and dialog editing persi
     const { useFlowStore, selectActiveDocumentTarget } = await import(module);
     useFlowStore.getState().assignImageInputInTab(selectActiveDocumentTarget(useFlowStore.getState()), 'pose', '/api/files/pose-new.png');
   });
-  await expect.poll(poseText).toBe('画面左腿交叉，肩线倾斜。');
+  await expect(text).toHaveValue('画面左腿交叉，肩线倾斜。');
   expect(calls).toBe(3);
-  await expect(poseNode).not.toContainText('画面左腿交叉，肩线倾斜。');
 });
