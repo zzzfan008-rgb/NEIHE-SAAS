@@ -10,3 +10,5 @@ dist-server/
 backups/
 npm-debug.log*
 releases
+tmp_gc_records.tsv
+tmp_gen_dump.json
