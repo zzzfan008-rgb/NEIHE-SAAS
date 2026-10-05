@@ -57,7 +57,7 @@ interface PoseOutfitRow {
   provider_output_size: string | null;
 }
 type Analyzer = (image: string, kind: PoseReferenceKind, markProvider: () => Promise<void>) => Promise<NonNullable<PoseReferenceRecord['result']>>;
-type PosePromptAnalyzer = (image: string, options?: PoseAnalysisOptions) => Promise<Pick<PoseAnalysisResult,'prompt'|'optimizedPrompt'|'providerRequests'|'model'|'cacheHit'|'calibrationMode'>>;
+type PosePromptAnalyzer = (image: string, options?: PoseAnalysisOptions) => Promise<Pick<PoseAnalysisResult,'prompt'|'optimizedPrompt'|'optimizedPromptVerified'|'providerRequests'|'model'|'cacheHit'|'calibrationMode'>>;
 class RequestError extends Error { constructor(public status: number, message: string) { super(message); } }
 const record = (row: Row): PoseReferenceRecord => ({id:row.id,kind:row.kind,source:row.source,status:row.status,...(row.result?{result:row.result}:{}),...(row.error?{error:row.error}:{})});
 const POSE_OUTFIT_REFERENCE_KIND = 'pose-reference-outfit';
@@ -209,11 +209,13 @@ function parsePosePromptInput(body: Record<string,unknown>): PoseReferenceInput 
   return input;
 }
 
-function posePromptResult(value:unknown): Pick<PoseAnalysisResult,'prompt'|'optimizedPrompt'|'providerRequests'|'model'|'cacheHit'|'calibrationMode'> {
+function posePromptResult(value:unknown): Pick<PoseAnalysisResult,'prompt'|'optimizedPrompt'|'optimizedPromptVerified'|'providerRequests'|'model'|'cacheHit'|'calibrationMode'> {
   if (!value || typeof value!=='object') throw new RequestError(502,'姿势反推结果格式无效');
   const result=value as Partial<PoseAnalysisResult>;
   if (typeof result.prompt!=='string' || !result.prompt.trim() || result.prompt.length>4000 ||
       (result.optimizedPrompt !== undefined && (typeof result.optimizedPrompt!=='string' || !result.optimizedPrompt.trim() || result.optimizedPrompt.length>4000)) ||
+      (result.optimizedPromptVerified !== undefined && result.optimizedPromptVerified !== true) ||
+      (result.optimizedPromptVerified === true && (typeof result.optimizedPrompt !== 'string' || result.calibrationMode !== 'three-view')) ||
       typeof result.providerRequests!=='number' || !Number.isInteger(result.providerRequests) || result.providerRequests<0 ||
       typeof result.model!=='string' || !result.model.trim() || typeof result.cacheHit!=='boolean' ||
       (result.calibrationMode !== undefined && result.calibrationMode !== 'three-view')) {
@@ -221,6 +223,7 @@ function posePromptResult(value:unknown): Pick<PoseAnalysisResult,'prompt'|'opti
   }
   return {prompt:result.prompt,providerRequests:result.providerRequests,model:result.model,cacheHit:result.cacheHit,
     ...(typeof result.optimizedPrompt==='string' && result.optimizedPrompt.trim() ? {optimizedPrompt:result.optimizedPrompt} : {}),
+    ...(result.optimizedPromptVerified === true ? {optimizedPromptVerified:true as const} : {}),
     ...(result.calibrationMode ? {calibrationMode:result.calibrationMode} : {})};
 }
 

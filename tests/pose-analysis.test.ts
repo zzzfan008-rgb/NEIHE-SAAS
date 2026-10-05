@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
+import type { DWPoseKeypointV1, DWPosePoseV1 } from "../src/types/poseReference";
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "garment-canvas-pose-analysis-"));
 process.env.DATA_DIR = temp;
@@ -17,6 +18,17 @@ const ALT_IMAGE = `data:image/png;base64,${(await sharp({
   create: { width: 300, height: 500, channels: 3, background: "#777777" },
 }).png().toBuffer()).toString("base64")}`;
 const point = (x: number, y: number) => ({ x, y });
+const calibrationKeypoints = Array.from({ length: 133 }, () => null as DWPoseKeypointV1 | null);
+for (const [index, x, y] of [
+  [5, 0.38, 0.23], [6, 0.62, 0.23], [7, 0.3, 0.38], [8, 0.7, 0.4],
+  [9, 0.42, 0.48], [10, 0.78, 0.52], [11, 0.44, 0.53], [12, 0.6, 0.54],
+  [13, 0.43, 0.72], [14, 0.66, 0.7], [15, 0.4, 0.93], [16, 0.72, 0.9],
+] as const) calibrationKeypoints[index] = { x, y, confidence: 0.9 };
+const CALIBRATION_POSE: DWPosePoseV1 = {
+  schemaVersion: 1,
+  canvas: { width: 300, height: 500 },
+  people: [{ keypoints: calibrationKeypoints }],
+};
 const ANALYSIS = {
   points: {
     head: point(0.5, 0.12), gazeTarget: point(0.62, 0.12), neck: point(0.5, 0.2),
@@ -39,8 +51,8 @@ const CALIBRATED_ANALYSIS = {
   ...ANALYSIS,
   calibration: {
     originalEvidence: "原图可见人物站立，重心落在画面左腿",
-    depthEvidence: "深度图显示画面左膝比右膝更靠近镜头",
-    skeletonEvidence: "DWPose左膝坐标位于右膝左侧，置信度较高",
+    depthEvidence: "深度图显示画面左膝比画面右膝更靠近镜头",
+    skeletonEvidence: "DWPose显示画面左膝x小于画面右膝，点位置信度较高",
     conflicts: "无",
     unknowns: "无法判断被遮挡的脚踝",
   },
@@ -59,20 +71,43 @@ globalThis.fetch = async (_input, init) => {
 };
 
 try {
-  const { analyzePoseReference, optimizeCalibratedPrompt, swapPosePromptLeftRight } = await import("../server/lib/poseAnalysis");
+  const { analyzePoseReference, optimizeCalibratedPrompt } = await import("../server/lib/poseAnalysis");
   const optimized = optimizeCalibratedPrompt({ ...CALIBRATED_ANALYSIS,
-    handPose: '右肘弯曲，右腕靠近髋部，手指状态无法判断',
+    handPose: '画面右肘弯曲，画面右腕靠近髋部，手指状态无法判断',
     gazeDirection: '无法识别',
     facialExpression: '嘴唇闭合，嘴角方向无法判断',
-  });
-  assert.match(optimized, /肩线向画面左侧略低，躯干微向画面右侧倾斜，重心落在画面右腿/);
-  assert.match(optimized, /左肘弯曲，左腕靠近髋部/);
-  const leftRight = '左臂在左侧、右腿在右侧，左右错位';
-  assert.equal(swapPosePromptLeftRight(leftRight), '右臂在右侧、左腿在左侧，左右错位');
-  assert.equal(swapPosePromptLeftRight(swapPosePromptLeftRight(leftRight)), leftRight, '左右互换应可逆');
+  }, CALIBRATION_POSE);
+  assert.match(optimized, /^三图校准补充（仅补充图1不可见关系）/);
   assert.match(optimized, /嘴唇闭合/);
-  assert.doesNotMatch(optimized, /无法判断|无法识别|原图证据|跨图冲突|视线方向/);
+  assert.doesNotMatch(optimized, /整体姿态|躯干姿态|下肢姿态|画面右肘|无法判断|无法识别|原图证据|跨图冲突|视线方向/);
   assert.match(CALIBRATED_ANALYSIS.calibration.unknowns, /无法判断/, '优化不能修改原始校准证据');
+  assert.throws(() => optimizeCalibratedPrompt({
+    ...CALIBRATED_ANALYSIS,
+    legPose: '画面左腿越过中线并交叉于画面右腿前侧',
+  }, CALIBRATION_POSE), /交叉.*DWPose|DWPose.*交叉/, '非交叉骨骼不能被文字改写为交叉');
+  const lowConfidencePose: DWPosePoseV1 = structuredClone(CALIBRATION_POSE);
+  for (const index of [11, 12, 13, 14, 15, 16]) lowConfidencePose.people[0].keypoints[index] = null;
+  assert.throws(() => optimizeCalibratedPrompt({
+    ...CALIBRATED_ANALYSIS,
+    legPose: '画面左腿与画面右腿不交叉',
+  }, lowConfidencePose), /交叉.*DWPose|DWPose.*交叉/, 'DWPose腿部点缺失时不能输出肯定的交叉结论');
+  assert.throws(() => optimizeCalibratedPrompt({
+    ...CALIBRATED_ANALYSIS,
+    bodyPose: '人物站立，重心落在画面右腿',
+  }, CALIBRATION_POSE), /承重|重心/, '承重结论必须与原图证据一致');
+  assert.throws(() => optimizeCalibratedPrompt({
+    ...CALIBRATED_ANALYSIS,
+    handPose: '画面右手贴在身体侧面',
+  }, CALIBRATION_POSE), /手部接触/, '手部接触必须得到原图证据支持');
+  assert.throws(() => optimizeCalibratedPrompt({
+    ...CALIBRATED_ANALYSIS,
+    legPose: '画面右膝位于画面左膝前侧',
+  }, CALIBRATION_POSE), /前后关系|深度图/, '前后关系必须与深度图证据一致');
+  assert.throws(() => optimizeCalibratedPrompt({
+    ...CALIBRATED_ANALYSIS,
+    handPose: '右手贴在身体侧面',
+    calibration: { ...CALIBRATED_ANALYSIS.calibration, originalEvidence: '原图可见右手贴在身体侧面' },
+  }, CALIBRATION_POSE), /画面左|画面右/, '校准输出必须统一使用画面坐标');
   let marked = 0;
   const first = await analyzePoseReference(IMAGE, {
     beforeProviderCall: async (providerRequest) => { marked = providerRequest; },
@@ -129,7 +164,7 @@ try {
   assert.equal(unknown.cacheHit, false);
   assert.match(unknown.prompt, /面部神态：无法判断/);
   assert.ok(unknown.guideImage.startsWith('data:image/png;base64,'));
-  assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).schemaVersion, 5);
+  assert.equal(JSON.parse(fs.readFileSync(cachePath, 'utf8')).schemaVersion, 6);
   globalThis.fetch = async () => new Response(JSON.stringify({ candidates: [{ content: { parts: [{
     text: JSON.stringify({ ...ANALYSIS, facialExpression: undefined }),
   }] } }] }), { status: 200 });
@@ -174,18 +209,18 @@ try {
     calibrationBodies.push(request);
     return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(CALIBRATED_ANALYSIS) }] } }] });
   };
-  const pose = { schemaVersion: 1, canvas: { width: 300, height: 500 }, people: [{
-    keypoints: Array.from({ length: 133 }, (_, index) => ({ x: index / 133, y: (132 - index) / 133, confidence: 0.9 })),
-  }] };
+  const pose = CALIBRATION_POSE;
   const calibration = { depthImageDataUrl: ALT_IMAGE, skeletonImageDataUrl: IMAGE, pose };
   const calibrated = await analyzePoseReference(IMAGE, { calibration });
   const calibratedParts = calibrationBodies[0].contents[0].parts;
   assert.equal(calibrationCalls, 1);
   assert.ok(calibratedParts[0].text.includes("原始姿势图"));
   assert.equal(calibrated.calibrationMode, 'three-view');
+  assert.equal(calibrated.optimizedPromptVerified, true, '只有通过结构门禁的自动优化稿才能标记为可信');
   assert.ok(calibrated.prompt.includes('三图校准结果'));
   assert.match(calibrated.prompt, /肩线向画面右侧略低，躯干微向画面左侧倾斜，重心落在画面左腿/, '原始校准稿应保持原方向');
-  assert.match(calibrated.optimizedPrompt ?? '', /肩线向画面左侧略低，躯干微向画面右侧倾斜，重心落在画面右腿/, '优化稿应交换左右方向');
+  assert.match(calibrated.optimizedPrompt ?? '', /^三图校准补充（仅补充图1不可见关系）/, '优化稿只能包含通过结构校验的补充关系');
+  assert.doesNotMatch(calibrated.optimizedPrompt ?? '', /整体姿态|躯干姿态|下肢姿态|重心/, '优化稿不能覆盖图1可见几何');
   assert.match(calibratedParts[0].text, /原始姿势图/);
   assert.equal(calibratedParts[2].inlineData.data, IMAGE.split(",")[1]);
   assert.match(calibratedParts[3].text, /深度图/);

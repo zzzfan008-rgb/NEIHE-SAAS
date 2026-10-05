@@ -19,6 +19,7 @@ import type { ImageGenRequest, VirtualTryOnNodeData, WorkflowTemplate } from "..
 
 const pro = "gemini-3-pro-image-preview";
 const referenceMap = "参考图1：姿势。\n参考图2：人物。\n参考图3：场景。\n参考图4：主穿搭。\n参考图5拼图第1行第1列：鞋子。\n参考图5拼图第1行第2列：袜子。";
+const calibratedSupplement = "三图校准补充（仅补充图1不可见关系）\n前后深度：画面左膝比画面右膝更靠近镜头\n面部神态：嘴唇闭合";
 function assertPhotographicRealism(prompt: string): void {
   assert.match(prompt, /真实摄影质感/);
   assert.doesNotMatch(prompt, /风格化/);
@@ -83,14 +84,18 @@ assert.match(promptedPose, /仅图1无法判定的头部旋转、俯仰、视线
 assert.match(promptedPose, /该文字中与图1可见几何冲突的部分全部忽略/);
 assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original", ""), /姿势补充描述/);
 assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /姿势补充描述/);
-const calibratedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "明确校准：画面左膝位于右膝前方", "three-view");
-assert.match(calibratedPrompt, /三图校准姿势约束/);
-assert.match(calibratedPrompt, /画面左膝位于右膝前方/);
-assert.match(calibratedPrompt, /手部语义按原图结论/);
-assert.match(calibratedPrompt, /四肢前后关系按深度校准结论/);
+const calibratedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original", calibratedSupplement, "three-view", true);
+assert.match(calibratedPrompt, /三图校准补充（从属约束）/);
+assert.match(calibratedPrompt, /画面左膝比画面右膝更靠近镜头/);
+assert.match(calibratedPrompt, /参考图1可见人体几何是最高优先级/);
+assert.match(calibratedPrompt, /校准文字仅补充图1无法直接判定/);
 assert.doesNotMatch(calibratedPrompt, /唯一姿势锚点|逐关节1:1复刻图1/);
 assert.doesNotMatch(calibratedPrompt, /无法判断/);
 assert.doesNotMatch(calibratedPrompt, /仅在图1无法判定的头部/);
+const rejectedCalibratedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "整体姿态：画面左腿交叉", "three-view");
+assert.doesNotMatch(rejectedCalibratedPrompt, /整体姿态：画面左腿交叉/, '未通过结构门禁的三图文字不得进入最终 prompt');
+const manuallyForgedSupplement = multiImageTryOnPrompt(referenceMap, "", false, false, "original", calibratedSupplement, "three-view", false);
+assert.doesNotMatch(manuallyForgedSupplement, /画面左膝比画面右膝更靠近镜头/, '仅格式正确但没有服务端校验位的文字也不得进入最终 prompt');
 for (const concise of [false, true]) {
   for (const poseReferenceType of ['original', 'skeleton']) {
     for (const posePromptMode of ['single', 'three-view']) {
@@ -185,6 +190,17 @@ const calibrationSnapshot = createDocumentSnapshot({ projectName: "calibrated po
 const persistedCalibration = documentSnapshotToPersistedWorkflow(calibrationSnapshot);
 const persistedCalibrationNode = persistedCalibration.nodes.find(node => node.id === "pose")!;
 assert.equal((persistedCalibrationNode.data as any).posePromptMode, "three-view", "校准语义必须跨保存/重载保留");
+const verifiedFlow = structuredClone(calibrationFlow);
+const verifiedPose = verifiedFlow.nodes.find(node => node.id === 'pose')!;
+if (verifiedPose.data.kind !== 'image-input') throw new Error('missing verified pose input');
+verifiedPose.data.posePromptOptimized = calibratedSupplement;
+(verifiedPose.data as any).posePromptOptimizedVerified = true;
+const verifiedReloaded = validateAndMigrateFlow(documentSnapshotToPersistedWorkflow(createDocumentSnapshot({ projectName: 'verified pose', ...verifiedFlow })));
+const verifiedReloadedPose = verifiedReloaded.nodes.find(node => node.id === 'pose')!;
+assert.equal((verifiedReloadedPose.data as any).posePromptOptimizedVerified, true, '结构门禁状态必须跨保存/重载保留');
+const verifiedFirst = verifiedReloaded.nodes.find(node => node.data.kind === 'virtual-try-on')!;
+const verifiedStep = buildExecutionPlan(verifiedReloaded.nodes, verifiedReloaded.edges, { onlyNodeId: verifiedFirst.id, includeDownstream: false }).steps.find(step => step.nodeId === verifiedFirst.id)!;
+assert.equal(verifiedStep.params.posePrompt, calibratedSupplement, '只有服务端校验通过的三图补充才能进入第一阶段');
 for (const mode of ['single', 'three-view'] as const) {
   const editedFlow = structuredClone(calibrationFlow);
   const poseNode = editedFlow.nodes.find(node => node.id === 'pose')!;
@@ -198,7 +214,8 @@ for (const mode of ['single', 'three-view'] as const) {
   assert.equal((reloadedPose.data as any).posePromptOptimized, poseNode.data.posePromptOptimized, '手工优化结果不依赖三图模式，保存后不能丢失');
   const first = reloaded.nodes.find(node => node.data.kind === 'virtual-try-on')!;
   const step = buildExecutionPlan(reloaded.nodes, reloaded.edges, { onlyNodeId: first.id, includeDownstream: false }).steps.find(step => step.nodeId === first.id)!;
-  assert.equal(step.params.posePrompt, poseNode.data.posePromptOptimized, '第一阶段必须读取已保存的手工优化文本');
+  if (mode === 'single') assert.equal(step.params.posePrompt, poseNode.data.posePromptOptimized, '单图手工优化文本继续进入第一阶段');
+  else assert.equal(step.params.posePrompt, undefined, '未经结构门禁的三图手工文本不得覆盖原姿势图');
   assert.equal(step.params.posePromptMode, mode, '手工编辑不能伪装成三图校准');
   assert.equal((reloadedPose.data as any).posePrompt, calibrationNode.data.posePrompt, '保留原始反推用于对比');
   for (const invalid of [123, 'x'.repeat(4001)]) {
@@ -338,7 +355,8 @@ try {
         assert.deepEqual(snapshot?.references.map(ref => ref.role), roles);
         assert.deepEqual(request.referenceImages.slice(1), images.slice(1, 6));
         assert.match(request.prompt, /^以参考图2提供的人物造型基调/);
-        assert.match(request.prompt, /三图校准姿势约束：\n校准动作：双手插袋，双脚前后错位/);
+        assert.doesNotMatch(request.prompt, /校准动作：双手插袋，双脚前后错位/, '旧版未校验三图文字不得进入最终 API prompt');
+        assert.match(request.prompt, /参考图1可见人体几何是最高优先级/);
         assert.match(request.prompt, /参考图3：场景/);
         assert.match(request.prompt, /参考图4：主穿搭/);
         assert.match(request.prompt, /生成全原创形象/);

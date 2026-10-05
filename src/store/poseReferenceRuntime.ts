@@ -25,6 +25,7 @@ export interface PosePromptInferenceResult {
   providerRequests: number;
   cacheHit: boolean;
   optimizedPrompt?: string;
+  optimizedPromptVerified?: true;
   calibrationMode?: 'three-view';
 }
 export interface PosePromptInferenceState {
@@ -76,6 +77,8 @@ function validatePosePrompt(value:unknown):PosePromptInferenceResult {
   const result=value as Partial<PosePromptInferenceResult>;
   if (typeof result.prompt!=='string' || !result.prompt.trim() || result.prompt.length>4000 ||
       (result.optimizedPrompt !== undefined && (typeof result.optimizedPrompt!=='string' || !result.optimizedPrompt.trim() || result.optimizedPrompt.length>4000)) ||
+      (result.optimizedPromptVerified !== undefined && result.optimizedPromptVerified !== true) ||
+      (result.optimizedPromptVerified === true && (typeof result.optimizedPrompt !== 'string' || result.calibrationMode !== 'three-view')) ||
       typeof result.model!=='string' || !result.model.trim() ||
       typeof result.providerRequests!=='number' || !Number.isInteger(result.providerRequests) || result.providerRequests<0 ||
       typeof result.cacheHit!=='boolean' || (result.calibrationMode !== undefined && result.calibrationMode !== 'three-view')) {
@@ -83,6 +86,7 @@ function validatePosePrompt(value:unknown):PosePromptInferenceResult {
   }
   return {prompt:result.prompt,model:result.model,providerRequests:result.providerRequests,cacheHit:result.cacheHit,
     ...(typeof result.optimizedPrompt==='string' && result.optimizedPrompt.trim() ? {optimizedPrompt:result.optimizedPrompt} : {}),
+    ...(result.optimizedPromptVerified === true ? {optimizedPromptVerified:true as const} : {}),
     ...(result.calibrationMode ? {calibrationMode:result.calibrationMode} : {})};
 }
 export async function restorePoseReferences(target:DocumentTarget,nodeId:string,source:string,analysisSource=source,analysisSourceRecordId?:string) {

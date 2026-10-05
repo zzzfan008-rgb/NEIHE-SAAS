@@ -71,6 +71,7 @@ export type DocumentNodeData =
       posePromptImage?: string;
       posePromptMode?: import('../types/poseReference').PosePromptMode;
       posePromptOptimized?: string;
+      posePromptOptimizedVerified?: true;
       poseReferenceSource?: import('../types/poseReference').PoseReferenceSource;
       poseDocument?: import('../types/poseDocument').PoseDocumentV1;
       poseSkeletonEdits?: import('./poseSkeletonEdit').PoseSkeletonEdit[];
@@ -444,6 +445,8 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
         ...(posePromptForImage(data) !== undefined ? { posePrompt: data.posePrompt, posePromptImage: data.imageUrl } : {}),
         ...(posePromptForImage(data) !== undefined && data.posePromptMode === 'three-view' ? { posePromptMode: 'three-view' } : {}),
         ...(posePromptForImage(data) !== undefined && optimizedPosePromptForImage(data) !== undefined ? { posePromptOptimized: data.posePromptOptimized } : {}),
+        ...(posePromptForImage(data) !== undefined && optimizedPosePromptForImage(data) !== undefined && data.posePromptOptimizedVerified === true
+          ? { posePromptOptimizedVerified: true as const } : {}),
         ...(validPoseReferenceSource(data.poseReferenceSource, data.imageUrl)
           ? { poseReferenceSource: { kind: data.poseReferenceSource.kind, image: data.poseReferenceSource.image,
               ...optionalString("neutralSource", data.poseReferenceSource.neutralSource) } }

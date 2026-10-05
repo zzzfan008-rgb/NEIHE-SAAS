@@ -720,12 +720,19 @@ function validateData(
         stringValue(raw.posePromptOptimized, `${path}.posePromptOptimized`);
         if ((raw.posePromptOptimized as string).length > 4000) fail(`${path}.posePromptOptimized`, 'must be at most 4000 characters');
       }
+      if (raw.posePromptOptimizedVerified !== undefined && raw.posePromptOptimizedVerified !== true) {
+        fail(`${path}.posePromptOptimizedVerified`, 'must be true when present');
+      }
+      if (raw.posePromptOptimizedVerified === true && (raw.posePromptMode !== 'three-view' || raw.posePromptOptimized === undefined)) {
+        fail(`${path}.posePromptOptimizedVerified`, 'requires a three-view optimized prompt');
+      }
       optionalImageReference(raw.posePromptImage, `${path}.posePromptImage`);
       if (!raw.imageUrl || raw.posePromptImage !== raw.imageUrl || raw.posePrompt === undefined) {
         delete raw.posePrompt;
         delete raw.posePromptMode;
         delete raw.posePromptImage;
         delete raw.posePromptOptimized;
+        delete raw.posePromptOptimizedVerified;
       }
       if (raw.poseReferenceSource !== undefined) {
         const source = record(raw.poseReferenceSource, `${path}.poseReferenceSource`);

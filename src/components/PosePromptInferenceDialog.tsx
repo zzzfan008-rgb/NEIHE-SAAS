@@ -56,6 +56,10 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     const data = s.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch)?.nodes.find(n => n.id === nodeId)?.data;
     return data?.kind === 'image-input' && data.imageUrl === source ? optimizedPosePromptForImage(data) : undefined;
   });
+  const savedOptimizedPromptVerified = useFlowStore(s => {
+    const data = s.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch)?.nodes.find(n => n.id === nodeId)?.data;
+    return data?.kind === 'image-input' && data.imageUrl === source && data.posePromptOptimizedVerified === true;
+  });
   const promptState = state.posePrompt;
   const result = promptState?.result;
   const running = promptState?.status === 'running';
@@ -64,7 +68,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     const tab = s.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch);
     return Boolean(tab && !tab.readOnly && tab.nodes.some(n => n.id === nodeId && n.data.kind === 'image-input' && n.data.imageUrl === source));
   });
-  const revision = JSON.stringify([target, nodeId, source, savedPrompt, savedPromptMode, savedOptimizedPrompt]);
+  const revision = JSON.stringify([target, nodeId, source, savedPrompt, savedPromptMode, savedOptimizedPrompt, savedOptimizedPromptVerified]);
   const [draft, setDraft] = useState<{ revision: string; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [pendingSave, setPendingSave] = useState(false);
@@ -82,7 +86,8 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
   const saveOptimized = async () => {
     if (!writable || saving || running || conflict || (!dirty && !pendingSave) || !optimizedText.trim() || optimizedText.length > 4000) return;
     const data = currentData();
-    if (!data || posePromptForImage(data) !== savedPrompt || optimizedPosePromptForImage(data) !== savedOptimizedPrompt || (data.posePromptMode ?? 'single') !== savedPromptMode) {
+    if (!data || posePromptForImage(data) !== savedPrompt || optimizedPosePromptForImage(data) !== savedOptimizedPrompt ||
+        (data.posePromptMode ?? 'single') !== savedPromptMode || (data.posePromptOptimizedVerified === true) !== savedOptimizedPromptVerified) {
       setSaveError('姿势来源或提示词已变化，请重新打开后编辑');
       return;
     }
@@ -95,6 +100,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         posePromptImage: source,
         posePromptMode: savedPromptMode ?? 'single',
         posePromptOptimized: optimizedText.trim(),
+        posePromptOptimizedVerified: undefined,
       });
       setDraft(null);
     }
@@ -103,7 +109,8 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     try {
       if (!await useFlowStore.getState().saveProjectInTab(stableTarget)) throw new Error('优化文本已更新到当前文档，但项目保存失败，请重试保存');
       const latest = currentData();
-      if (!latest || latest.posePrompt !== written?.posePrompt || latest.posePromptOptimized !== written?.posePromptOptimized || latest.posePromptMode !== written?.posePromptMode) {
+      if (!latest || latest.posePrompt !== written?.posePrompt || latest.posePromptOptimized !== written?.posePromptOptimized ||
+          latest.posePromptMode !== written?.posePromptMode || latest.posePromptOptimizedVerified !== written?.posePromptOptimizedVerified) {
         throw new Error('姿势来源或提示词已变化，请重新打开检查保存结果');
       }
       setPendingSave(false);
@@ -127,7 +134,15 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     setDraft(null);
     setSaveMessage(undefined);
     setSaveError(undefined);
-    store.updateNodeDataInTab(target, nodeId, { posePrompt: result.prompt, posePromptImage: source, posePromptMode: result.calibrationMode ?? 'single', posePromptOptimized: result.calibrationMode === 'three-view' && typeof result.optimizedPrompt === 'string' && result.optimizedPrompt.trim() ? result.optimizedPrompt : undefined });
+    const optimized = result.calibrationMode === 'three-view' && typeof result.optimizedPrompt === 'string' && result.optimizedPrompt.trim()
+      ? result.optimizedPrompt : undefined;
+    store.updateNodeDataInTab(target, nodeId, {
+      posePrompt: result.prompt,
+      posePromptImage: source,
+      posePromptMode: result.calibrationMode ?? 'single',
+      posePromptOptimized: optimized,
+      posePromptOptimizedVerified: optimized && result.optimizedPromptVerified === true ? true : undefined,
+    });
   };
   const canAnalyze = writable && Boolean(user) && !running && !saving && (provider !== 'deepseek' || /^[\x21-\x7e]{8,512}$/.test(apiKey.trim())) && (calibrationMode !== 'three-view' || threeViewReady);
   const startAnalysis = () => {

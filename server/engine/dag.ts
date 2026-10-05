@@ -35,7 +35,7 @@ import {
 import { compileTiAngleText } from "../../src/lib/tiAngle";
 import { imagesForSourceHandle } from "../../src/lib/workflowPorts";
 import { orderedOutfitImages } from "../../src/lib/styling";
-import { validPoseReferenceSource } from "../../src/types/poseReference";
+import { isCalibratedPoseSupplement, validPoseReferenceSource } from "../../src/types/poseReference";
 import {
   SEEDANCE_MODEL_CAPABILITIES,
   SEEDANCE_OUTPUT_FORMATS,
@@ -662,7 +662,11 @@ export function buildExecutionPlan(
         const optimized = typeof source.posePromptOptimized === 'string' && source.posePromptOptimized.trim()
           ? source.posePromptOptimized.trim()
           : undefined;
-        params.posePrompt = (optimized ?? source.posePrompt).trim();
+        const verifiedOptimized = source.posePromptOptimizedVerified === true && isCalibratedPoseSupplement(optimized);
+        params.posePrompt = params.posePromptMode === 'three-view'
+          ? (verifiedOptimized ? optimized : undefined)
+          : (optimized ?? source.posePrompt).trim();
+        params.posePromptOptimizedVerified = params.posePromptMode === 'three-view' && verifiedOptimized;
       }
     }
     if (data.kind === "mask-redraw") {

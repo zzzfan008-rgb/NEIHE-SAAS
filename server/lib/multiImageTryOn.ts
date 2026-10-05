@@ -8,6 +8,7 @@ import type { GenerationRequestSnapshot } from "./generationRecords";
 import { withImageProcessingSlot } from "./imageProcessingLimit";
 import { normalizeProviderImageDataUrl, PROVIDER_TARGET_BYTES, UPLOAD_MAX_INPUT_PIXELS } from "./uploadImageNormalization";
 import { MAX_IMAGE_BYTES } from "./imageValidation";
+import { isCalibratedPoseSupplement } from "../../src/types/poseReference";
 
 /** Local PNG contact sheet: no AI call, no crop/stretch, EXIF-correct, bounded memory. */
 export async function stitchReferenceImages(images: readonly string[]): Promise<string> {
@@ -93,27 +94,29 @@ export async function prepareMultiImageTryOn(
     referenceRoles: groups.map(group => group.role), aspectReference: images[roles.indexOf("scene")] };
 }
 
-export function multiImageTryOnPrompt(referenceMap: string, extra: string, angleControlled: boolean, concise = false, poseReferenceType?: unknown, posePrompt?: unknown, posePromptMode?: unknown): string {
+export function multiImageTryOnPrompt(referenceMap: string, extra: string, angleControlled: boolean, concise = false, poseReferenceType?: unknown, posePrompt?: unknown, posePromptMode?: unknown, posePromptVerified?: unknown): string {
   const skeleton = poseReferenceType === "skeleton";
   const calibrated = posePromptMode === "three-view";
   const posePromptClause = typeof posePrompt === "string" && posePrompt.trim()
     ? calibrated
-      ? `三图校准姿势约束：\n${posePrompt.trim()}`
+      ? posePromptVerified === true && isCalibratedPoseSupplement(posePrompt)
+        ? `三图校准补充（从属约束）：\n${posePrompt.trim()}`
+        : ""
       : `姿势补充描述（仅在图1无法判定的项目上参考）：${posePrompt.trim()}。身体朝向、肩髋倾斜、四肢弯曲、手脚位置与接触、双腿交叉与前后关系、重心与承重一律以图1可见几何为准；该文字中与图1可见几何冲突的部分全部忽略，"无法判断"表示该项没有约束。仅图1无法判定的头部旋转、俯仰、视线方向与面部神态才参考该文字。`
     : "";
   return [
     "以参考图2提供的人物造型基调，创作一位全新的原创模特，呈现下方指定的时尚服装摄影照片，展示指定的服装和配饰。",
-    calibrated && posePromptClause
-      ? `动作（最高优先级）：依据下方已完成三层校准的姿势方向呈现动作。关节二维位置按骨骼校准结论，四肢前后关系按深度校准结论，手部语义按原图结论。保持画面左右与动作接触关系，姿势、人物、服装、场景及相机指令共同形成完整成图。\n${posePromptClause}`
+    calibrated
+      ? `动作（最高优先级）：参考图1可见人体几何是最高优先级，按照图1呈现身体朝向、肩髋倾斜、关节弯曲、手脚位置、双腿交叉、重心与承重。校准文字仅补充图1无法直接判定的前后深度、手部接触、视线与面部神态；任何文字与图1可见几何冲突时均以图1为准。${posePromptClause ? `\n${posePromptClause}` : ""}`
       : skeleton
       ? `动作（最高优先级）：可参照图1的骨架动作方向。${posePromptClause}按可见关键点与连线呈现人物动作：关键点的位置、连线方向与相对比例逐点对齐，包括肩髋倾斜、肘腕与膝踝弯曲、双手手指与双脚朝向、双腿弯曲与前后关系、重心与承重关系；左右沿用图中画面方向，动作方向优先于人物、场景、服装及相机视角，成图呈现自然人物摄影效果。`
       : `动作（最高优先级）：可参照图1的骨架动作方向。${posePromptClause}按照图1动作方向呈现身体朝向、头部朝向、肩髋倾斜、肩肘腕与髋膝踝位置、双臂与手部动作、双腿弯曲与前后关系、重心与承重关系；左右沿用画面方向，姿势、人物、场景、服装和相机共同形成完整画面。`,
     "人物：参考图2提供体型、发型方向、肤色基调与整体气质，生成全原创形象。",
     "环境：采用图3的场景、光照和环境色彩，使人物和商品具有协调的光影与透视；场景、人物与服装分别依据对应参考图呈现。",
-    calibrated && posePromptClause
+    calibrated
       ? (angleControlled
-        ? '相机视角：仅调整观察角度与取景，保持上述校准姿势的关节、接触、承重和前后关系。'
-        : '相机视角：参考图1取景，保持上述校准姿势；场景适配人物透视，输出画幅变化时扩展环境。')
+        ? '相机视角：仅调整观察角度与取景，保持图1中的关节、接触、承重和前后关系。'
+        : '相机视角：参考图1取景并保持图1姿势几何；场景适配人物透视，输出画幅变化时扩展环境。')
       : angleControlled
       ? "相机视角：在图1动作方向基础上，追加下方3D视角指令描述的观察角度与取景；镜头调整保持动作接触、承重与前后关系，视角投影与动作方向协调。"
       : skeleton
