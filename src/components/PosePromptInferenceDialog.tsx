@@ -80,6 +80,8 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
   const dirty = draft !== null && draft.text !== (savedOptimizedPrompt ?? '');
   const conflict = dirty && draft.revision !== revision;
   const editorMode = savedPromptMode ?? calibrationMode;
+  const resultMatchesSaved = Boolean(result && result.prompt === savedPrompt && result.optimizedPrompt === savedOptimizedPrompt &&
+    (result.calibrationMode ?? 'single') === (savedPromptMode ?? 'single'));
   const unavailableReason = useFlowStore(s => {
     const tab = s.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch);
     if (!tab) return '当前项目已切换，请关闭弹窗后重新打开姿势节点。';
@@ -161,6 +163,32 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     else onClose();
   };
 
+  const persistAppliedResult = async (expected: { prompt: string; mode: PosePromptMode; optimized?: string; verified?: true }) => {
+    if (saving) return;
+    const matches = () => {
+      const data = currentData();
+      return data?.posePrompt === expected.prompt && data.posePromptImage === source &&
+        data.posePromptMode === expected.mode && data.posePromptOptimized === expected.optimized &&
+        data.posePromptOptimizedVerified === expected.verified;
+    };
+    if (!matches()) {
+      setSaveError('姿势来源或提示词已变化，请重新打开检查');
+      return;
+    }
+    setSaving(true);
+    setPendingSave(true);
+    setSaveError(undefined);
+    try {
+      if (!await useFlowStore.getState().saveProjectInTab(stableTarget)) throw new Error('当前提示词尚未保存到项目，请重试');
+      if (!matches()) throw new Error('项目或提示词已变化，请重新打开检查保存结果');
+      setPendingSave(false);
+      setSaveMessage('当前姿势提示词已保存到项目。');
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '项目保存失败，请重试');
+    } finally {
+      setSaving(false);
+    }
+  };
   const applyResult = () => {
     const store = useFlowStore.getState();
     const tab = store.tabs.find(t => t.id === target.tabId && t.projectId === target.projectId && t.documentEpoch === target.documentEpoch);
@@ -170,13 +198,20 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     setSaveError(undefined);
     const optimized = result.calibrationMode === 'three-view' && typeof result.optimizedPrompt === 'string' && result.optimizedPrompt.trim()
       ? result.optimizedPrompt : undefined;
+    const expected: { prompt: string; mode: PosePromptMode; optimized?: string; verified?: true } = {
+      prompt: result.prompt,
+      mode: result.calibrationMode ?? 'single',
+      optimized,
+      verified: optimized && result.optimizedPromptVerified === true ? true as const : undefined,
+    };
     store.updateNodeDataInTab(target, nodeId, {
       posePrompt: result.prompt,
       posePromptImage: source,
-      posePromptMode: result.calibrationMode ?? 'single',
+      posePromptMode: expected.mode,
       posePromptOptimized: optimized,
-      posePromptOptimizedVerified: optimized && result.optimizedPromptVerified === true ? true : undefined,
+      posePromptOptimizedVerified: expected.verified,
     });
+    void persistAppliedResult(expected);
   };
   const canAnalyze = writable && Boolean(user) && !running && !saving && (provider !== 'deepseek' || /^[\x21-\x7e]{8,512}$/.test(apiKey.trim())) && (calibrationMode !== 'three-view' || threeViewReady);
   const startAnalysis = () => {
@@ -262,13 +297,6 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         <Button type="button" size="sm" variant="outline" onClick={() => { editorRef.current?.focus(); editorRef.current?.scrollIntoView({ block: 'center' }); }}>
           编辑优化提示词
         </Button>
-        {result?.calibrationMode === 'three-view' && !result.optimizedPromptVerified && (
-          <p role="status" className="rounded-md border border-[var(--gc-border)] p-3 text-sm">
-            三图反推已完成，优化文本未通过校验：{result.optimizationError ?? '未获得已校验的姿势补充。'}
-            原始结果保留用于对比；新结果需先确认替换，编辑稿保存时会复用已有证据校验，不调用模型。
-          </p>
-        )}
-
         {running && (
           <p role="status" className="rounded-md border border-[var(--gc-border)] bg-[var(--gc-canvas)] px-3 py-4 text-sm text-[var(--gc-text-muted)]">
             正在反推人物姿势…
@@ -297,7 +325,14 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
                 {savedPrompt}
               </pre>
             </Card>}
-            {result && (result.prompt !== savedPrompt || result.optimizedPrompt !== savedOptimizedPrompt || (result.calibrationMode ?? 'single') !== (savedPromptMode ?? 'single')) && !running && !failed && (
+            {pendingSave && !dirty && result?.prompt === savedPrompt && (
+              <Button type="button" size="sm" variant="outline" disabled={!writable || saving} onClick={() => {
+                if (!result) return;
+                void persistAppliedResult({ prompt: result.prompt, mode: result.calibrationMode ?? 'single',
+                  optimized: savedOptimizedPrompt, verified: savedOptimizedPromptVerified ? true : undefined });
+              }}>重试保存当前提示词</Button>
+            )}
+            {result && !running && !failed && (
               <Card className="gap-3 border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
                 <h3 className="text-sm font-medium">{result.calibrationMode === 'three-view' ? '新反推的校准原始结果（用于对比）' : `${provider === 'deepseek' ? 'DeepSeek' : 'Gemini'} 反推结果`}</h3>
                 <pre data-pose-prompt="candidate" className="whitespace-pre-wrap break-words text-sm leading-6">{result.prompt}</pre>
@@ -305,8 +340,10 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
                   <h4 className="text-sm font-medium">优化后提示词（将用于生图）</h4>
                   <pre data-pose-prompt="candidate-optimized" className="whitespace-pre-wrap break-words text-sm leading-6">{result.optimizedPrompt}</pre>
                 </div>}
-                <Button type="button" size="sm" disabled={!writable || dirty || pendingSave || saving} onClick={applyResult}>{savedPrompt === undefined ? '使用此姿势提示词' : '确认并替换当前提示词'}</Button>
-                {(dirty || pendingSave) && <p className="text-xs text-[var(--gc-text-muted)]">请先保存或恢复下方优化文本，再替换反推结果。</p>}
+                {resultMatchesSaved
+                  ? <p role="status" className="text-xs text-[var(--gc-text-muted)]">本次反推结果与当前保存内容一致。</p>
+                  : <Button type="button" size="sm" disabled={!writable || dirty || pendingSave || saving} onClick={applyResult}>{savedPrompt === undefined ? '使用此姿势提示词' : '确认并替换当前提示词'}</Button>}
+                {!resultMatchesSaved && (dirty || pendingSave) && <p className="text-xs text-[var(--gc-text-muted)]">请先保存或恢复下方优化文本，再替换反推结果。</p>}
               </Card>
             )}
             {result && <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-[var(--gc-text-muted)]">
@@ -322,6 +359,12 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         )}
         <Card className="gap-3 border-[var(--gc-border)] bg-[var(--gc-panel)] p-4 text-[var(--gc-text)]">
           <label htmlFor="pose-optimized-prompt" className="text-sm font-medium">优化后姿势提示词</label>
+          {result?.calibrationMode === 'three-view' && !result.optimizedPromptVerified && (
+            <p role="status" className="rounded-md border border-[var(--gc-border)] p-3 text-sm">
+              三图反推已完成，优化文本未通过校验：{result.optimizationError ?? '未获得已校验的姿势补充。'}
+              原始结果保留用于对比；新结果需先确认替换，编辑稿保存时会复用已有证据校验，不调用模型。
+            </p>
+          )}
           <p id="pose-optimized-help" className="text-xs text-[var(--gc-text-muted)]">
             {savedOptimizedPrompt === undefined
               ? '下方是可编辑区域。三图校准通过证据校验后才会产生可用于生图的优化文本；也可手动填写。'

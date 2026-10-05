@@ -10,6 +10,8 @@ test('普通账号可编辑三图草稿，校验结果决定是否用于生图',
   const image = `data:image/png;base64,${png.toString('base64')}`;
   let analysisCalls = 0;
   let validationCalls = 0;
+  let failNextProjectSave = false;
+  const projectSaves: Array<{ flow: { nodes: Array<{ id: string; data: { posePrompt?: string } }> } }> = [];
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/api/auth/me') return route.fulfill({ json: { user: { id:'ordinary-pose-user',accountId:'ordinary-pose-user',displayName:'普通用户',role:'user',mustChangePassword:false } } });
@@ -27,16 +29,46 @@ test('普通账号可编辑三图草稿，校验结果决定是否用于生图',
       const verified = !route.request().postDataJSON().prompt.includes('画面左侧');
       return route.fulfill({json:{verified,...(!verified?{reason:'视线方向中有现有三图证据无法确认的内容'}:{})}});
     }
+    if (path === '/api/projects' && route.request().method() === 'POST') {
+      if (failNextProjectSave) {
+        failNextProjectSave = false;
+        return route.fulfill({ status: 503, json: { error: '项目保存暂时失败' } });
+      }
+      projectSaves.push(route.request().postDataJSON());
+      return route.fulfill({ json: {} });
+    }
     return route.fulfill({json:{}});
   });
   await page.goto('/e2e/fixtures/pose-prompt.html');
-  await page.getByRole('button',{name:'反推人物姿势',exact:true}).click();
+  const trigger = page.getByRole('button',{name:'反推人物姿势',exact:true});
+  await trigger.waitFor();
+  await page.evaluate(async () => {
+    const module = '/src/store/flowStore.ts';
+    const { useFlowStore } = await import(module);
+    useFlowStore.setState({ saveProjectInTab: async (target: { tabId: string; projectId: string; documentEpoch: number }) => {
+      const tab = useFlowStore.getState().tabs.find((item: { id: string; projectId: string; documentEpoch: number; nodes: unknown[] }) => item.id === target.tabId && item.projectId === target.projectId && item.documentEpoch === target.documentEpoch);
+      if (!tab) return false;
+      const response = await fetch('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flow: { nodes: tab.nodes } }) });
+      return response.ok;
+    } });
+  });
+  await trigger.click();
   const dialog = page.getByRole('dialog',{name:'反推人物姿势',exact:true});
   await dialog.getByRole('combobox',{name:'分析方式'}).click();
   await page.getByRole('option',{name:'原图 + 深度图 + DWPose 三图校准'}).click();
   await dialog.getByRole('button',{name:'开始反推',exact:true}).click();
   await expect(dialog.getByText(/三图反推已完成，优化文本未通过校验/)).toContainText('文字交叉结论与DWPose骨骼不一致');
+  await expect(dialog.locator('[data-pose-prompt="candidate"]')).toHaveText('原始校准结果');
+  await expect(dialog.getByText('命中缓存，未重复调用')).toBeVisible();
+  failNextProjectSave = true;
   await dialog.getByRole('button',{name:'确认并替换当前提示词'}).click();
+  await expect(dialog.getByRole('alert')).toHaveText('当前提示词尚未保存到项目，请重试');
+  await dialog.getByRole('button',{name:'重试保存当前提示词'}).click();
+  await expect(dialog.getByText('当前姿势提示词已保存到项目。',{exact:true})).toBeVisible();
+  expect(projectSaves.at(-1)?.flow.nodes.find(node => node.id === 'pose')?.data.posePrompt).toBe('原始校准结果');
+  await expect(dialog.locator('[data-pose-prompt="candidate"]')).toHaveText('原始校准结果');
+  await expect(dialog.getByText('本次反推结果与当前保存内容一致。',{exact:true})).toBeVisible();
   await dialog.getByRole('button',{name:'编辑优化提示词',exact:true}).click();
   const editor = dialog.getByRole('textbox',{name:'优化后姿势提示词',exact:true});
   await expect(editor).toBeFocused();
@@ -142,7 +174,10 @@ test('pose model selection, credential persistence, candidate application and lo
   await expect(key).toHaveValue('test-only-pose-key');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '退出登录', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('gc:pose-deepseek-key:pose-owner-a'))).toBeNull();
+  await expect.poll(async () => {
+    try { return await page.evaluate(() => localStorage.getItem('gc:pose-deepseek-key:pose-owner-a')); }
+    catch { return '页面跳转中'; }
+  }).toBeNull();
 });
 
 test('three-view calibration preserves user text on failure and applies a retried candidate explicitly', async ({ page }) => {

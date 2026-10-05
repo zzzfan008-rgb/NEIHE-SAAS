@@ -90,7 +90,7 @@ test('pose prompt stays off canvas while auto inference and dialog editing persi
   const analysisMode = dialog.getByRole('combobox', { name: '分析方式' });
   await analysisMode.click();
   await page.getByRole('option', { name: '原图 + 深度图 + DWPose 三图校准' }).click();
-  await expect(dialog.getByRole('status')).toContainText('请先在姿势参考结果中生成当前原图的深度图和 DWPose 骨骼图。');
+  await expect(dialog.getByText('请先在姿势参考结果中生成当前原图的深度图和 DWPose 骨骼图。', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('button', { name: '开始反推', exact: true })).toBeDisabled();
   await analysisMode.click();
   await page.getByRole('option', { name: '单图反推', exact: true }).click();
