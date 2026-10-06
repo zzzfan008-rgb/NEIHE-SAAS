@@ -1,6 +1,7 @@
 import type { MiniMapNodeProps } from "@xyflow/react";
-import { selectActiveNodes, useFlowStore } from "@/store/flowStore";
+import { selectActiveNodeById, useFlowStore } from "@/store/flowStore";
 import type { WorkflowNodeData } from "@/types/workflow";
+import { thumbnailImageUrl } from "@/lib/images";
 
 const VIDEO_REFERENCE = /(?:data:video\/|\.(?:mp4|webm|mov)(?:[?#]|$))/i;
 
@@ -63,9 +64,7 @@ export function CanvasMiniMapNode({
       onClick,
 }: MiniMapNodeProps) {
       const thumbnail = useFlowStore((state) => {
-            const node = selectActiveNodes(state).find(
-                  (candidate) => candidate.id === id,
-            );
+            const node = selectActiveNodeById(state, id);
             return node ? minimapNodeThumbnail(node.data) : undefined;
       });
       const clipId = `gc-minimap-node-${id}`;
@@ -105,7 +104,7 @@ export function CanvasMiniMapNode({
                               </defs>
                               <image
                                     className="gc-minimap-node-thumbnail"
-                                    href={thumbnail}
+                                    href={thumbnailImageUrl(thumbnail)}
                                     x={x}
                                     y={y}
                                     width={width}

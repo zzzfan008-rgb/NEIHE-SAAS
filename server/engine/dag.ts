@@ -35,7 +35,7 @@ import {
 import { compileTiAngleText } from "../../src/lib/tiAngle";
 import { imagesForSourceHandle } from "../../src/lib/workflowPorts";
 import { orderedOutfitImages } from "../../src/lib/styling";
-import { isCalibratedPoseSupplement, validPoseReferenceSource } from "../../src/types/poseReference";
+import { isCalibratedPoseSupplement, isSequentialPosePrompt, validPoseReferenceSource } from "../../src/types/poseReference";
 import {
   SEEDANCE_MODEL_CAPABILITIES,
   SEEDANCE_OUTPUT_FORMATS,
@@ -662,7 +662,7 @@ export function buildExecutionPlan(
         const optimized = typeof source.posePromptOptimized === 'string' && source.posePromptOptimized.trim()
           ? source.posePromptOptimized.trim()
           : undefined;
-        const verifiedOptimized = source.posePromptOptimizedVerified === true && isCalibratedPoseSupplement(optimized);
+        const verifiedOptimized = source.posePromptOptimizedVerified === true && (isCalibratedPoseSupplement(optimized) || isSequentialPosePrompt(optimized));
         params.posePrompt = params.posePromptMode === 'three-view'
           ? (verifiedOptimized ? optimized : undefined)
           : (optimized ?? source.posePrompt).trim();

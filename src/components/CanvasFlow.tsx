@@ -201,24 +201,33 @@ export function CanvasFlow() {
     current: null,
     startedAt: null,
   }).current;
-  const renderedEdges = useMemo(() => {
-    if (!primarySelectedNodeId) {
-      return edges.map((edge) => ({
+  // 高亮路径只取决于节点 id 集合与边集合；拖拽时位置变化不重建边对象，避免逐帧让所有边重渲染。
+  const nodeIdSignature = useMemo(() => nodes.map((node) => node.id).join("|"), [nodes]);
+  const pathEmphasis = useMemo(
+    () =>
+      primarySelectedNodeId
+        ? directedPathNodeIds(primarySelectedNodeId, nodes, edges)
+        : null,
+    [primarySelectedNodeId, nodeIdSignature, edges],
+  );
+  const renderedEdges = useMemo(
+    () =>
+      edges.map((edge) => ({
         ...edge,
         type: edge.type ?? "pulse",
-        data: { ...edge.data, pathEmphasis: "quiet" },
-      }));
-    }
-    const paths = directedPathNodeIds(primarySelectedNodeId, nodes, edges);
-    return edges.map((edge) => {
-      const pathEmphasis = paths.upstream.has(edge.source) && paths.upstream.has(edge.target)
-        ? "upstream"
-        : paths.downstream.has(edge.source) && paths.downstream.has(edge.target)
-          ? "downstream"
-          : "unrelated";
-      return { ...edge, type: edge.type ?? "pulse", data: { ...edge.data, pathEmphasis } };
-    });
-  }, [edges, nodes, primarySelectedNodeId]);
+        data: {
+          ...edge.data,
+          pathEmphasis: !pathEmphasis
+            ? "quiet"
+            : pathEmphasis.upstream.has(edge.source) && pathEmphasis.upstream.has(edge.target)
+              ? "upstream"
+              : pathEmphasis.downstream.has(edge.source) && pathEmphasis.downstream.has(edge.target)
+                ? "downstream"
+                : "unrelated",
+        },
+      })),
+    [edges, pathEmphasis],
+  );
 
   const createFromIntent = useCallback((
     intent: CanvasCreationIntent,

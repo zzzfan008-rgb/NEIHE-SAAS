@@ -254,9 +254,13 @@ test("多图模板TiAngel默认关闭、手动启用、保存恢复和键盘关�
     const { useFlowStore } = await import(path);
     useFlowStore.getState().loadFlow({ projectId: saved.id, projectName: saved.name, ...saved.flow });
   }, saved);
-  if (!await toggle.isVisible()) await angle.getByRole("button", { name: /输出视角约束/ }).click();
+  const constraintsToggle = angle.getByRole("button", { name: /输出视角约束/ });
+  if (await constraintsToggle.getAttribute("aria-expanded") === "false") await constraintsToggle.click();
+  await expect(constraintsToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(toggle).toBeVisible();
   await expect(toggle).toBeChecked();
   await toggle.focus();
+  await expect(toggle).toBeFocused();
   await page.keyboard.press("Space");
   await expect(toggle).not.toBeChecked();
   await expect(toggle).toBeFocused();

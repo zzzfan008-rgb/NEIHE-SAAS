@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import { findSkeletonEdit, skeletonEditRevision } from '../lib/poseSkeletonEdit';
 import { isPoseDocumentBoundToImage } from '../lib/poseTopology';
 import { useFlowStore, type DocumentTarget } from './flowStore';
-import { isPoseReferenceNode, posePromptForImage, type PoseOutfitReferenceRecord, type PoseReferenceCanvasKind, type PoseReferenceKind, type PoseReferenceRecord } from '../types/poseReference';
+import { isPoseReferenceNode, isPoseCalibrationStages, posePromptForImage, type PoseCalibrationStages, type PoseOutfitReferenceRecord, type PoseReferenceCanvasKind, type PoseReferenceKind, type PoseReferenceRecord } from '../types/poseReference';
 
 export interface PoseReferenceState {
   records: Partial<Record<PoseReferenceKind,PoseReferenceRecord>>;
@@ -29,6 +29,7 @@ export interface PosePromptInferenceResult {
   optimizationError?: string;
   optimizationNotes?: string[];
   calibrationMode?: 'three-view';
+  calibrationStages?: PoseCalibrationStages;
 }
 export interface PosePromptInferenceState {
   status: 'running' | 'succeeded' | 'failed';
@@ -86,6 +87,7 @@ function validatePosePrompt(value:unknown): PosePromptInferenceResult {
       (result.optimizationNotes !== undefined && (!Array.isArray(result.optimizationNotes) || result.optimizationNotes.length < 1 || result.optimizationNotes.length > 8 ||
         result.optimizationNotes.some((note) => typeof note !== 'string' || !note.trim() || note.length > 300))) ||
       (result.optimizedPromptVerified === true && (typeof result.optimizedPrompt !== 'string' || result.calibrationMode !== 'three-view')) ||
+      (result.calibrationStages !== undefined && (result.calibrationMode !== 'three-view' || !isPoseCalibrationStages(result.calibrationStages))) ||
       typeof result.model!=='string' || !result.model.trim() ||
       typeof result.providerRequests!=='number' || !Number.isInteger(result.providerRequests) || result.providerRequests<0 ||
       typeof result.cacheHit!=='boolean' || (result.calibrationMode !== undefined && result.calibrationMode !== 'three-view')) {
@@ -96,6 +98,7 @@ function validatePosePrompt(value:unknown): PosePromptInferenceResult {
     ...(result.optimizedPromptVerified === true ? {optimizedPromptVerified:true as const} : {}),
     ...(result.optimizationNotes?.length ? {optimizationNotes:result.optimizationNotes} : {}),
     ...(result.optimizationError ? {optimizationError:result.optimizationError} : {}),
+    ...(result.calibrationStages ? {calibrationStages:result.calibrationStages} : {}),
     ...(result.calibrationMode ? {calibrationMode:result.calibrationMode} : {})};
 }
 export async function restorePoseReferences(target:DocumentTarget,nodeId:string,source:string,analysisSource=source,analysisSourceRecordId?:string) {
@@ -177,14 +180,18 @@ export async function analyzePosePrompt(target:DocumentTarget,nodeId:string,sour
     if (tab?.readOnly===false && !await useFlowStore.getState().saveProjectInTab(target)) throw new Error('项目保存失败，请先保存后重试');
     if (!current(target,nodeId,source)) return;
     const value=await response(await fetch('/api/pose-references/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
-      signal:AbortSignal.timeout(130_000),body:JSON.stringify({projectId:target.projectId,nodeId,source,
+      signal:AbortSignal.timeout(options?.calibrationMode === 'three-view' ? 390_000 : 130_000),body:JSON.stringify({projectId:target.projectId,nodeId,source,
         ...(options?.provider==='deepseek'?{provider:'deepseek',apiKey:options.apiKey}: {}),
         ...(options?.calibrationMode==='three-view'?{calibrationMode:'three-view'}: {})})}));
     const result=validatePosePrompt(value);
     if (options?.calibrationMode === 'three-view' && result.calibrationMode !== 'three-view') throw new Error('三图校准未返回完整证据，请重试');
     if (current(target,nodeId,source)&&(promptVersions.get(key)??0)===version) {
       adopt(result);
-      const applied = options?.autoApplyVerified ? await applyVerifiedSupplement(target,nodeId,source,result) : undefined;
+      const latest = useFlowStore.getState().tabs.find(t=>t.id===target.tabId)?.nodes.find(n=>n.id===nodeId)?.data;
+      const unchanged = latest?.kind === 'image-input' && latest.posePrompt === sourceData.posePrompt &&
+        latest.posePromptOptimized === sourceData.posePromptOptimized && latest.posePromptMode === sourceData.posePromptMode &&
+        latest.posePromptOptimizedVerified === sourceData.posePromptOptimizedVerified;
+      const applied = options?.autoApplyVerified && unchanged ? await applyVerifiedSupplement(target,nodeId,source,result) : undefined;
       patch(key,s=>({...s,posePrompt:{status:'succeeded',result,...(applied ? {applied} : {})}}));
     }
   } catch(error) {

@@ -1805,6 +1805,22 @@ export function selectActiveEdges(state: FlowState): Edge[] {
   return selectActiveDocument(state).edges;
 }
 
+/**
+ * 高频画布订阅用：按 id 取节点。
+ * nodes 数组只在文档变化时更换，因此索引按数组身份缓存，避免每个订阅者都各自线性扫描节点数组。
+ */
+const nodeIndexByNodes = new WeakMap<FlowNode[], Map<string, FlowNode>>();
+
+export function selectActiveNodeById(state: FlowState, id: string): FlowNode | undefined {
+  const nodes = selectActiveNodes(state);
+  let index = nodeIndexByNodes.get(nodes);
+  if (!index) {
+    index = new Map(nodes.map((node) => [node.id, node]));
+    nodeIndexByNodes.set(nodes, index);
+  }
+  return index.get(id);
+}
+
 export function selectActiveSelectedNodeIds(state: FlowState): string[] {
   return selectActiveDocument(state).selectedNodeIds;
 }
@@ -5400,11 +5416,10 @@ export const useFlowStore = create<FlowState>()(
           let nodes = applyNodeChanges(allowed, tab.nodes);
           if (nodes === tab.nodes) return;
           if (resizePositionIds.size > 0) {
+            const previousById = new Map(tab.nodes.map((node) => [node.id, node]));
             nodes = nodes.map((node) => {
               if (!resizePositionIds.has(node.id)) return node;
-              const previous = tab.nodes.find(
-                (candidate) => candidate.id === node.id,
-              );
+              const previous = previousById.get(node.id);
               if (!previous || previous.resizeDocumentPosition) return node;
               return {
                 ...node,
@@ -5420,11 +5435,11 @@ export const useFlowStore = create<FlowState>()(
             ),
           );
           if (documentPositionIds.size > 0) {
+            // 拖拽帧内按 id 索引取旧节点：避免 map 内再做线性 find（O(n²)）。
+            const previousById = new Map(tab.nodes.map((node) => [node.id, node]));
             nodes = nodes.map((node) => {
               if (!documentPositionIds.has(node.id)) return node;
-              const previous = tab.nodes.find(
-                (candidate) => candidate.id === node.id,
-              );
+              const previous = previousById.get(node.id);
               if (!previous?.resizeDocumentPosition) return node;
               return {
                 ...node,

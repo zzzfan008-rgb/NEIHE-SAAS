@@ -107,7 +107,8 @@ test("rectangle crop saves original pixels through real assets and preserves tit
   await expect(surface).toHaveCount(0);
   const url = await node.getByAltText("已上传图片").getAttribute("src");
   expect(url).toMatch(/^\/api\/files\//);
-  const saved = await sharp(await (await page.request.get(url!)).body()).metadata();
+  // 画布显示缩略图；像素尺寸校验必须读取原图。
+  const saved = await sharp(await (await page.request.get(url!.replace(/\/thumbnail$/, ""))).body()).metadata();
   expect(saved.width).toBe(info.width); expect(saved.height).toBe(info.height);
   await expect(node).toContainText("主穿搭图（必需）");
   await page.evaluate(async () => {

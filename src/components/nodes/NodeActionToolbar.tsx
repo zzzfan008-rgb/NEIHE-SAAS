@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import {
   selectActiveDocumentTarget,
   selectActiveNodes,
+  selectActiveNodeById,
   selectActiveReadOnly,
   useFlowStore,
   type FlowNode,
@@ -57,7 +58,7 @@ function IconAction({
 
 function useToolbarDisabled(nodeId: string) {
   const readOnly = useFlowStore(selectActiveReadOnly);
-  const status = useFlowStore((state) => selectActiveNodes(state).find((node) => node.id === nodeId)?.data.status);
+  const status = useFlowStore((state) => selectActiveNodeById(state, nodeId)?.data.status);
   return readOnly || !status || isNodeRunActive(status);
 }
 
@@ -164,7 +165,11 @@ export function MediaNodeActionToolbar({
             />
             <DropdownMenuContent side="bottom" align="start" className="w-24 min-w-24 border border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)] ring-0">
               {(["2K", "4K"] as const).map((size) => (
-                <DropdownMenuItem key={size} onClick={() => connectTransform(nodeId, "upscale", sourceHandle, { imageSize: size })} className="min-h-8 text-xs">
+                <DropdownMenuItem key={size} onClick={(event) => {
+                  // Portal clicks must not reselect the source React Flow node.
+                  event.stopPropagation();
+                  connectTransform(nodeId, "upscale", sourceHandle, { imageSize: size });
+                }} className="min-h-8 text-xs">
                   {size}
                 </DropdownMenuItem>
               ))}

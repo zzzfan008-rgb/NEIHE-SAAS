@@ -324,8 +324,8 @@ export function AssetPickerOverlay({
             </label>
           </div>
 
-          <TabsContent value={category} className="min-h-0 flex-1 overflow-hidden p-0">
-            <div ref={assetScrollRef} data-asset-scroll-container className="h-full overflow-y-auto p-4">
+          <TabsContent value={category} className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+            <div ref={assetScrollRef} data-asset-scroll-container className="min-h-0 flex-1 overflow-y-auto p-4">
             {categoryError && <p role="alert" className="mb-2 text-xs text-[var(--gc-text)]">分类保存失败：{categoryError}</p>}
             {error && (
               <div className="py-6 text-center">

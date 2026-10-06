@@ -14,6 +14,7 @@ import {
 import { NodeFrame, RunButton, Developing, inputClass } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { FilePickerButton, uploadFile } from "./ImageInputNode";
+import { CanvasImage } from "./CanvasImage";
 import { ModelControls } from "./ModelControls";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -140,8 +141,8 @@ export function BackgroundExtractNode({
         >
           {data.imageUrl ? (
             <div className="relative h-32">
-              <img
-                src={data.imageUrl}
+              <CanvasImage
+                source={data.imageUrl}
                 alt="待处理图片"
                 className="block h-full w-full select-none object-contain"
                 draggable={false}

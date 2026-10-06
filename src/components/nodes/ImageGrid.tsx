@@ -3,7 +3,8 @@ import { useNodeId } from "@xyflow/react";
 import { EyeIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFlowStore } from "@/store/flowStore";
-import { startCanvasImageDrag } from "@/lib/imageConversationDrag";
+import { beginCanvasImagePress } from "@/lib/canvasImageDrag";
+import { CanvasImage } from "./CanvasImage";
 
 interface ImageGridProps {
   images?: string[] | null;
@@ -45,11 +46,10 @@ export function ImageGrid({ images, empty = "暂无生成结果", renderAction, 
             onClick={() => onSelect ? onSelect(url, i) : openViewer({ url, title: `生成结果 ${i + 1}` })}
             className="block h-auto w-full rounded-none p-0"
           >
-            <img
-              src={url}
+            <CanvasImage
+              source={url}
               alt={`生成结果 ${i + 1}`}
-              draggable={Boolean(nodeId)}
-              onDragStart={(event) => { if (nodeId) startCanvasImageDrag(event, nodeId, url); }}
+              onPointerDown={(event) => beginCanvasImagePress(event, nodeId ?? undefined, url)}
               loading="lazy"
               decoding="async"
               className="block h-auto w-full object-contain"

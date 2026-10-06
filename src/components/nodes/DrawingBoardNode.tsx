@@ -18,6 +18,7 @@ import {
   uploadDrawingPreview,
 } from "@/lib/drawingBoardClient";
 import { browserDrawingDraftStore, type DrawingDraftTarget } from "@/lib/drawingDraftStore";
+import { CanvasImage } from "./CanvasImage";
 import { documentTargetMatches } from "@/lib/canvasCreation";
 import {
   selectActiveDocumentTarget,
@@ -164,7 +165,7 @@ export function DrawingBoardNode({ id, data, selected }: NodeProps<Node<DrawingB
     <>
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
         {data.previewImageRef ? (
-          <img src={data.previewImageRef} alt="画板已保存预览" className="h-40 w-full rounded-lg border border-[var(--gc-node-border)] object-contain" />
+          <CanvasImage source={data.previewImageRef} alt="画板已保存预览" className="h-40 w-full rounded-lg border border-[var(--gc-node-border)] object-contain" />
         ) : (
           <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-[var(--gc-node-border)] text-[10px] text-[var(--gc-node-muted)]">
             尚未保存，不可连接或运行

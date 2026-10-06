@@ -11,12 +11,13 @@ import { documentTargetsMatch, sourceResultIdFromReference, type ImageConversati
 
 export const CANVAS_IMAGE_DRAG_TYPE = "application/x-garment-canvas-image";
 
-function supportedSourceRef(ref: string): boolean {
+/** 画布图片可作为拖拽来源的引用形式；长按手势与原生拖放共用同一判定。 */
+export function isSupportedCanvasImageRef(ref: string): boolean {
   return ref.startsWith("/api/files/") || ref.startsWith("asset/") || ref.startsWith("generation-output/");
 }
 
 export function startCanvasImageDrag(event: DragEvent<HTMLElement>, nodeId: string, imageRef: string): void {
-  if (!supportedSourceRef(imageRef)) {
+  if (!isSupportedCanvasImageRef(imageRef)) {
     event.preventDefault();
     return;
   }
@@ -41,7 +42,7 @@ export function resolveCanvasImageDrop(
     if (
       !sourceTarget || typeof sourceTarget !== "object" ||
       typeof nodeId !== "string" || typeof imageRef !== "string" ||
-      !supportedSourceRef(imageRef) ||
+      !isSupportedCanvasImageRef(imageRef) ||
       !documentTargetsMatch(sourceTarget as DocumentTarget, target) ||
       !documentTargetsMatch(target, selectActiveDocumentTarget(state))
     ) return null;
@@ -57,7 +58,7 @@ export function resolveCanvasImageDrop(
     if (!refs.includes(imageRef)) return null;
     const stableRef = nodeData.imageUrl === imageRef &&
       typeof nodeData.imageConversationSourceRef === "string" &&
-      supportedSourceRef(nodeData.imageConversationSourceRef)
+      isSupportedCanvasImageRef(nodeData.imageConversationSourceRef)
       ? nodeData.imageConversationSourceRef
       : imageRef;
     return {

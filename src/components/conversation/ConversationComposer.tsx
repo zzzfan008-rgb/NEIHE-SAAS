@@ -1,5 +1,7 @@
 import { ChevronDownIcon, ChevronUpIcon, ImagePlusIcon, SendIcon, SlidersHorizontalIcon, Trash2Icon, UploadIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { CANVAS_IMAGE_DROP_EVENT } from "@/lib/canvasImageDrag";
+import { useCanvasImageDragStore } from "@/store/canvasImageDragStore";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -79,6 +81,18 @@ export function ConversationComposer({
   const capabilities = getImageConversationModelCapabilities(parameters.modelId);
   const availableModels = getImageConversationModelsForMode(mode);
   const inputDisabled = disabled || Boolean(clarification);
+
+  // 右键长按拖入的高亮由画布图片拖拽态驱动；原生拖放仍使用本地状态。
+  const canvasImageDragOver = useCanvasImageDragStore((state) => Boolean(state.drag?.overDropzone));
+  useEffect(() => {
+    const handleCanvasImageDrop = (event: Event) => {
+      const detail = (event as CustomEvent<{ payload?: unknown }>).detail;
+      if (inputDisabled || typeof detail?.payload !== "string") return;
+      onCanvasImageDrop(detail.payload);
+    };
+    window.addEventListener(CANVAS_IMAGE_DROP_EVENT, handleCanvasImageDrop);
+    return () => window.removeEventListener(CANVAS_IMAGE_DROP_EVENT, handleCanvasImageDrop);
+  }, [inputDisabled, onCanvasImageDrop]);
   const updateParameters = (patch: Partial<ImageConversationParameters>) => {
     onDraftChange({ parameters: { ...parameters, ...patch } });
   };
@@ -101,7 +115,8 @@ export function ConversationComposer({
 
       <div
         data-testid="conversation-input-dropzone"
-        className={`relative mb-2 flex max-h-24 min-h-10 gap-2 overflow-x-auto rounded-lg border bg-[var(--gc-control)] p-2 ${canvasDragOver ? "border-[var(--gc-accent)] ring-2 ring-[var(--gc-accent)]/40" : "border-[var(--gc-border)]"}`}
+        data-canvas-image-dropzone={inputDisabled ? "disabled" : "enabled"}
+        className={`relative mb-2 flex max-h-24 min-h-10 gap-2 overflow-x-auto rounded-lg border bg-[var(--gc-control)] p-2 ${canvasDragOver || canvasImageDragOver ? "border-[var(--gc-accent)] ring-2 ring-[var(--gc-accent)]/40" : "border-[var(--gc-border)]"}`}
         onDragOver={(event) => {
           if (inputDisabled || !isCanvasImageDrag(Array.from(event.dataTransfer.types))) return;
           event.preventDefault();

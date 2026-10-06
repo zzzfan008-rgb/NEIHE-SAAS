@@ -80,7 +80,7 @@ test('普通账号可编辑三图草稿，校验结果决定是否用于生图',
   const text = '三图校准补充（仅补充图1不可见关系）\n视线方向：视线朝画面右侧';
   await editor.fill(text);
   await dialog.getByRole('button',{name:'保存优化提示词',exact:true}).click();
-  await expect(dialog.getByText('优化提示词已保存并通过证据校验，将作为原姿势图的补充用于生图。',{exact:true})).toBeVisible();
+  await expect(dialog.getByText('优化提示词已保存并通过旧版补充校验。', { exact: true })).toBeVisible();
   const stored = () => page.evaluate(async () => {
     const module = '/src/store/flowStore.ts';
     const {useFlowStore,selectActiveNodes} = await import(module);
@@ -89,7 +89,7 @@ test('普通账号可编辑三图草稿，校验结果决定是否用于生图',
   expect(await stored()).toMatchObject({posePromptMode:'three-view',posePromptOptimized:text,posePromptOptimizedVerified:true});
   await editor.fill(text.replace('画面右侧','画面左侧'));
   await dialog.getByRole('button',{name:'保存优化提示词',exact:true}).click();
-  await expect(dialog.getByText(/编辑稿已保存，尚未通过证据校验/)).toBeVisible();
+  await expect(dialog.getByText(/编辑稿已保存，但格式或内容未通过校验/)).toBeVisible();
   expect((await stored()).posePromptOptimizedVerified).toBeUndefined();
   await expect(editor).toBeEditable();
   expect(analysisCalls).toBe(1);
@@ -324,6 +324,83 @@ test('三图校准通过校验后默认替换当前提示词', async ({ page }) 
   });
   expect(applied).toMatchObject({ posePrompt: '三图校准结果：站立姿态。', posePromptImage: source, posePromptMode: 'three-view',
     posePromptOptimized: optimized, posePromptOptimizedVerified: true });
+});
+
+test('顺序校准九类结果可编辑、持久化且重新分析不覆盖草稿', async ({ page }) => {
+  const source = '/api/files/pose-e2e.png';
+  const png = await sharp({ create: { width: 120, height: 200, channels: 3, background: '#8a9aa5' } }).png().toBuffer();
+  const image = `data:image/png;base64,${png.toString('base64')}`;
+  const optimized = '三图校准姿势\n整体姿势：自然站立\n头部：头部略向画面左侧倾斜\n视线：视线朝画面右侧\n面部：嘴角轻微上扬\n上肢：双手交握于腰前\n肩部：肩部放松\n腰部：轻微弯曲\n胯部：轻微转动\n下肢：双腿交叉';
+  const stages = { original: optimized.replace('双手交握于腰前', '双手交握于腰后'), depth: optimized.replace('略向画面左侧', '略向画面右侧'), skeleton: optimized };
+  let analyses = 0;
+  const validated: string[] = [];
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/me') return route.fulfill({ json: { user: { id: 'sequential', accountId: 'sequential', displayName: '顺序校准', role: 'user', mustChangePassword: false } } });
+    if (path === source) return route.fulfill({ contentType: 'image/png', body: png });
+    if (path === '/api/pose-references') return route.fulfill({ json: { records: [
+      { id: 'depth', kind: 'depth', source, status: 'succeeded', result: { image, model: 'mock-depth', convention: 'near-white' } },
+      { id: 'skeleton', kind: 'skeleton', source, status: 'succeeded', result: { image, model: 'mock-dwpose', pose: {
+        schemaVersion: 1, canvas: { width: 120, height: 200 }, people: [{ keypoints: Array.from({ length: 133 }, (_, index) => index === 0 ? { x: 0.5, y: 0.2, confidence: 0.9 } : null) }],
+      } } },
+    ] } });
+    if (path === '/api/pose-references/analyze') {
+      analyses++;
+      return route.fulfill({ json: { prompt: optimized, optimizedPrompt: optimized, optimizedPromptVerified: true, calibrationStages: stages, model: 'mock', providerRequests: 3, cacheHit: false, calibrationMode: 'three-view' } });
+    }
+    if (path === '/api/pose-references/validate-prompt') {
+      validated.push(route.request().postDataJSON().prompt);
+      return route.fulfill({ json: { verified: true } });
+    }
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/e2e/fixtures/pose-prompt.html');
+  const trigger = page.getByRole('button', { name: '反推人物姿势', exact: true });
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '反推人物姿势', exact: true });
+  await dialog.getByRole('combobox', { name: '分析方式' }).click();
+  await page.getByRole('option', { name: '原图 + 深度图 + DWPose 三图校准' }).click();
+  await dialog.getByRole('button', { name: '开始反推', exact: true }).click();
+  const editor = dialog.getByRole('textbox', { name: '优化后姿势提示词', exact: true });
+  await expect(editor).toHaveValue(optimized);
+  for (const [stage, text] of Object.entries(stages)) {
+    const result = dialog.locator(`[data-pose-stage="${stage}"]`);
+    await result.scrollIntoViewIfNeeded();
+    await expect(result).toHaveText(text);
+    const box = await result.boundingBox();
+    expect(box!.width).toBeGreaterThan(200);
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  }
+  await editor.scrollIntoViewIfNeeded();
+  await expect(editor).toBeEditable();
+  const edited = optimized.replace('视线朝画面右侧', '视线朝画面左侧');
+  await editor.fill(edited);
+  await dialog.getByRole('button', { name: '重新反推', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: '重新反推', exact: true })).toBeEnabled();
+  await expect.poll(() => analyses).toBe(2);
+  await expect(editor).toHaveValue(edited);
+  expect(analyses).toBe(2);
+  await dialog.getByRole('button', { name: '保存优化提示词', exact: true }).click();
+  await expect(dialog.getByText(/手动修改未经模型重新分析/)).toBeVisible();
+  const manual = edited.replace('三图校准姿势', '三图校准姿势（用户编辑）');
+  expect(validated).toEqual([manual]);
+  expect(analyses).toBe(2);
+  const persisted = await page.evaluate(async () => {
+    const modulePath = '/src/store/flowStore.ts';
+    const { useFlowStore, selectActiveDocument } = await import(modulePath);
+    return selectActiveDocument(useFlowStore.getState()).nodes.find((node: { id: string }) => node.id === 'pose')?.data;
+  });
+  expect(persisted).toMatchObject({ posePromptOptimized: manual, posePromptOptimizedVerified: true, posePromptImage: source, posePromptMode: 'three-view' });
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(editor).toHaveValue(manual);
+  await editor.scrollIntoViewIfNeeded();
+  const box = await editor.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  expect(box!.height).toBeGreaterThan(100);
 });
 
 test('optimization stays visible and manual edits persist without a model call', async ({ page }, testInfo) => {

@@ -6,8 +6,11 @@ import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { config } from "../config";
 import { fetchAiWithRetry as fetchWithRetry, parseDataUrl, ProviderError, toDataUrl } from "../providers/base";
+import { analyzeSequentialPose, parseSequentialPose, sequentialPoseResult, type SequentialPoseAnalysis } from './poseCalibration';
 import {
   CALIBRATED_POSE_SUPPLEMENT_HEADER,
+  isSequentialPosePrompt,
+  type PoseCalibrationStages,
   isCalibratedPoseDetail,
   isCalibratedPoseSupplement,
   usesExplicitScreenDirections,
@@ -66,6 +69,7 @@ export interface PoseAnalysisResult {
   model: string;
   cacheHit: boolean;
   calibrationMode?: 'three-view';
+  calibrationStages?: PoseCalibrationStages;
 }
 
 export interface PoseAnalysisOptions {
@@ -140,22 +144,12 @@ function dwposeEvidence(pose: DWPosePoseV1): string {
   })}`;
 }
 
-async function requestDeepSeekPose(imageDataUrl: string, apiKey: string, calibration?: PoseAnalysisCalibration): Promise<PoseAnalysis> {
+async function requestDeepSeekPose<T>(imageDataUrl: string, apiKey: string, instruction: string, parse: (value: unknown) => T): Promise<T> {
   let response: Response;
   const content: Array<Record<string, unknown>> = [
-    { type: 'text', text: calibration ? CALIBRATED_ANALYSIS_INSTRUCTION : ANALYSIS_INSTRUCTION },
-    { type: 'text', text: calibration ? '原始姿势图：整体动作与主体关系的基线。' : '姿势参考图：' },
+    { type: 'text', text: instruction },
     { type: 'image_url', image_url: { url: imageDataUrl, detail: 'original' } },
   ];
-  if (calibration) {
-    content.push(
-      { type: 'text', text: '深度图：仅按已确认的近白近、近黑远约定判断相对前后关系。' },
-      { type: 'image_url', image_url: { url: calibration.depthImageDataUrl, detail: 'original' } },
-      { type: 'text', text: 'DWPose骨骼渲染图：只校准头部和关节的二维位置。' },
-      { type: 'image_url', image_url: { url: calibration.skeletonImageDataUrl, detail: 'original' } },
-      { type: 'text', text: dwposeEvidence(calibration.pose) },
-    );
-  }
   try {
     response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
@@ -217,7 +211,7 @@ async function requestDeepSeekPose(imageDataUrl: string, apiKey: string, calibra
     throw new ProviderError('DeepSeek 返回的姿势描述格式无效，请重试', 502, DEEPSEEK_POSE_MODEL, 'invalid_response');
   }
   try {
-    return parseAnalysis(decoded, Boolean(calibration));
+    return parse(decoded);
   } catch (error) {
     if (error instanceof ProviderError) {
       throw new ProviderError(error.message, error.status ?? 502, DEEPSEEK_POSE_MODEL, error.category);
@@ -248,16 +242,6 @@ ${POINTS_INSTRUCTION}
 只返回以下 JSON 对象，七个描述字段必须存在且各为1至500字，不输出数组、Markdown 或 JSON 以外的文字：
 {"points":{"head":null,"gazeTarget":null,"neck":null,"leftShoulder":null,"rightShoulder":null,"leftElbow":null,"rightElbow":null,"leftWrist":null,"rightWrist":null,"pelvis":null,"leftHip":null,"rightHip":null,"leftKnee":null,"rightKnee":null,"leftAnkle":null,"rightAnkle":null},"bodyPose":"","torsoPose":"","legPose":"","handPose":"","headPose":"","gazeDirection":"","facialExpression":""}`;
 
-const CALIBRATED_ANALYSIS_INSTRUCTION = `${POSE_OBSERVATION_INSTRUCTION}
-按原图→骨骼→深度的顺序完成三层校准，七个姿态字段输出合并后的结论，不重复逐图描述：
-第一层：从原始姿势图建立动作基线。手掌朝向、手指状态、手部接触等手部语义，以及视线、面部神态，只以原图可见证据为准。
-第二层：用骨骼图及DWPose关节点与原图结论比较，相同语义只保留一次；关节二维位置、肢体弯曲和二维交叉发生冲突时，以有效且可信的DWPose关节点为准。低置信度或缺失点不产生覆盖结论，不把二维交叉等同于前后遮挡。
-第三层：用深度图校准前两层结论中的四肢相对前后关系；有明确深度证据时以前后深度关系为准。近白远黑，不能由灰度推断绝对距离，不能让深度图改写手部语义或二维关节点位置。
-DWPose输入中的人物自身解剖左右必须按肩部或髋部x坐标换算为画面左/画面右后再输出；三类证据必须对应同一人物。交叉、承重、手部接触和前后深度关系必须分别在原图、骨骼或深度证据中明确记录，证据不足时写“无法判断”，不得输出肯定结论。七个字段按整体、躯干、下肢、上肢手部、头部、视线、面部各自职责简洁描述，避免跨字段重复。证据来源、冲突及不可确定的原因保留在calibration审计字段，不混入已确认的动作描述。未知字段仍写“无法判断”，不得把删除未知描述当作确认了该姿态。
-calibration对象必须存在，五个字符串字段各为1至200字：originalEvidence（原图支持的主体动作和关系）、depthEvidence（深度图实际支持的前后关系，未支持时说明无法判断）、skeletonEvidence（骨骼图/DWPose支持的头部与关节位置及置信度限制）、conflicts（冲突或“无”）、unknowns（无法判断项或“无”）。七个姿态描述字段各为1至300字。
-${POINTS_INSTRUCTION}
-只返回以下完整JSON对象，不输出数组、Markdown或额外文字，不省略字段：
-{"points":{"head":null,"gazeTarget":null,"neck":null,"leftShoulder":null,"rightShoulder":null,"leftElbow":null,"rightElbow":null,"leftWrist":null,"rightWrist":null,"pelvis":null,"leftHip":null,"rightHip":null,"leftKnee":null,"rightKnee":null,"leftAnkle":null,"rightAnkle":null},"bodyPose":"","torsoPose":"","legPose":"","handPose":"","headPose":"","gazeDirection":"","facialExpression":"","calibration":{"originalEvidence":"","depthEvidence":"","skeletonEvidence":"","conflicts":"","unknowns":""}}`;
 const SKELETON_EDGES: ReadonlyArray<readonly [PosePointName, PosePointName]> = [
   ["head", "neck"],
   ["neck", "leftShoulder"], ["neck", "rightShoulder"],
@@ -348,7 +332,7 @@ function parseAnalysis(value: unknown, requireCalibration = false): PoseAnalysis
   return analysis;
 }
 
-function parseResponseText(payload: unknown, requireCalibration = false): PoseAnalysis {
+function parseResponseText<T>(payload: unknown, parse: (value: unknown) => T): T {
   const response = payload as {
     promptFeedback?: { blockReason?: unknown };
     candidates?: Array<{ finishReason?: unknown; content?: { parts?: Array<{ text?: unknown; thought?: unknown }> } }>;
@@ -374,7 +358,7 @@ function parseResponseText(payload: unknown, requireCalibration = false): PoseAn
   if (apiKey && text.includes(apiKey)) throw new PoseAnalysisResponseError('姿势分析返回格式无效');
   const normalized = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   try {
-    return parseAnalysis(JSON.parse(normalized), requireCalibration);
+    return parse(JSON.parse(normalized));
   } catch (error) {
     if (error instanceof PoseAnalysisResponseError) throw error;
     throw new PoseAnalysisResponseError('姿势分析返回的 JSON 无效');
@@ -607,21 +591,6 @@ export function optimizeCalibratedPrompt(analysis: PoseAnalysis, pose: DWPosePos
   return calibratedPoseSupplement(analysis, pose).prompt;
 }
 
-function calibrationExtras(options: PoseAnalysisOptions | undefined, analysis: PoseAnalysis) {
-  if (!options?.calibration) return {};
-  try {
-    const supplement = calibratedPoseSupplement(analysis, options.calibration.pose);
-    return {
-      calibrationMode: 'three-view' as const,
-      optimizedPrompt: supplement.prompt,
-      optimizedPromptVerified: true as const,
-      ...(supplement.notes.length ? { optimizationNotes: supplement.notes } : {}),
-    };
-  } catch (error) {
-    if (error instanceof PoseAnalysisResponseError) return { calibrationMode: 'three-view' as const, optimizationError: error.message };
-    throw error;
-  }
-}
 
 function cacheKey(model: string, mime: string, image: Buffer, calibration?: PoseAnalysisCalibration): string {
   const hash = createHash("sha256").update(`pose-analysis:${currentAiGateway()}:${POSE_ANALYSIS_SCHEMA_VERSION}:${model}:${mime}:`).update(image);
@@ -648,6 +617,10 @@ async function readCache(filePath: string, model: string, requireCalibration = f
 
 /** Validate edited supplements against existing evidence only; never calls a provider. */
 export async function validateEditedPosePrompt(imageDataUrl: string, prompt: string, options: PoseAnalysisOptions): Promise<{ verified: boolean; reason?: string }> {
+  if (isSequentialPosePrompt(prompt)) {
+    if (FORBIDDEN_POSE_CONTENT.test(prompt) || POSE_UNCERTAINTY_PATTERN.test(prompt)) return { verified: false, reason: '请仅保留明确的姿势描述，移除身份、服饰、场景或无法确认的内容。' };
+    return { verified: true };
+  }
   if (!isCalibratedPoseSupplement(prompt)) return { verified: false, reason: '请使用三图校准补充格式，仅填写前后深度、手部接触、视线方向、面部神态，并使用画面左/画面右；姿势几何由原图约束。' };
   if (!options.calibration) return { verified: false, reason: '缺少当前原图对应的三图证据。' };
   const deepseek = options.provider === 'deepseek';
@@ -686,7 +659,7 @@ export async function validateEditedPosePrompt(imageDataUrl: string, prompt: str
   }
 }
 
-async function writeCache(filePath: string, entry: PoseAnalysisCacheEntry): Promise<void> {
+async function writeCache(filePath: string, entry: PoseAnalysisCacheEntry | { schemaVersion: number; model: string; analysis: SequentialPoseAnalysis }): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
   const temporary = `${filePath}.${nanoid(8)}.tmp`;
   await fs.writeFile(temporary, JSON.stringify(entry), { encoding: "utf8", mode: 0o600 });
@@ -740,76 +713,79 @@ async function renderPoseGuide(imageDataUrl: string, analysis: PoseAnalysis): Pr
   return toDataUrl(buffer.toString("base64"), "image/png");
 }
 
+async function requestPoseJSON<T>(imageDataUrl: string, model: string, instruction: string, schema: Record<string, unknown>, parse: (value: unknown) => T, options?: PoseAnalysisOptions): Promise<T> {
+  if (options?.provider === 'deepseek') return requestDeepSeekPose(imageDataUrl, options.apiKey!, instruction, parse);
+  const { mime, base64 } = parseDataUrl(imageDataUrl);
+  const response = await fetchWithRetry(
+    `${config.aiBaseUrl()}/v1beta/models/${model}:generateContent`,
+    () => ({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.aiApiKey()}` },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [
+          { text: instruction }, { text: '姿势参考图：' },
+          { inlineData: { mimeType: mime, data: base64 } },
+        ] }],
+        generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema },
+      }),
+    }),
+    { timeoutMs: config.aiTimeoutMs(120_000), providerId: model },
+  );
+  let payload: unknown;
+  try { payload = await response.json(); }
+  catch { throw new PoseAnalysisResponseError('Gemini 返回无法解析的响应，请重试'); }
+  return parseResponseText(payload, parse);
+}
+
 async function analyzeUncached(
   imageDataUrl: string,
   model: string,
   filePath: string,
   options?: PoseAnalysisOptions,
 ): Promise<PoseAnalysisResult> {
-  const cached = await readCache(filePath, model, Boolean(options?.calibration));
-  if (cached) {
-    return {
-      guideImage: await renderPoseGuide(imageDataUrl, cached),
-      prompt: analysisPrompt(cached),
-      providerRequests: 0,
-      model,
-      cacheHit: true,
-      ...calibrationExtras(options, cached),
-    };
+  if (options?.calibration) {
+    let cached: SequentialPoseAnalysis | undefined;
+    try {
+      const entry = JSON.parse(await fs.readFile(filePath, 'utf8'));
+      if (entry.schemaVersion === 1 && entry.model === model) cached = parseSequentialPose(entry.analysis, FORBIDDEN_POSE_CONTENT);
+    } catch { /* Missing or invalid cache must be re-analyzed, never used as a completed stage. */ }
+    let providerRequests = 0;
+    let analysis: SequentialPoseAnalysis;
+    try {
+      analysis = cached ?? await analyzeSequentialPose({
+        original: imageDataUrl, depth: options.calibration.depthImageDataUrl,
+        skeleton: options.calibration.skeletonImageDataUrl, dwpose: dwposeEvidence(options.calibration.pose),
+      }, async (image, instruction, schema, parse) => {
+        providerRequests++;
+        await options.beforeProviderCall?.(providerRequests);
+        try {
+          return await requestPoseJSON(image, model, instruction, schema, value => {
+            try { return parse(value); }
+            catch (error) { throw new PoseAnalysisResponseError(error instanceof Error ? error.message : '姿势校准返回格式无效'); }
+          }, options);
+        }
+        catch (error) {
+          if (error instanceof PoseAnalysisResponseError || (error instanceof ProviderError && error.providerId === DEEPSEEK_POSE_MODEL)) throw error;
+          throw new Error('模型请求失败或超时，请核对后重试；重试可能产生费用');
+        }
+      }, FORBIDDEN_POSE_CONTENT);
+      const result = sequentialPoseResult(analysis);
+      if (!cached) await writeCache(filePath, { schemaVersion: 1, model, analysis });
+      return { ...result, guideImage: options.calibration.skeletonImageDataUrl, optimizedPromptVerified: true,
+        calibrationMode: 'three-view', providerRequests, model, cacheHit: Boolean(cached) };
+    } catch (error) {
+      if (error instanceof Error && error.cause instanceof ProviderError && error.cause.providerId === DEEPSEEK_POSE_MODEL) {
+        throw new ProviderError(error.message, error.cause.status, error.cause.providerId, error.cause.category);
+      }
+      throw new PoseAnalysisResponseError(error instanceof Error ? error.message : '三图校准失败，请重试');
+    }
   }
-  const { mime, base64 } = parseDataUrl(imageDataUrl);
+  const cached = await readCache(filePath, model);
+  if (cached) return { guideImage: await renderPoseGuide(imageDataUrl, cached), prompt: analysisPrompt(cached), providerRequests: 0, model, cacheHit: true };
   await options?.beforeProviderCall?.(1);
-  if (options?.provider === 'deepseek') {
-    const analysis = await requestDeepSeekPose(imageDataUrl, options.apiKey!, options.calibration);
-    await writeCache(filePath, { schemaVersion: POSE_ANALYSIS_SCHEMA_VERSION, model, analysis });
-    return { guideImage: await renderPoseGuide(imageDataUrl, analysis), prompt: analysisPrompt(analysis), providerRequests: 1, model, cacheHit: false, ...calibrationExtras(options, analysis) };
-  }
-  const response = await fetchWithRetry(
-    `${config.aiBaseUrl()}/v1beta/models/${model}:generateContent`,
-    () => ({
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.aiApiKey()}` },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: (() => {
-          const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
-            { text: options?.calibration ? CALIBRATED_ANALYSIS_INSTRUCTION : ANALYSIS_INSTRUCTION },
-            { text: options?.calibration ? '原始姿势图：整体动作与主体关系的基线。' : '姿势参考图：' },
-            { inlineData: { mimeType: mime, data: base64 } },
-          ];
-          if (options?.calibration) {
-            const depth = parseDataUrl(options.calibration.depthImageDataUrl);
-            const skeleton = parseDataUrl(options.calibration.skeletonImageDataUrl);
-            parts.push(
-              { text: '深度图：仅按已确认的近白近、近黑远约定判断相对前后关系。' },
-              { inlineData: { mimeType: depth.mime, data: depth.base64 } },
-              { text: 'DWPose骨骼渲染图：只校准头部和关节的二维位置。' },
-              { inlineData: { mimeType: skeleton.mime, data: skeleton.base64 } },
-              { text: dwposeEvidence(options.calibration.pose) },
-            );
-          }
-          return parts;
-        })() }],
-        generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: poseResponseSchema(Boolean(options?.calibration)) },
-      }),
-    }),
-    { timeoutMs: config.aiTimeoutMs(120_000), providerId: model },
-  );
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new PoseAnalysisResponseError('Gemini 返回无法解析的响应，请重试');
-  }
-  const analysis = parseResponseText(payload, Boolean(options?.calibration));
+  const analysis = await requestPoseJSON(imageDataUrl, model, ANALYSIS_INSTRUCTION, poseResponseSchema(false), value => parseAnalysis(value), options);
   await writeCache(filePath, { schemaVersion: POSE_ANALYSIS_SCHEMA_VERSION, model, analysis });
-  return {
-    guideImage: await renderPoseGuide(imageDataUrl, analysis),
-    prompt: analysisPrompt(analysis),
-    providerRequests: 1,
-    model,
-    cacheHit: false,
-    ...calibrationExtras(options, analysis),
-  };
+  return { guideImage: await renderPoseGuide(imageDataUrl, analysis), prompt: analysisPrompt(analysis), providerRequests: 1, model, cacheHit: false };
 }
 
 export const analyzePoseReference: PoseAnalyzer = async (imageDataUrl, options) => {
@@ -821,7 +797,7 @@ export const analyzePoseReference: PoseAnalyzer = async (imageDataUrl, options) 
   const { mime, buffer } = parseDataUrl(imageDataUrl);
   // BYOK cache and in-flight work are isolated by account and credential, not just model.
   const cacheModel = deepseek ? `${model}:${options!.ownerId}:${createHash('sha256').update(options!.apiKey!).digest('hex')}` : model;
-  const key = cacheKey(cacheModel, mime, buffer, options?.calibration);
+  const key = `${options?.calibration ? 'sequential-v1-' : ''}${cacheKey(cacheModel, mime, buffer, options?.calibration)}`;
   const filePath = path.join(config.dataDir(), "pose-analysis-cache", `${key}.json`);
   const existing = inFlight.get(key);
   if (existing) {

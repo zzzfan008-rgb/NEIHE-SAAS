@@ -201,6 +201,18 @@ assert.equal((verifiedReloadedPose.data as any).posePromptOptimizedVerified, tru
 const verifiedFirst = verifiedReloaded.nodes.find(node => node.data.kind === 'virtual-try-on')!;
 const verifiedStep = buildExecutionPlan(verifiedReloaded.nodes, verifiedReloaded.edges, { onlyNodeId: verifiedFirst.id, includeDownstream: false }).steps.find(step => step.nodeId === verifiedFirst.id)!;
 assert.equal(verifiedStep.params.posePrompt, calibratedSupplement, '只有服务端校验通过的三图补充才能进入第一阶段');
+const completePose = '三图校准姿势（用户编辑）\n整体姿势：站立\n头部：向画面左侧倾斜\n视线：看向镜头\n面部：嘴角上扬\n上肢：双手交握\n肩部：肩部放松\n腰部：轻微弯曲\n胯部：轻微转动\n下肢：双腿交叉';
+verifiedPose.data.posePromptOptimized = completePose;
+const sequentialReloaded = validateAndMigrateFlow(documentSnapshotToPersistedWorkflow(createDocumentSnapshot({ projectName: 'sequential pose', ...verifiedFlow })));
+const sequentialStep = buildExecutionPlan(sequentialReloaded.nodes, sequentialReloaded.edges, { onlyNodeId: verifiedFirst.id, includeDownstream: false }).steps.find(step => step.nodeId === verifiedFirst.id)!;
+assert.equal(sequentialStep.params.posePrompt, completePose, '用户编辑的九类姿势跨持久化与DAG保持不变');
+for (const concise of [false, true]) {
+  const prompt = multiImageTryOnPrompt(referenceMap, '', false, concise, 'original', completePose, 'three-view', true);
+  assert.ok(prompt.includes(completePose), '完整九类姿势进入最终生图提示词');
+  assert.doesNotMatch(prompt, /图1可见人体几何是最高优先级|四类|从属约束|冲突的部分全部忽略/);
+  assertPhotographicRealism(prompt);
+}
+assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, '', false, false, 'original', completePose, 'three-view', false), /下肢：双腿交叉/, '未经校验的九类草稿不进入生图');
 for (const mode of ['single', 'three-view'] as const) {
   const editedFlow = structuredClone(calibrationFlow);
   const poseNode = editedFlow.nodes.find(node => node.id === 'pose')!;

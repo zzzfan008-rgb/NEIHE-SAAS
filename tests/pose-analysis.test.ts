@@ -71,7 +71,7 @@ globalThis.fetch = async (_input, init) => {
 };
 
 try {
-  const { analyzePoseReference, calibratedPoseSupplement, optimizeCalibratedPrompt, validateEditedPosePrompt } = await import("../server/lib/poseAnalysis");
+  const { analyzePoseReference, calibratedPoseSupplement, optimizeCalibratedPrompt, validateEditedPosePrompt, DEEPSEEK_POSE_MODEL } = await import("../server/lib/poseAnalysis");
   const optimized = optimizeCalibratedPrompt({ ...CALIBRATED_ANALYSIS,
     handPose: '画面右肘弯曲，画面右腕靠近髋部，手指状态无法判断',
     gazeDirection: '无法识别',
@@ -190,7 +190,7 @@ try {
     assert.equal(new Headers(init?.headers).get('Authorization'), `Bearer ${deepseekOptions.apiKey}`);
     const request = JSON.parse(String(init?.body));
     assert.equal(request.model, 'deepseek-v4-flash-vision-exp');
-    assert.deepEqual(request.messages[0].content[2], { type: 'image_url', image_url: { url: IMAGE, detail: 'original' } });
+    assert.deepEqual(request.messages[0].content.find((part: { type: string }) => part.type === 'image_url'), { type: 'image_url', image_url: { url: IMAGE, detail: 'original' } });
     assert.equal(request.response_format.type, 'json_object');
     return Response.json({ choices: [{ message: { content: JSON.stringify(ANALYSIS) } }] });
   };
@@ -214,127 +214,138 @@ try {
   for (const name of fs.readdirSync(path.join(temp, 'pose-analysis-cache'))) {
     assert.ok(!fs.readFileSync(path.join(temp, 'pose-analysis-cache', name), 'utf8').includes(deepseekOptions.apiKey));
   }
+  {
+  const baseline = {
+    overall: { observation: '站立，重心落在画面左腿', plane: '躯干略向画面左侧倾斜', depth: '' },
+    head: { observation: '头部略低', plane: '头部向画面右侧倾斜', depth: '' },
+    gaze: { observation: '视线朝画面右侧', plane: '', depth: '' },
+    face: { observation: '嘴角轻微上扬', plane: '', depth: '' },
+    upperLimbs: { observation: '双手交握', plane: '画面左手位于腰部下方', depth: '画面左手位于躯干后方' },
+    shoulders: { observation: '肩部放松', plane: '画面右侧肩部略低', depth: '' },
+    waist: { observation: '腰部轻微弯曲', plane: '', depth: '' },
+    hips: { observation: '胯部轻微转动', plane: '', depth: '' },
+    lowerLimbs: { observation: '膝部自然弯曲', plane: '双腿交叉', depth: '画面右腿位于画面左腿后方' },
+  };
+  const depthPatch = { depth: { overall: null, head: null, upperLimbs: '画面左手位于躯干前方', shoulders: null, waist: null, hips: null, lowerLimbs: null } };
+  const planePatch = { plane: { head: '头部向画面左侧倾斜', upperLimbs: '画面左手位于腰部上方', lowerLimbs: '画面右脚越过画面左脚，双腿交叉' } };
+  const stageValue = (instruction: string) => instruction.startsWith('第一步') ? baseline : instruction.startsWith('第二步') ? depthPatch : planePatch;
   let calibrationCalls = 0;
   const calibrationBodies: Array<Record<string, any>> = [];
   globalThis.fetch = async (_input, init) => {
     calibrationCalls++;
-    const request = JSON.parse(String(init?.body)) as Record<string, any>;
+    const request = JSON.parse(String(init?.body));
     calibrationBodies.push(request);
-    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(CALIBRATED_ANALYSIS) }] } }] });
+    return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(stageValue(request.contents[0].parts[0].text)) }] } }] });
   };
-  const pose = CALIBRATION_POSE;
-  const calibration = { depthImageDataUrl: ALT_IMAGE, skeletonImageDataUrl: IMAGE, pose };
+  const calibration = { depthImageDataUrl: ALT_IMAGE, skeletonImageDataUrl: IMAGE, pose: CALIBRATION_POSE };
   const calibrated = await analyzePoseReference(IMAGE, { calibration });
-  const calibratedParts = calibrationBodies[0].contents[0].parts;
-  assert.equal(calibrationCalls, 1);
-  assert.ok(calibratedParts[0].text.includes("原始姿势图"));
+  assert.equal(calibrationCalls, 3, '三图校准必须串行执行三次请求');
+  assert.equal(calibrated.providerRequests, 3);
   assert.equal(calibrated.calibrationMode, 'three-view');
-  assert.equal(calibrated.optimizedPromptVerified, true, '只有通过结构门禁的自动优化稿才能标记为可信');
-  const edited = '三图校准补充（仅补充图1不可见关系）\n视线方向：视线朝画面右侧';
+  assert.equal(calibrated.optimizedPromptVerified, true);
+  const parts = calibrationBodies.map(body => body.contents[0].parts);
+  assert.deepEqual(parts.map(p => p.filter((v: any) => v.inlineData).length), [1, 1, 1]);
+  assert.deepEqual(parts.map(p => p.find((part: any) => part.inlineData).inlineData.data), [IMAGE, ALT_IMAGE, IMAGE].map(image => image.split(',')[1]));
+  assert.match(parts[0][0].text, /第一步.*原始姿势图/);
+  assert.match(parts[1][0].text, /近亮远暗/);
+  assert.ok(parts[1][0].text.includes(JSON.stringify(baseline)), '深度请求继承完整基线');
+  const afterDepth = structuredClone(baseline);
+  afterDepth.upperLimbs.depth = depthPatch.depth.upperLimbs;
+  assert.ok(parts[2][0].text.includes(JSON.stringify(afterDepth)), 'DWPose请求继承深度修正稿而非原始稿');
+  assert.match(parts[2][0].text, /coco-wholebody-133/);
+  assert.ok(parts[2][0].text.includes(JSON.stringify(CALIBRATION_POSE.people[0].keypoints[0])));
+  assert.deepEqual(calibrationBodies[0].generationConfig.responseSchema.required, Object.keys(baseline));
+  assert.deepEqual(calibrationBodies[1].generationConfig.responseSchema.required, ['depth']);
+  assert.deepEqual(calibrationBodies[2].generationConfig.responseSchema.properties.plane.required, ['head', 'upperLimbs', 'lowerLimbs']);
+  assert.match(calibrated.calibrationStages?.original ?? '', /左手位于躯干后方/);
+  assert.match(calibrated.calibrationStages?.depth ?? '', /左手位于腰部下方；画面左手位于躯干前方/);
+  assert.match(calibrated.calibrationStages?.skeleton ?? '', /左手位于腰部上方；画面左手位于躯干前方/);
+  const optimized = calibrated.optimizedPrompt ?? '';
+  assert.equal(optimized.split('\n').length, 10, '优化稿保留九类信息');
+  assert.match(optimized, /下肢：膝部自然弯曲；画面右脚越过画面左脚，双腿交叉；画面右腿位于画面左腿后方/);
+  for (const observation of ['重心落在画面左腿', '头部略低', '视线朝画面右侧', '嘴角轻微上扬', '双手交握', '肩部放松', '腰部轻微弯曲', '胯部轻微转动']) assert.ok(optimized.includes(observation));
+  assert.match(optimized, /肩部：肩部放松；画面右侧肩部略低/, '第三步不改肩部平面位置');
+  const edited = optimized.replace('三图校准姿势', '三图校准姿势（用户编辑）').replace('视线朝画面右侧', '视线朝画面左侧');
   assert.deepEqual(await validateEditedPosePrompt(IMAGE, edited, { calibration }), { verified: true });
-  assert.equal((await validateEditedPosePrompt(IMAGE, edited.replace('画面右侧', '画面左侧'), { calibration })).verified, false, '无证据支持的手动反向描述不可用于生图');
-  assert.equal((await validateEditedPosePrompt(IMAGE, '下肢姿态：双腿交叉', { calibration })).verified, false, '手动稿不能覆盖原图几何');
-  assert.equal((await validateEditedPosePrompt(ALT_IMAGE, edited, { calibration })).verified, false, '其他图片不能复用缓存证据');
-  assert.equal(calibrationCalls, 1, '手动校验不得调用收费模型');
-  assert.ok(calibrated.prompt.includes('三图校准结果'));
-  assert.match(calibrated.prompt, /肩线向画面右侧略低，躯干微向画面左侧倾斜，重心落在画面左腿/, '原始校准稿应保持原方向');
-  assert.match(calibrated.optimizedPrompt ?? '', /^三图校准补充（仅补充图1不可见关系）/, '优化稿只能包含通过结构校验的补充关系');
-  assert.doesNotMatch(calibrated.optimizedPrompt ?? '', /整体姿态|躯干姿态|下肢姿态|重心/, '优化稿不能覆盖图1可见几何');
-  assert.match(calibratedParts[0].text, /原始姿势图/);
-  assert.equal(calibratedParts[2].inlineData.data, IMAGE.split(",")[1]);
-  assert.match(calibratedParts[3].text, /深度图/);
-  assert.equal(calibratedParts[4].inlineData.data, ALT_IMAGE.split(",")[1]);
-  assert.match(calibratedParts[5].text, /DWPose/);
-  assert.equal(calibratedParts[6].inlineData.data, IMAGE.split(",")[1]);
-  assert.ok(calibratedParts[7].text.includes(JSON.stringify(pose.people[0].keypoints[0])));
-  assert.equal((await analyzePoseReference(IMAGE, { calibration })).cacheHit, true);
+  assert.equal((await validateEditedPosePrompt(IMAGE, edited + '\n背景：白色房间', { calibration })).verified, false);
+  assert.equal((await validateEditedPosePrompt(IMAGE, edited.replace('肩部放松', '红色外套'), { calibration })).verified, false);
+  assert.equal((await validateEditedPosePrompt(IMAGE, edited.replace('视线朝画面左侧', '无法判断'), { calibration })).verified, false);
+  assert.equal(calibrationCalls, 3, '手动保存校验不能调用模型');
+  const cached = await analyzePoseReference(IMAGE, { calibration });
+  assert.equal(cached.cacheHit, true);
+  assert.equal(cached.providerRequests, 0);
+  assert.deepEqual(cached.calibrationStages, calibrated.calibrationStages);
   await analyzePoseReference(IMAGE, { calibration: { ...calibration, depthImageDataUrl: IMAGE } });
   await analyzePoseReference(IMAGE, { calibration: { ...calibration, skeletonImageDataUrl: ALT_IMAGE } });
   await analyzePoseReference(ALT_IMAGE, { calibration });
-  assert.equal(calibrationCalls, 4, "原图、深度图、骨骼图任一变化都必须使校准缓存失效");
+  assert.equal(calibrationCalls, 12, '任一图片变化都必须使校准缓存失效');
+  let deepseekCalls = 0;
   globalThis.fetch = async (_input, init) => {
+    deepseekCalls++;
     const request = JSON.parse(String(init?.body));
-    assert.equal(request.messages[0].content[0].text.split('\n').filter((line: string) => line.startsWith('{"points"')).length, 1);
-    assert.equal(request.messages[0].content.filter((part: { type: string }) => part.type === 'image_url').length, 3);
-    assert.match(request.messages[0].content[7].text, /coco-wholebody-133/);
+    assert.equal(request.messages[0].content.filter((part: { type: string }) => part.type === 'image_url').length, 1);
     return Response.json({ choices: [{ message: { content: [
       { type: 'reasoning', text: '内部推理不参与解析' },
-      { type: 'text', text: `\`\`\`json\n${JSON.stringify(CALIBRATED_ANALYSIS)}\n\`\`\`` },
+      { type: 'text', text: `\`\`\`json\n${JSON.stringify(stageValue(request.messages[0].content[0].text))}\n\`\`\`` },
     ] } }] });
   };
   const deepseekCalibration = await analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'calibrated-owner', calibration });
-  assert.equal(deepseekCalibration.calibrationMode, 'three-view', 'DeepSeek content blocks containing fenced JSON should parse');
-  assert.match(deepseekCalibration.prompt, /三图校准结果/);
-  globalThis.fetch = async () => Response.json({ choices: [{ message: { content: JSON.stringify({ ...CALIBRATED_ANALYSIS, bodyPose: '' }) } }] });
-  await assert.rejects(
-    analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'invalid-calibrated-owner', calibration }),
-    /姿势分析字段 bodyPose 无效/,
-    'DeepSeek schema errors should remain actionable without exposing model output',
-  );
-  globalThis.fetch = async () => Response.json({ choices: [{ finish_reason: 'length', message: { content: '{"points":' } }] });
-  await assert.rejects(
-    analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'truncated-calibrated-owner', calibration }),
-    /DeepSeek 输出未完整结束/,
-  );
-  const responseFailures: string[] = [];
-  const calibratedJson = JSON.stringify(CALIBRATED_ANALYSIS);
+  assert.equal(deepseekCalls, 3);
+  assert.equal(deepseekCalibration.optimizedPrompt, optimized);
+  assert.deepEqual(deepseekCalibration.calibrationStages, calibrated.calibrationStages);
+  const baselineJson = JSON.stringify(baseline);
   const cases = [
-    { name: 'split-json', parts: [{ text: calibratedJson.slice(0, 150) }, { text: calibratedJson.slice(150) }] },
-    { name: 'thought-before-json', parts: [{ thought: true, text: '仅用于内部推理，不是最终结果' }, { text: calibratedJson }] },
-    { name: 'truncated-json', parts: [{ text: calibratedJson }], finishReason: 'MAX_TOKENS', error: /输出未完整结束/ },
-    { name: 'blocked-json', parts: [{ text: calibratedJson }], finishReason: 'SAFETY', error: /安全限制/ },
-    { name: 'thought-only', parts: [{ thought: true, text: calibratedJson }], error: /未返回可用文字/ },
-    { name: 'missing-evidence', parts: [{ text: JSON.stringify(ANALYSIS) }], error: /缺少来源证据/ },
-    { name: 'secret-echo', parts: [{ text: JSON.stringify({ ...CALIBRATED_ANALYSIS, bodyPose: process.env.APIYI_API_KEY }) }], error: /返回格式无效/ },
-    { name: 'invalid-coordinate', parts: [{ text: JSON.stringify({ ...CALIBRATED_ANALYSIS, points: { ...ANALYSIS.points, head: { x: 2, y: 0 } } }) }], error: /坐标 head 越界/ },
-    { name: 'forbidden-evidence', parts: [{ text: JSON.stringify({ ...CALIBRATED_ANALYSIS, calibration: { ...CALIBRATED_ANALYSIS.calibration, originalEvidence: '红色外套' } }) }], error: /包含禁止/ },
+    { name: 'split-json', parts: [{ text: baselineJson.slice(0, 150) }, { text: baselineJson.slice(150) }] },
+    { name: 'thought-before-json', parts: [{ thought: true, text: '内部推理' }, { text: baselineJson }] },
+    { name: 'truncated-json', parts: [{ text: baselineJson }], finishReason: 'MAX_TOKENS', error: /第一步.*输出未完整结束/ },
+    { name: 'blocked-json', parts: [{ text: baselineJson }], finishReason: 'SAFETY', error: /第一步.*安全限制/ },
+    { name: 'thought-only', parts: [{ thought: true, text: baselineJson }], error: /第一步.*未返回可用文字/ },
+    { name: 'wrong-schema', parts: [{ text: JSON.stringify(ANALYSIS) }], error: /第一步.*字段/ },
+    { name: 'secret-echo', parts: [{ text: baselineJson.replace('站立', process.env.APIYI_API_KEY!) }], error: /第一步.*格式无效/ },
+    { name: 'forbidden-content', parts: [{ text: baselineJson.replace('站立', '红色外套') }], error: /第一步.*非姿势内容/ },
   ];
   for (const sample of cases) {
     process.env.POSE_ANALYSIS_MODEL = `gemini-regression-${sample.name}`;
     let attempts = 0;
-    globalThis.fetch = async () => {
+    globalThis.fetch = async (_input, init) => {
       attempts++;
+      const instruction = JSON.parse(String(init?.body)).contents[0].parts[0].text;
       return Response.json({ candidates: [
-        { finishReason: sample.finishReason ?? 'STOP', content: { parts: sample.parts } },
-        { content: { parts: [{ text: JSON.stringify({ ...CALIBRATED_ANALYSIS, bodyPose: '另一个候选不应被拼接' }) }] } },
+        { finishReason: instruction.startsWith('第一步') ? sample.finishReason ?? 'STOP' : 'STOP', content: { parts: instruction.startsWith('第一步') ? sample.parts : [{ text: JSON.stringify(stageValue(instruction)) }] } },
+        { content: { parts: [{ text: '其他候选不得参与解析' }] } },
       ] });
     };
-    try {
-      if (sample.error) {
-        await assert.rejects(analyzePoseReference(IMAGE, { calibration }), sample.error);
-      } else {
-        const result = await analyzePoseReference(IMAGE, { calibration });
-        assert.match(result.prompt, /三图校准结果/);
-        assert.ok(!result.prompt.includes('内部推理'));
-        assert.equal((await analyzePoseReference(IMAGE, { calibration })).cacheHit, true);
-      }
-      assert.equal(attempts, 1, '解析失败不得自动再次调用付费模型');
-    } catch (error) {
-      responseFailures.push(`${sample.name}: ${error instanceof Error ? error.message : String(error)}`);
+    if (sample.error) await assert.rejects(analyzePoseReference(IMAGE, { calibration }), sample.error);
+    else {
+      const result = await analyzePoseReference(IMAGE, { calibration });
+      assert.equal(result.optimizedPrompt, optimized);
+      assert.equal((await analyzePoseReference(IMAGE, { calibration })).cacheHit, true);
     }
+    assert.equal(attempts, sample.error ? 1 : 3, '格式失败停止后续步骤，不自动付费重试');
   }
-  try {
-    assert.equal(calibratedParts[0].text.split('\n').filter((line: string) => line.startsWith('{"points"')).length, 1, '三图模式只能有一份完整输出示例');
-    const schema = calibrationBodies[0].generationConfig.responseSchema;
-    assert.ok(schema, 'Gemini 必须发送结构化响应 schema，而不仅是 JSON MIME');
-    assert.ok(schema.required.includes('calibration'));
-    assert.equal(schema.properties.points.required.length, 16);
-    assert.equal(schema.properties.points.properties.head.nullable, true);
-    assert.equal(schema.properties.calibration.required.length, 5);
-    assert.match(calibratedParts[7].text, /coco-wholebody-133/);
-    assert.match(calibratedParts[7].text, /leftShoulder/);
-  } catch (error) {
-    responseFailures.push(`request-contract: ${error instanceof Error ? error.message : String(error)}`);
+  for (const stage of ['第二步', '第三步']) {
+    process.env.POSE_ANALYSIS_MODEL = `gemini-scope-${stage === '第二步' ? 'depth' : 'skeleton'}`;
+    let attempts = 0;
+    globalThis.fetch = async (_input, init) => {
+      attempts++;
+      const instruction = JSON.parse(String(init?.body)).contents[0].parts[0].text;
+      const value = stageValue(instruction);
+      return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(instruction.startsWith(stage) ? { ...value, observation: '越权覆盖' } : value) }] } }] });
+    };
+    await assert.rejects(analyzePoseReference(IMAGE, { calibration }), /越权字段/);
+    assert.equal(attempts, stage === '第二步' ? 2 : 3);
   }
-  assert.deepEqual(responseFailures, [], '三图校准响应与请求契约回归');
-  process.env.POSE_ANALYSIS_MODEL = 'gemini-rejected-optimization';
-  globalThis.fetch = async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({
-    ...CALIBRATED_ANALYSIS, legPose: '画面左腿越过中线交叉于画面右腿前侧',
-  }) }] } }] });
-  const crossingNote = await analyzePoseReference(IMAGE, { calibration });
-  assert.match(crossingNote.optimizedPrompt ?? '', /^三图校准补充/, '交叉不一致不再丢弃优化稿');
-  assert.equal(crossingNote.optimizationNotes?.some((note) => /交叉/.test(note)), true, '交叉不一致必须作为提示返回');
-  assert.deepEqual((await analyzePoseReference(IMAGE, { calibration })).optimizationNotes, crossingNote.optimizationNotes, '缓存结果也要保留校准提示');
+  globalThis.fetch = async () => Response.json({ choices: [{ finish_reason: 'length', message: { content: '{}' } }] });
+  await assert.rejects(analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'truncated-calibrated-owner', calibration }), /第一步.*DeepSeek 输出未完整结束/);
+  globalThis.fetch = async () => new Response('invalid key', { status: 401 });
+  await assert.rejects(analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'unauthorized-calibrated-owner', calibration }),
+    (error: unknown) => error instanceof Error && 'providerId' in error && error.providerId === DEEPSEEK_POSE_MODEL && /第一步.*API Key/.test(error.message),
+    '串行校准必须保留脱敏后的BYOK提供商错误');
+  globalThis.fetch = async () => { throw new Error(`transport failed ${deepseekOptions.apiKey}`); };
+  await assert.rejects(analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'interrupted-calibrated-owner', calibration }),
+    (error: unknown) => error instanceof Error && 'category' in error && error.category === 'outcome_unknown' && !error.message.includes(deepseekOptions.apiKey),
+    '串行校准必须保留请求结果未知分类且不得泄露密钥');
+  }
   console.log("姿势分析测试通过：Gemini/DeepSeek、Base64、账户缓存隔离、密钥脱敏与结构验证");
 } finally {
   globalThis.fetch = originalFetch;

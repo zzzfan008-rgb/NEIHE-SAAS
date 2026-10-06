@@ -8,7 +8,7 @@ import type { GenerationRequestSnapshot } from "./generationRecords";
 import { withImageProcessingSlot } from "./imageProcessingLimit";
 import { normalizeProviderImageDataUrl, PROVIDER_TARGET_BYTES, UPLOAD_MAX_INPUT_PIXELS } from "./uploadImageNormalization";
 import { MAX_IMAGE_BYTES } from "./imageValidation";
-import { isCalibratedPoseSupplement } from "../../src/types/poseReference";
+import { isCalibratedPoseSupplement, isSequentialPosePrompt } from "../../src/types/poseReference";
 
 /** Local PNG contact sheet: no AI call, no crop/stretch, EXIF-correct, bounded memory. */
 export async function stitchReferenceImages(images: readonly string[]): Promise<string> {
@@ -97,6 +97,7 @@ export async function prepareMultiImageTryOn(
 export function multiImageTryOnPrompt(referenceMap: string, extra: string, angleControlled: boolean, concise = false, poseReferenceType?: unknown, posePrompt?: unknown, posePromptMode?: unknown, posePromptVerified?: unknown): string {
   const skeleton = poseReferenceType === "skeleton";
   const calibrated = posePromptMode === "three-view";
+  const sequential = calibrated && posePromptVerified === true && isSequentialPosePrompt(posePrompt);
   const posePromptClause = typeof posePrompt === "string" && posePrompt.trim()
     ? calibrated
       ? posePromptVerified === true && isCalibratedPoseSupplement(posePrompt)
@@ -106,14 +107,20 @@ export function multiImageTryOnPrompt(referenceMap: string, extra: string, angle
     : "";
   return [
     "以参考图2提供的人物造型基调，创作一位全新的原创模特，呈现下方指定的时尚服装摄影照片，展示指定的服装和配饰。",
-    calibrated
+    sequential
+      ? `动作（最高优先级）：以下保存的最终姿势提示词为完整姿势文字约束，包含三图顺序校准或用户确认的修改。按其整体姿势、头部、视线、面部、上肢、肩部、腰部、胯部、下肢描述执行；参考图1仅补足未描述项，不得用原图旧几何推翻已确认的文字。所有左右均为画面方向。\n${posePrompt}`
+      : calibrated
       ? `动作（最高优先级）：参考图1可见人体几何是最高优先级，按照图1呈现身体朝向、肩髋倾斜、关节弯曲、手脚位置、双腿交叉、重心与承重。校准文字仅补充图1无法直接判定的前后深度、手部接触、视线与面部神态；任何文字与图1可见几何冲突时均以图1为准。${posePromptClause ? `\n${posePromptClause}` : ""}`
       : skeleton
       ? `动作（最高优先级）：可参照图1的骨架动作方向。${posePromptClause}按可见关键点与连线呈现人物动作：关键点的位置、连线方向与相对比例逐点对齐，包括肩髋倾斜、肘腕与膝踝弯曲、双手手指与双脚朝向、双腿弯曲与前后关系、重心与承重关系；左右沿用图中画面方向，动作方向优先于人物、场景、服装及相机视角，成图呈现自然人物摄影效果。`
       : `动作（最高优先级）：可参照图1的骨架动作方向。${posePromptClause}按照图1动作方向呈现身体朝向、头部朝向、肩髋倾斜、肩肘腕与髋膝踝位置、双臂与手部动作、双腿弯曲与前后关系、重心与承重关系；左右沿用画面方向，姿势、人物、场景、服装和相机共同形成完整画面。`,
     "人物：参考图2提供体型、发型方向、肤色基调与整体气质，生成全原创形象。",
     "环境：采用图3的场景、光照和环境色彩，使人物和商品具有协调的光影与透视；场景、人物与服装分别依据对应参考图呈现。",
-    calibrated
+    sequential
+      ? (angleControlled
+        ? '相机视角：仅调整观察角度与取景，保持最终姿势文字中已确认的关节、接触、承重与前后关系。'
+        : '相机视角：参考图1取景并保持最终姿势文字约束；场景适配人物透视，输出画幅变化时扩展环境。')
+      : calibrated
       ? (angleControlled
         ? '相机视角：仅调整观察角度与取景，保持图1中的关节、接触、承重和前后关系。'
         : '相机视角：参考图1取景并保持图1姿势几何；场景适配人物透视，输出画幅变化时扩展环境。')

@@ -27,6 +27,7 @@ import { WorkbenchShell } from "@/components/workbench/WorkbenchShell";
 import { ConversationPanel } from "@/components/conversation/ConversationPanel";
 import { TaskLauncher } from "@/components/TaskLauncher";
 import { TutorialOverlay } from "@/components/tutorial/TutorialOverlay";
+import { CanvasImageDragLayer } from "@/components/CanvasImageDragLayer";
 import { setGenerationSafetyBlockReason } from "@/store/generationSafety";
 import {
   isWorkspaceUnloadWarningSuppressed,
@@ -502,6 +503,7 @@ function Workspace() {
           </ReactFlowProvider>
         </div>
       </WorkbenchShell>
+      <CanvasImageDragLayer />
       {compareOpen && (
         <Suspense fallback={<OverlayLoadingStatus label="正在打开结果对比…" />}>
           <LazyCompareOverlay open onOpenChange={setCompareOpen} />

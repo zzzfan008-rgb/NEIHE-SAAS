@@ -16,12 +16,15 @@ import {
   type ResizeParams,
 } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
+import { CanvasImage } from "./CanvasImage";
 import { CropIcon, ImagesIcon, UploadIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   selectActiveDocumentTarget,
+  selectActiveDocument,
   selectActiveNodes,
   selectActiveEdges,
+  selectActiveNodeById,
   selectActiveReadOnly,
   useFlowStore,
   type FlowNode,
@@ -36,7 +39,7 @@ import { NodeFrame } from "./NodeFrame";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
 import { isPoseReferenceNode } from "@/types/poseReference";
 import { isDirectMultiImagePoseNode } from "@/lib/multiImageTryOn";
-import { startCanvasImageDrag } from "@/lib/imageConversationDrag";
+import { beginCanvasImagePress } from "@/lib/canvasImageDrag";
 
 const ImageCropEditor = lazy(() => import("./ImageCropEditor"));
 const PoseReferenceComparison = lazy(() => import("../PoseReferenceComparison"));
@@ -251,16 +254,19 @@ export function ImageInputNode({
   const updateNodeDataInTab = useFlowStore((s) => s.updateNodeDataInTab);
   const assignImageInputInTab = useFlowStore((s) => s.assignImageInputInTab);
   const onNodesChange = useFlowStore((s) => s.onNodesChange);
-  const explicitWidth = useFlowStore(
-    (state) => selectActiveNodes(state).find((node) => node.id === id)?.width,
-  );
-  const explicitHeight = useFlowStore(
-    (state) => selectActiveNodes(state).find((node) => node.id === id)?.height,
-  );
+  const explicitWidth = useFlowStore((state) => selectActiveNodeById(state, id)?.width);
+  const explicitHeight = useFlowStore((state) => selectActiveNodeById(state, id)?.height);
   const readOnly = useFlowStore(selectActiveReadOnly);
   const isPose = useFlowStore(s => isPoseReferenceNode(id, selectActiveNodes(s), selectActiveEdges(s)));
   const directPose = useFlowStore(s => isDirectMultiImagePoseNode(id, selectActiveNodes(s), selectActiveEdges(s)));
-  const poseConnected = useFlowStore(s => selectActiveEdges(s).some(edge => edge.source === id && edge.targetHandle === 'pose' && selectActiveNodes(s).some(node => node.id === edge.target && node.data.kind === 'virtual-try-on' && node.data.workflowStage === 'scene-stabilize')));
+  const poseConnected = useFlowStore((state) => {
+    for (const edge of selectActiveEdges(state)) {
+      if (edge.source !== id || edge.targetHandle !== "pose") continue;
+      const target = selectActiveNodeById(state, edge.target);
+      if (target?.data.kind === "virtual-try-on" && target.data.workflowStage === "scene-stabilize") return true;
+    }
+    return false;
+  });
   const [poseSession, setPoseSession] = useState<CropSession | null>(null);
   const poseTriggerRef = useRef<HTMLButtonElement>(null);
   const [posePromptSession, setPosePromptSession] = useState<CropSession | null>(null);
@@ -268,9 +274,10 @@ export function ImageInputNode({
   const uploadRequestRef = useRef(0);
   const [cropSession, setCropSession] = useState<CropSession | null>(null);
   const cropSessionRef = useRef<CropSession | null>(null);
-  const activeDocumentKey = useFlowStore((state) =>
-    JSON.stringify(selectActiveDocumentTarget(state)),
-  );
+  const activeDocumentKey = useFlowStore((state) => {
+    const tab = selectActiveDocument(state);
+    return `${tab.id}:${tab.projectId}:${tab.documentEpoch}`;
+  });
   useEffect(() => {
     setPoseSession(null);
     setPosePromptSession(null);
@@ -625,14 +632,13 @@ export function ImageInputNode({
                 />
               </Suspense>
             ) : (
-              <img
-                src={data.imageUrl}
+              <CanvasImage
+                source={data.imageUrl}
                 loading="lazy"
                 decoding="async"
-                draggable={!cropSession}
-                onDragStart={(event) => startCanvasImageDrag(event, id, data.imageUrl!)}
+                onPointerDown={(event) => beginCanvasImagePress(event, id, data.imageUrl)}
                 alt="已上传图片"
-                className="nodrag nopan block h-full w-full select-none object-contain"
+                className="nopan block h-full w-full select-none object-contain"
                 onLoad={(event) => {
                   const image = event.currentTarget;
                   setImageDimensions({

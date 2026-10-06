@@ -100,29 +100,32 @@ test("姿势参考图节点提供独立的姿势提示词反推入口", () => {
   assert.match(source, /默认用于第一轮生图/);
 });
 
-test("已上传图片可拖入侧栏，图片拖动不接管画布节点，也不打开查看器", () => {
+test("已上传图片用右键长按拖入侧栏，左键拖动移动节点且不打开查看器", () => {
   const html = renderNode({ ...baseData, imageUrl: "/api/files/source.png" });
   const source = readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
-  assert.match(html, /<img[^>]*draggable="true"[^>]*alt="已上传图片"[^>]*class="nodrag nopan/);
-  assert.match(source, /startCanvasImageDrag\(event, id, data\.imageUrl!\)/);
+  assert.match(html, /<img[^>]*alt="已上传图片"[^>]*class="nopan /);
+  assert.doesNotMatch(html, /draggable="true"/);
+  assert.match(source, /beginCanvasImagePress\(event, id, data\.imageUrl\)/);
+  assert.doesNotMatch(source, /startCanvasImageDrag/);
   assert.doesNotMatch(html, /单击查看大图|cursor-zoom-in/);
   assert.doesNotMatch(source, /openViewer/);
   assert.match(source, /className=\{`gc-image-input-media relative/);
   assert.doesNotMatch(source, /gc-image-input-media nodrag nopan/);
 });
 
-test("画布中的上传图、生成结果和局部重绘源图均直接加载原图", () => {
+test("画布中的上传图与生成结果默认加载缩略图，局部重绘源图仍加载原图", () => {
   const nodeSource = readFileSync(new URL("../src/components/nodes/ImageInputNode.tsx", import.meta.url), "utf8");
   const gridSource = readFileSync(new URL("../src/components/nodes/ImageGrid.tsx", import.meta.url), "utf8");
   const redrawSource = readFileSync(new URL("../src/components/nodes/MaskRedrawNode.tsx", import.meta.url), "utf8");
   const html = renderNode({ ...baseData, imageUrl: "/api/files/source.png" });
 
-  assert.match(html, /src="\/api\/files\/source\.png"/);
-  assert.doesNotMatch(html, /\/thumbnail/);
-  for (const source of [nodeSource, gridSource, redrawSource]) {
-    assert.doesNotMatch(source, /thumbnailImageUrl/);
+  assert.match(html, /src="\/api\/files\/source\.png\/thumbnail"/);
+  assert.doesNotMatch(html, /src="\/api\/files\/source\.png"/);
+  for (const source of [nodeSource, gridSource]) {
+    assert.match(source, /from "\.\/CanvasImage"/);
   }
-  assert.match(gridSource, /<img[\s\S]*?src=\{url\}/);
+  assert.doesNotMatch(redrawSource, /thumbnailImageUrl/);
+  assert.match(gridSource, /<CanvasImage[\s\S]*?source=\{url\}/);
   assert.match(redrawSource, /<img[\s\S]*?src=\{source\}/);
 });
 
@@ -176,7 +179,7 @@ test("所有参考图节点提供四角实时缩放、自然尺寸初始值和�
   assert.match(source, /keepAspectRatio=\{hasDisplayImage\}/);
   assert.match(source, /IMAGE_RESIZE_CORNERS\s*=\s*\[\s*"top-left",\s*"top-right",\s*"bottom-right",\s*"bottom-left",?\s*\]/, "只提供四角缩放控制，不增加边线拖动");
   assert.match(source, /explicitWidth[\s\S]*?selectActiveNodes/, "只有显式节点宽高才能覆盖图片自然适配尺寸");
-  assert.match(source, /className="nodrag nopan block h-full w-full select-none object-contain"/);
+  assert.match(source, /className="nopan block h-full w-full select-none object-contain"/, "图片保留 nopan（右键不触发画布平移），并让左键拖动节点");
   assert.match(source, /height: "100%"/);
   assert.doesNotMatch(source, /MinusIcon|PlusIcon|aria-label="(?:缩小|放大)参考图节点"/);
   assert.match(source, /gc-image-resize-keyboard[\s\S]*?onKeyDown=/, "四角缩放保留键盘操作");

@@ -205,6 +205,19 @@ try {
   assert.equal(usePoseReferenceRuntime.getState().entries[calibratedKey]?.posePrompt?.applied, 'unsaved', '保存失败必须标记为待重试');
   clearPosePromptAppliedFlag(renameTarget, 'pose', source, 'gemini', '', 'three-view');
   assert.equal(usePoseReferenceRuntime.getState().entries[calibratedKey]?.posePrompt?.applied, undefined, '手动保存成功后必须清除待重试标记');
+  resolve = undefined;
+  globalThis.fetch = async () => new Promise<Response>(complete => { resolve = complete; });
+  const sequentialRequest = analyzePosePrompt(renameTarget, 'pose', source, true, { candidateOnly: true, calibrationMode: 'three-view', autoApplyVerified: true });
+  while (!resolve) await new Promise(complete => setTimeout(complete, 0));
+  useFlowStore.getState().updateNodeDataInTab(renameTarget, 'pose', { posePromptOptimized: '三图校准姿势（用户编辑）\n上肢：双手交握', posePromptOptimizedVerified: true });
+  const stages = { original: '第一步', depth: '第二步', skeleton: '第三步' };
+  resolve!(Response.json({ prompt: '三图校准姿势\n上肢：双手张开', optimizedPrompt: '三图校准姿势\n上肢：双手张开', optimizedPromptVerified: true, calibrationStages: stages, model: 'mock', providerRequests: 3, cacheHit: false, calibrationMode: 'three-view' }));
+  await sequentialRequest;
+  const sequentialState = usePoseReferenceRuntime.getState().entries[calibratedKey]?.posePrompt;
+  assert.equal(sequentialState?.status, 'succeeded');
+  assert.deepEqual(sequentialState?.result?.calibrationStages, stages);
+  assert.equal(sequentialState?.applied, undefined);
+  assert.equal(useFlowStore.getState().tabs.find(t => t.id === renameTarget.tabId)!.nodes[0].data.posePromptOptimized, '三图校准姿势（用户编辑）\n上肢：双手交握', '迟到的自动采用不得覆盖运行期间的用户编辑');
 } finally {
   globalThis.fetch = originalFetch;
   useFlowStore.setState({ saveProjectInTab: originalSave });

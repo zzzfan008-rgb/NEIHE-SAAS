@@ -7,6 +7,7 @@ import { useResultExport } from "@/store/resultExportStore";
 import type { ResultNodeData } from "@/types/workflow";
 import { imageExtensionFromReference, type ImageFileExtension } from "@/lib/imageFormat";
 import { NodeFrame } from "./NodeFrame";
+import { CanvasImage } from "./CanvasImage";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
 import { Columns2Icon, DownloadIcon, EyeIcon, MoreHorizontalIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { OPEN_COMPARE_EVENT } from "@/lib/overlayEvents";
 import { ResultNoteControl } from "./ResultNoteControl";
-import { startCanvasImageDrag } from "@/lib/imageConversationDrag";
+import { beginCanvasImagePress } from "@/lib/canvasImageDrag";
 
 function downloadImage(url: string, index: number, extension?: ImageFileExtension) {
   const a = document.createElement("a");
@@ -196,11 +197,11 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
         <MediaNodeActionToolbar nodeId={id} imageActions={videos.length === 0} hasImage={stillImages.length > 0} sourceHandle={`image:${selectedImageIndex}`} />
       </ResultSaveControls>
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
-        {selectedImage ? <Button variant="ghost" aria-label="查看生成结果大图" className="gc-result-image nodrag nopan" onClick={viewImage}>
-          <img src={selectedImage} alt={data.label} decoding="async" draggable onDragStart={(event) => startCanvasImageDrag(event, id, selectedImage)} />
+        {selectedImage ? <Button variant="ghost" aria-label="查看生成结果大图" className="gc-result-image nopan" onClick={viewImage}>
+          <CanvasImage source={selectedImage} alt={data.label} decoding="async" onPointerDown={(event) => beginCanvasImagePress(event, id, selectedImage)} />
         </Button> : videos.length === 0 && <div className="gc-result-empty">连接上游节点后自动汇总媒体</div>}
-        {stillImages.length > 1 && <div className="nodrag nopan nowheel flex gap-1 overflow-x-auto" aria-label="结果图片选择">
-          {stillImages.map((url, index) => <Button key={`${url}-${index}`} variant="outline" aria-label={`选择生成结果 ${index + 1}`} aria-pressed={selectedImageIndex === index} className="gc-result-thumbnail" onClick={() => setSelectedImageIndex(index)}><img src={url} alt="" draggable onDragStart={(event) => startCanvasImageDrag(event, id, url)} /></Button>)}
+        {stillImages.length > 1 && <div className="nopan nowheel flex gap-1 overflow-x-auto" aria-label="结果图片选择">
+          {stillImages.map((url, index) => <Button key={`${url}-${index}`} variant="outline" aria-label={`选择生成结果 ${index + 1}`} aria-pressed={selectedImageIndex === index} className="gc-result-thumbnail" onClick={() => setSelectedImageIndex(index)}><CanvasImage source={url} alt="" onPointerDown={(event) => beginCanvasImagePress(event, id, url)} /></Button>)}
         </div>}
         {videos.map((video) => <video key={video} src={video} controls preload="metadata" className="nodrag max-h-52 w-full rounded-md bg-black" />)}
         {videos.map((video, index) => <Button key={`download-${video}`} variant="outline" className="gc-result-action w-full" render={<a href={video} download={`garment-video-${index + 1}.mp4`} />}>下载视频 {index + 1}</Button>)}

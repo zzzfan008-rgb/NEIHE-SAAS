@@ -86,14 +86,25 @@ test("first-round model and ideas persist with desktop controls", async ({ page 
     return box!.y + box!.height;
   }).toBeLessThanOrEqual(page.viewportSize()!.height - 40);
   for (const control of [ideas, model, quality, framing]) {
-    const box = await control.boundingBox();
-    const nodeBox = await node.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.x).toBeGreaterThanOrEqual(nodeBox!.x);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(nodeBox!.x + nodeBox!.width + 1);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-    expect(box!.y).toBeGreaterThanOrEqual(nodeBox!.y);
-    expect(box!.y + box!.height).toBeLessThanOrEqual(nodeBox!.y + nodeBox!.height);
+    const bounds = await control.evaluate((element) => {
+      // Measure both rectangles in one frame while fit-view is animating.
+      const node = element.closest('.react-flow__node');
+      if (!node) throw new Error('Control is outside the canvas node');
+      const box = element.getBoundingClientRect();
+      const nodeBox = node.getBoundingClientRect();
+      return {
+        left: box.left - nodeBox.left,
+        right: nodeBox.right - box.right,
+        top: box.top - nodeBox.top,
+        bottom: nodeBox.bottom - box.bottom,
+        viewportRight: window.innerWidth - box.right,
+      };
+    });
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeGreaterThanOrEqual(-1);
+    expect(bounds.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.bottom).toBeGreaterThanOrEqual(0);
+    expect(bounds.viewportRight).toBeGreaterThanOrEqual(0);
   }
   await framing.focus();
   await page.keyboard.press('Enter');
@@ -285,6 +296,10 @@ test("TiAngelNode preview fits desktop widths, folds text and isolates pointer d
   expect(previewBox!.x).toBeGreaterThanOrEqual(0);
   expect(previewBox!.x + previewBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
 
+  const angleToggle = node.getByRole("button", { name: /^输出视角约束/ });
+  await expect(angleToggle).toHaveAttribute("aria-expanded", "false");
+  await angleToggle.click();
+  await expect(angleToggle).toHaveAttribute("aria-expanded", "true");
   await node.getByRole("button", { name: "左前方 +45°", exact: true }).click();
   await expect.poll(() => page.evaluate(async () => {
     const storePath = "/src/store/flowStore.ts";
@@ -314,12 +329,12 @@ test("TiAngelNode preview fits desktop widths, folds text and isolates pointer d
   await expect(azimuthInput).toHaveValue("5");
   await node.getByRole("button", { name: "重置视角", exact: true }).click();
 
-  const outputToggle = node.getByRole("button", { name: "查看输出文本", exact: true });
+  const outputToggle = node.getByRole("button", { name: /^查看输出文本/ });
   await expect(outputToggle).toHaveAttribute("aria-expanded", "false");
   await outputToggle.click();
   await expect(outputToggle).toHaveAttribute("aria-expanded", "true");
   await expect(node).toContainText("通用视角描述（未绑定模型）");
-  const copyButton = node.getByRole("button", { name: "复制视角文本", exact: true });
+  const copyButton = node.getByRole("button", { name: "复制约束文本", exact: true });
   await expect(copyButton).toBeVisible();
 
   const before = await page.evaluate(async () => {
@@ -621,7 +636,7 @@ test("TiAngelNode reads authenticated reference images and completes a successfu
   const imageBRequested = deferred();
   const releaseImageB = deferred();
   const imageBSettled = deferred();
-  await page.route("**/api/files/ti-angle-auth-*.png", async (route) => {
+  await page.route("**/api/files/ti-angle-auth-*.png*", async (route) => {
     const path = new URL(route.request().url()).pathname;
     requests.push({ path, cookie: route.request().headers().cookie ?? "" });
     if (path.endsWith("ti-angle-auth-b.png")) {
@@ -864,7 +879,7 @@ test("TiAngelNode survives formal save, project-center reopen and page refresh w
 
   const restoredNode = page.locator('.react-flow__node[data-id="ti-angle-save"]');
   await expect(restoredNode).toBeVisible();
-  const outputToggle = restoredNode.getByRole("button", { name: "查看输出文本", exact: true });
+  const outputToggle = restoredNode.getByRole("button", { name: /^查看输出文本/ });
   await expect(outputToggle).toHaveAttribute("aria-expanded", "false");
 
   const readRestoredDocument = () => page.evaluate(async () => {
@@ -897,7 +912,7 @@ test("TiAngelNode survives formal save, project-center reopen and page refresh w
   await page.reload();
   await expect(page.locator('.react-flow__node[data-id="ti-angle-save"]')).toBeVisible();
   await expect(page.locator('.react-flow__node[data-id="ti-angle-save"]')
-    .getByRole("button", { name: "查看输出文本", exact: true }))
+    .getByRole("button", { name: /^查看输出文本/ }))
     .toHaveAttribute("aria-expanded", "false");
   await expect.poll(readRestoredDocument).toEqual({
     projectId: identity.projectId,
@@ -993,7 +1008,7 @@ test("TiAngelNode output supports multi-target copy, focus restoration and read-
     });
   });
   const node = page.locator('.react-flow__node[data-id="ti-angle-output-e2e"]');
-  const outputToggle = node.getByRole("button", { name: "查看输出文本", exact: true });
+  const outputToggle = node.getByRole("button", { name: /^查看输出文本/ });
   await expect(node).toBeVisible();
   await outputToggle.click();
   await expect(outputToggle).toHaveAttribute("aria-expanded", "true");
@@ -1001,7 +1016,7 @@ test("TiAngelNode output supports multi-target copy, focus restoration and read-
   await expect(node).toContainText("模型：gpt-image-2");
   await expect(node).toContainText("接收节点：Gemini 目标");
   await expect(node).toContainText("模型：gemini-3.1-flash-image");
-  const copyButtons = node.getByRole("button", { name: "复制视角文本", exact: true });
+  const copyButtons = node.getByRole("button", { name: "复制约束文本", exact: true });
   await expect(copyButtons).toHaveCount(2);
 
   await outputToggle.click();
@@ -1028,6 +1043,7 @@ test("TiAngelNode output supports multi-target copy, focus restoration and read-
   });
   await loadAngleFlow(true);
   const readOnlyNode = page.locator('.react-flow__node[data-id="ti-angle-output-e2e"]');
+  await readOnlyNode.getByRole("button", { name: /^输出视角约束/ }).click();
   await expect(readOnlyNode.getByRole("switch", { name: "启用 3D 视角" })).toBeDisabled();
   await expect(readOnlyNode.getByRole("button", { name: "左前方 +45°", exact: true })).toBeDisabled();
   await expect(readOnlyNode.getByRole("button", { name: "重置视角", exact: true })).toBeDisabled();
@@ -1257,8 +1273,13 @@ test("node handles disconnect only their edges with one undo and preserve left d
     }));
   });
   const readOnlyBefore = await state();
-  await source.click({ button: "right" });
-  await target.click({ button: "right" });
+  await expect(source).toHaveAttribute("aria-disabled", "true");
+  await expect(source).toHaveAttribute("tabindex", "-1");
+  await source.press("Enter");
+  await target.press("Space");
+  expect(await state()).toEqual(readOnlyBefore);
+  await source.click({ button: "right", force: true });
+  await target.click({ button: "right", force: true });
   expect(await state()).toEqual(readOnlyBefore);
   await page.evaluate(async () => {
     const storeModulePath = "/src/store/flowStore.ts";
@@ -1275,6 +1296,18 @@ test("node handles disconnect only their edges with one undo and preserve left d
   await page.mouse.down();
   await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 16 });
   await page.mouse.up();
+  await expect.poll(async () => (await state()).edges.length).toBe(3);
+  await target.click({ button: "right" });
+  await expect.poll(async () => (await state()).edges).toEqual(["b", "d"]);
+  for (const point of [source, target]) {
+    await expect(point).toHaveAttribute("role", "button");
+    await expect(point).toHaveAttribute("tabindex", "0");
+    await expect(point).toHaveAccessibleName(/.+/);
+  }
+  await source.focus();
+  await source.press("Enter");
+  await target.focus();
+  await target.press("Space");
   await expect.poll(async () => (await state()).edges.length).toBe(3);
   await target.click({ button: "right" });
   await expect.poll(async () => (await state()).edges).toEqual(["b", "d"]);
@@ -1598,7 +1631,7 @@ test("one-click try-on uploads auto-connect and uploaded media drags as one hist
   await rail.getByRole("button", { name: "模特换装", exact: true }).click();
   const menu = page.getByRole("menu", { name: "模特换装" });
   await menu.getByRole("menuitem", { name: /一键换装/ }).click();
-  await expect(page.locator(".react-flow__node")).toHaveCount(21);
+  await expect(page.locator(".react-flow__node")).toHaveCount(20);
   const personId = await nodeIdByLabel(page, "图 1 · 人物身份参考（必需）");
   const outfitId = await nodeIdByLabel(page, "主穿搭图（必需）");
   const composeId = await nodeIdByLabel(page, "前置 · AI 换脸与换姿势");
@@ -2981,7 +3014,7 @@ test("image node hides asset address entry and keeps upload and library usable",
   await upload.setInputFiles({ name: "hidden-address.png", mimeType: "image/png", buffer: E2E_UPLOAD_PNG });
   const uploadedImage = imageNode.getByAltText("已上传图片");
   await expect(uploadedImage).toBeVisible();
-  await expect(uploadedImage).toHaveAttribute("src", /^\/api\/files\/[A-Za-z0-9_-]+\.png$/);
+  await expect(uploadedImage).toHaveAttribute("src", /^\/api\/files\/[A-Za-z0-9_-]+\.png\/thumbnail$/);
   await expect(imageNode.getByLabel("API易图片素材 ID")).toHaveCount(0);
   await imageNode.locator(".gc-node-floating-title").click();
   await expect(imageNode.getByLabel("重新上传")).toBeVisible();
@@ -3275,13 +3308,65 @@ test("asset deletion resets pending scroll pagination and restores focus on firs
     await expect(picker.locator('[data-asset-card-id="pagination-21"]')).toHaveCount(1);
     releasePage();
     await expect.poll(() => pageFinished).toBe(true);
-    await expect(cards).toHaveCount(39);
+    // 删除后分页重置到第一页；被挂起的旧响应必须被丢弃，不能把列表替换成别的快照。
+    await expect(cards).toHaveCount(20);
+    await expect(picker.locator('[data-asset-card-id="pagination-1"]')).toHaveCount(0);
+    // 列表是固定高度的滚动容器，继续加载需要真实滚动。
+    const scroll = picker.locator("[data-asset-scroll-container]");
+    const scrollBox = (await scroll.boundingBox())!;
+    await page.mouse.move(scrollBox.x + scrollBox.width / 2, scrollBox.y + scrollBox.height / 2);
+    await page.mouse.wheel(0, 6000);
+    await expect.poll(() => cards.count()).toBe(39);
     await expect(picker.getByText("已加载全部素材", { exact: true })).toBeVisible();
     expect(await cards.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-asset-card-id"))))
       .toEqual(assets.map((asset) => asset.id));
   } finally {
     releasePage();
   }
+});
+
+test("asset library scrolls with the wheel and loads the next page", async ({ page }) => {
+  const assets = Array.from({ length: 45 }, (_, index) => ({
+    id: `wheel-${index + 1}`,
+    name: `滚轮素材 ${index + 1}`,
+    category: "reference",
+    image: RESULTS_DENSITY_IMAGE,
+    thumbnail: RESULTS_DENSITY_IMAGE,
+    createdAt: "2026-09-09T00:00:00.000Z",
+    canManage: true,
+  }));
+  const requestedOffsets: number[] = [];
+  await page.route("**/api/assets?*", async (route) => {
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    requestedOffsets.push(offset);
+    await route.fulfill({ json: assets.slice(offset, offset + 20) });
+  });
+
+  await openFreshBlankProject(page);
+  const rail = page.getByRole("navigation", { name: "工作台左侧工具" });
+  await rail.getByRole("button", { name: "资产库" }).click();
+  const picker = page.getByRole("dialog", { name: "资产库" });
+  const cards = picker.locator("[data-asset-card-id]");
+  await expect(cards).toHaveCount(20);
+
+  // 列表必须拿到确定高度：百分比高度在内容驱动的弹窗里解析失败时，容器会被内容撑开，滚轮完全失效。
+  const scroll = picker.locator("[data-asset-scroll-container]");
+  await expect.poll(() => scroll.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
+  const box = (await scroll.boundingBox())!;
+  expect(box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, 600);
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect.poll(() => cards.count()).toBeGreaterThan(20);
+
+  await page.mouse.wheel(0, 6000);
+  await expect.poll(() => cards.count()).toBe(45);
+  await expect(picker.getByText("已加载全部素材", { exact: true })).toBeVisible();
+  expect(requestedOffsets[0]).toBe(0);
+  expect(requestedOffsets).toContain(20);
+  expect(requestedOffsets[requestedOffsets.length - 1]).toBe(40);
 });
 
 test("node title and media actions keep stable keyboard-accessible controls", async ({ page }) => {
@@ -3405,6 +3490,8 @@ test("result quick transforms create server-safe edges for the selected image", 
   await selectResult();
   await resultNode.getByRole("button", { name: "高清放大" }).click();
   await page.getByRole("menuitem", { name: "2K", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "2K", exact: true })).toBeHidden();
+  await expect(page.locator(".react-flow__node")).toHaveCount(2);
   await assertConnection("upscale");
 });
 
@@ -3617,9 +3704,14 @@ test("tool rail, right dock and horizontal zoom controls preserve canvas identit
   await expect(shortcutMenu).toBeVisible();
   await expect(createMenu).toBeHidden();
   await expect.poll(() => shortcutMenu.evaluate((element) => (element as HTMLElement).offsetWidth)).toBe(224);
-  const shortcutMenuRect = await rect(shortcutMenu);
-  expect(shortcutMenuRect.left - shortcutTriggerRect.right).toBeGreaterThanOrEqual(-1);
-  expect(shortcutMenuRect.left - shortcutTriggerRect.right).toBeLessThanOrEqual(4);
+  await expect.poll(async () => {
+    const shortcutMenuRect = await rect(shortcutMenu);
+    return shortcutMenuRect.left - shortcutTriggerRect.right;
+  }).toBeGreaterThanOrEqual(-1);
+  await expect.poll(async () => {
+    const shortcutMenuRect = await rect(shortcutMenu);
+    return shortcutMenuRect.left - shortcutTriggerRect.right;
+  }).toBeLessThanOrEqual(4);
   await expect(shortcutMenu).toContainText(process.platform === "darwin" ? "macOS" : "Windows");
   await expect(shortcutMenu).toContainText("移动画布");
   await expect(shortcutMenu).toContainText(process.platform === "darwin" ? "⌘ +" : "Ctrl +");

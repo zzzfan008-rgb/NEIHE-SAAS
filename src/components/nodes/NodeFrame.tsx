@@ -1,5 +1,5 @@
 import { createContext, useContext, useRef, useState, type ReactNode } from "react";
-import { selectActiveNodes, useFlowStore } from "@/store/flowStore";
+import { selectActiveNodeById, useFlowStore } from "@/store/flowStore";
 import { useActiveAiGateway } from "@/store/aiGatewayStore";
 import { gatewayNodeUnavailableReason } from "@/lib/aiGatewayPolicy";
 import { isNodeRunActive, type NodeDisplayState, type NodeRunStatus } from "@/types/workflow";
@@ -64,7 +64,7 @@ export function NodeFrame({
   children,
 }: NodeFrameProps) {
   const gateway = useActiveAiGateway();
-  const nodeData = useFlowStore((state) => selectActiveNodes(state).find((node) => node.id === nodeId)?.data);
+  const nodeData = useFlowStore((state) => (nodeId ? selectActiveNodeById(state, nodeId)?.data : undefined));
   const gatewayBlock = nodeData ? gatewayNodeUnavailableReason(gateway, nodeData.kind, nodeData) : undefined;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);

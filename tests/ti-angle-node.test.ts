@@ -39,7 +39,8 @@ const html = renderToStaticMarkup(
   ),
 );
 
-assert.equal(nodeTypes["ti-angle"], TiAngelNode);
+// 画布注册表统一用 memo 包装（拖拽时跳过无关重渲染），因此校验被包装的组件本体。
+assert.equal((nodeTypes["ti-angle"] as unknown as { type: unknown }).type, TiAngelNode);
 assert.match(html, /3D 视角预览/);
 assert.match(html, /输出视角约束/);
 assert.match(html, /相机参数/);

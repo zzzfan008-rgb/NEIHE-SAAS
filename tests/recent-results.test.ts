@@ -468,10 +468,9 @@ test("图片网格收到损坏的 undefined 数据时显示空状态而不抛错
   assert.match(html, /暂无生成结果/);
 });
 
-test("画布图片网格直接使用原图引用", () => {
+test("画布图片网格默认加载服务端缩略图", () => {
   const html = renderToStaticMarkup(createElement(ImageGrid, { images: ["/api/files/result.png"] }));
-  assert.match(html, /<img src="\/api\/files\/result\.png"/);
-  assert.doesNotMatch(html, /\/api\/files\/result\.png\/thumbnail/);
+  assert.match(html, /<img[^>]*src="\/api\/files\/result\.png\/thumbnail"/);
 });
 
 test("排队中的运行按钮禁用并明确显示排队状态", () => {

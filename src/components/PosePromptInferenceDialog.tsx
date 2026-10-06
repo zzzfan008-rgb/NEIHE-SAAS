@@ -3,7 +3,7 @@ import { analyzePosePrompt, clearPosePromptAppliedFlag, EMPTY_POSE_STATE, posePr
 import { useAuth } from '../auth/AuthContext';
 import { readPoseCredential, savePoseCredential } from '../lib/poseCredentials';
 import { useFlowStore, type DocumentTarget } from '../store/flowStore';
-import { CALIBRATED_POSE_SUPPLEMENT_HEADER, optimizedPosePromptForImage, posePromptForImage, type PosePromptMode } from '../types/poseReference';
+import { SEQUENTIAL_POSE_HEADER, EDITED_POSE_HEADER, SEQUENTIAL_POSE_LABELS, isSequentialPosePrompt, optimizedPosePromptForImage, posePromptForImage, type PosePromptMode } from '../types/poseReference';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
@@ -78,6 +78,9 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
   const [discardOpen, setDiscardOpen] = useState(false);
   const optimizedText = draft?.text ?? savedOptimizedPrompt ?? '';
   const dirty = draft !== null && draft.text !== (savedOptimizedPrompt ?? '');
+  const sequentialText = isSequentialPosePrompt(optimizedText);
+  const textToSave = dirty && sequentialText
+    ? [EDITED_POSE_HEADER, ...optimizedText.trim().split('\n').slice(1)].join('\n') : optimizedText.trim();
   const conflict = dirty && draft.revision !== revision;
   const editorMode = savedPromptMode ?? calibrationMode;
   const resultMatchesSaved = Boolean(result && result.prompt === savedPrompt && result.optimizedPrompt === savedOptimizedPrompt &&
@@ -120,7 +123,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
           if (!unchanged()) throw new Error('姿势来源或提示词已变化，请重新打开检查');
           const response = await fetch('/api/pose-references/validate-prompt', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(30_000),
-            body: JSON.stringify({ projectId: target.projectId, nodeId, source, prompt: optimizedText.trim(), provider,
+            body: JSON.stringify({ projectId: target.projectId, nodeId, source, prompt: textToSave, provider,
               ...(provider === 'deepseek' ? { apiKey: apiKey.trim() } : {}) }),
           });
           const validation = await response.json();
@@ -131,10 +134,10 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         }
         if (!unchanged()) throw new Error('姿势来源或提示词已变化，编辑稿未写入其他文档');
         useFlowStore.getState().updateNodeDataInTab(stableTarget, nodeId, {
-          posePrompt: savedPrompt?.trim() ? savedPrompt : optimizedText.trim(),
+          posePrompt: savedPrompt?.trim() ? savedPrompt : textToSave,
           posePromptImage: source,
           posePromptMode: editorMode,
-          posePromptOptimized: optimizedText.trim(),
+          posePromptOptimized: textToSave,
           posePromptOptimizedVerified: verified ? true : undefined,
         });
         setDraft(null);
@@ -150,8 +153,8 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
       setPendingSave(false);
       clearPosePromptAppliedFlag(stableTarget, nodeId, source, provider, user?.id, calibrationMode);
       setSaveMessage(editorMode !== 'three-view' ? '优化提示词已保存' : verified
-        ? '优化提示词已保存并通过证据校验，将作为原姿势图的补充用于生图。'
-        : `编辑稿已保存，尚未通过证据校验，生图不采用此文本。${reason ?? ''}`);
+        ? sequentialText ? '用户编辑的姿势提示词已保存，将按此文本用于生图；手动修改未经模型重新分析。' : '优化提示词已保存并通过旧版补充校验。'
+        : `编辑稿已保存，但格式或内容未通过校验，生图不采用此文本。${reason ?? ''}`);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '项目保存失败，请重试保存');
     } finally {
@@ -235,7 +238,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         <DialogHeader>
           <DialogTitle>反推人物姿势</DialogTitle>
           <DialogDescription id="pose-prompt-inference-description">
-            从整体到局部反推姿态与可见神态；深度图或骨骼图无法判断视线与神态。已有文本保留，可检查新版结果后选择替换。首次按新版规则分析可能产生模型费用，同版本相同图片优先读取缓存。
+            单图反推保留原有行为。三图依次执行原图反推、深度校准、DWPose 平面校准，再提取九类姿势信息供编辑。首次需三次串行视觉请求，费用与等待时间相应增加；同版本、同来源优先读缓存。
           </DialogDescription>
         </DialogHeader>
 
@@ -302,7 +305,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         </Button>
         {running && (
           <p role="status" className="rounded-md border border-[var(--gc-border)] bg-[var(--gc-canvas)] px-3 py-4 text-sm text-[var(--gc-text-muted)]">
-            正在反推人物姿势…
+            {calibrationMode === 'three-view' ? '正在依次反推原图 → 仅校准深度前后关系 → 仅校准头部与上下肢平面位置…' : '正在反推人物姿势…'}
           </p>
         )}
 
@@ -317,9 +320,18 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
           </div>
         )}
 
+        {result?.calibrationStages && <div className="space-y-3" data-pose-prompt="stages">
+          {([['original', '① 原图姿势基线'], ['depth', '② 深度校准 · 只改前后关系'], ['skeleton', '③ DWPose 校准 · 只改头部与上下肢平面位置']] as const).map(([stage, title]) => (
+            <Card key={stage} className="gap-2 border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
+              <h3 className="text-sm font-medium">{title}（只读）</h3>
+              <pre data-pose-stage={stage} className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6">{result.calibrationStages?.[stage]}</pre>
+            </Card>
+          ))}
+        </div>}
+
         {(result || savedPrompt !== undefined) && (
           <div className="space-y-3">
-            {savedPrompt !== undefined && <Card className="gap-0 border border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
+            {savedPrompt !== undefined && !result?.calibrationStages && <Card className="gap-0 border border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
               <h3 className="mb-2 text-sm font-medium">{savedPromptMode === 'three-view' ? '当前校准原始提示词（只读对比）' : savedOptimizedPrompt !== undefined ? '原始反推提示词（只读对比）' : '当前用于生图的姿势提示词（只读对比）'}</h3>
               <pre
                 data-pose-prompt="result"
@@ -337,10 +349,12 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
             )}
             {result && !running && !failed && (
               <Card className="gap-3 border-[var(--gc-border)] bg-[var(--gc-canvas)] p-4 text-[var(--gc-text)]">
-                <h3 className="text-sm font-medium">{result.calibrationMode === 'three-view' ? '新反推的校准原始结果（用于对比）' : `${provider === 'deepseek' ? 'DeepSeek' : 'Gemini'} 反推结果`}</h3>
-                <pre data-pose-prompt="candidate" className="whitespace-pre-wrap break-words text-sm leading-6">{result.prompt}</pre>
-                {result.optimizedPrompt !== undefined && <div className="mt-3 space-y-2">
-                  <h4 className="text-sm font-medium">优化后提示词（将用于生图）</h4>
+                {!result.calibrationStages && <>
+                  <h3 className="text-sm font-medium">{result.calibrationMode === 'three-view' ? '新反推的校准原始结果（用于对比）' : `${provider === 'deepseek' ? 'DeepSeek' : 'Gemini'} 反推结果`}</h3>
+                  <pre data-pose-prompt="candidate" className="whitespace-pre-wrap break-words text-sm leading-6">{result.prompt}</pre>
+                </>}
+                {result.optimizedPrompt !== undefined && (!result.calibrationStages || !resultMatchesSaved) && <div className="mt-3 space-y-2">
+                  <h4 className="text-sm font-medium">优化后提示词（待采用）</h4>
                   <pre data-pose-prompt="candidate-optimized" className="whitespace-pre-wrap break-words text-sm leading-6">{result.optimizedPrompt}</pre>
                 </div>}
                 {result.optimizationNotes?.length ? <p role="status" data-pose-prompt="notes" className="mt-3 text-xs text-[var(--gc-text-muted)]">校准提示：{result.optimizationNotes.join('；')}</p> : null}
@@ -376,21 +390,20 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
             </p>
           )}
           <p id="pose-optimized-help" className="text-xs text-[var(--gc-text-muted)]">
-            {savedOptimizedPrompt === undefined
-              ? '下方是可编辑区域。三图校准通过证据校验后才会产生可用于生图的优化文本；也可手动填写。'
-              : '下方为当前已保存的文本，可自行编辑；原始反推结果保留用于对比。'}
-            单图文本保存后用于生图；三图文本保存时复用已有证据校验，通过后作为原图的补充，否则只保存为草稿。手动保存不会调用模型。
+            最终仅保留整体姿势、头部、视线、面部、上肢、肩部、腰部、胯部、下肢；未识别的项目不补写。
+            三图结果可直接编辑，请保留类别标题并使用“画面左/画面右”。保存时只校验格式与内容范围，不调用模型，也不要求逐字匹配原结果。
+            手动修改将明确标记为用户编辑，校验通过后完整用于生图；旧版四类补充继续按原规则处理。
           </p>
           {unavailableReason && <p role="status" className="text-sm text-[var(--gc-text-muted)]">{unavailableReason}</p>}
           {editorMode === 'three-view' && <>
-            <p className="text-xs text-[var(--gc-text-muted)]">{savedOptimizedPromptVerified ? '当前保存文本已通过证据校验，生图将采用。' : '当前保存文本未通过证据校验，生图仅按原姿势图约束。'} 修改后需重新保存校验；新增而无证据支持的描述会保留为草稿。</p>
-            <Button type="button" variant="outline" size="sm" disabled={!writable || saving || Boolean(optimizedText)} onClick={() => {
-              setDraft({ revision, text: `${CALIBRATED_POSE_SUPPLEMENT_HEADER}\n视线方向：\n面部神态：` });
+            <p className="text-xs text-[var(--gc-text-muted)]">{savedOptimizedPromptVerified ? savedOptimizedPrompt?.startsWith(EDITED_POSE_HEADER) ? '当前文本为用户编辑，保存后生图将采用；未经模型重新分析。' : '当前保存文本可用于生图。' : '当前文本尚未通过校验，生图仍按原姿势图约束。'}</p>
+            <Button type="button" variant="outline" size="sm" disabled={!writable || saving || running || Boolean(optimizedText)} onClick={() => {
+              setDraft({ revision, text: `${SEQUENTIAL_POSE_HEADER}\n${SEQUENTIAL_POSE_LABELS.map(label => `${label}：`).join('\n')}` });
               editorRef.current?.focus();
-            }}>填写三图补充格式</Button>
+            }}>填写九类姿势格式</Button>
           </>}
           <Textarea ref={editorRef} id="pose-optimized-prompt" data-pose-prompt="saved-optimized" aria-describedby="pose-optimized-help"
-            value={optimizedText} maxLength={4000} disabled={!writable || saving} placeholder="填写或编辑最终用于生图的姿势提示词"
+            value={optimizedText} maxLength={4000} disabled={!writable || saving || running} placeholder="填写或编辑最终用于生图的姿势提示词"
             className="min-h-40 max-h-64 resize-y overflow-y-auto"
             onChange={event => {
               setDraft(previous => ({ revision: previous?.revision ?? revision, text: event.target.value }));
