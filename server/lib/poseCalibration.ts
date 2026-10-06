@@ -21,9 +21,30 @@ function object(value: unknown, keys: readonly string[]): Record<string, unknown
   if (Object.keys(data).length !== keys.length || keys.some(key => !Object.hasOwn(data, key))) throw new Error('姿势校准包含越权字段或缺少必要字段');
   return data;
 }
+/** Model stages already define every left/right token as a screen-space direction. */
+function normalizeModelScreenDirections(value: string): string {
+  let normalized = '';
+  for (let index = 0; index < value.length;) {
+    if (value.startsWith('画面左右', index)) {
+      normalized += '画面左与画面右';
+      index += 4;
+    } else if (value.startsWith('画面左', index) || value.startsWith('画面右', index)) {
+      normalized += value.slice(index, index + 3);
+      index += 3;
+    } else if (value.startsWith('左右', index) || value.startsWith('右左', index)) {
+      normalized += value.slice(index, index + 2);
+      index += 2;
+    } else {
+      const character = value[index];
+      normalized += character === '左' || character === '右' ? `画面${character}` : character;
+      index += 1;
+    }
+  }
+  return normalized;
+}
 function text(value: unknown, forbidden: RegExp): string {
   if (typeof value !== 'string' || value.length > 120 || /[\r\n]/.test(value)) throw new Error('姿势校准描述格式无效');
-  const result = value.trim();
+  const result = normalizeModelScreenDirections(value.trim());
   if (forbidden.test(result)) throw new Error('姿势校准包含非姿势内容');
   if (UNKNOWN.test(result)) throw new Error('无法确认的姿势应留空，不得写入生成约束');
   if (!usesExplicitScreenDirections(result)) throw new Error('姿势校准必须统一使用画面左/画面右');

@@ -294,8 +294,10 @@ try {
   assert.equal(deepseekCalibration.optimizedPrompt, optimized);
   assert.deepEqual(deepseekCalibration.calibrationStages, calibrated.calibrationStages);
   const baselineJson = JSON.stringify(baseline);
+  const implicitDirectionsJson = baselineJson.replaceAll('画面左', '左').replaceAll('画面右', '右');
   const cases = [
     { name: 'split-json', parts: [{ text: baselineJson.slice(0, 150) }, { text: baselineJson.slice(150) }] },
+    { name: 'implicit-screen-directions', parts: [{ text: implicitDirectionsJson }] },
     { name: 'thought-before-json', parts: [{ thought: true, text: '内部推理' }, { text: baselineJson }] },
     { name: 'truncated-json', parts: [{ text: baselineJson }], finishReason: 'MAX_TOKENS', error: /第一步.*输出未完整结束/ },
     { name: 'blocked-json', parts: [{ text: baselineJson }], finishReason: 'SAFETY', error: /第一步.*安全限制/ },
