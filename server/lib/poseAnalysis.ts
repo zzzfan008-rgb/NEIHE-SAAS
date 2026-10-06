@@ -144,12 +144,10 @@ function dwposeEvidence(pose: DWPosePoseV1): string {
   })}`;
 }
 
-async function requestDeepSeekPose<T>(imageDataUrl: string, apiKey: string, instruction: string, parse: (value: unknown) => T): Promise<T> {
+async function requestDeepSeekPose<T>(imageDataUrl: string | null, apiKey: string, instruction: string, parse: (value: unknown) => T): Promise<T> {
   let response: Response;
-  const content: Array<Record<string, unknown>> = [
-    { type: 'text', text: instruction },
-    { type: 'image_url', image_url: { url: imageDataUrl, detail: 'original' } },
-  ];
+  const content: Array<Record<string, unknown>> = [{ type: 'text', text: instruction }];
+  if (imageDataUrl !== null) content.push({ type: 'image_url', image_url: { url: imageDataUrl, detail: 'original' } });
   try {
     response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
@@ -219,7 +217,8 @@ async function requestDeepSeekPose<T>(imageDataUrl: string, apiKey: string, inst
     throw new ProviderError('DeepSeek 返回的姿势描述格式无效，请重试', 502, DEEPSEEK_POSE_MODEL, 'invalid_response');
   }
 }
-const FORBIDDEN_POSE_CONTENT = /人物身份|五官外观|肤色|发型|体型|服装|衣服|上衣|衬衫|毛衣|外套|夹克|西装|裤|裙|鞋|靴|包袋|手提包|背包|帽|戒指|耳环|耳坠|手镯|手链|项链|腰带|眼镜|首饰|配饰|品牌|文字|背景|场景|建筑|家具|道具|\b(?:identity|facial features|skin tone|hairstyle|body type|clothing|garment|shirt|jacket|suit|pants|trousers|skirt|shoes?|boots?|handbag|backpack|hat|ring|earrings?|bracelet|necklace|belt|glasses|jewelry|accessor(?:y|ies)|brand|text|background|scene|building|furniture|prop)\b/iu;
+const FORBIDDEN_POSE_CONTENT = /(?<appearance>人物身份|五官外观|肤色|发型|体型|\b(?:identity|facial features|skin tone|hairstyle|body type)\b)|(?<clothing>服装|衣服|上衣|衬衫|毛衣|外套|夹克|西装|裤|裙|鞋|靴|包袋|手提包|背包|帽|戒指|耳环|耳坠|手镯|手链|项链|腰带|眼镜|首饰|配饰|品牌|\b(?:clothing|garment|shirt|jacket|suit|pants|trousers|skirt|shoes?|boots?|handbag|backpack|hat|ring|earrings?|bracelet|necklace|belt|glasses|jewelry|accessor(?:y|ies)|brand)\b)|(?<scene>文字|背景|场景|建筑|家具|道具|\b(?:text|background|scene|building|furniture|prop)\b)/iu;
+const SEQUENTIAL_POSE_SCHEMA_VERSION = 2;
 
 const POSE_OBSERVATION_INSTRUCTION = `你是人物姿态与可见神态解析器。将主要人物的可见动作转写成可供图像生成与编辑模型执行的中文描述，保持原有动作，不美化或重新设计姿势。
 观察顺序必须从整体到局部：整体姿态→躯干→下肢→上肢与手部→头部→视线→面部神态。局部必须与整体一致。使用简洁、具体的自然语言描述空间关系，保留不对称、交叉、弯曲和接触关系；不堆砌风格词，不输出思考过程或模型专属权重语法。
@@ -713,19 +712,20 @@ async function renderPoseGuide(imageDataUrl: string, analysis: PoseAnalysis): Pr
   return toDataUrl(buffer.toString("base64"), "image/png");
 }
 
-async function requestPoseJSON<T>(imageDataUrl: string, model: string, instruction: string, schema: Record<string, unknown>, parse: (value: unknown) => T, options?: PoseAnalysisOptions): Promise<T> {
+async function requestPoseJSON<T>(imageDataUrl: string | null, model: string, instruction: string, schema: Record<string, unknown>, parse: (value: unknown) => T, options?: PoseAnalysisOptions): Promise<T> {
   if (options?.provider === 'deepseek') return requestDeepSeekPose(imageDataUrl, options.apiKey!, instruction, parse);
-  const { mime, base64 } = parseDataUrl(imageDataUrl);
+  const parts: Array<Record<string, unknown>> = [{ text: instruction }];
+  if (imageDataUrl !== null) {
+    const { mime, base64 } = parseDataUrl(imageDataUrl);
+    parts.push({ text: '姿势参考图：' }, { inlineData: { mimeType: mime, data: base64 } });
+  }
   const response = await fetchWithRetry(
     `${config.aiBaseUrl()}/v1beta/models/${model}:generateContent`,
     () => ({
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.aiApiKey()}` },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [
-          { text: instruction }, { text: '姿势参考图：' },
-          { inlineData: { mimeType: mime, data: base64 } },
-        ] }],
+        contents: [{ role: 'user', parts }],
         generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema },
       }),
     }),
@@ -747,7 +747,7 @@ async function analyzeUncached(
     let cached: SequentialPoseAnalysis | undefined;
     try {
       const entry = JSON.parse(await fs.readFile(filePath, 'utf8'));
-      if (entry.schemaVersion === 1 && entry.model === model) cached = parseSequentialPose(entry.analysis, FORBIDDEN_POSE_CONTENT);
+      if (entry.schemaVersion === SEQUENTIAL_POSE_SCHEMA_VERSION && entry.model === model) cached = parseSequentialPose(entry.analysis, FORBIDDEN_POSE_CONTENT);
     } catch { /* Missing or invalid cache must be re-analyzed, never used as a completed stage. */ }
     let providerRequests = 0;
     let analysis: SequentialPoseAnalysis;
@@ -770,7 +770,7 @@ async function analyzeUncached(
         }
       }, FORBIDDEN_POSE_CONTENT);
       const result = sequentialPoseResult(analysis);
-      if (!cached) await writeCache(filePath, { schemaVersion: 1, model, analysis });
+      if (!cached) await writeCache(filePath, { schemaVersion: SEQUENTIAL_POSE_SCHEMA_VERSION, model, analysis });
       return { ...result, guideImage: options.calibration.skeletonImageDataUrl, optimizedPromptVerified: true,
         calibrationMode: 'three-view', providerRequests, model, cacheHit: Boolean(cached) };
     } catch (error) {
@@ -797,7 +797,7 @@ export const analyzePoseReference: PoseAnalyzer = async (imageDataUrl, options) 
   const { mime, buffer } = parseDataUrl(imageDataUrl);
   // BYOK cache and in-flight work are isolated by account and credential, not just model.
   const cacheModel = deepseek ? `${model}:${options!.ownerId}:${createHash('sha256').update(options!.apiKey!).digest('hex')}` : model;
-  const key = `${options?.calibration ? 'sequential-v1-' : ''}${cacheKey(cacheModel, mime, buffer, options?.calibration)}`;
+  const key = `${options?.calibration ? `sequential-v${SEQUENTIAL_POSE_SCHEMA_VERSION}-` : ''}${cacheKey(cacheModel, mime, buffer, options?.calibration)}`;
   const filePath = path.join(config.dataDir(), "pose-analysis-cache", `${key}.json`);
   const existing = inFlight.get(key);
   if (existing) {

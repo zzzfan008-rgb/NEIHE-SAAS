@@ -43,6 +43,7 @@ async function run(
 ) {
   const requests: ImageGenRequest[] = [];
   const ordinals: number[] = [];
+  const preparedPrompts: string[] = [];
   const provider: AIProvider = {
     id: model,
     generate: async () => {
@@ -50,6 +51,7 @@ async function run(
     },
     edit: async (request) => {
       requests.push(request);
+      assert.equal(preparedPrompts.at(-1), request.prompt, '生成记录在每次请求前保存实际发送的提示词');
       const response = responses[requests.length - 1];
       if (response !== "success") {
         const error = new ProviderError(
@@ -68,6 +70,7 @@ async function run(
   try {
     const result = await executeStep(step, images, () => provider, {
       referenceRoles: roles,
+      onSceneRequestPrepared: async (snapshot) => { preparedPrompts.push(snapshot.prompt); },
       beforeProviderCall: (ordinal) => {
         ordinals.push(ordinal);
       },
@@ -102,6 +105,7 @@ const noImage = await run(["NO_IMAGE", "success"]);
 assert.equal(noImage.requests.length, 2);
 assert.match(noImage.requests[1].prompt, /只输出最终图片，不要输出文字/);
 assert.deepEqual(noImage.ordinals, [1, 2]);
+assert.equal(noImage.result?.providerRequests, 2, 'NO_IMAGE重试应成功，且保存的提示词与实际请求一致');
 assert.equal(
   (await run(["NO_IMAGE", "NO_IMAGE"])).requests.length,
   2,

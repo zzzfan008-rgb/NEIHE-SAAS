@@ -346,7 +346,7 @@ test('顺序校准九类结果可编辑、持久化且重新分析不覆盖草�
     ] } });
     if (path === '/api/pose-references/analyze') {
       analyses++;
-      return route.fulfill({ json: { prompt: optimized, optimizedPrompt: optimized, optimizedPromptVerified: true, calibrationStages: stages, model: 'mock', providerRequests: 3, cacheHit: false, calibrationMode: 'three-view' } });
+      return route.fulfill({ json: { prompt: optimized, optimizedPrompt: optimized, optimizedPromptVerified: true, calibrationStages: stages, model: 'mock', providerRequests: 4, cacheHit: false, calibrationMode: 'three-view' } });
     }
     if (path === '/api/pose-references/validate-prompt') {
       validated.push(route.request().postDataJSON().prompt);
@@ -358,11 +358,13 @@ test('顺序校准九类结果可编辑、持久化且重新分析不覆盖草�
   const trigger = page.getByRole('button', { name: '反推人物姿势', exact: true });
   await trigger.click();
   const dialog = page.getByRole('dialog', { name: '反推人物姿势', exact: true });
+  await expect(dialog.getByText(/首次需三次串行视觉请求和一次文本优化请求/)).toBeVisible();
   await dialog.getByRole('combobox', { name: '分析方式' }).click();
   await page.getByRole('option', { name: '原图 + 深度图 + DWPose 三图校准' }).click();
   await dialog.getByRole('button', { name: '开始反推', exact: true }).click();
   const editor = dialog.getByRole('textbox', { name: '优化后姿势提示词', exact: true });
   await expect(editor).toHaveValue(optimized);
+  await expect(dialog.getByText('4 次', { exact: true })).toBeVisible();
   for (const [stage, text] of Object.entries(stages)) {
     const result = dialog.locator(`[data-pose-stage="${stage}"]`);
     await result.scrollIntoViewIfNeeded();

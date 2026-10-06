@@ -108,7 +108,8 @@ test("两阶段模板独立保存、角色编号、14图直传边界和桌面布
   await expect(page.getByRole("option", { name: /Gemini 3 Pro/i })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(node.getByLabel("参考图传递策略")).toContainText("最多 14 张直接传入");
-  for (const [role, number] of Object.entries({ pose: 1, person: 2, scene: 3, outfit: 4, shoes: 5, socks: 6, hat: 7 })) {
+  await expect(node.getByLabel("参考图传递策略")).toContainText("前四张：人物、主穿搭、姿势、场景");
+  for (const [role, number] of Object.entries({ person: 1, outfit: 2, pose: 3, scene: 4, shoes: 5, socks: 6, hat: 7 })) {
     await expect(node.locator(`[data-reference-numbers="${role}"]`)).toHaveText(`(参考图 ${number})`);
   }
   await expect(node.getByLabel("参考图传递策略")).toContainText("7 张有效参考图 → 7 张传入");
@@ -117,9 +118,15 @@ test("两阶段模板独立保存、角色编号、14图直传边界和桌面布
     const label = row.querySelector("[data-reference-numbers]")!;
     const bounds = label.getBoundingClientRect();
     return { width: box.width, inside: bounds.left >= box.left && bounds.right <= box.right + 1 && bounds.bottom <= box.bottom + 1,
-      overflow: label.scrollWidth > label.clientWidth + 1 };
+      overflow: label.scrollWidth > label.clientWidth + 1, role: label.getAttribute('data-reference-numbers'), top: box.top, left: box.left };
   }));
   expect(geometry).toHaveLength(17);
+  expect(geometry.slice(0, 4).map(row => row.role)).toEqual(['person', 'outfit', 'pose', 'scene']);
+  for (const offset of [0, 2]) {
+    expect(Math.abs(geometry[offset].top - geometry[offset + 1].top)).toBeLessThan(1);
+    expect(geometry[offset].left).toBeLessThan(geometry[offset + 1].left);
+  }
+  expect(geometry[2].top).toBeGreaterThan(geometry[0].top);
   expect(geometry.every(row => row.width > 0 && row.inside && !row.overflow)).toBeTruthy();
   const prompt = node.getByRole("textbox", { name: "创作想法" });
   await prompt.fill("保留衣服纹理与首饰细节");
@@ -191,24 +198,30 @@ test("两阶段模板独立保存、角色编号、14图直传边界和桌面布
   });
   await expect(retry).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("multi-image-try-on.png") });
-  await page.evaluate(async image => {
-    const path = "/src/store/flowStore.ts";
-    const { useFlowStore } = await import(path);
-    const roles = ["pose", "person", "scene", "outfit", "shoes", "socks", "hat"];
-    const references = roles.map((role, index) => ({ role, image, number: index + 1 }));
-    useFlowStore.setState({ recentResults: [{ id: "test-multi-record", nodeId: "stabilize", kind: "virtual-try-on", image: "",
-      nodeLabel: "多图换装记录", status: "success", startedAt: 1, finishedAt: 2,
-      referenceImages: roles.map(() => image), parameters: { sceneInputMode: "multi-reference-edit", referenceManifest: references },
-    }] });
-    window.dispatchEvent(new CustomEvent("garment:open-generation-record", { detail: { resultId: "test-multi-record" } }));
-  }, image);
-  const dialog = page.getByRole("dialog", { name: "多图换装记录" });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("原始素材映射到 7 张模型参考图");
-  await expect(dialog.getByRole("img", { name: "参考图 6 · socks", exact: true })).toBeVisible();
-  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeHidden();
+  for (const roles of [
+    ['pose', 'person', 'scene', 'outfit', 'shoes', 'socks', 'hat'], // Historical runs keep original numbers.
+    ['person', 'outfit', 'pose', 'scene', 'shoes', 'socks', 'hat'],
+  ]) {
+    await page.evaluate(async ({ image, roles }) => {
+      const path = "/src/store/flowStore.ts";
+      const { useFlowStore } = await import(path);
+      const references = roles.map((role, index) => ({ role, image, number: index + 1 }));
+      useFlowStore.setState({ recentResults: [{ id: "test-multi-record", nodeId: "stabilize", kind: "virtual-try-on", image: "",
+        nodeLabel: "多图换装记录", status: "success", startedAt: 1, finishedAt: 2,
+        referenceImages: roles.map(() => image), parameters: { sceneInputMode: "multi-reference-edit", referenceManifest: references },
+      }] });
+      window.dispatchEvent(new CustomEvent("garment:open-generation-record", { detail: { resultId: "test-multi-record" } }));
+    }, { image, roles });
+    const dialog = page.getByRole("dialog", { name: "多图换装记录" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("原始素材映射到 7 张模型参考图");
+    for (const [index, role] of roles.entries()) {
+      await expect(dialog.getByRole('img', { name: `参考图 ${index + 1} · ${role}`, exact: true })).toHaveCount(1);
+    }
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  }
 });
 
 test("多图模板TiAngel默认关闭、手动启用、保存恢复和键盘关闭", async ({ page }, testInfo) => {

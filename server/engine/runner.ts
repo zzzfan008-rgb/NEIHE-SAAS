@@ -2001,7 +2001,7 @@ export async function executeStep(
           ? frozenAngleControlPrompt(step.params, modelId)
           : undefined;
       const basePrompt = multiImageEdit
-        ? multiImageTryOnPrompt(multiImageReferenceMap, extra, Boolean(angleControlText), step.params.multiImagePromptMode === "concise", step.params.poseReferenceType, step.params.posePrompt, step.params.posePromptMode, step.params.posePromptOptimizedVerified)
+        ? multiImageTryOnPrompt(multiImageReferenceMap, extra, angleControlText, step.params.multiImagePromptMode === "concise", step.params.poseReferenceType, step.params.posePrompt, step.params.posePromptMode, step.params.posePromptOptimizedVerified)
         : step.kind === "sketch-optimize"
           ? sketchOptimizationPrompt(extra)
           : step.kind === "background-extract"
@@ -2031,7 +2031,7 @@ export async function executeStep(
                       : extra ||
                         DEFAULT_PROMPTS[step.kind] ||
                         NODE_SPECS[step.kind].description;
-      const prompt = angleControlText
+      const prompt = angleControlText && !multiImageEdit
         ? `${basePrompt}。${angleControlText}`
         : basePrompt;
       if (step.kind === "mask-redraw" && !extra) {
@@ -2195,6 +2195,12 @@ export async function executeStep(
             await options.onPromptResolved?.(
               Array.from({ length: candidateCount }, () => imageOnlyPrompt),
             );
+            if (sceneReferenceManifest) {
+              await options.onSceneRequestPrepared?.({
+                prompt: imageOnlyPrompt,
+                references: sceneReferenceManifest,
+              });
+            }
             result = await generateIndependentTryOnCandidates(
               provider,
               { ...request, prompt: imageOnlyPrompt },

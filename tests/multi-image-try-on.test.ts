@@ -18,8 +18,25 @@ import type { GenerationRequestSnapshot } from "../server/lib/generationRecords"
 import type { ImageGenRequest, VirtualTryOnNodeData, WorkflowTemplate } from "../src/types/workflow";
 
 const pro = "gemini-3-pro-image-preview";
-const referenceMap = "参考图1：姿势。\n参考图2：人物。\n参考图3：场景。\n参考图4：主穿搭。\n参考图5拼图第1行第1列：鞋子。\n参考图5拼图第1行第2列：袜子。";
+const referenceMap = "参考图1：人物。\n参考图2：主穿搭。\n参考图3：姿势。\n参考图4：场景。\n参考图5拼图第1行第1列：鞋子。\n参考图5拼图第1行第2列：袜子。";
 const calibratedSupplement = "三图校准补充（仅补充图1不可见关系）\n前后深度：画面左膝比画面右膝更靠近镜头\n面部神态：嘴唇闭合";
+// Golden prompt from doc/Modelfinalprompt.txt with the approved reference reordering; pose unchanged.
+const modelFinalPrompt = fs.readFileSync(new URL('./fixtures/multi-image-model-final-prompt.txt', import.meta.url), 'utf8').trim();
+const modelFinalPoseBody = modelFinalPrompt.match(/^整体姿势：[\s\S]+?(?=\n环境：)/m)![0];
+const modelFinalPose = `三图校准姿势\n${modelFinalPoseBody}`;
+const modelFinalReferenceMap = '参考图1：人物。\n参考图2：主穿搭。\n参考图3：姿势。\n参考图4：场景。\n参考图5：鞋子。\n参考图6：帽子。';
+const normalizePromptLayout = (prompt: string) => prompt.split('\n').map(line => line.trim()).filter(Boolean).join('\n');
+assert.deepEqual(
+  planMultiImageReferences(['scene', 'pose', 'outfit', 'person', 'hat', 'shoes'].map(role => ({ role })), 'gemini-3.1-flash-image').map(group => group.role),
+  ['person', 'outfit', 'pose', 'scene', 'shoes', 'hat'],
+  '实际参考图应按人物1、主穿搭2、姿势3、场景4排序，配饰相对顺序不变',
+);
+assert.equal(
+  normalizePromptLayout(multiImageTryOnPrompt(modelFinalReferenceMap, '', undefined, false, 'unspecified', modelFinalPose, 'three-view', true)),
+  normalizePromptLayout(modelFinalPrompt),
+  '六图与已保存九类姿势应按用户文档拼接，而不是追加旧优先级说明',
+);
+
 function assertPhotographicRealism(prompt: string): void {
   assert.match(prompt, /真实摄影质感/);
   assert.doesNotMatch(prompt, /风格化/);
@@ -36,70 +53,77 @@ function assertPhotographicRealism(prompt: string): void {
   assert.match(prompt, /发丝.*碎发.*绒毛.*飞发/);
   assert.match(prompt, /符合真实人体解剖比例/);
   assert.match(prompt, /细节服从当前拍摄距离/);
-  assert.ok(prompt.indexOf("动作（最高优先级）") < prompt.indexOf("真实摄影质感："));
-  assert.ok(prompt.indexOf("完整呈现原始商品") < prompt.indexOf("真实摄影质感："), "写实细节必须服从姿势、服装与场景要求");
+  const sections = ['人物：', '服装及配饰：', '动作：', '环境：', '真实摄影质感：', '完整呈现原始商品', '内容边界：', '输出一张完整'];
+  const positions = sections.map(section => prompt.indexOf(section));
+  assert.ok(positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1])), '提示词段落顺序遵循用户文档');
 }
 for (const concise of [false, true]) {
-  for (const angleControlled of [false, true]) {
-    const prompt = multiImageTryOnPrompt(referenceMap, "保留胸前印花和项链", angleControlled, concise);
+  for (const angleControlText of [undefined, '3D视角：从画面左侧观察']) {
+    const prompt = multiImageTryOnPrompt(referenceMap, "保留胸前印花和项链", angleControlText, concise);
     assert.ok(prompt.includes(referenceMap));
-    assert.match(prompt, /以参考图2提供的人物造型基调/);
+    assert.match(prompt, /以参考图1提供的人物造型基调/);
     assertPhotographicRealism(prompt);
     assert.match(prompt, /全新的原创模特/);
     assert.match(prompt, /生成全原创形象/);
     assert.match(prompt, /内容边界：仅展示原创服装与配饰的原创造型/);
     assert.doesNotMatch(prompt, /原创虚构模特|真实可识别个人|身份复刻|真实品牌/);
-    assert.match(prompt, /动作（最高优先级）.*身体朝向.*手部动作.*双腿弯曲/);
-    assert.match(prompt, /可参照图1的骨架动作方向/);
-    assert.match(prompt, /采用图3的场景、光照/);
+    assert.match(prompt, /动作：.*身体朝向.*手部动作.*双腿弯曲/);
+    assert.match(prompt, /参照图3的骨架动作方向/);
+    assert.match(prompt, /采用图4的场景、光照和图4的环境色彩/);
     assert.match(prompt, /保留胸前印花和项链/);
     assert.match(prompt, /版型、颜色/);
     assert.match(prompt, /针织组织、蕾丝、缝线/);
     assert.match(prompt, /体型、发型方向、肤色基调/);
     assert.doesNotMatch(prompt, /换脸|身份替换|执行一次多图编辑换装/);
-    if (angleControlled) assert.match(prompt, /在图1动作方向基础上/);
-    else {
-      assert.match(prompt, /取景以图1动作方向为准/);
-      assert.doesNotMatch(prompt, /遵循下方的3D视角/);
+    if (angleControlText) {
+      assert.match(prompt, /在图3动作方向基础上/);
+      assert.equal(prompt.split(angleControlText).length - 1, 1);
+      assert.ok(prompt.indexOf('真实摄影质感：') < prompt.indexOf(angleControlText));
+      assert.ok(prompt.indexOf(angleControlText) < prompt.indexOf('完整呈现原始商品'));
+    } else {
+      assert.match(prompt, /取景以图3动作方向为准/);
+      assert.doesNotMatch(prompt, /3D视角/);
     }
   }
 }
-assert.doesNotMatch(multiImageTryOnPrompt("参考图1：姿势。参考图2：人物。参考图3：场景。参考图4：主穿搭。", "", false), /拼图|网格/);
+assert.doesNotMatch(multiImageTryOnPrompt(modelFinalReferenceMap, "", undefined), /拼图|网格/);
 // 骨骼图姿势参考按 DWPose 语义编译：1:1 关节对齐，骨骼线条不渲染
-const skeletonPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "skeleton");
+const skeletonPrompt = multiImageTryOnPrompt(referenceMap, "", undefined, false, "skeleton");
 assert.match(skeletonPrompt, /骨架动作方向/);
-assert.match(skeletonPrompt, /可参照图1的骨架动作方向/);
+assert.match(skeletonPrompt, /参照图3的骨架动作方向/);
 assert.match(skeletonPrompt, /成图呈现自然人物摄影效果/);
 assert.match(skeletonPrompt, /逐点对齐/);
-assert.doesNotMatch(skeletonPrompt, /参照图1提取身体朝向/);
-assert.match(multiImageTryOnPrompt(referenceMap, "", true, false, "skeleton"), /在图1动作方向基础上/);
-assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "skeleton"), /取景以场景图与构图需要为准/);
-assert.match(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /按照图1动作方向呈现/);
-const orderedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original");
-assert.ok(orderedPrompt.indexOf("动作（最高优先级）") < orderedPrompt.indexOf("人物：参考图2提供"), "姿势约束先于人物描述");
-const promptedPose = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "画面左腿交叉，肩线倾斜");
-assert.match(promptedPose, /姿势补充描述（仅在图1无法判定的项目上参考）：画面左腿交叉，肩线倾斜/);
-assert.match(promptedPose, /身体朝向、肩髋倾斜、四肢弯曲、手脚位置与接触、双腿交叉与前后关系、重心与承重一律以图1可见几何为准/);
-assert.match(promptedPose, /仅图1无法判定的头部旋转、俯仰、视线方向与面部神态才参考该文字/);
-assert.match(promptedPose, /该文字中与图1可见几何冲突的部分全部忽略/);
-assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original", ""), /姿势补充描述/);
-assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", false, false, "original"), /姿势补充描述/);
-const calibratedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original", calibratedSupplement, "three-view", true);
+assert.doesNotMatch(skeletonPrompt, /参照图3提取身体朝向/);
+assert.match(multiImageTryOnPrompt(referenceMap, "", "3D视角：从画面左侧观察", false, "skeleton"), /在图3动作方向基础上/);
+assert.match(multiImageTryOnPrompt(referenceMap, "", undefined, false, "skeleton"), /取景以场景图与构图需要为准/);
+assert.match(multiImageTryOnPrompt(referenceMap, "", undefined, false, "original"), /按照图3动作方向呈现/);
+const orderedPrompt = multiImageTryOnPrompt(referenceMap, "", undefined, false, "original");
+assert.ok(orderedPrompt.indexOf("人物：") < orderedPrompt.indexOf("动作："), "人物与素材说明在动作段之前");
+const promptedPose = multiImageTryOnPrompt(referenceMap, "", undefined, false, "original", "画面左腿交叉，肩线倾斜");
+assert.match(promptedPose, /姿势补充描述（仅在图3无法判定的项目上参考）：画面左腿交叉，肩线倾斜/);
+assert.match(promptedPose, /身体朝向、肩髋倾斜、四肢弯曲、手脚位置与接触、双腿交叉与前后关系、重心与承重一律以图3可见几何为准/);
+assert.match(promptedPose, /仅图3无法判定的头部旋转、俯仰、视线方向与面部神态才参考该文字/);
+assert.match(promptedPose, /该文字中与图3可见几何冲突的部分全部忽略/);
+assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", undefined, false, "original", ""), /姿势补充描述/);
+assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, "", undefined, false, "original"), /姿势补充描述/);
+const calibratedPrompt = multiImageTryOnPrompt(referenceMap, "", undefined, false, "original", calibratedSupplement, "three-view", true);
 assert.match(calibratedPrompt, /三图校准补充（从属约束）/);
 assert.match(calibratedPrompt, /画面左膝比画面右膝更靠近镜头/);
-assert.match(calibratedPrompt, /参考图1可见人体几何是最高优先级/);
-assert.match(calibratedPrompt, /校准文字仅补充图1无法直接判定/);
-assert.doesNotMatch(calibratedPrompt, /唯一姿势锚点|逐关节1:1复刻图1/);
+assert.match(calibratedPrompt, /参考图3可见人体几何是最高优先级/);
+assert.match(calibratedPrompt, /校准文字仅补充图3无法直接判定/);
+assert.doesNotMatch(calibratedPrompt, /唯一姿势锚点|逐关节1:1复刻图3|图1不可见关系/);
+assert.match(calibratedPrompt, /仅补充图3不可见关系/);
+assert.ok(calibratedSupplement.includes('仅补充图1不可见关系'), '旧姿势数据不被改写，仅生成时转换固定标题中的图号');
 assert.doesNotMatch(calibratedPrompt, /无法判断/);
-assert.doesNotMatch(calibratedPrompt, /仅在图1无法判定的头部/);
-const rejectedCalibratedPrompt = multiImageTryOnPrompt(referenceMap, "", false, false, "original", "整体姿态：画面左腿交叉", "three-view");
+assert.doesNotMatch(calibratedPrompt, /仅在图3无法判定的头部/);
+const rejectedCalibratedPrompt = multiImageTryOnPrompt(referenceMap, "", undefined, false, "original", "整体姿态：画面左腿交叉", "three-view");
 assert.doesNotMatch(rejectedCalibratedPrompt, /整体姿态：画面左腿交叉/, '未通过结构门禁的三图文字不得进入最终 prompt');
-const manuallyForgedSupplement = multiImageTryOnPrompt(referenceMap, "", false, false, "original", calibratedSupplement, "three-view", false);
+const manuallyForgedSupplement = multiImageTryOnPrompt(referenceMap, "", undefined, false, "original", calibratedSupplement, "three-view", false);
 assert.doesNotMatch(manuallyForgedSupplement, /画面左膝比画面右膝更靠近镜头/, '仅格式正确但没有服务端校验位的文字也不得进入最终 prompt');
 for (const concise of [false, true]) {
   for (const poseReferenceType of ['original', 'skeleton']) {
     for (const posePromptMode of ['single', 'three-view']) {
-      assertPhotographicRealism(multiImageTryOnPrompt(referenceMap, '', false, concise, poseReferenceType, '保留校准后的姿势', posePromptMode));
+      assertPhotographicRealism(multiImageTryOnPrompt(referenceMap, '', undefined, concise, poseReferenceType, '保留校准后的姿势', posePromptMode));
     }
   }
 }
@@ -111,7 +135,7 @@ for (const count of [4, 5, 6, 7, 14, 15, 20]) {
   const before = JSON.stringify(refs);
   const groups = planMultiImageReferences(refs, pro);
   assert.equal(JSON.stringify(refs), before);
-  assert.deepEqual(groups.slice(0, 3).map(group => group.role), ["pose", "person", "scene"]);
+  assert.deepEqual(groups.slice(0, 4).map(group => group.role), ["person", "outfit", "pose", "scene"]);
   assert.equal(groups.flatMap(group => group.members).length, count, "不丢弃任何素材");
   assert.ok(groups.length <= 14);
   if (count <= 14) assert.ok(groups.every(group => group.members.length === 1), "正式Pro容量内不拼接");
@@ -155,13 +179,17 @@ assert.ok(boundedSheet.buffer.length <= PROVIDER_TARGET_BYTES, "高细节配饰�
 assert.equal(boundedSheet.mime, "image/jpeg", "大拼图触发有界压缩，普通小拼图仍保持PNG");
 const packed = await prepareMultiImageTryOn(images, allRoles, images, pro);
 assert.equal(packed.referenceImages.length, 12);
-assert.equal(packed.referenceImages[1], images[1], "人物原图原样传递");
-assert.equal(packed.referenceImages[2], images[2], "场景原图原样传递");
-const packedPose = await sharp(parseDataUrl(packed.referenceImages[0]).buffer).metadata();
+assert.equal(packed.referenceImages[0], images[0], "人物原图作为图1原样传递");
+assert.equal(packed.referenceImages[1], images[1], "主穿搭原图作为图2原样传递");
+assert.equal(packed.referenceImages[3], images[3], "场景原图作为图4原样传递");
+const packedPose = await sharp(parseDataUrl(packed.referenceImages[2]).buffer).metadata();
 assert.equal(Math.max(packedPose.width!, packedPose.height!), 2048, "姿势参考放大到至少 2048 长边");
 assert.equal(packed.references.length, 20);
 assert.deepEqual(readMultiImageReferenceManifest(packed.references), packed.references);
 assert.equal(readMultiImageReferenceManifest([{ ...packed.references[0], number: 2 }, ...packed.references.slice(1)]), undefined);
+const legacyManifest = baseRoles.map((role, index) => ({ number: index + 1, role, image: images[index] }));
+assert.deepEqual(readMultiImageReferenceManifest(legacyManifest), legacyManifest, '旧记录仍按姿势1、人物2、场景3、主穿搭4原样读取');
+assert.equal(readMultiImageReferenceManifest(packed.references.map((ref, index) => index === 1 ? { ...ref, role: 'scene' } : ref)), undefined, '新记录首四项不得错配');
 const history = applyRunEventToRecentResults([{
   id: "multi-record", nodeId: "stabilize", nodeLabel: "多图编辑", kind: "virtual-try-on", image: "", status: "queued", startedAt: 1,
   parameters: { workflowStage: "scene-stabilize", sceneInputMode: "multi-reference-edit" },
@@ -207,12 +235,14 @@ const sequentialReloaded = validateAndMigrateFlow(documentSnapshotToPersistedWor
 const sequentialStep = buildExecutionPlan(sequentialReloaded.nodes, sequentialReloaded.edges, { onlyNodeId: verifiedFirst.id, includeDownstream: false }).steps.find(step => step.nodeId === verifiedFirst.id)!;
 assert.equal(sequentialStep.params.posePrompt, completePose, '用户编辑的九类姿势跨持久化与DAG保持不变');
 for (const concise of [false, true]) {
-  const prompt = multiImageTryOnPrompt(referenceMap, '', false, concise, 'original', completePose, 'three-view', true);
-  assert.ok(prompt.includes(completePose), '完整九类姿势进入最终生图提示词');
-  assert.doesNotMatch(prompt, /图1可见人体几何是最高优先级|四类|从属约束|冲突的部分全部忽略/);
-  assertPhotographicRealism(prompt);
+  for (const poseReferenceType of ['unspecified', 'original', 'skeleton']) {
+    const prompt = multiImageTryOnPrompt(referenceMap, '', undefined, concise, poseReferenceType, completePose, 'three-view', true);
+    assert.ok(prompt.includes(completePose.split('\n').slice(1).join('\n')), '用户修改的完整九类正文原样进入最终生图提示词');
+    assert.doesNotMatch(prompt, /三图校准姿势|用户编辑|最高优先级|四类|从属约束|冲突的部分全部忽略/);
+    assertPhotographicRealism(prompt);
+  }
 }
-assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, '', false, false, 'original', completePose, 'three-view', false), /下肢：双腿交叉/, '未经校验的九类草稿不进入生图');
+assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, '', undefined, false, 'original', completePose, 'three-view', false), /下肢：双腿交叉/, '未经校验的九类草稿不进入生图');
 for (const mode of ['single', 'three-view'] as const) {
   const editedFlow = structuredClone(calibrationFlow);
   const poseNode = editedFlow.nodes.find(node => node.id === 'pose')!;
@@ -279,7 +309,7 @@ const roundtrip = validateAndMigrateFlow(persisted);
 const data = roundtrip.nodes.find(node => node.id === "stabilize")!.data as VirtualTryOnNodeData;
 assert.equal(data.sceneInputMode, "multi-reference-edit");
 assert.equal(data.modelId, "gemini-3.1-flash-image");
-assert.deepEqual(inputPortSpecs(data).filter(port => port.required).map(port => port.id), ["pose", "person", "scene", "outfit"]);
+assert.deepEqual(inputPortSpecs(data).filter(port => port.required).map(port => port.id), ["person", "outfit", "pose", "scene"]);
 useFlowStore.getState().loadFlow({ ...roundtrip, projectName: template.name });
 assert.equal(selectActiveDocument(useFlowStore.getState()).nodes.find(node => node.id === "stabilize")!.data.sceneInputMode, "multi-reference-edit");
 
@@ -364,13 +394,13 @@ try {
       edit: async request => {
         calls++;
         assert.equal(snapshot?.prompt, request.prompt);
-        assert.deepEqual(snapshot?.references.map(ref => ref.role), roles);
-        assert.deepEqual(request.referenceImages.slice(1), images.slice(1, 6));
-        assert.match(request.prompt, /^以参考图2提供的人物造型基调/);
+        assert.deepEqual(snapshot?.references.map(ref => ref.role), ['person', 'outfit', 'pose', 'scene', 'shoes', 'hat']);
+        assert.deepEqual(request.referenceImages.filter((_, index) => index !== 2), [images[1], images[3], images[2], images[4], images[5]]);
+        assert.match(request.prompt, /^以参考图1提供的人物造型基调/);
         assert.doesNotMatch(request.prompt, /校准动作：双手插袋，双脚前后错位/, '旧版未校验三图文字不得进入最终 API prompt');
-        assert.match(request.prompt, /参考图1可见人体几何是最高优先级/);
-        assert.match(request.prompt, /参考图3：场景/);
-        assert.match(request.prompt, /参考图4：主穿搭/);
+        assert.match(request.prompt, /参考图3可见人体几何是最高优先级/);
+        assert.match(request.prompt, /参考图4：场景/);
+        assert.match(request.prompt, /参考图2：主穿搭/);
         assert.match(request.prompt, /生成全原创形象/);
         assert.match(request.prompt, /不要墨镜/);
         assert.doesNotMatch(request.prompt, /建立第一轮人物场景基准|锁定同一人物|场景分析作为环境辅助/);
@@ -407,17 +437,19 @@ try {
       await executeStep(step, images.slice(0, 4), () => ({ id: modelId,
         edit: async request => {
           calls++;
-          assert.deepEqual(request.referenceImages.slice(1), images.slice(1, 4), "TiAngel不新增图片或改变非姿势图序");
-          const poseMeta = await sharp(parseDataUrl(request.referenceImages[0]).buffer).metadata();
+          assert.deepEqual(request.referenceImages.filter((_, index) => index !== 2), [images[1], images[3], images[2]], "TiAngel不新增图片或改变角色图序");
+          const poseMeta = await sharp(parseDataUrl(request.referenceImages[2]).buffer).metadata();
           assert.equal(Math.max(poseMeta.width!, poseMeta.height!), 2048, "姿势参考放大到至少 2048 长边");
           assert.match(request.prompt, /针织组织、蕾丝、缝线/);
           assertPhotographicRealism(request.prompt);
           if (control) {
             assert.ok(request.prompt.includes(control.text));
-            assert.match(request.prompt, /在图1动作方向基础上/);
-            assert.doesNotMatch(request.prompt, /取景以图1姿势参考为准/);
+            assert.equal(request.prompt.split(control.text).length - 1, 1, '相机指令仅在相机段出现一次');
+            assert.ok(request.prompt.indexOf(control.text) < request.prompt.indexOf('完整呈现原始商品'));
+            assert.match(request.prompt, /在图3动作方向基础上/);
+            assert.doesNotMatch(request.prompt, /取景以图3姿势参考为准/);
           } else {
-            assert.match(request.prompt, /取景以图1动作方向为准/);
+            assert.match(request.prompt, /取景以图3动作方向为准/);
             assert.doesNotMatch(request.prompt, /3D视角指令|FUJIFILM/);
           }
           return { images: [images[0]], model: modelId };
@@ -437,10 +469,10 @@ try {
     const edit = async (request: ImageGenRequest) => {
       calls++;
       assert.ok(request.referenceImages!.length <= 14);
-      assert.deepEqual(request.referenceImages!.slice(1, 3), sourceImages.slice(1, 3));
-      const proPose = await sharp(parseDataUrl(request.referenceImages![0]).buffer).metadata();
+      assert.deepEqual([request.referenceImages![0], request.referenceImages![1], request.referenceImages![3]], ['person', 'outfit', 'scene'].map(role => sourceImages[roles.indexOf(role)]));
+      const proPose = await sharp(parseDataUrl(request.referenceImages![2]).buffer).metadata();
       assert.equal(Math.max(proPose.width!, proPose.height!), 2048, "姿势参考放大到至少 2048 长边");
-      if (roles.length <= 14) assert.deepEqual(request.referenceImages!.slice(1), sourceImages.slice(1));
+      if (roles.length <= 14) assert.deepEqual(request.referenceImages!.slice(4), sourceImages.slice(4));
       assert.match(request.prompt, /输出一张完整的服装摄影照片/);
       assert.match(request.prompt, /针织组织、蕾丝、缝线/);
       assert.doesNotMatch(request.prompt, /不强求针目|完成第一轮场景化/);
@@ -460,7 +492,7 @@ try {
     assert.equal(calls, 1, "仅一次图像编辑，不生成人物底图或自动精修");
     assert.equal(result.images.length, 1);
     assert.equal(recorded!.references.length, roles.length, "记录保留全部原图与参数编号映射");
-    assert.deepEqual(recorded!.references.slice(0, 3).map(ref => ref.role), ["pose", "person", "scene"]);
+    assert.deepEqual(recorded!.references.slice(0, 4).map(ref => ref.role), ["person", "outfit", "pose", "scene"]);
   }
   let posePromptCalls = 0;
   await executeStep({ nodeId: "stabilize", kind: "virtual-try-on", inputImages: images.slice(0, 4),
@@ -469,7 +501,7 @@ try {
     id: "gemini-3.1-flash-image",
     edit: async request => {
       posePromptCalls++;
-      assert.match(request.prompt, /姿势补充描述（仅在图1无法判定的项目上参考）：画面左腿交叉，肩线倾斜/);
+      assert.match(request.prompt, /姿势补充描述（仅在图3无法判定的项目上参考）：画面左腿交叉，肩线倾斜/);
       return { images: [images[0]], model: "gemini-3.1-flash-image" };
     },
     generate: async () => { throw new Error("必须多图编辑，不得文生图"); },
@@ -495,6 +527,17 @@ try {
   assert.equal((noReview.executionMeta?.tryOn as Record<string, unknown>).candidateReviewDisabled, true);
 } finally { globalThis.fetch = oldFetch; }
 
+async function assertSerializedPrimaryImages(sent: Buffer[], originals: string[], roles: readonly string[]) {
+  assert.equal(sent.length, 4);
+  for (const [index, role] of ['person', 'outfit', 'pose', 'scene'].entries()) {
+    const expected = await sharp(parseDataUrl(originals[roles.indexOf(role)]).buffer).stats();
+    const actual = await sharp(sent[index]).stats();
+    for (let channel = 0; channel < 3; channel++) {
+      assert.ok(Math.abs(actual.channels[channel].mean - expected.channels[channel].mean) <= 2, `API图${index + 1}像素对应${role}，容许JPEG量化误差`);
+    }
+  }
+}
+
 // Exercise the real adapter, but replace the network boundary; never contact a paid provider.
 const originalBase = process.env.APIYI_BASE_URL;
 const originalKey = process.env.APIYI_API_KEY;
@@ -502,7 +545,7 @@ process.env.APIYI_BASE_URL = "https://gateway.example";
 process.env.APIYI_API_KEY = "test-only-contract-key";
 try {
   for (const count of [4, 5, 6, 7, 14, 15, 20]) {
-    const roles = count > baseRoles.length ? allRoles.slice(0, count) : baseRoles.slice(0, count);
+    const roles = count === 6 ? ['pose', 'person', 'scene', 'outfit', 'shoes', 'hat'] : count > baseRoles.length ? allRoles.slice(0, count) : baseRoles.slice(0, count);
     const originals = roles.map((_, index) => images[index]);
     const expectedGroups = planMultiImageReferences(roles.map((role, index) => ({ role, index })), pro);
     const sentPrompts: string[] = [];
@@ -527,8 +570,13 @@ try {
         assert.equal(prompt, recorded?.prompt, "历史记录与真正发送的指令一致");
         sentPrompts.push(prompt);
         assertPhotographicRealism(prompt);
-        assert.match(prompt, /保留胸前印花/);
-        assert.match(prompt, /参考图1：姿势/);
+        if (count === 6) {
+          assert.ok(prompt.includes(modelFinalPoseBody));
+          assert.doesNotMatch(prompt, /三图校准姿势|用户编辑|最高优先级|原图不得推翻/);
+          if (!concise) assert.equal(normalizePromptLayout(prompt), normalizePromptLayout(modelFinalPrompt), '实际 API 请求与用户文档一致');
+        } else assert.match(prompt, /保留胸前印花/);
+        assert.match(prompt, /参考图1：人物。\n参考图2：主穿搭。\n参考图3：姿势。\n参考图4：场景。/);
+        await assertSerializedPrimaryImages(parts.slice(1, 5).map((part: { inline_data: { data: string } }) => Buffer.from(part.inline_data.data, 'base64')), originals, roles);
         if (count === 7) {
           assert.match(prompt, /参考图6：袜子/);
           assert.match(prompt, /参考图7：帽子/);
@@ -549,8 +597,9 @@ try {
         ] } }] });
       };
       await executeStep({ nodeId: "stabilize", kind: "virtual-try-on", inputImages: [...originals].reverse(),
-        params: { ...data, modelId: pro, prompt: "保留胸前印花", sceneFraming: "custom", aspectRatio: "3:4", imageSize: "2K",
-          modelOptions: { aspectRatio: "3:4", imageSize: "2K" }, ...(concise ? { multiImagePromptMode: "concise" } : {}) } },
+        params: { ...data, modelId: pro, prompt: count === 6 ? '' : '保留胸前印花', sceneFraming: 'custom', aspectRatio: '3:4', imageSize: '2K',
+          ...(count === 6 ? { posePrompt: modelFinalPose, posePromptMode: 'three-view', posePromptOptimizedVerified: true } : {}),
+          modelOptions: { aspectRatio: '3:4', imageSize: '2K' }, ...(concise ? { multiImagePromptMode: 'concise' } : {}) } },
       [...originals].reverse(), () => apiyiProviders[pro], {
         referenceRoles: [...roles].reverse(), onSceneRequestPrepared: async value => { recorded = value; },
         sceneAnalyzer: async () => { throw new Error("禁止额外分析请求"); },
@@ -575,16 +624,19 @@ try {
           assert.equal(init.body.get("model"), modelId);
           prompt = String(init.body.get("prompt"));
           assert.equal([...init.body.values()].filter(value => typeof value !== "string").length, 4);
+          const imagesSent = [...init.body.values()].filter(value => typeof value !== 'string');
+          await assertSerializedPrimaryImages(await Promise.all(imagesSent.map(image => image.arrayBuffer().then(bytes => Buffer.from(bytes)))), images.slice(0, 4), baseRoles.slice(0, 4));
         } else {
           assert.equal(String(url), "https://gateway.example/v1beta/models/gemini-3.1-flash-image:generateContent");
           const body = JSON.parse(String(init?.body));
           assert.equal(body.contents[0].parts.length, 5);
           prompt = body.contents[0].parts[0].text;
+          await assertSerializedPrimaryImages(body.contents[0].parts.slice(1).map((part: { inlineData: { data: string } }) => Buffer.from(part.inlineData.data, 'base64')), images.slice(0, 4), baseRoles.slice(0, 4));
         }
         assert.equal(prompt, recorded?.prompt, "历史记录与最终 Provider 请求一致");
         assertPhotographicRealism(prompt);
         assert.match(prompt, /保留胸前印花/);
-        assert.match(prompt, /参考图1：姿势/);
+        assert.match(prompt, /参考图1：人物。\n参考图2：主穿搭。\n参考图3：姿势。\n参考图4：场景。/);
         return modelId === "gpt-image-2"
           ? Response.json({ data: [{ b64_json: images[0].split(",")[1] }] })
           : Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [

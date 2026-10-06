@@ -4,7 +4,7 @@ import { isImageModelId, modelMaxReferenceImages } from "../types/imageModels";
 export const MULTI_IMAGE_TRY_ON_MODE = "multi-reference-edit" as const;
 export const MULTI_IMAGE_TRY_ON_MAX_SOURCES = 20;
 export const MULTI_IMAGE_TRY_ON_ROLES = [
-  "pose", "person", "scene", "outfit", "detail", "shoes", "socks",
+  "person", "outfit", "pose", "scene", "detail", "shoes", "socks",
   "bag", "hat", "eyewear", "neckwear", "earrings", "ring", "bracelet", "belt", "watch",
 ] as const;
 export const MULTI_IMAGE_ROLE_LABELS: Readonly<Record<string, string>> = {
@@ -56,14 +56,18 @@ export interface MultiImageReferenceGroup<T> {
 /** Runtime history may repeat a provider index for several source tiles. */
 export function readMultiImageReferenceManifest(value: unknown): Array<{ number: number; role: string; image: string }> | undefined {
   if (!Array.isArray(value) || value.length < 4 || value.length > MULTI_IMAGE_TRY_ON_MAX_SOURCES) return undefined;
+  // Stored manifests retain their original order; never renumber historical runs.
+  const leadingRoles = value[0]?.role === "person"
+    ? ["person", "outfit", "pose", "scene"]
+    : ["pose", "person", "scene"];
   let previous = 0;
   const result: Array<{ number: number; role: string; image: string }> = [];
   for (const [index, entry] of value.entries()) {
     if (!entry || typeof entry !== "object" || !Number.isInteger(entry.number)
       || typeof entry.role !== "string" || typeof entry.image !== "string") return undefined;
-    if (index < 3) {
-      if (entry.number !== index + 1 || entry.role !== ["pose", "person", "scene"][index]) return undefined;
-    } else if (entry.number < 4 || (entry.number !== previous && entry.number !== previous + 1)) return undefined;
+    if (index < leadingRoles.length) {
+      if (entry.number !== index + 1 || entry.role !== leadingRoles[index]) return undefined;
+    } else if (entry.number < leadingRoles.length + 1 || (entry.number !== previous && entry.number !== previous + 1)) return undefined;
     previous = entry.number;
     result.push({ number: entry.number, role: entry.role, image: entry.image });
   }
@@ -85,7 +89,7 @@ export function planMultiImageReferences<T extends { role: string }>(
   }
   let groups = ordered.map(ref => ({ role: ref.role, members: [ref] }));
   // Only merge while necessary. Preserve clothing/detail originals if grouping
-  // accessories and footwear already meets the budget; never combine the first 3.
+  // accessories and footwear already meets the budget; never combine person, pose or scene.
   const protectedRoles = ["pose", "person", "scene", "outfit", "detail", "shoes", "socks"];
   for (const [role, matches] of [
     ["accessories", (ref: T) => !protectedRoles.includes(ref.role)],

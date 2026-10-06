@@ -228,7 +228,10 @@ try {
   };
   const depthPatch = { depth: { overall: null, head: null, upperLimbs: '画面左手位于躯干前方', shoulders: null, waist: null, hips: null, lowerLimbs: null } };
   const planePatch = { plane: { head: '头部向画面左侧倾斜', upperLimbs: '画面左手位于腰部上方', lowerLimbs: '画面右脚越过画面左脚，双腿交叉' } };
-  const stageValue = (instruction: string) => instruction.startsWith('第一步') ? baseline : instruction.startsWith('第二步') ? depthPatch : planePatch;
+  const finalPose = structuredClone(baseline);
+  finalPose.upperLimbs.depth = depthPatch.depth.upperLimbs;
+  for (const part of ['head', 'upperLimbs', 'lowerLimbs'] as const) finalPose[part].plane = planePatch.plane[part];
+  const stageValue = (instruction: string) => instruction.startsWith('第一步') ? baseline : instruction.startsWith('第二步') ? depthPatch : instruction.startsWith('第三步') ? planePatch : finalPose;
   let calibrationCalls = 0;
   const calibrationBodies: Array<Record<string, any>> = [];
   globalThis.fetch = async (_input, init) => {
@@ -238,14 +241,73 @@ try {
     return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(stageValue(request.contents[0].parts[0].text)) }] } }] });
   };
   const calibration = { depthImageDataUrl: ALT_IMAGE, skeletonImageDataUrl: IMAGE, pose: CALIBRATION_POSE };
+  {
+    const observed = structuredClone(baseline);
+    observed.overall.observation += '，身穿红色外套，背景是建筑';
+    observed.upperLimbs.observation = '画面左手插入裤袋';
+    observed.lowerLimbs.observation = '膝部弯曲，裙摆遮住膝部';
+    const thirdStage = structuredClone(observed);
+    thirdStage.upperLimbs.depth = depthPatch.depth.upperLimbs;
+    for (const part of ['head', 'upperLimbs', 'lowerLimbs'] as const) thirdStage[part].plane = planePatch.plane[part];
+    const cleaned = structuredClone(thirdStage);
+    cleaned.overall.observation = baseline.overall.observation;
+    cleaned.upperLimbs.observation = '画面左手伸入髋侧遮挡区域';
+    cleaned.lowerLimbs.observation = '膝部弯曲，局部被遮挡';
+    cleaned.gaze.observation = '视线朝画面左侧';
+    cleaned.hips.depth = '胯部位于躯干后方';
+    let attempts = 0;
+    const marked: number[] = [];
+    process.env.POSE_ANALYSIS_MODEL = 'gemini-four-stage-cleanup';
+    const mainFetch = globalThis.fetch;
+    globalThis.fetch = async (_input, init) => {
+      attempts++;
+      const parts = JSON.parse(String(init?.body)).contents[0].parts;
+      const instruction = parts[0].text as string;
+      assert.match(instruction, new RegExp(`^第${['一', '二', '三', '四'][attempts - 1]}步`));
+      if (attempts === 2) assert.ok(instruction.includes(JSON.stringify(observed)));
+      if (attempts === 4) {
+        assert.ok(instruction.includes(JSON.stringify(thirdStage)), '优化只能继承第三步最终文字');
+        assert.equal(parts.length, 1, '第四步不得重复发送原图、深度图或骨骼图');
+        assert.match(instruction, /接触|遮挡/);
+      }
+      const value = [observed, depthPatch, planePatch, cleaned][attempts - 1];
+      assert.ok(value, '不允许额外模型请求');
+      return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }] });
+    };
+    try {
+      const result = await analyzePoseReference(IMAGE, { calibration, beforeProviderCall: count => { marked.push(count); } });
+      assert.equal(result.providerRequests, 4);
+      assert.deepEqual(marked, [1, 2, 3, 4]);
+      assert.match(result.calibrationStages?.original ?? '', /裤袋/);
+      assert.match(result.calibrationStages?.skeleton ?? '', /画面左手位于腰部上方；画面左手位于躯干前方/);
+      for (const prompt of [result.prompt, result.optimizedPrompt ?? '']) {
+        assert.doesNotMatch(prompt, /外套|背景|建筑|裤|裙/);
+        assert.match(prompt, /画面左手伸入髋侧遮挡区域/);
+        assert.match(prompt, /膝部弯曲，局部被遮挡/);
+        assert.match(prompt, /画面左手位于躯干前方/);
+        assert.match(prompt, /视线朝画面右侧/);
+        assert.doesNotMatch(prompt, /视线朝画面左侧|胯部位于躯干后方/, '文本优化不能改写干净字段或补齐空字段');
+      }
+      const cached = await analyzePoseReference(IMAGE, { calibration });
+      assert.equal(cached.cacheHit, true);
+      assert.equal(cached.providerRequests, 0);
+      assert.equal(cached.optimizedPrompt, result.optimizedPrompt);
+      assert.equal(attempts, 4);
+    } finally {
+      globalThis.fetch = mainFetch;
+      process.env.POSE_ANALYSIS_MODEL = 'gemini-3-flash-preview';
+    }
+  }
   const calibrated = await analyzePoseReference(IMAGE, { calibration });
-  assert.equal(calibrationCalls, 3, '三图校准必须串行执行三次请求');
-  assert.equal(calibrated.providerRequests, 3);
+  assert.equal(calibrationCalls, 4, '三图校准必须串行执行三次视觉请求和一次文本优化');
+  assert.equal(calibrated.providerRequests, 4);
   assert.equal(calibrated.calibrationMode, 'three-view');
   assert.equal(calibrated.optimizedPromptVerified, true);
   const parts = calibrationBodies.map(body => body.contents[0].parts);
-  assert.deepEqual(parts.map(p => p.filter((v: any) => v.inlineData).length), [1, 1, 1]);
-  assert.deepEqual(parts.map(p => p.find((part: any) => part.inlineData).inlineData.data), [IMAGE, ALT_IMAGE, IMAGE].map(image => image.split(',')[1]));
+  assert.deepEqual(parts.map(p => p.filter((v: any) => v.inlineData).length), [1, 1, 1, 0]);
+  assert.deepEqual(parts.slice(0, 3).map(p => p.find((part: any) => part.inlineData).inlineData.data), [IMAGE, ALT_IMAGE, IMAGE].map(image => image.split(',')[1]));
+  assert.match(parts[3][0].text, /第四步/);
+  assert.ok(parts[3][0].text.includes(JSON.stringify(finalPose)), '文本优化继承第三步完整校准结果');
   assert.match(parts[0][0].text, /第一步.*原始姿势图/);
   assert.match(parts[1][0].text, /近亮远暗/);
   assert.ok(parts[1][0].text.includes(JSON.stringify(baseline)), '深度请求继承完整基线');
@@ -270,41 +332,63 @@ try {
   assert.equal((await validateEditedPosePrompt(IMAGE, edited + '\n背景：白色房间', { calibration })).verified, false);
   assert.equal((await validateEditedPosePrompt(IMAGE, edited.replace('肩部放松', '红色外套'), { calibration })).verified, false);
   assert.equal((await validateEditedPosePrompt(IMAGE, edited.replace('视线朝画面左侧', '无法判断'), { calibration })).verified, false);
-  assert.equal(calibrationCalls, 3, '手动保存校验不能调用模型');
+  assert.equal(calibrationCalls, 4, '手动保存校验不能调用模型');
   const cached = await analyzePoseReference(IMAGE, { calibration });
   assert.equal(cached.cacheHit, true);
   assert.equal(cached.providerRequests, 0);
   assert.deepEqual(cached.calibrationStages, calibrated.calibrationStages);
+  const cacheDirectory = path.join(temp, 'pose-analysis-cache');
+  const calibrationFile = fs.readdirSync(cacheDirectory).find(name => name.startsWith('sequential-v2-') && JSON.parse(fs.readFileSync(path.join(cacheDirectory, name), 'utf8')).model === process.env.POSE_ANALYSIS_MODEL)!;
+  assert.ok(calibrationFile, '第四步完成后才能写入新版缓存');
+  const calibrationPath = path.join(cacheDirectory, calibrationFile);
+  const cacheEntry = JSON.parse(fs.readFileSync(calibrationPath, 'utf8'));
+  const threeStageAnalysis = structuredClone(cacheEntry.analysis);
+  delete threeStageAnalysis.optimized;
+  fs.writeFileSync(path.join(cacheDirectory, calibrationFile.replace('sequential-v2-', 'sequential-v1-')), JSON.stringify({ ...cacheEntry, schemaVersion: 1, analysis: threeStageAnalysis }));
+  fs.unlinkSync(calibrationPath);
+  assert.equal((await analyzePoseReference(IMAGE, { calibration })).cacheHit, false, '旧版三步缓存不能跳过文本优化');
+  assert.equal(calibrationCalls, 8);
+  const alteredCache = structuredClone(cacheEntry);
+  alteredCache.analysis.optimized.gaze.observation = '视线朝画面左侧';
+  fs.writeFileSync(calibrationPath, JSON.stringify(alteredCache));
+  const refreshed = await analyzePoseReference(IMAGE, { calibration });
+  assert.equal(refreshed.cacheHit, false, '缓存不能修改无需清理的视线与姿势');
+  assert.equal(refreshed.optimizedPrompt, optimized);
+  assert.equal(calibrationCalls, 12);
   await analyzePoseReference(IMAGE, { calibration: { ...calibration, depthImageDataUrl: IMAGE } });
   await analyzePoseReference(IMAGE, { calibration: { ...calibration, skeletonImageDataUrl: ALT_IMAGE } });
   await analyzePoseReference(ALT_IMAGE, { calibration });
-  assert.equal(calibrationCalls, 12, '任一图片变化都必须使校准缓存失效');
+  assert.equal(calibrationCalls, 24, '任一图片变化都必须使校准缓存失效');
   let deepseekCalls = 0;
   globalThis.fetch = async (_input, init) => {
     deepseekCalls++;
     const request = JSON.parse(String(init?.body));
-    assert.equal(request.messages[0].content.filter((part: { type: string }) => part.type === 'image_url').length, 1);
+    const textOnly = request.messages[0].content[0].text.startsWith('第四步');
+    assert.equal(request.messages[0].content.filter((part: { type: string }) => part.type === 'image_url').length, textOnly ? 0 : 1);
+    if (textOnly) assert.equal(request.messages[0].content.length, 1);
     return Response.json({ choices: [{ message: { content: [
       { type: 'reasoning', text: '内部推理不参与解析' },
       { type: 'text', text: `\`\`\`json\n${JSON.stringify(stageValue(request.messages[0].content[0].text))}\n\`\`\`` },
     ] } }] });
   };
   const deepseekCalibration = await analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'calibrated-owner', calibration });
-  assert.equal(deepseekCalls, 3);
+  assert.equal(deepseekCalls, 4);
   assert.equal(deepseekCalibration.optimizedPrompt, optimized);
   assert.deepEqual(deepseekCalibration.calibrationStages, calibrated.calibrationStages);
   const baselineJson = JSON.stringify(baseline);
   const implicitDirectionsJson = baselineJson.replaceAll('画面左', '左').replaceAll('画面右', '右');
+  const reversedDirectionPairJson = baselineJson.replace('画面左腿', '右左腿');
   const cases = [
     { name: 'split-json', parts: [{ text: baselineJson.slice(0, 150) }, { text: baselineJson.slice(150) }] },
     { name: 'implicit-screen-directions', parts: [{ text: implicitDirectionsJson }] },
+    { name: 'reversed-direction-pair', parts: [{ text: reversedDirectionPairJson }], expectedPrompt: /重心落在画面右画面左腿/ },
     { name: 'thought-before-json', parts: [{ thought: true, text: '内部推理' }, { text: baselineJson }] },
     { name: 'truncated-json', parts: [{ text: baselineJson }], finishReason: 'MAX_TOKENS', error: /第一步.*输出未完整结束/ },
     { name: 'blocked-json', parts: [{ text: baselineJson }], finishReason: 'SAFETY', error: /第一步.*安全限制/ },
     { name: 'thought-only', parts: [{ thought: true, text: baselineJson }], error: /第一步.*未返回可用文字/ },
     { name: 'wrong-schema', parts: [{ text: JSON.stringify(ANALYSIS) }], error: /第一步.*字段/ },
     { name: 'secret-echo', parts: [{ text: baselineJson.replace('站立', process.env.APIYI_API_KEY!) }], error: /第一步.*格式无效/ },
-    { name: 'forbidden-content', parts: [{ text: baselineJson.replace('站立', '红色外套') }], error: /第一步.*非姿势内容/ },
+    { name: 'forbidden-content', parts: [{ text: baselineJson.replace('站立', '站立，红色外套') }] },
   ];
   for (const sample of cases) {
     process.env.POSE_ANALYSIS_MODEL = `gemini-regression-${sample.name}`;
@@ -320,10 +404,11 @@ try {
     if (sample.error) await assert.rejects(analyzePoseReference(IMAGE, { calibration }), sample.error);
     else {
       const result = await analyzePoseReference(IMAGE, { calibration });
-      assert.equal(result.optimizedPrompt, optimized);
+      if ('expectedPrompt' in sample) assert.match(result.optimizedPrompt ?? '', sample.expectedPrompt);
+      else assert.equal(result.optimizedPrompt, optimized);
       assert.equal((await analyzePoseReference(IMAGE, { calibration })).cacheHit, true);
     }
-    assert.equal(attempts, sample.error ? 1 : 3, '格式失败停止后续步骤，不自动付费重试');
+    assert.equal(attempts, sample.error ? 1 : 4, '格式失败停止后续步骤，不自动付费重试');
   }
   for (const stage of ['第二步', '第三步']) {
     process.env.POSE_ANALYSIS_MODEL = `gemini-scope-${stage === '第二步' ? 'depth' : 'skeleton'}`;
@@ -336,6 +421,43 @@ try {
     };
     await assert.rejects(analyzePoseReference(IMAGE, { calibration }), /越权字段/);
     assert.equal(attempts, stage === '第二步' ? 2 : 3);
+  }
+  for (const provider of ['gemini', 'deepseek'] as const) {
+    const failures = [
+      { name: 'clothing', part: 'upperLimbs' as const, detail: '画面左手插入裤袋', expected: /第四步.*上肢\/观察.*服饰或配饰/ },
+      { name: 'appearance', part: 'face' as const, detail: '五官外观', expected: /第四步.*面部\/观察.*身份或外观/ },
+      { name: 'scene', part: 'overall' as const, detail: '背景是建筑', expected: /第四步.*整体姿势\/观察.*场景或图中文字/ },
+      { name: 'uncertain', part: 'lowerLimbs' as const, detail: '无法判断', expected: /第四步.*下肢\/观察.*不确定描述/ },
+      { name: 'secret', part: 'overall' as const, detail: provider === 'deepseek' ? deepseekOptions.apiKey : process.env.APIYI_API_KEY!, expected: /第四步.*格式无效/ },
+      { name: 'truncated', part: 'overall' as const, detail: finalPose.overall.observation, expected: /第四步.*输出未完整结束/ },
+    ];
+    for (const failure of failures) {
+      process.env.POSE_ANALYSIS_MODEL = `gemini-optimization-${failure.name}`;
+      const beforeFiles = fs.readdirSync(cacheDirectory).sort();
+      const invalid = structuredClone(finalPose);
+      invalid[failure.part].observation = failure.detail + 'MODEL-PRIVATE-CONTENT';
+      let attempts = 0;
+      globalThis.fetch = async (_input, init) => {
+        attempts++;
+        const body = JSON.parse(String(init?.body));
+        const instruction: string = provider === 'deepseek' ? body.messages[0].content[0].text : body.contents[0].parts[0].text;
+        const fourth = instruction.startsWith('第四步');
+        const content = JSON.stringify(fourth ? invalid : stageValue(instruction));
+        if (provider === 'deepseek') return Response.json({ choices: [{ finish_reason: fourth && failure.name === 'truncated' ? 'length' : 'stop', message: { content } }] });
+        return Response.json({ candidates: [{ finishReason: fourth && failure.name === 'truncated' ? 'MAX_TOKENS' : 'STOP', content: { parts: [{ text: content }] } }] });
+      };
+      const options = provider === 'deepseek' ? { ...deepseekOptions, ownerId: `optimization-${failure.name}`, calibration } : { calibration };
+      await assert.rejects(analyzePoseReference(IMAGE, options), (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, failure.expected);
+        assert.ok(!error.message.includes('MODEL-PRIVATE-CONTENT'));
+        assert.ok(!error.message.includes(deepseekOptions.apiKey));
+        assert.ok(!error.message.includes(process.env.APIYI_API_KEY!));
+        return true;
+      });
+      assert.equal(attempts, 4, '第四步失败后不得自动付费重试');
+      assert.deepEqual(fs.readdirSync(cacheDirectory).sort(), beforeFiles, '第四步未成功时不得缓存前三步为完成结果');
+    }
   }
   globalThis.fetch = async () => Response.json({ choices: [{ finish_reason: 'length', message: { content: '{}' } }] });
   await assert.rejects(analyzePoseReference(IMAGE, { ...deepseekOptions, ownerId: 'truncated-calibrated-owner', calibration }), /第一步.*DeepSeek 输出未完整结束/);

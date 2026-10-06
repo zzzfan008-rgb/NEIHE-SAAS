@@ -238,7 +238,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
         <DialogHeader>
           <DialogTitle>反推人物姿势</DialogTitle>
           <DialogDescription id="pose-prompt-inference-description">
-            单图反推保留原有行为。三图依次执行原图反推、深度校准、DWPose 平面校准，再提取九类姿势信息供编辑。首次需三次串行视觉请求，费用与等待时间相应增加；同版本、同来源优先读缓存。
+            单图反推保留原有行为。三图依次执行原图反推、深度校准、DWPose 平面校准，再通过文本优化提炼九类姿势信息供编辑。首次需三次串行视觉请求和一次文本优化请求，费用与等待时间相应增加；同版本、同来源优先读缓存。
           </DialogDescription>
         </DialogHeader>
 

@@ -54,7 +54,7 @@ const router = fs.existsSync('server/routes/poseReferences.ts')
         promptCalibration = options?.calibration;
         promptCalls++;
         assert.equal(image,png);
-        return {prompt:'身体姿势：肩线左高右低；手部姿势：右手靠近髋部；头部姿势：头部向画面右侧旋转；视线方向：朝向画面右上方。',providerRequests:options?.calibration ? 3 : 1,model:'test-pose-analysis',cacheHit:false,...(options?.calibration?{calibrationMode:'three-view' as const, calibrationStages:{original:'原图姿势',depth:'深度校准姿势',skeleton:'骨骼校准姿势'}, optimizationError:'文字交叉结论与DWPose骨骼不一致'}:{})};
+        return {prompt:'身体姿势：肩线左高右低；手部姿势：右手靠近髋部；头部姿势：头部向画面右侧旋转；视线方向：朝向画面右上方。',providerRequests:options?.calibration ? 4 : 1,model:'test-pose-analysis',cacheHit:false,...(options?.calibration?{calibrationMode:'three-view' as const, calibrationStages:{original:'原图姿势',depth:'深度校准姿势',skeleton:'骨骼校准姿势'}, optimizationError:'文字交叉结论与DWPose骨骼不一致'}:{})};
       },
     }) : express.Router();
 app.use('/api/pose-references',router);
@@ -369,7 +369,7 @@ try {
   assert.equal(calibratedResult.optimizationError,'文字交叉结论与DWPose骨骼不一致','原始反推成功也必须返回优化失败原因');
   assert.deepEqual(promptCalibration,{depthImageDataUrl:depthPng,skeletonImageDataUrl:png,pose:calibrationPose});
   assert.equal(promptCalls,3);
-  assert.equal(calibratedResult.providerRequests, 3);
+  assert.equal(calibratedResult.providerRequests, 4);
   assert.deepEqual(calibratedResult.calibrationStages, {original:'原图姿势',depth:'深度校准姿势',skeleton:'骨骼校准姿势'});
   const manualPrompt = '三图校准姿势（用户编辑）\n头部：向画面左侧倾斜\n视线：看向镜头\n上肢：双手交握\n下肢：双腿交叉';
   const manualResponse = await validateReq('owner', {prompt:manualPrompt});

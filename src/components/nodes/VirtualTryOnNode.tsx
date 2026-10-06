@@ -162,7 +162,7 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
           服务方未说明具体触发原因，无法确定是哪张参考图或哪条要求导致拒绝。请结合服务方说明检查素材和要求。
         </p>}
         {multiImageEdit && <p className="text-[9px] leading-relaxed text-[var(--gc-node-muted)]" aria-label="参考图传递策略">
-          前三张：姿势、人物、场景。已连接 {rawReferences.length} 张有效参考图 → {numberedReferences.length} 张传入，最多 14 张直接传入。姿势图仅提供动作参考，成片人物外貌只来自人物图。
+          前四张：人物、主穿搭、姿势、场景。已连接 {rawReferences.length} 张有效参考图 → {numberedReferences.length} 张传入，最多 14 张直接传入。姿势图仅提供动作参考，成片人物外貌只来自人物图。
         </p>}
 
         {!staged && <label className="block space-y-1">
