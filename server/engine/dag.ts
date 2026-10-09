@@ -941,7 +941,10 @@ function extractParams(data: WorkflowNodeData): Record<string, unknown> {
         garmentCategory: data.garmentCategory,
         materialSpec: data.materialSpec,
         constructionSpec: data.constructionSpec,
-        ...(data.candidateReviewMode === "disabled" ? { candidateReviewMode: data.candidateReviewMode } : {}),
+        // 多图编辑换装第一阶段固定关闭候选评审：旧项目或副本缺失该声明时也不得重新启用。
+        ...(isMultiImageTryOn(data) || data.candidateReviewMode === "disabled"
+          ? { candidateReviewMode: "disabled" as const }
+          : {}),
         promptEnhancement: data.promptEnhancement,
         qualityMode: data.qualityMode,
         safetyFallback: data.safetyFallback,
