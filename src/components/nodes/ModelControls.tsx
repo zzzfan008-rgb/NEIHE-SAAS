@@ -56,7 +56,9 @@ export function ModelControls({
         >
           <SelectTrigger aria-label="图片模型" className="nodrag nopan w-full text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
-          {GENERATION_IMAGE_MODEL_IDS.map((id) => (
+          {GENERATION_IMAGE_MODEL_IDS
+            .filter((id) => id === modelId || !gatewayModelUnavailableReason(gateway, id))
+            .map((id) => (
             <SelectItem key={id} value={id} disabled={Boolean(gatewayModelUnavailableReason(gateway, id))}>
               {imageModelLabel(id)}{gatewayModelUnavailableReason(gateway, id) ? "（当前供应商不可用）" : ""}
             </SelectItem>

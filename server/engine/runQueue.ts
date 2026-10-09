@@ -982,6 +982,16 @@ async function terminateRun(
   }
 }
 
+/** 运行记录保存的错误文案：网关不可用时附加脱敏诊断，区分网络故障与审核/参数错误。 */
+function providerRunRecordMessage(error: ProviderError): string {
+  const message = publicProviderErrorMessage(error);
+  if (error.category !== "gateway_unavailable") return message;
+  const hint = sanitizedProviderDiagnostic(error);
+  if (!hint) return message;
+  return `${message}（${hint.slice(0, 120)}）`;
+}
+
+
 async function handleJobError(
   job: ClaimedJob,
   workerId: string,
@@ -992,7 +1002,7 @@ async function handleJobError(
   const message = error instanceof CancelledBeforeProviderCall
     ? error.message
     : error instanceof ProviderError
-      ? publicProviderErrorMessage(error)
+      ? providerRunRecordMessage(error)
       : error instanceof Error ? error.message : String(error);
   if (error instanceof ProviderError) {
     console.error("[ai-provider-worker-failure]", JSON.stringify({

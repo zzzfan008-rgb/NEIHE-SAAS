@@ -130,7 +130,14 @@ function classifyProviderMessage(status: number | undefined, rawMessage: string)
     };
   }
   if (status !== undefined && status >= 500) {
-    return { category: "gateway_unavailable", publicMessage: "AI 服务暂时不可用，请稍后重试" };
+    const transportFailure =
+      /fetch failed|connect.?timeout|connection (refused|reset|closed|terminated)|socket closed|other side closed|econnreset|econnrefused|enotfound|eai_again|headers? timeout/i.test(message);
+    return {
+      category: "gateway_unavailable",
+      publicMessage: transportFailure
+        ? "AI 网关连接供应商超时或中断，请稍后重试"
+        : "AI 服务暂时不可用，请稍后重试",
+    };
   }
   return { category: "unknown", publicMessage: "AI 服务返回异常，请稍后重试" };
 }

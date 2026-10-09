@@ -79,7 +79,9 @@ export function ConversationComposer({
   const gateway = useActiveAiGateway();
   const gatewayBlock = gatewayModelUnavailableReason(gateway, parameters.modelId);
   const capabilities = getImageConversationModelCapabilities(parameters.modelId);
-  const availableModels = getImageConversationModelsForMode(mode);
+  const availableModels = getImageConversationModelsForMode(mode).filter(
+    (modelId) => modelId === parameters.modelId || !gatewayModelUnavailableReason(gateway, modelId),
+  );
   const inputDisabled = disabled || Boolean(clarification);
 
   // 右键长按拖入的高亮由画布图片拖拽态驱动；原生拖放仍使用本地状态。
