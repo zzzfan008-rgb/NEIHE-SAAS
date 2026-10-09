@@ -73,20 +73,35 @@ try {
   });
   console.log("  ✓ 多图顺序、蒙版、质量档位及不支持型号在请求前拦截");
 
-  response = () => Response.json({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: image.toString("base64") } }] }, finishReason: "STOP" }] });
+  // Tuzi 的 Gemini 生图走 OpenAI chat/completions 流式协议：图片以 base64 dataURL
+  // 混排在 delta.content 文本中回收（generateContent 会静默丢参考图并回空候选）。
+  response = () => new Response(
+    `data: ${JSON.stringify({ choices: [{ delta: { role: "assistant" } }] })}\n\n` +
+    `data: ${JSON.stringify({ choices: [{ delta: { content: `data:image/png;base64,${image.toString("base64")}` } }] })}\n\n` +
+    "data: [DONE]\n\n",
+    { headers: { "content-type": "text/event-stream" } },
+  );
   for (const id of ["gemini-3-pro-image-preview", "gemini-3.1-flash-image"] as ImageModelId[]) {
     await withAiGateway("tuzi", () => getProvider(id).edit({ prompt: "修改", referenceImages: [dataUrl], modelOptions: defaultImageModelOptions(id) }));
-    assert.equal(calls.at(-1)!.url, `https://tuzi.example/v1beta/models/${id}:generateContent`);
+    assert.equal(calls.at(-1)!.url, "https://tuzi.example/v1/chat/completions");
     const body = JSON.parse(String(calls.at(-1)!.init.body));
-    assert.equal(body.contents[0].parts[0].text, "修改");
-    assert.equal(body.contents[0].parts[1].inline_data.mime_type, "image/jpeg");
-    assert.equal(body.generationConfig.imageConfig.imageSize, "2K");
+    assert.equal(body.model, id);
+    assert.equal(body.stream, true);
+    assert.equal(body.messages[0].role, "user");
+    assert.equal(body.messages[0].content[0].type, "text");
+    assert.ok(body.messages[0].content[0].text.startsWith("修改"));
+    assert.equal(body.messages[0].content[1].type, "image_url");
+    assert.ok(body.messages[0].content[1].image_url.url.startsWith("data:image/jpeg;base64,"));
   }
+  // 网关若忽略 stream 直接回 JSON，也应解析 message.content 中的图片
+  response = () => Response.json({ choices: [{ message: { role: "assistant", content: `data:image/png;base64,${image.toString("base64")}` } }] });
+  await withAiGateway("tuzi", () => getProvider("gemini-3.1-flash-image").edit({ prompt: "修改", referenceImages: [dataUrl], modelOptions: defaultImageModelOptions("gemini-3.1-flash-image") }));
+  assert.equal(calls.at(-1)!.url, "https://tuzi.example/v1/chat/completions");
   response = () => Response.json({ data: [{ url: "https://public.example/output.png" }] });
   await withAiGateway("tuzi", () => getProvider("seedream-5-0-260128").edit({ prompt: "修改", referenceImages: [dataUrl], modelOptions: { size: "2K" } }));
   assert.equal((calls.at(-1)!.init.body as FormData).get("model"), "doubao-seedream-5-0-260128");
   assert.ok((calls.at(-1)!.init.body as FormData).get("image") instanceof Blob);
-  console.log("  ✓ Gemini 原生协议、Seedream 型号映射及 URL/Base64 结果");
+  console.log("  ✓ Gemini 生图走 chat/completions 流式协议、Seedream 型号映射及 URL/Base64 结果");
 
   response = () => Response.json({ choices: [{ message: { content: "{}" } }] });
   await withAiGateway("tuzi", () => new ApiYiImageConversationPlannerModel().complete({ systemPrompt: "JSON", userPayload: {} } as never));

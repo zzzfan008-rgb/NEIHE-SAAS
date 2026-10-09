@@ -315,7 +315,7 @@ export async function readJson(response: Response, modelId: ImageModelId): Promi
   }
 }
 
-function imageUrl(value: unknown, modelId: ImageModelId, index: number): string {
+export function imageUrl(value: unknown, modelId: ImageModelId, index: number): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new ProviderError("AI 服务返回了无效图片地址", 502, modelId, "invalid_response", `data[${index}].url invalid`);
   }
@@ -328,7 +328,7 @@ function imageUrl(value: unknown, modelId: ImageModelId, index: number): string 
   return value;
 }
 
-async function base64Image(
+export async function base64Image(
   value: unknown,
   modelId: ImageModelId,
   mimeHint?: string,
