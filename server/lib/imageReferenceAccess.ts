@@ -29,7 +29,7 @@ export async function assertImageReferencesAccessible(
   value: unknown,
   userId: string,
   client?: PoolClient,
-  options?: { fileLock?: "share" | "update" },
+  options?: { fileLock?: "share" | "update"; allowAdmin?: boolean },
 ): Promise<void> {
   const ids = [...collectLocalImageIds(value)];
   if (ids.length === 0) return;
@@ -64,7 +64,8 @@ export async function assertImageReferencesAccessible(
   if (rows.some((row) => (
     row.owner_id !== null &&
     row.owner_id !== userId &&
-    !sharedRefs.has(`/api/files/${row.id}`)
+    !sharedRefs.has(`/api/files/${row.id}`) &&
+    !options?.allowAdmin
   ))) {
     throw new ImageReferenceAccessError();
   }

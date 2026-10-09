@@ -194,7 +194,7 @@ runPlanRouter.post("/", asyncHandler(async (req, res) => {
       // 点击单节点默认只执行自己，避免无意触发整条下游产生额外费用。
       if (plan.steps.length === 0) return { status: "empty" as const };
       assertPlanInputs(plan, flow.edges);
-      await assertImageReferencesAccessible(plan, user.id, client);
+      await assertImageReferencesAccessible(plan, user.id, client, { allowAdmin: user.role === "admin" });
       await assertStylingAnalyses(plan,user.id,projectId,client);
       const targetStep = plan.steps.find((step) => step.nodeId === onlyNodeId) ?? plan.steps[plan.steps.length - 1];
       if (multiImagePromptMode === "concise") {

@@ -340,7 +340,7 @@ projectsRouter.post("/", asyncHandler(async (req, res) => {
       }
       if (existing) assertTryOnModeContinuity(JSON.parse(existing.flow_json), normalized);
       await assertWorkflowPantoneReferences(normalized, client);
-      await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update" });
+      await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update", allowAdmin: user.role === "admin" });
       await assertDrawingBoardReferences(client, user.id, projectId, normalized);
       await syncMaskFiles(client, projectId, user.id, normalized, new Date(now));
       const result = await client.query(`
@@ -428,7 +428,7 @@ projectsRouter.post("/copy", asyncHandler(async (req, res) => {
     const outcome = await transaction(async (client) => {
       if (!await lockActiveOwner(client, user.id)) return { status: "owner_unavailable" as const };
       await assertWorkflowPantoneReferences(sourceFlow, client);
-      await assertImageReferencesAccessible(sourceFlow, user.id, client, { fileLock: "update" });
+      await assertImageReferencesAccessible(sourceFlow, user.id, client, { fileLock: "update", allowAdmin: user.role === "admin" });
       await assertDrawingBoardReferences(client, user.id, sourceProjectId, sourceFlow);
 
       const now = new Date();
@@ -653,7 +653,7 @@ projectsRouter.post("/initial-draft/bootstrap", asyncHandler(async (req, res) =>
       const nowIso = now.toISOString();
       const projectName = typeof name === "string" ? name.trim() : initialDraftProjectName(now);
       await assertWorkflowPantoneReferences(normalized, client);
-      await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update" });
+      await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update", allowAdmin: user.role === "admin" });
       await assertDrawingBoardReferences(client, user.id, projectId, normalized);
       await syncMaskFiles(client, projectId, user.id, normalized, now);
       const inserted = (await client.query<InitialDraftRow>(`
@@ -740,7 +740,7 @@ projectsRouter.put("/initial-draft/:id", asyncHandler(async (req, res) => {
       const now = new Date();
       const nowIso = now.toISOString();
       await assertWorkflowPantoneReferences(normalized, client);
-      await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update" });
+      await assertImageReferencesAccessible(normalized, user.id, client, { fileLock: "update", allowAdmin: user.role === "admin" });
       await assertDrawingBoardReferences(client, user.id, req.params.id, normalized);
       await syncMaskFiles(client, req.params.id, user.id, normalized, now);
       const updated = (await client.query<InitialDraftRow>(`
