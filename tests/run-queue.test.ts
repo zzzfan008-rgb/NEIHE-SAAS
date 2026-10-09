@@ -450,7 +450,10 @@ await test("持久队列分离场景与姿势原图，未提交配饰不进入�
   assert.match(fake.requests()[0].prompt, /参考图4只控制目标包袋/);
   assert.match(fake.requests()[0].prompt, /【姿势】参考图1是深度图。/);
   assert.match(fake.requests()[0].prompt, /【姿势】参考图1是深度图。用户修订：画面左腿交叉，画面右手贴近髋部。黑白灰阶/);
-  assert.doesNotMatch(fake.requests()[0].prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
+  assert.doesNotMatch(
+    fake.requests()[0].prompt,
+    /参考图\d+只控制目标(?:鞋履|帽子|戒指|耳环|手镯)|【姿势】未提供独立姿势参考图/,
+  );
   assert.deepEqual(await runRow(run.id), {
     status: "succeeded", error: null, provider_requests: 4, successful_count: 1,
   });

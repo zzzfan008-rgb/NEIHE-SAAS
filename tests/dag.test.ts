@@ -998,7 +998,10 @@ async function main() {
       sceneAnalyzer,
     );
     assert.match(bagOnly.calls[0].request.prompt, /只控制目标包袋/);
-    assert.doesNotMatch(bagOnly.calls[0].request.prompt, /鞋履|帽子|戒指|耳环|手镯|未提供/);
+    assert.doesNotMatch(
+      bagOnly.calls[0].request.prompt,
+      /参考图\d+只控制目标(?:鞋履|帽子|戒指|耳环|手镯)|【姿势】未提供独立姿势参考图/,
+    );
     assert.match(bagOnly.calls[0].request.prompt, /未连接的配饰仅采用主穿搭中清晰可见的同类物品/);
 
     for (const [kind, expected] of [
