@@ -13,6 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { readWorkspaceOwner } from "@/auth/session";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  clearProjectTabSessionStorage, PROJECT_TAB_STORAGE_KEY_PREFIX, PROJECT_TABS_STORAGE_KEY,
+  suspendProjectTabSessionPersistence,
+} from "@/lib/tabSessionStorage";
+import {
   applyServerInitialDraftToTab,
   createFreshLocalTabForInitialDraft,
   didRestoreProjectTabSessionWorkspace,
@@ -78,6 +86,51 @@ function localDraftDirty(tab: ProjectTab): boolean {
     : !isPristineProjectTab(tab);
 }
 
+interface LocalDraftBackup {
+  savedAt: string;
+  origin: string;
+  manifest: string | null;
+  tabs: Array<{ key: string; value: string }>;
+}
+
+/** 备份原始分片而不是解析结果，放弃后仍可逐字回读本机草稿。 */
+function readLocalDraftBackup(storage: Storage): LocalDraftBackup {
+  const tabs: Array<{ key: string; value: string }> = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (!key || !key.startsWith(PROJECT_TAB_STORAGE_KEY_PREFIX)) continue;
+    const value = storage.getItem(key);
+    if (value !== null) tabs.push({ key, value });
+  }
+  return {
+    savedAt: new Date().toISOString(),
+    origin: window.location.origin,
+    manifest: storage.getItem(PROJECT_TABS_STORAGE_KEY),
+    tabs,
+  };
+}
+
+function hasLocalDraftSnapshot(): boolean {
+  try {
+    return window.sessionStorage.getItem(PROJECT_TABS_STORAGE_KEY) !== null ||
+      readLocalDraftBackup(window.sessionStorage).tabs.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function downloadLocalDraftBackup(backup: LocalDraftBackup): void {
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `garment-canvas-local-draft-${backup.savedAt.replace(/[:.]/g, "-")}.json`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function applyDraft(
   tab: ProjectTab,
   draft: ServerInitialDraftSnapshot,
@@ -118,11 +171,15 @@ export async function settleInitialDraftBeforeAbandon(
 function BlockingScreen({
   state,
   error,
+  discardError,
   onRetry,
+  onDiscardLocal,
 }: {
   state: GateState;
   error: string | null;
+  discardError: string | null;
   onRetry: () => void;
+  onDiscardLocal?: () => void;
 }) {
   return (
     <div className="flex h-full min-w-[1024px] items-center justify-center bg-ink px-8 text-neutral-200">
@@ -141,10 +198,20 @@ function BlockingScreen({
             : error ?? "请重试连接；本机草稿仍然保留。"}
         </p>
         {state === "error" && (
-          <Button type="button" className="mt-5" onClick={onRetry}>
-            <RefreshCwIcon aria-hidden="true" className="size-4" />
-            重试恢复
-          </Button>
+          <div className="mt-5 flex flex-col items-center gap-2">
+            <Button type="button" onClick={onRetry}>
+              <RefreshCwIcon aria-hidden="true" className="size-4" />
+              重试恢复
+            </Button>
+            {onDiscardLocal && (
+              <Button type="button" variant="outline" onClick={onDiscardLocal}>
+                下载本机草稿备份并放弃本机草稿
+              </Button>
+            )}
+          </div>
+        )}
+        {state === "error" && discardError && (
+          <p role="alert" className="mt-3 text-xs leading-6 text-amber-300">{discardError}</p>
         )}
       </div>
     </div>
@@ -200,6 +267,10 @@ export function InitialDraftWorkspace({ userId, children }: { userId: string; ch
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [syncError, setSyncError] = useState<string | null>(null);
   const [abandoningTabId, setAbandoningTabId] = useState<string | null>(null);
+  const [gateErrorStatus, setGateErrorStatus] = useState<number | null>(null);
+  const [localDraftPresent, setLocalDraftPresent] = useState(false);
+  const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
+  const [discardError, setDiscardError] = useState<string | null>(null);
   const syncTimer = useRef<number | null>(null);
   const syncInFlight = useRef<Promise<boolean> | null>(null);
   const initialDraftSignal = useFlowStore((state) => {
@@ -250,6 +321,8 @@ export function InitialDraftWorkspace({ userId, children }: { userId: string; ch
   const runInitialization = useCallback(async (signal: AbortSignal) => {
     setGateState("loading");
     setGateError(null);
+    setGateErrorStatus(null);
+    setDiscardError(null);
     setConflict(null);
     try {
       const state = useFlowStore.getState();
@@ -353,6 +426,8 @@ export function InitialDraftWorkspace({ userId, children }: { userId: string; ch
       if (signal.aborted) return;
       setGateState("error");
       setGateError(error instanceof Error ? error.message : String(error));
+      setGateErrorStatus(error instanceof InitialDraftApiError ? error.status : null);
+      setLocalDraftPresent(hasLocalDraftSnapshot());
     }
   }, [userId]);
 
@@ -410,6 +485,34 @@ export function InitialDraftWorkspace({ userId, children }: { userId: string; ch
     );
     if (tab) void synchronizeTab(tab);
   }, [synchronizeTab]);
+
+  /**
+   * 本机草稿引用了服务端已无法访问的图片时，同步永远不会成功。这里先产出可回读的
+   * 逐字备份，再清除本机草稿并整页重载，让画布回到云端草稿。
+   */
+  const discardLocalDraft = useCallback(() => {
+    setDiscardError(null);
+    let backup: LocalDraftBackup;
+    try {
+      backup = readLocalDraftBackup(window.sessionStorage);
+    } catch {
+      setDiscardError("无法读取本机草稿，未执行放弃；请手动清除本站点数据后重试。");
+      return;
+    }
+    try {
+      downloadLocalDraftBackup(backup);
+    } catch {
+      setDiscardError("本机草稿备份未下载成功，未执行放弃。");
+      return;
+    }
+    // 阻止卸载或整页重载把内存草稿重新写回存储。
+    suspendProjectTabSessionPersistence();
+    if (!clearProjectTabSessionStorage(window.sessionStorage)) {
+      setDiscardError("本机草稿未能完整清除，请手动清除本站点数据后重试。");
+      return;
+    }
+    window.location.reload();
+  }, []);
 
   const resolveKeepLocal = useCallback(async () => {
     if (!conflict || conflictBusy) return;
@@ -525,8 +628,35 @@ export function InitialDraftWorkspace({ userId, children }: { userId: string; ch
     abandoningTabId,
   }), [abandon, abandoningTabId, retrySync, syncError, syncState]);
 
+  const canDiscardLocalDraft =
+    gateState === "error" && gateErrorStatus === 403 && localDraftPresent;
+
   if (gateState !== "ready") {
-    return <BlockingScreen state={gateState} error={gateError} onRetry={() => setAttempt((value) => value + 1)} />;
+    return (
+      <>
+        <BlockingScreen
+          state={gateState}
+          error={gateError}
+          discardError={discardError}
+          onRetry={() => setAttempt((value) => value + 1)}
+          onDiscardLocal={canDiscardLocalDraft ? () => setDiscardDialogOpen(true) : undefined}
+        />
+        <AlertDialog open={discardDialogOpen} onOpenChange={setDiscardDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>放弃本机草稿？</AlertDialogTitle>
+              <AlertDialogDescription>
+                将先下载本机草稿的 JSON 备份，随后清除本机草稿并载入云端草稿。本机尚未同步的修改不会进入云端草稿。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>取消</AlertDialogCancel>
+              <AlertDialogAction onClick={discardLocalDraft}>下载备份并放弃</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
+    );
   }
   return (
     <InitialDraftContext.Provider value={context}>
