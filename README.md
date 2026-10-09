@@ -18,10 +18,11 @@ Garment Canvas 是面向服装设计师的桌面工作流画布，覆盖图片�
 docker compose up -d --build --wait
 ```
 
-网页入口固定为 `http://192.168.0.92`，仅反向代理绑定 `192.168.0.92:80`，
+网页入口默认是 `http://192.168.0.92`；Docker 仅在
+`GARMENT_CANVAS_LAN_IP` 指定的局域网地址发布反向代理 80 端口（默认 `.92`），
 不发布到 `0.0.0.0` 或 IPv6。应用 3002 和 PostgreSQL 5432 仅在 Docker 网络内访问。
-私有 `.env` 的 `PORT` 不再控制 Docker 发布端口。本机必须持有该局域网 IP，
-建议在路由器设置 DHCP 地址保留；不要配置公网端口转发。
+私有 `.env` 的 `PORT` 不控制 Docker 发布端口；如果本机 DHCP 地址发生变化，
+请将 `GARMENT_CANVAS_LAN_IP` 改为当前局域网 IPv4，并重新执行 Compose 部署。
 PostgreSQL 18 数据保存在 Docker 命名卷
 `garment-canvas_postgres_data`，上传、生成文件及运行时模板保存在独立的
 `garment-canvas_app_data` 卷，不随开发工作树暂存或切换分支而改变。

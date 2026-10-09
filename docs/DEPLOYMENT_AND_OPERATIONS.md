@@ -18,7 +18,8 @@
 | --- | --- | --- | --- |
 | `APIYI_API_KEY` | 是 | 无 | API易图片网关密钥；就绪检查只验证非空，不会主动调用模型 |
 | `APIYI_BASE_URL` | 否 | `https://api.apiyi.com` | 覆盖默认网关时必须是 HTTPS URL |
-| `PORT` | 否 | 本地 3001 | 仅控制非 Docker 服务；Compose 应用内部固定 3002，代理入口固定 192.168.0.92:80 |
+| `PORT` | 否 | 本地 3001 | 仅控制非 Docker 服务；Compose 应用内部固定 3002 |
+| `GARMENT_CANVAS_LAN_IP` | 否 | `192.168.0.92` | Docker 反向代理绑定的局域网 IPv4 地址；本机必须持有该地址 |
 | `API_PROXY_TARGET` | 否 | 跟随 `PORT` | 仅开发环境需要转发到独立 API 地址时设置 |
 | `DATA_DIR` | 否 | `./data` | 上传、生成文件与旧 SQLite 导入源目录 |
 | `DATABASE_URL` | 否 | 无 | 非 Docker 部署可使用完整 PostgreSQL 连接串；设置后优先于分项变量 |
@@ -41,9 +42,8 @@
 
 初始化成功并完成管理员改密后，可以从 `.env` 移除 `INITIAL_ADMIN_ACCOUNT_ID` 和 `INITIAL_ADMIN_PASSWORD`，避免长期保留临时凭据。
 
-Compose 的唯一生产入口是 `192.168.0.92:80`，由 Nginx 转发给内部 `app:3002`；不发布 IPv6、应用或数据库端口。`.env` 的 `PORT` 不控制 Docker 入口。Compose 部署通常不要再设置 `DATABASE_URL`，否则它会优先于容器内的 `PG*` 连接配置。
-
-本机必须持有 `192.168.0.92`，建议在路由器保留该 DHCP 地址。绑定局域网地址不替代路由器访问控制：不要配置公网 NAT/端口转发。本部署保留 HTTP 与 `COOKIE_SECURE=false`，仅用于可信局域网；不改变 VPN 或全局代理设置。
+Compose 的唯一生产入口是 `GARMENT_CANVAS_LAN_IP:80`（默认 `192.168.0.92:80`），由 Nginx 转发给内部 `app:3002`；不发布 IPv6、应用或数据库端口。`.env` 的 `PORT` 不控制 Docker 入口。Compose 部署通常不要再设置 `DATABASE_URL`，否则它会优先于容器内的 `PG*` 连接配置。
+本机必须持有 `GARMENT_CANVAS_LAN_IP` 指定的局域网地址；如果 DHCP 地址变化，先更新该变量再重新部署。绑定局域网地址不替代路由器访问控制：不要配置公网 NAT/端口转发。本部署保留 HTTP 与 `COOKIE_SECURE=false`，仅用于可信局域网；不改变 VPN 或全局代理设置。
 
 ## 3. Docker 安装与升级
 
