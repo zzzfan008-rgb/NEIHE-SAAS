@@ -7,7 +7,7 @@ import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { isMultiImageTryOn, multiImageReferenceError, MULTI_IMAGE_TRY_ON_MAX_SOURCES } from "../../src/lib/multiImageTryOn";
 import { prepareMultiImageTryOn, multiImageTryOnPrompt } from "../lib/multiImageTryOn";
-import { TRY_ON_PHOTOGRAPHIC_REALISM } from "../lib/tryOnRealism";
+import { TRY_ON_NEGATIVE_CONSTRAINTS, TRY_ON_OUTFIT_REFERENCE_EXCLUSIONS, TRY_ON_PHOTOGRAPHIC_REALISM, TRY_ON_POSE_REFERENCE_EXCLUSIONS } from "../lib/tryOnRealism";
 import {
   NODE_SPECS,
   MAX_MASK_USER_REFERENCE_IMAGES,
@@ -373,10 +373,10 @@ function stagedVirtualTryOnPrompt(
     const sections = [
       `建立第一轮人物场景基准。`,
       indexes("pose-guide").length
-        ? `【姿势】${one("pose-guide")}是${poseLabel}。${poseDescription}${poseInstruction}${expressionInstruction}最终动作依据姿势参考图中可见的动作几何呈现。人物身份图、主穿搭图、场景图及配饰图分别提供各自职责信息。动作沿用姿势参考中的可见方向，服装、身份和背景由对应角色参考提供，关节与手部位置自然协调。`
+        ? `【姿势】${one("pose-guide")}是${poseLabel}。${poseDescription}${poseInstruction}${expressionInstruction}最终动作依据姿势参考图中可见的动作几何呈现。人物身份图、主穿搭图、场景图及配饰图分别提供各自职责信息。动作沿用姿势参考中的可见方向，服装、身份和背景由对应角色参考提供，关节与手部位置自然协调。${TRY_ON_POSE_REFERENCE_EXCLUSIONS}`
         : "【姿势】未提供独立姿势参考图。根据用户创作想法与场景空间自然安排人物动作，保持合理的人体结构、接触与遮挡；身份、穿搭与场景参考分别提供各自职责信息。",
       `【身份】${one("person")}是主要完整人物身份图，锁定同一人物的五官结构、脸型、肤色、发型、身材比例和身体特征；原服装、姿势及非身份物体由对应角色参考提供。${optionalIdentity}`,
-      `【服装】${one("outfit")}是服装与搭配风格的唯一来源，严格还原服装类别、整体版型、上下装比例、衣长、袖长、裤长或裙长、腰线位置、裤腿宽度、层叠关系、穿着方式、颜色与风格。长裤保持长裤长度，短裤保持短裤长度；服装长短按其相对腰、髋、膝、踝的位置还原，并适配目标人物比例；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度均按来源中的结构准确还原；人物与背景由对应角色参考提供。独立配饰参考只覆盖对应类别；未连接的配饰仅采用主穿搭中清晰可见的同类物品。`,
+      `【服装】${one("outfit")}是服装与搭配风格的唯一来源，严格还原服装类别、整体版型、上下装比例、衣长、袖长、裤长或裙长、腰线位置、裤腿宽度、层叠关系、穿着方式、颜色与风格。长裤保持长裤长度，短裤保持短裤长度；服装长短按其相对腰、髋、膝、踝的位置还原，并适配目标人物比例；图中清晰可见的领口、袖型、腰头、腰袢、系带、褶裥、裤线和裤腿宽度均按来源中的结构准确还原；人物与背景由对应角色参考提供。独立配饰参考只覆盖对应类别；未连接的配饰仅采用主穿搭中清晰可见的同类物品。${TRY_ON_OUTFIT_REFERENCE_EXCLUSIONS}`,
       `【场景】${one("scene")}是纯场景环境参考，${angleControlled ? "只控制背景空间、材质、色彩与光线风格，镜头、取景和二维构图服从目标相机" : "只控制背景空间、镜头视点、取景、构图与光线"}；人物、身体、姿势、身份、服装及配饰分别由对应角色参考提供，场景参考专注于环境呈现。场景分析作为环境辅助：${sceneDescription ?? "场景分析不可用"}。`,
       `【配饰与结构】${accessory}${detail}`,
       `【风格】${styleReference}${stylePrompt ? `风格要求仅用于色调与成像质感，${angleControlled ? "服从目标相机视角和场景主光" : "服从场景镜头和主光"}：${stylePrompt}。` : ""}`,
@@ -393,6 +393,7 @@ function stagedVirtualTryOnPrompt(
         "保留基准图已有的自然肤质与面部细节，局部换装延续相同的摄影质感。",
         extra ? `【用户想法】${extra}。仅用于服装表现，保持上述基准。` : "",
         "【输出】输出一张换装后的完整人物基准图，画面内容限于人物、目标服装配饰与场景。",
+        TRY_ON_NEGATIVE_CONSTRAINTS,
       ].filter(Boolean).join("\n");
     }
     const output = sections.pop()!;
@@ -404,7 +405,7 @@ function stagedVirtualTryOnPrompt(
       params.modelId === "gemini-3.1-flash-image" ||
       !isSceneStabilizeModelId(params.modelId)
     ) {
-      return [...sections, userIdeas, output].filter(Boolean).join("\n");
+      return [...sections, userIdeas, output, TRY_ON_NEGATIVE_CONSTRAINTS].filter(Boolean).join("\n");
     }
     if (params.modelId === "gemini-3-pro-image-preview") {
       return [
@@ -412,6 +413,7 @@ function stagedVirtualTryOnPrompt(
         "【场景融合】将各角色参考融合为同一张照片；人物尺度、接触阴影与透视服从场景空间，保持目标动作与服装结构。成图裁切服从场景取景要求。",
         userIdeas,
         output,
+        TRY_ON_NEGATIVE_CONSTRAINTS,
       ]
         .filter(Boolean)
         .join("\n");
@@ -423,6 +425,7 @@ function stagedVirtualTryOnPrompt(
         "【必须保持】逐图按指定职责取用信息；以场景为完整画面环境，人物身份、动作、服装各从对应来源还原。采用单一连续场景的摄影构图。",
         userIdeas,
         output,
+        TRY_ON_NEGATIVE_CONSTRAINTS,
       ]
         .filter(Boolean)
         .join("\n");
@@ -433,6 +436,7 @@ function stagedVirtualTryOnPrompt(
       "【关键约束】参考图编号对应上传顺序；人物板仅提供人物外观参考。保留目标动作和服装类别、长短；骨骼与深度图仅提供动作几何，服装采用主穿搭参考，成图呈现自然人物摄影效果。",
       userIdeas,
       output,
+      TRY_ON_NEGATIVE_CONSTRAINTS,
     ]
       .filter(Boolean)
       .join("\n");

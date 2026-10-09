@@ -1,4 +1,4 @@
-import { TRY_ON_PHOTOGRAPHIC_REALISM } from "./tryOnRealism";
+import { TRY_ON_NEGATIVE_CONSTRAINTS, TRY_ON_OUTFIT_REFERENCE_EXCLUSIONS, TRY_ON_PHOTOGRAPHIC_REALISM, TRY_ON_POSE_REFERENCE_EXCLUSIONS } from "./tryOnRealism";
 import sharp, { type OverlayOptions } from "sharp";
 import { parseDataUrl, toDataUrl } from "../providers/base";
 import {
@@ -129,6 +129,8 @@ export function multiImageTryOnPrompt(referenceMap: string, extra: string, angle
     referenceMap.includes("拼图第")
       ? "拼图各格按素材对应表分别提供商品参考；网格、边框和白底不进入成片。"
       : "",
+    TRY_ON_OUTFIT_REFERENCE_EXCLUSIONS,
+    TRY_ON_POSE_REFERENCE_EXCLUSIONS,
     action,
     "环境：采用图4的场景、光照和图4的环境色彩，使人物和商品具有协调的光影与透视；",
     TRY_ON_PHOTOGRAPHIC_REALISM,
@@ -138,5 +140,6 @@ export function multiImageTryOnPrompt(referenceMap: string, extra: string, angle
     "内容边界：仅展示原创服装与配饰的原创造型。",
     "输出一张完整的服装摄影照片，呈现指定服装及配饰的可见细节，不输出素材板或对比图。",
     extra ? `用户补充要求（遵循上述参考职责）：${extra}` : "",
+    TRY_ON_NEGATIVE_CONSTRAINTS,
   ].filter(Boolean).join("\n");
 }
