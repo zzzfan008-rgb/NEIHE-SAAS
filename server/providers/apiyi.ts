@@ -689,6 +689,13 @@ export async function geminiReferenceParts(refs: string[], modelId: ImageModelId
 
 type GeminiInlinePart = { inlineData: { mimeType: string; data: string } };
 
+/** Gemini generateContent routes document protobuf snake_case media fields; unknown field names are silently dropped upstream. */
+export function geminiInlineDataParts(imageParts: GeminiInlinePart[]) {
+  return imageParts.map(({ inlineData }) => ({
+    inline_data: { mime_type: inlineData.mimeType, data: inlineData.data },
+  }));
+}
+
 /** The stable Pro route currently documents protobuf snake_case image fields. */
 function geminiGenerateContentBody(
   modelId: ImageModelId,
@@ -697,14 +704,7 @@ function geminiGenerateContentBody(
   options: ImageModelOptions,
 ) {
   const stablePro = modelId === "gemini-3-pro-image-preview";
-  const parts = stablePro
-    ? [
-        { text: prompt },
-        ...imageParts.map(({ inlineData }) => ({
-          inline_data: { mime_type: inlineData.mimeType, data: inlineData.data },
-        })),
-      ]
-    : [{ text: prompt }, ...imageParts];
+  const parts = [{ text: prompt }, ...geminiInlineDataParts(imageParts)];
   const imageConfig = stablePro
     ? { imageSize: options.imageSize }
     : { aspectRatio: options.aspectRatio, imageSize: options.imageSize };

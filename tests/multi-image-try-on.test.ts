@@ -631,7 +631,7 @@ try {
           const body = JSON.parse(String(init?.body));
           assert.equal(body.contents[0].parts.length, 5);
           prompt = body.contents[0].parts[0].text;
-          await assertSerializedPrimaryImages(body.contents[0].parts.slice(1).map((part: { inlineData: { data: string } }) => Buffer.from(part.inlineData.data, 'base64')), images.slice(0, 4), baseRoles.slice(0, 4));
+          await assertSerializedPrimaryImages(body.contents[0].parts.slice(1).map((part: { inline_data: { data: string } }) => Buffer.from(part.inline_data.data, 'base64')), images.slice(0, 4), baseRoles.slice(0, 4));
         }
         assert.equal(prompt, recorded?.prompt, "历史记录与最终 Provider 请求一致");
         assertPhotographicRealism(prompt);

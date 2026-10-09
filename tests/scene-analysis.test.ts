@@ -49,10 +49,10 @@ try {
   assert.doesNotMatch(first.prompt, /姿势|重心|视线/);
 
   const body = requestBody as {
-    contents?: Array<{ parts?: Array<{ text?: string; inlineData?: { mimeType?: string; data?: string } }> }>;
+    contents?: Array<{ parts?: Array<{ text?: string; inline_data?: { mime_type?: string; data?: string } }> }>;
     generationConfig?: { responseMimeType?: string; temperature?: number };
   };
-  assert.equal(body.contents?.[0]?.parts?.[1]?.inlineData?.mimeType, "image/png");
+  assert.equal(body.contents?.[0]?.parts?.[1]?.inline_data?.mime_type, "image/png");
   assert.match(body.contents?.[0]?.parts?.[0]?.text ?? "", /不得从人物推断主体位置、动作、神态或视线/);
   assert.equal(body.generationConfig?.responseMimeType, "application/json");
   assert.equal(body.generationConfig?.temperature, 0);

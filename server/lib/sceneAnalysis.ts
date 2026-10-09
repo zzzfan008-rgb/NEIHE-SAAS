@@ -153,7 +153,7 @@ async function analyzeUncached(
           role: "user",
           parts: [
             { text: ANALYSIS_INSTRUCTION },
-            { inlineData: { mimeType: mime, data: base64 } },
+            { inline_data: { mime_type: mime, data: base64 } },
           ],
         }],
         generationConfig: {

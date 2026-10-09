@@ -79,7 +79,7 @@ try {
     assert.equal(calls.at(-1)!.url, `https://tuzi.example/v1beta/models/${id}:generateContent`);
     const body = JSON.parse(String(calls.at(-1)!.init.body));
     assert.equal(body.contents[0].parts[0].text, "修改");
-    assert.equal(body.contents[0].parts[1].inlineData.mimeType, "image/jpeg");
+    assert.equal(body.contents[0].parts[1].inline_data.mime_type, "image/jpeg");
     assert.equal(body.generationConfig.imageConfig.imageSize, "2K");
   }
   response = () => Response.json({ data: [{ url: "https://public.example/output.png" }] });

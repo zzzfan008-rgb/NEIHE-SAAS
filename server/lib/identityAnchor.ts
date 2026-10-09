@@ -92,7 +92,7 @@ async function analyzeBox(imageDataUrl: string, model: string, options: Identity
       body: JSON.stringify({
         contents: [{ role: "user", parts: [
           { text: "定位画面中主要人物的脸部边界框。只返回 JSON，坐标归一化到 0-1：{\"x\":0.0,\"y\":0.0,\"width\":0.0,\"height\":0.0}。边界框只包住完整脸部和下巴，不描述身份、性别、年龄、服装或背景。" },
-          { inlineData: { mimeType: mime, data: base64 } },
+          { inline_data: { mime_type: mime, data: base64 } },
         ] }],
         generationConfig: { temperature: 0, responseMimeType: "application/json" },
       }),

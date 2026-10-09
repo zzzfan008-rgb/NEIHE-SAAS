@@ -280,7 +280,7 @@ export async function analyzeMaterialImage(
             role: "user",
             parts: [
               { text: MATERIAL_PROMPT },
-              { inlineData: { mimeType, data } },
+              { inline_data: { mime_type: mimeType, data } },
             ],
           },
         ],

@@ -143,10 +143,10 @@ try {
   assert.equal(guide.height, 500);
 
   const body = requestBody as {
-    contents?: Array<{ parts?: Array<{ text?: string; inlineData?: { mimeType?: string } }> }>;
+    contents?: Array<{ parts?: Array<{ text?: string; inline_data?: { mime_type?: string } }> }>;
     generationConfig?: { responseMimeType?: string; temperature?: number };
   };
-  assert.equal(body.contents?.[0]?.parts?.[2]?.inlineData?.mimeType, "image/png");
+  assert.equal(body.contents?.[0]?.parts?.[2]?.inline_data?.mime_type, "image/png");
   assert.match(body.contents?.[0]?.parts?.[0]?.text ?? "", /严禁描述或推断人物身份/);
   assert.equal(body.generationConfig?.responseMimeType, "application/json");
   assert.equal(body.generationConfig?.temperature, 0);
@@ -304,8 +304,8 @@ try {
   assert.equal(calibrated.calibrationMode, 'three-view');
   assert.equal(calibrated.optimizedPromptVerified, true);
   const parts = calibrationBodies.map(body => body.contents[0].parts);
-  assert.deepEqual(parts.map(p => p.filter((v: any) => v.inlineData).length), [1, 1, 1, 0]);
-  assert.deepEqual(parts.slice(0, 3).map(p => p.find((part: any) => part.inlineData).inlineData.data), [IMAGE, ALT_IMAGE, IMAGE].map(image => image.split(',')[1]));
+  assert.deepEqual(parts.map(p => p.filter((v: any) => v.inline_data).length), [1, 1, 1, 0]);
+  assert.deepEqual(parts.slice(0, 3).map(p => p.find((part: any) => part.inline_data).inline_data.data), [IMAGE, ALT_IMAGE, IMAGE].map(image => image.split(',')[1]));
   assert.match(parts[3][0].text, /第四步/);
   assert.ok(parts[3][0].text.includes(JSON.stringify(finalPose)), '文本优化继承第三步完整校准结果');
   assert.match(parts[0][0].text, /第一步.*原始姿势图/);

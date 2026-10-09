@@ -823,7 +823,8 @@ async function main(): Promise<void> {
         const editBody = jsonBody(captures[1].init) as { contents: Array<{ parts: Array<Record<string, unknown>> }> };
         const parts = editBody.contents[0].parts;
         assert.deepEqual(parts[0], { text: "改图" });
-        assert.equal((parts[1].inlineData as { mimeType: string }).mimeType, "image/jpeg");
+        assert.equal(Object.hasOwn(parts[1], "inlineData"), false);
+        assert.equal((parts[1].inline_data as { mime_type: string }).mime_type, "image/jpeg");
       } finally {
         restoreFetch();
       }
@@ -1258,7 +1259,7 @@ async function main(): Promise<void> {
         const contents = capturedBody?.contents as Array<{ parts: Array<Record<string, unknown>> }>;
         assert.equal(contents[0].parts.length, 15);
         assert.deepEqual(contents[0].parts[0], { text: "虚拟换装" });
-        assert.equal(contents[0].parts.slice(1).every((part) => Boolean(part.inlineData)), true);
+        assert.equal(contents[0].parts.slice(1).every((part) => Boolean(part.inline_data)), true);
         assert.deepEqual(capturedBody?.generationConfig, {
           responseModalities: ["IMAGE"],
           imageConfig: { aspectRatio: "16:9", imageSize: "4K" },
@@ -1274,7 +1275,7 @@ async function main(): Promise<void> {
       const jpeg = await sharp(noisy, { raw: { width: 2500, height: 1200, channels: 3 } }).jpeg({ quality: 100 }).toBuffer();
       assert.ok(png.length > 1.5 * 1024 * 1024);
       assert.ok(jpeg.length > 1.5 * 1024 * 1024);
-      let sent: Array<{ inlineData?: { mimeType: string; data: string }; text?: string }> = [];
+      let sent: Array<{ inline_data?: { mime_type: string; data: string }; text?: string }> = [];
       const restore = installFetchMock((_input, init) => {
         sent = (jsonBody(init).contents as Array<{ parts: typeof sent }>)[0].parts;
         return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [
@@ -1289,17 +1290,17 @@ async function main(): Promise<void> {
           modelOptions: { aspectRatio: "1:1", imageSize: "1K" },
         });
         assert.deepEqual(sent[0], { text: "preserve garment details" });
-        assert.notEqual(sent[1].inlineData?.data, white.split(",")[1], "小图也须重编码");
+        assert.notEqual(sent[1].inline_data?.data, white.split(",")[1], "小图也须重编码");
         let total = 0;
         for (const [index, part] of sent.slice(1).entries()) {
           assert.equal(part.text, undefined);
-          const inline = part.inlineData!;
+          const inline = part.inline_data!;
           const buffer = Buffer.from(inline.data, "base64");
           total += buffer.length;
           const info = await sharp(buffer).metadata();
           assert.ok(Math.max(info.width!, info.height!) <= 2048);
           if (index > 0) {
-            assert.equal(inline.mimeType, "image/jpeg", "不透明的 PNG/JPEG 均转换为 JPEG");
+            assert.equal(inline.mime_type, "image/jpeg", "不透明的 PNG/JPEG 均转换为 JPEG");
             assert.ok(Math.abs(info.width! / info.height! - 2500 / 1200) < 0.02);
           }
         }

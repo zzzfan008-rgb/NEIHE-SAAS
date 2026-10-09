@@ -132,7 +132,7 @@ const analyzed = await analyzeMaterialImage(
 );
 assert.match(requestedUrl, /gemini-test:generateContent$/);
 assert.match(requestedBody, /不得输出 Pantone/);
-assert.match(requestedBody, /inlineData/);
+assert.match(requestedBody, /inline_data/);
 assert.equal(analyzed.colors[0].hex, "#123456");
 console.log("  ✓ 可选 Gemini 模型接收裁片且 Prompt 禁止伪造 Pantone 身份");
 

@@ -5,7 +5,7 @@ import { config } from "../config";
 import { normalizeProviderReferenceImages } from "../lib/uploadImageNormalization";
 import { validateImageDataUrl } from "../lib/imageValidation";
 import { fetchAiWithRetry as fetchWithRetry, ProviderError } from "./base";
-import { geminiReferenceParts, parseGeminiImages, parseOpenAiImages, readJson, validateApiyiRequest } from "./apiyi";
+import { geminiInlineDataParts, geminiReferenceParts, parseGeminiImages, parseOpenAiImages, readJson, validateApiyiRequest } from "./apiyi";
 import { requestGptImage25 } from "./gptImage25";
 
 async function requestTuzi(modelId: ImageModelId, req: ImageGenRequest, mode: "generate" | "edit"): Promise<ImageGenResult> {
@@ -29,7 +29,7 @@ async function requestTuzi(modelId: ImageModelId, req: ImageGenRequest, mode: "g
     pathname = `/v1beta/models/${encodeURIComponent(contract.upstreamModelId)}:generateContent`;
     const parts = await geminiReferenceParts(refs, modelId, req.referenceEncoding);
     body = JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: req.prompt }, ...parts] }],
+      contents: [{ role: "user", parts: [{ text: req.prompt }, ...geminiInlineDataParts(parts)] }],
       generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: options.aspectRatio, imageSize: options.imageSize } },
     });
   } else if (mode === "generate") {

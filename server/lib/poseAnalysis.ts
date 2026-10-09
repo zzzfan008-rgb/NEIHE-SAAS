@@ -717,7 +717,7 @@ async function requestPoseJSON<T>(imageDataUrl: string | null, model: string, in
   const parts: Array<Record<string, unknown>> = [{ text: instruction }];
   if (imageDataUrl !== null) {
     const { mime, base64 } = parseDataUrl(imageDataUrl);
-    parts.push({ text: '姿势参考图：' }, { inlineData: { mimeType: mime, data: base64 } });
+    parts.push({ text: '姿势参考图：' }, { inline_data: { mime_type: mime, data: base64 } });
   }
   const response = await fetchWithRetry(
     `${config.aiBaseUrl()}/v1beta/models/${model}:generateContent`,
