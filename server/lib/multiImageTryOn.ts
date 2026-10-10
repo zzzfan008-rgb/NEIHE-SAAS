@@ -129,6 +129,7 @@ export function multiImageTryOnPrompt(referenceMap: string, extra: string, angle
     referenceMap.includes("拼图第")
       ? "拼图各格按素材对应表分别提供商品参考；网格、边框和白底不进入成片。"
       : "",
+    "服装职责：主穿搭参考提供成片整套服装，其中清晰可见的上装、下装、内外搭层次、穿着方式与上下装比例均按主穿搭呈现，替换参考图1人物对应部位的原有穿着；参考图1仅提供人物体型、发型、肤色与气质基调，其穿着的服装仅在主穿搭未覆盖的部位保留。",
     TRY_ON_OUTFIT_REFERENCE_EXCLUSIONS,
     TRY_ON_POSE_REFERENCE_EXCLUSIONS,
     action,
