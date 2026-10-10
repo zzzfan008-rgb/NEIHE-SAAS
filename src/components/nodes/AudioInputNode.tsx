@@ -4,6 +4,7 @@ import { Position, type Node, type NodeProps } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { isImeKeyEvent } from "@/lib/textInputKeyboard";
 import { selectActiveDocumentTarget, useFlowStore } from "@/store/flowStore";
 import type { AudioInputNodeData } from "@/types/workflow";
 import { MediaNodeActionToolbar } from "./NodeActionToolbar";
@@ -48,7 +49,7 @@ export function AudioInputNode({ id, data, selected }: NodeProps<Node<AudioInput
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
+              if (event.key === "Enter" && !isImeKeyEvent(event)) {
                 event.preventDefault();
                 applyReference();
               }

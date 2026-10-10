@@ -15,6 +15,7 @@ import { ImageGrid } from "./ImageGrid";
 import { ModelControls } from "./ModelControls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { isImeKeyEvent } from "@/lib/textInputKeyboard";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PipetteIcon } from "lucide-react";
 import {
@@ -337,7 +338,7 @@ export function FabricRecolorNode({
                       value={hexInput}
                       onChange={(event) => setHexInput(event.target.value)}
                       onKeyDown={(event) => {
-                        if (event.key === "Enter" && !event.nativeEvent.isComposing && !colorEditingDisabled) confirmCustomHex();
+                        if (event.key === "Enter" && !isImeKeyEvent(event) && !colorEditingDisabled) confirmCustomHex();
                       }}
                       aria-label="自定义颜色值"
                       placeholder="#RRGGBB"

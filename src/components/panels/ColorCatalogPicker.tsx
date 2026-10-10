@@ -3,6 +3,7 @@ import { CheckIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { isImeKeyEvent } from "@/lib/textInputKeyboard";
 import {
   Select,
   SelectContent,
@@ -295,7 +296,7 @@ export function ColorCatalogPicker({
           disabled={disabled}
           onChange={(event) => setSearch(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
+            if (event.key === "Enter" && !isImeKeyEvent(event)) {
               event.preventDefault();
               applySearch();
             }

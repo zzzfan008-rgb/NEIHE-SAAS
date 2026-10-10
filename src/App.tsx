@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { ReactFlowProvider, type Edge } from "@xyflow/react";
 import { nanoid } from "nanoid";
+import { isImeKeyEvent, textInputKeyboardBoundary } from "@/lib/textInputKeyboard";
 import {
   addExistingNodes,
   flushActiveTextEdit,
@@ -200,6 +201,7 @@ function useGlobalShortcuts() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isImeKeyEvent(e)) return;
       if (!(e.ctrlKey || e.metaKey)) return;
       if (isWorkbenchTutorialBlocking()) return;
       if (isInitialDraftInteractionBlocking()) return;
@@ -327,7 +329,7 @@ function Workspace() {
   useEffect(() => {
     if (!assetPickerRequest && !viewerOpen && !compareOpen) return;
     const closeActiveOverlay = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || isImeKeyEvent(event)) return;
       if (viewerOpen) {
         closeViewer();
       } else if (assetPickerRequest) {
@@ -445,7 +447,7 @@ function Workspace() {
   }, [historyCursor, historyHasMore, historyLoading]);
 
   return (
-    <div className="gc-app-shell relative flex h-full min-w-0 flex-col overflow-hidden bg-ink text-neutral-200">
+    <div {...textInputKeyboardBoundary} className="gc-app-shell relative flex h-full min-w-0 flex-col overflow-hidden bg-ink text-neutral-200">
       <TopBar />
       <ProjectTabs />
       <InitialDraftSyncNotice />

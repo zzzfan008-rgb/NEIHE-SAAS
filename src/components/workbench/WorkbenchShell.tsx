@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { isImeKeyEvent } from "@/lib/textInputKeyboard";
 import { ToolRail } from "./ToolRail";
 import { ColorToolPanel } from "./ColorToolPanel";
 import { DrawingToolPanel } from "./DrawingToolPanel";
@@ -36,7 +37,7 @@ export function WorkbenchShell({ inspector, conversation, onConversationClick, c
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.key !== "Escape" || event.defaultPrevented || isImeKeyEvent(event)) return;
       if (state.resultsFlyoutOpen) {
         // Close results before either dock, but let App close its comparison overlay too.
         event.preventDefault();

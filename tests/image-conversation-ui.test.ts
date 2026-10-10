@@ -121,7 +121,7 @@ assert.match(panelSource, /validateImageConversationParameters/);
 assert.match(panelSource, /documentTargetsMatch/);
 assert.match(panelSource, /uploadMaskDraft/);
 assert.match(panelSource, /<MaskEditor/);
-assert.match(composerSource, /event\.nativeEvent\.isComposing/);
+assert.match(composerSource, /isImeKeyEvent\(event\)/);
 assert.match(composerSource, /event\.metaKey[\s\S]*event\.ctrlKey/);
 assert.match(composerSource, /Textarea/);
 assert.match(composerSource, /澄清补充回答/);

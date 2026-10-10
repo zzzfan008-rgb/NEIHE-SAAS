@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import type { Edge } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
+import { isImeKeyEvent } from "@/lib/textInputKeyboard";
 import {
   Dialog,
   DialogClose,
@@ -79,7 +80,7 @@ export function TemplatesDock() {
       if (!rootRef.current?.contains(e.target as globalThis.Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || saving) return;
+      if (e.key !== "Escape" || saving || isImeKeyEvent(e)) return;
       const panel = document.getElementById(TEMPLATES_PANEL_ID);
       const shouldRestoreFocus = document.activeElement === triggerRef.current ||
         panel?.contains(document.activeElement) === true;

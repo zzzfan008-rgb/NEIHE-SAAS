@@ -2303,7 +2303,7 @@ await test("桌面工作台使用五组工具栏与稳定右侧 Dock，快捷键
   assert.match(projectTabsSource, /onPointerEnter=\{\(\) => void loadProjectCenter\(\)\}/);
   assert.match(projectTabsSource, /onDoubleClick=\{\(\) => beginRename\(tab\)\}/);
   assert.match(projectTabsSource, /aria-label="保存项目名称和画布"/);
-  assert.match(projectTabsSource, /event\.nativeEvent\.isComposing \|\| renameComposingRef\.current/);
+  assert.match(projectTabsSource, /projectNameEdit\.isComposing\(event\) \|\| renameComposingRef\.current/);
   assert.match(projectTabsSource, /const saved = await saveProject\(\)/);
   assert.match(projectTabsSource, /if \(!saved\) \{[\s\S]*setRenameError/);
   assert.match(projectTabsSource, /onBlur=\{\(event\) => \{[\s\S]*setEditingTabId\(null\)/);

@@ -1,6 +1,7 @@
 import { ChevronDownIcon, ChevronUpIcon, ImagePlusIcon, SendIcon, SlidersHorizontalIcon, Trash2Icon, UploadIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { CANVAS_IMAGE_DROP_EVENT } from "@/lib/canvasImageDrag";
+import { isImeKeyEvent } from "@/lib/textInputKeyboard";
 import { useCanvasImageDragStore } from "@/store/canvasImageDragStore";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -316,7 +317,7 @@ export function ConversationComposer({
             className="min-h-14 resize-none bg-[var(--gc-control)] text-xs leading-5"
             onChange={(event) => clarification.onAnswerChange(event.target.value)}
             onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) return;
+              if (isImeKeyEvent(event)) return;
               if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
               event.preventDefault();
               if (canSend && !sending && !gatewayBlock) onSubmit();
@@ -333,7 +334,7 @@ export function ConversationComposer({
         className="min-h-20 resize-none bg-[var(--gc-control)] text-xs leading-5"
         onChange={(event) => onDraftChange({ prompt: event.target.value })}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
+          if (isImeKeyEvent(event)) return;
           if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
           event.preventDefault();
           if (canSend && !sending && !gatewayBlock) onSubmit();

@@ -23,6 +23,7 @@ import {
 import { CANVAS_CREATION_MIME, serializeCanvasCreationDragPayload } from "@/lib/canvasCreation";
 import type { CanvasCreationIntent, ToolGroup, ToolIconName } from "@/types/workbench";
 import { cn } from "@/lib/utils";
+import { isImeKeyEvent } from "@/lib/textInputKeyboard";
 import type { WorkbenchUiAction } from "./workbenchState";
 
 const ITEM_ICONS: Record<string, typeof TypeIcon> = {
@@ -73,7 +74,7 @@ export function ToolFlyout({
     event.dataTransfer.setData(CANVAS_CREATION_MIME, serializeCanvasCreationDragPayload(intent));
   };
   const escape = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape" || isImeKeyEvent(event)) return;
     event.preventDefault();
     dispatch({ type: "escape" });
   };

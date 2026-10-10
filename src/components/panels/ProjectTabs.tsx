@@ -9,6 +9,7 @@ import {
   SaveIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -122,7 +123,7 @@ export function ProjectTabs() {
   };
 
   const handleRenameKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    const composing = event.nativeEvent.isComposing || renameComposingRef.current;
+    const composing = projectNameEdit.isComposing(event) || renameComposingRef.current;
     if (event.key === "Escape" && !composing) {
       event.preventDefault();
       projectNameEdit.cancel();
@@ -296,7 +297,7 @@ export function ProjectTabs() {
 
               {editing ? (
                 <div className="relative flex min-w-0 flex-1 items-center rounded-md border border-[var(--gc-accent)] bg-[var(--gc-control)] pl-2">
-                  <input
+                  <Input
                     ref={editingInputRef}
                     value={tab.projectName}
                     onChange={projectNameEdit.bind.onChange}
@@ -317,7 +318,7 @@ export function ProjectTabs() {
                     onKeyDown={handleRenameKeyDown}
                     onKeyUp={projectNameEdit.bind.onKeyUp}
                     aria-label="项目名称"
-                    className="h-6 min-w-0 flex-1 bg-transparent text-[11px] text-[var(--gc-text)] outline-hidden"
+                    className="h-6 w-auto min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-[11px] text-[var(--gc-text)] shadow-none outline-hidden focus-visible:ring-0 md:text-[11px]"
                   />
                   <Button
                     type="button"

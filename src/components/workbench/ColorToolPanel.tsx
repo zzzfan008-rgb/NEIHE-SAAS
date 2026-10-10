@@ -4,6 +4,8 @@ import { StarIcon } from "lucide-react";
 import { ColorSystemBrowser } from "@/components/workbench/ColorSystemBrowser";
 import type { CatalogSelection } from "@/components/panels/ColorCatalogPicker";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { isImeKeyEvent } from "@/lib/textInputKeyboard";
 import {
   Dialog,
   DialogContent,
@@ -313,8 +315,8 @@ export function ColorToolPanel() {
           <section className="space-y-2">
             <h3 className="text-xs font-medium text-[var(--gc-text)]">颜色值与取色</h3>
             <div className="flex gap-2">
-              <input aria-label="颜色值" value={manual} onChange={(event) => setManual(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addManual(); }}
-                placeholder="#RGB、#RRGGBB、rgb() 或 hsl()" className="h-9 min-w-0 flex-1 rounded-md border border-[var(--gc-border)] bg-[var(--gc-control)] px-3 font-mono text-xs outline-none focus:border-[var(--gc-accent)]" />
+              <Input aria-label="颜色值" value={manual} onChange={(event) => setManual(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !isImeKeyEvent(event)) addManual(); }}
+                placeholder="#RGB、#RRGGBB、rgb() 或 hsl()" className="h-9 min-w-0 flex-1 rounded-md border border-[var(--gc-border)] bg-[var(--gc-control)] px-3 py-0 font-mono text-xs shadow-none outline-none focus:border-[var(--gc-accent)] md:text-xs" />
               <Button type="button" variant="outline" onClick={addManual}>添加</Button>
               <Button type="button" variant="outline" onClick={() => void pick()}>屏幕取色</Button>
               <input ref={nativePicker} type="color" defaultValue="#000000" tabIndex={-1}
