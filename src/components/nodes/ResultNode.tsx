@@ -203,7 +203,7 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
         {stillImages.length > 1 && <div className="nopan nowheel flex gap-1 overflow-x-auto" aria-label="结果图片选择">
           {stillImages.map((url, index) => <Button key={`${url}-${index}`} variant="outline" aria-label={`选择生成结果 ${index + 1}`} aria-pressed={selectedImageIndex === index} className="gc-result-thumbnail" onClick={() => setSelectedImageIndex(index)}><CanvasImage source={url} alt="" onPointerDown={(event) => beginCanvasImagePress(event, id, url)} /></Button>)}
         </div>}
-        {videos.map((video) => <video key={video} src={video} controls preload="metadata" className="nodrag max-h-52 w-full rounded-md bg-black" />)}
+        {videos.map((video) => <video key={video} src={video} controls preload="metadata" className="nodrag max-h-52 w-full bg-black" />)}
         {videos.map((video, index) => <Button key={`download-${video}`} variant="outline" className="gc-result-action w-full" render={<a href={video} download={`garment-video-${index + 1}.mp4`} />}>下载视频 {index + 1}</Button>)}
         <div className="gc-result-footer nodrag nopan">
           <Button variant="outline" className="gc-result-action" disabled={!selectedImage} onClick={viewImage}><EyeIcon aria-hidden="true" />查看</Button>

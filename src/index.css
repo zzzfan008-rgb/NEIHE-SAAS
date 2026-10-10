@@ -170,7 +170,7 @@ body {
 :root,
 [data-theme="current"] {
   --gc-shell: #101214;
-  --gc-canvas: #bfbfbf;
+  --gc-canvas: #f0efef;
   --gc-panel: #17191c;
   --gc-panel-hover: #222529;
   --gc-control: #0f1113;

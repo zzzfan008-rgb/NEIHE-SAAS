@@ -39,10 +39,11 @@
   padding: 0;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--gc-node-border) 18%, var(--gc-node-main));
-  border-radius: var(--gc-node-media-radius);
+  border-radius: var(--gc-node-radius);
   background: var(--gc-node-inner);
 }
 .gc-result-image img { display: block; width: 100%; height: auto; max-height: 440px; object-fit: contain; }
+.gc-result-node .gc-node-body video { border-radius: var(--gc-node-radius); }
 .gc-result-empty { padding: 70px 8px; text-align: center; color: var(--gc-node-muted); font-size: 11px; }
 .gc-result-footer { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
 .gc-result-action {
