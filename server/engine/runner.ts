@@ -502,7 +502,9 @@ function frozenAngleControlPrompt(
     );
   }
   if (!control.config.enabled) return undefined;
-  return `受控相机视角（TiAngelNode，适配器版本 1）：${control.text.trim()} 该约束只改变最终观察视角，不改变人物身份、姿势、服装、场景或光照；不得将画面 roll 理解为身体侧倾。若本视角描述与上方姿势要求冲突，以上方姿势要求为准，仅调整观察角度，不改变姿势；若与其他补充要求冲突，以本段为准。`;
+  const lightingScope = control.config.lighting ? "、构图与光源方向" : "与构图";
+  const keepLighting = control.config.lighting ? "" : "或光照";
+  return `受控相机视角（TiAngelNode，适配器版本 1）：${control.text.trim()} 该约束只改变最终观察视角${lightingScope}，不改变人物身份、姿势、服装、场景${keepLighting}；不得将画面 roll 理解为身体侧倾。若本视角描述与上方姿势要求冲突，以上方姿势要求为准，仅调整观察角度，不改变姿势；若与其他补充要求冲突，以本段为准。`;
 }
 
 const SCENE_STABILIZE_REFERENCE_ORDER = [

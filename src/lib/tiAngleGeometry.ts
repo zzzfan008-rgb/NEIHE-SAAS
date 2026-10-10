@@ -10,7 +10,7 @@ export interface TiAngleCartesian {
   z: number;
 }
 
-export type TiAngleDragMode = "orbit" | "azimuth" | "elevation" | "roll";
+export type TiAngleDragMode = "orbit" | "azimuth" | "elevation" | "roll" | "light";
 
 export interface TiAngleDragDelta {
   dx: number;

@@ -494,6 +494,17 @@ function createDocumentNodeData(data: WorkflowNodeData): DocumentNodeData {
           azimuthDeg: data.angle.azimuthDeg,
           elevationDeg: data.angle.elevationDeg,
           rollDeg: data.angle.rollDeg,
+          ...(data.angle.framing === undefined ? {} : { framing: data.angle.framing }),
+          ...(data.angle.lighting
+            ? {
+                lighting: {
+                  azimuthDeg: data.angle.lighting.azimuthDeg,
+                  elevationDeg: data.angle.lighting.elevationDeg,
+                  ...(data.angle.lighting.pattern === undefined ? {} : { pattern: data.angle.lighting.pattern }),
+                  ...(data.angle.lighting.style === undefined ? {} : { style: data.angle.lighting.style }),
+                },
+              }
+            : {}),
           ...(data.angle.camera
             ? {
                 camera: {

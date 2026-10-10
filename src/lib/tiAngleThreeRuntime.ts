@@ -26,6 +26,7 @@ export { CatmullRomCurve3 } from "three/src/extras/curves/CatmullRomCurve3.js";
 export { Group } from "three/src/objects/Group.js";
 export { FrontSide, BackSide } from "three/src/constants.js";
 
+export { PolarGridHelper } from "three/src/helpers/PolarGridHelper.js";
 export {
   BufferGeometry,
   Color,

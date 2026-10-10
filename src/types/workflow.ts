@@ -263,12 +263,50 @@ export interface TiAngleCameraParameters {
   aperture?: TiAngleAperture;
 }
 
+/** Shot-distance framing, ordered far → near. */
+export type TiAngleFraming =
+  | "full-body"
+  | "three-quarter-body"
+  | "half-body"
+  | "medium-close-up"
+  | "headshot"
+  | "close-up"
+  | "extreme-close-up";
+
+/** Classic portrait lighting patterns; each snaps the light gizmo to its canonical azimuth/elevation. */
+export type TiAngleLightPattern =
+  | "rembrandt"
+  | "butterfly"
+  | "split"
+  | "loop"
+  | "broad"
+  | "short";
+
+/** Lighting quality/mood styles; text + preview-gizmo appearance, no positional meaning. */
+export type TiAngleLightStyle =
+  | "cinematic"
+  | "studio"
+  | "soft"
+  | "volumetric"
+  | "stage"
+  | "ambient";
+
+/** Direction the key light shines from: azimuth (环绕角) + elevation (高度角), full ±90°. */
+export interface TiAngleLighting {
+  azimuthDeg: number;
+  elevationDeg: number;
+  pattern?: TiAngleLightPattern;
+  style?: TiAngleLightStyle;
+}
+
 export interface TiAngleConfig {
   version: 1;
   enabled: boolean;
   azimuthDeg: number;
   elevationDeg: number;
   rollDeg: number;
+  framing?: TiAngleFraming;
+  lighting?: TiAngleLighting;
   camera?: TiAngleCameraParameters;
 }
 

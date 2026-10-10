@@ -21,6 +21,8 @@ const angle = {
   azimuthDeg: 45,
   elevationDeg: 15,
   rollDeg: -10,
+  framing: "medium-close-up",
+  lighting: { azimuthDeg: -45, elevationDeg: 30, pattern: "butterfly", style: "soft" },
 } as const;
 
 const runtimeNode = {

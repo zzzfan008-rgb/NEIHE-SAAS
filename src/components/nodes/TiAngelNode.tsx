@@ -18,23 +18,25 @@ import {
   TI_ANGLE_APERTURES,
   TI_ANGLE_CAMERA_MODELS,
   TI_ANGLE_FOCAL_LENGTHS,
+  TI_ANGLE_FRAMINGS,
   TI_ANGLE_ISO_VALUES,
+  TI_ANGLE_LIGHT_PATTERNS,
+  TI_ANGLE_LIGHT_STYLES,
   TI_ANGLE_SHUTTER_SPEEDS,
   compileTiAngleText,
   describeTiAngleCameraParameters,
+  describeTiAngleFraming,
+  describeTiAngleLighting,
   describeTiAngleText,
   normalizeTiAngleConfig,
 } from "@/lib/tiAngle";
 import { isImageModelId, type ImageModelId } from "@/types/imageModels";
 import type {
-  TiAngleAperture,
   TiAngleCameraModel,
   TiAngleCameraParameters,
   TiAngleConfig,
-  TiAngleFocalLengthMm,
-  TiAngleIso,
+  TiAngleLighting,
   TiAngleNodeData,
-  TiAngleShutterSpeed,
 } from "@/types/workflow";
 import { NodeHandle as Handle } from "./NodeHandle";
 import { NodeFrame } from "./NodeFrame";
@@ -277,6 +279,88 @@ function CameraParameterSelect({
   );
 }
 
+
+/** Discrete-option slider: leftmost stop is 不指定, the rest map 1:1 to `options`. */
+function DiscreteParameterSlider<T extends string | number>({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: T | undefined;
+  options: ReadonlyArray<{ value: T; label: string }>;
+  disabled: boolean;
+  onChange: (value: T | undefined) => void;
+}) {
+  const index = value === undefined ? -1 : options.findIndex((option) => option.value === value);
+  const display = index < 0 ? "不指定" : options[index]?.label ?? String(value);
+  return (
+    <label className="block min-w-0 space-y-1">
+      <span className="flex items-center justify-between gap-1 text-[9px] text-[var(--gc-node-muted)]">
+        <span className="truncate">{label}</span>
+        <output className="truncate font-mono tabular-nums text-[var(--gc-node-text)]">{display}</output>
+      </span>
+      <Slider
+        aria-label={label}
+        min={-1}
+        max={options.length - 1}
+        step={1}
+        value={index}
+        disabled={disabled}
+        onValueChange={(next) => onChange(next < 0 ? undefined : options[next]?.value)}
+        className="nodrag"
+      />
+    </label>
+  );
+}
+
+function ChipOptionGroup<T extends string>({
+  label,
+  value,
+  options,
+  disabled,
+  emptyLabel = "自定义",
+  onChange,
+}: {
+  label: string;
+  value: T | undefined;
+  options: ReadonlyArray<{ value: T; label: string }>;
+  disabled: boolean;
+  emptyLabel?: string;
+  onChange: (value: T | undefined) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="flex items-center justify-between gap-1 text-[9px] text-[var(--gc-node-muted)]">
+        <span className="truncate">{label}</span>
+        <span className="truncate font-mono tabular-nums text-[var(--gc-node-text)]">
+          {value ? options.find((option) => option.value === value)?.label ?? value : emptyLabel}
+        </span>
+      </p>
+      <div className="flex flex-wrap gap-1">
+        {options.map((option) => {
+          const active = option.value === value;
+          return (
+            <Button
+              key={option.value}
+              type="button"
+              size="xs"
+              variant={active ? "secondary" : "outline"}
+              disabled={disabled}
+              aria-pressed={active}
+              className="nodrag h-5 px-1.5 text-[9px]"
+              onClick={() => onChange(active ? undefined : option.value)}
+            >
+              {option.label}
+            </Button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeData>>) {
   const updateNodeData = useFlowStore((state) => state.updateNodeData);
   const previewImage = useFlowStore((state) => selectActiveNodeInputImages(state, id)[0]);
@@ -303,6 +387,14 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
     if (next.shutterSpeed === undefined) delete next.shutterSpeed;
     if (next.aperture === undefined) delete next.aperture;
     updateAngle({ camera: Object.keys(next).length > 0 ? next : undefined });
+  };
+
+  const updateLighting = (patch: Partial<TiAngleLighting>) => {
+    const current = data.angle.lighting ?? { azimuthDeg: 45, elevationDeg: 30 };
+    const next: TiAngleLighting = { ...current, ...patch };
+    if (next.pattern === undefined) delete next.pattern;
+    if (next.style === undefined) delete next.style;
+    updateAngle({ lighting: next });
   };
 
   const outputTargets = useMemo(() => {
@@ -336,7 +428,13 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
   const cameraSectionId = `${id}-camera-parameters`;
   const outputId = `${id}-angle-output`;
   const angleSummary = data.angle.enabled
-    ? `${signedAngle(data.angle.azimuthDeg)} · ${signedAngle(data.angle.elevationDeg)} · ${signedAngle(data.angle.rollDeg)}`
+    ? [
+        signedAngle(data.angle.azimuthDeg),
+        signedAngle(data.angle.elevationDeg),
+        signedAngle(data.angle.rollDeg),
+        describeTiAngleFraming(data.angle.framing),
+        describeTiAngleLighting(data.angle.lighting),
+      ].filter(Boolean).join(" · ")
     : "已关闭";
   const cameraSummary = describeTiAngleCameraParameters(data.angle.camera) || "未设置";
 
@@ -417,6 +515,67 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
             <AngleControl label="环绕角" value={data.angle.azimuthDeg} min={-180} max={180} disabled={controlsDisabled} onChange={(azimuthDeg) => updateAngle({ azimuthDeg })} />
             <AngleControl label="俯仰角" value={data.angle.elevationDeg} min={-45} max={60} disabled={controlsDisabled} onChange={(elevationDeg) => updateAngle({ elevationDeg })} />
             <AngleControl label="画面倾斜" value={data.angle.rollDeg} min={-30} max={30} disabled={controlsDisabled} onChange={(rollDeg) => updateAngle({ rollDeg })} />
+            <DiscreteParameterSlider
+              label="构图视角"
+              value={data.angle.framing}
+              options={TI_ANGLE_FRAMINGS}
+              disabled={controlsDisabled}
+              onChange={(framing) => updateAngle({ framing })}
+            />
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <p className="text-[9px] text-[var(--gc-node-muted)]">照明角度</p>
+                <Switch
+                  checked={Boolean(data.angle.lighting)}
+                  onCheckedChange={(on) => updateAngle({ lighting: on ? { azimuthDeg: 45, elevationDeg: 30 } : undefined })}
+                  disabled={controlsDisabled}
+                  aria-label="启用照明角度"
+                  className="nodrag shrink-0"
+                />
+              </div>
+              {data.angle.lighting && (
+                <>
+                  <ChipOptionGroup
+                    label="布光模式"
+                    value={data.angle.lighting.pattern}
+                    options={TI_ANGLE_LIGHT_PATTERNS}
+                    disabled={controlsDisabled}
+                    onChange={(pattern) => {
+                      const option = TI_ANGLE_LIGHT_PATTERNS.find((entry) => entry.value === pattern);
+                      updateLighting(
+                        option
+                          ? { pattern, azimuthDeg: option.azimuthDeg, elevationDeg: option.elevationDeg }
+                          : { pattern: undefined },
+                      );
+                    }}
+                  />
+                  <ChipOptionGroup
+                    label="照明风格"
+                    value={data.angle.lighting.style}
+                    options={TI_ANGLE_LIGHT_STYLES}
+                    disabled={controlsDisabled}
+                    emptyLabel="不指定"
+                    onChange={(style) => updateLighting({ style })}
+                  />
+                  <AngleControl
+                    label="光源方位角"
+                    value={data.angle.lighting.azimuthDeg}
+                    min={-180}
+                    max={180}
+                    disabled={controlsDisabled}
+                    onChange={(azimuthDeg) => updateLighting({ azimuthDeg, pattern: undefined })}
+                  />
+                  <AngleControl
+                    label="光源高度角"
+                    value={data.angle.lighting.elevationDeg}
+                    min={-90}
+                    max={90}
+                    disabled={controlsDisabled}
+                    onChange={(elevationDeg) => updateLighting({ elevationDeg, pattern: undefined })}
+                  />
+                </>
+              )}
+            </div>
           </div>
         </TiAngleSection>
         <TiAngleSection
@@ -437,33 +596,33 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
                   onChange={(cameraModel) => updateCamera({ cameraModel: cameraModel as TiAngleCameraModel | undefined })}
                 />
               </div>
-              <CameraParameterSelect
+              <DiscreteParameterSlider
                 label="焦距"
-                value={data.angle.camera?.focalLengthMm?.toString()}
-                options={TI_ANGLE_FOCAL_LENGTHS.map((value) => ({ value: String(value), label: `${value} mm` }))}
+                value={data.angle.camera?.focalLengthMm}
+                options={TI_ANGLE_FOCAL_LENGTHS.map((value) => ({ value, label: `${value} mm` }))}
                 disabled={controlsDisabled}
-                onChange={(value) => updateCamera({ focalLengthMm: value ? Number(value) as TiAngleFocalLengthMm : undefined })}
+                onChange={(focalLengthMm) => updateCamera({ focalLengthMm })}
               />
-              <CameraParameterSelect
+              <DiscreteParameterSlider
                 label="ISO"
-                value={data.angle.camera?.iso?.toString()}
-                options={TI_ANGLE_ISO_VALUES.map((value) => ({ value: String(value), label: `ISO ${value}` }))}
+                value={data.angle.camera?.iso}
+                options={TI_ANGLE_ISO_VALUES.map((value) => ({ value, label: `ISO ${value}` }))}
                 disabled={controlsDisabled}
-                onChange={(value) => updateCamera({ iso: value ? Number(value) as TiAngleIso : undefined })}
+                onChange={(iso) => updateCamera({ iso })}
               />
-              <CameraParameterSelect
+              <DiscreteParameterSlider
                 label="快门速度"
                 value={data.angle.camera?.shutterSpeed}
                 options={TI_ANGLE_SHUTTER_SPEEDS.map((value) => ({ value, label: `${value} s` }))}
                 disabled={controlsDisabled}
-                onChange={(shutterSpeed) => updateCamera({ shutterSpeed: shutterSpeed as TiAngleShutterSpeed | undefined })}
+                onChange={(shutterSpeed) => updateCamera({ shutterSpeed })}
               />
-              <CameraParameterSelect
+              <DiscreteParameterSlider
                 label="光圈大小"
                 value={data.angle.camera?.aperture}
                 options={TI_ANGLE_APERTURES.map((value) => ({ value, label: value }))}
                 disabled={controlsDisabled}
-                onChange={(aperture) => updateCamera({ aperture: aperture as TiAngleAperture | undefined })}
+                onChange={(aperture) => updateCamera({ aperture })}
               />
             </div>
             <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">用于控制镜头透视、景深、运动与曝光表现</p>

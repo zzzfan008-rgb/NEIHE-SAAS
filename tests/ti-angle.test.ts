@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import {
   compileTiAngleText,
   describeTiAngleCameraParameters,
+  describeTiAngleFraming,
+  describeTiAngleLightPattern,
+  describeTiAngleLightStyle,
+  describeTiAngleLighting,
   describeTiAngleText,
   encodeTiAngleSemantics,
   normalizeTiAngleConfig,
@@ -53,6 +57,64 @@ assert.equal(
 );
 assert.match(describeTiAngleText(cameraConfig), /摄影参数：Sony α7R V.*85 mm.*ISO 200.*1\/250 s.*f\/2\.8/s);
 
+
+const framingConfig: TiAngleConfig = { ...baseConfig, framing: "medium-close-up" };
+assert.equal(describeTiAngleFraming(framingConfig.framing), "中特写");
+assert.equal(describeTiAngleFraming(undefined), "");
+assert.match(describeTiAngleText(framingConfig), /构图景别：中特写（胸部以上构图）/);
+assert.match(compileTiAngleText(framingConfig, "gemini-3.1-flash-image").text, /构图景别：中特写/);
+assert.match(compileTiAngleText(framingConfig, "gpt-image-2").text, /构图景别：中特写/);
+assert.match(compileTiAngleText(framingConfig, "flux-2-pro").text, /构图景别：中特写/);
+assert.match(compileTiAngleText(framingConfig, "gpt-image-2").text, /观察视角和构图景别/);
+assert.deepEqual(normalizeTiAngleConfig(framingConfig), framingConfig);
+assert.equal(normalizeTiAngleConfig(baseConfig).framing, undefined);
+
+const lightingConfig: TiAngleConfig = { ...baseConfig, lighting: { azimuthDeg: -45, elevationDeg: 30 } };
+assert.equal(describeTiAngleLighting(lightingConfig.lighting), "光-45°/30°");
+assert.equal(describeTiAngleLighting(undefined), "");
+assert.match(
+  describeTiAngleText(lightingConfig),
+  /光源方向：光源位于主体右前方，自上向下照射（方位角 -45°、高度角 30°）/,
+);
+for (const modelId of ["gemini-3.1-flash-image", "gpt-image-2", "flux-2-pro"] as const) {
+  const lightingText = compileTiAngleText(lightingConfig, modelId).text;
+  assert.match(lightingText, /光源方向：/, `${modelId} 必须输出光源方向`);
+  assert.doesNotMatch(lightingText, /光照不变|和光照/, `${modelId} 已指定光源时不得再保留"光照不变"`);
+}
+assert.match(compileTiAngleText(lightingConfig, "gpt-image-2").text, /光源方向/);
+assert.deepEqual(normalizeTiAngleConfig(lightingConfig), lightingConfig);
+assert.equal(normalizeTiAngleConfig(baseConfig).lighting, undefined);
+assert.deepEqual(
+  normalizeTiAngleConfig({ ...baseConfig, lighting: { azimuthDeg: -180, elevationDeg: 90 } }).lighting,
+  { azimuthDeg: -180, elevationDeg: 90 },
+);
+
+const styledLightingConfig: TiAngleConfig = {
+  ...baseConfig,
+  lighting: { azimuthDeg: 45, elevationDeg: 45, pattern: "rembrandt", style: "cinematic" },
+};
+assert.equal(describeTiAngleLightPattern("rembrandt"), "伦勃朗光");
+assert.equal(describeTiAngleLightPattern(undefined), "");
+assert.equal(describeTiAngleLightStyle("cinematic"), "电影质感灯光");
+assert.equal(describeTiAngleLightStyle(undefined), "");
+assert.match(
+  describeTiAngleText(styledLightingConfig),
+  /光源方向：光源位于主体左前方，自上向下照射（方位角 45°、高度角 45°），伦勃朗光布局，电影质感灯光风格/,
+);
+for (const modelId of ["gemini-3.1-flash-image", "gpt-image-2", "flux-2-pro"] as const) {
+  const styledText = compileTiAngleText(styledLightingConfig, modelId).text;
+  assert.match(styledText, /伦勃朗光布局/, `${modelId} 必须输出布光模式`);
+  assert.match(styledText, /电影质感灯光风格/, `${modelId} 必须输出照明风格`);
+}
+assert.deepEqual(normalizeTiAngleConfig(styledLightingConfig), styledLightingConfig);
+assert.throws(
+  () => validateTiAngleConfig({ ...baseConfig, lighting: { azimuthDeg: 0, elevationDeg: 0, pattern: "bogus" } } as unknown as TiAngleConfig),
+  /lighting\.pattern.*不是支持的选项/,
+);
+assert.throws(
+  () => validateTiAngleConfig({ ...baseConfig, lighting: { azimuthDeg: 0, elevationDeg: 0, style: "bogus" } } as unknown as TiAngleConfig),
+  /lighting\.style.*不是支持的选项/,
+);
 const disabledText = compileTiAngleText(
   { ...baseConfig, enabled: false },
   "gpt-image-2",
@@ -138,6 +200,10 @@ assert.throws(
   /rollDeg.*范围/,
 );
 assert.throws(
+  () => validateTiAngleConfig({ ...baseConfig, framing: "macro" } as unknown as TiAngleConfig),
+  /framing.*支持/,
+);
+assert.throws(
   () => validateTiAngleConfig({ ...baseConfig, enabled: "true" } as unknown as TiAngleConfig),
   /enabled.*boolean/,
 );
@@ -152,6 +218,22 @@ assert.throws(
 assert.throws(
   () => validateTiAngleConfig({ ...baseConfig, camera: { aperture: "f/2.8", runtimeDraft: true } } as unknown as TiAngleConfig),
   /camera\.runtimeDraft.*不受支持/,
+);
+assert.throws(
+  () => validateTiAngleConfig({ ...baseConfig, lighting: "key" } as unknown as TiAngleConfig),
+  /lighting 必须是对象/,
+);
+assert.throws(
+  () => validateTiAngleConfig({ ...baseConfig, lighting: { azimuthDeg: 181, elevationDeg: 0 } } as unknown as TiAngleConfig),
+  /lighting\.azimuthDeg.*范围/,
+);
+assert.throws(
+  () => validateTiAngleConfig({ ...baseConfig, lighting: { azimuthDeg: 0, elevationDeg: 91 } } as unknown as TiAngleConfig),
+  /lighting\.elevationDeg.*范围/,
+);
+assert.throws(
+  () => validateTiAngleConfig({ ...baseConfig, lighting: { azimuthDeg: 0, elevationDeg: 0, power: 3 } } as unknown as TiAngleConfig),
+  /lighting\.power.*不受支持/,
 );
 
 console.log(`通过 ${IMAGE_MODEL_IDS.length} 个模型适配与角度边界测试`);

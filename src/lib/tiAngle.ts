@@ -9,6 +9,10 @@ import type {
   TiAngleCameraParameters,
   TiAngleConfig,
   TiAngleFocalLengthMm,
+  TiAngleFraming,
+  TiAngleLightPattern,
+  TiAngleLightStyle,
+  TiAngleLighting,
   TiAngleIso,
   TiAngleShutterSpeed,
 } from "../types/workflow";
@@ -19,6 +23,10 @@ export type {
   TiAngleCameraParameters,
   TiAngleConfig,
   TiAngleFocalLengthMm,
+  TiAngleFraming,
+  TiAngleLightPattern,
+  TiAngleLightStyle,
+  TiAngleLighting,
   TiAngleIso,
   TiAngleShutterSpeed,
 } from "../types/workflow";
@@ -44,6 +52,35 @@ const ELEVATION_MIN = -45;
 const ELEVATION_MAX = 60;
 const ROLL_MIN = -30;
 const ROLL_MAX = 30;
+const LIGHT_AZIMUTH_MIN = -180;
+const LIGHT_AZIMUTH_MAX = 180;
+const LIGHT_ELEVATION_MIN = -90;
+const LIGHT_ELEVATION_MAX = 90;
+const LIGHTING_KEYS = new Set(["azimuthDeg", "elevationDeg", "pattern", "style"]);
+
+/** Classic portrait lighting patterns with canonical light positions (subject-front reference). */
+export const TI_ANGLE_LIGHT_PATTERNS = [
+  { value: "rembrandt", label: "伦勃朗光", azimuthDeg: 45, elevationDeg: 45 },
+  { value: "butterfly", label: "蝴蝶光", azimuthDeg: 0, elevationDeg: 70 },
+  { value: "split", label: "分割光", azimuthDeg: 90, elevationDeg: 15 },
+  { value: "loop", label: "环形光", azimuthDeg: 30, elevationDeg: 25 },
+  { value: "broad", label: "宽光（显宽）", azimuthDeg: -45, elevationDeg: 35 },
+  { value: "short", label: "窄光（显瘦）", azimuthDeg: 60, elevationDeg: 35 },
+] as const satisfies ReadonlyArray<{
+  value: TiAngleLightPattern;
+  label: string;
+  azimuthDeg: number;
+  elevationDeg: number;
+}>;
+
+export const TI_ANGLE_LIGHT_STYLES = [
+  { value: "cinematic", label: "电影质感灯光" },
+  { value: "studio", label: "工作室照明" },
+  { value: "soft", label: "柔光" },
+  { value: "volumetric", label: "体积光" },
+  { value: "stage", label: "摄影棚灯光" },
+  { value: "ambient", label: "环境照明" },
+] as const satisfies ReadonlyArray<{ value: TiAngleLightStyle; label: string }>;
 
 export const TI_ANGLE_CAMERA_MODELS = [
   { value: "canon-eos-r5", label: "Canon EOS R5" },
@@ -59,6 +96,16 @@ export const TI_ANGLE_ISO_VALUES = [100, 200, 400, 800, 1600, 3200] as const sat
 export const TI_ANGLE_SHUTTER_SPEEDS = ["1/60", "1/125", "1/250", "1/500", "1/1000"] as const satisfies readonly TiAngleShutterSpeed[];
 export const TI_ANGLE_APERTURES = ["f/1.4", "f/1.8", "f/2.8", "f/4", "f/5.6", "f/8"] as const satisfies readonly TiAngleAperture[];
 
+
+export const TI_ANGLE_FRAMINGS = [
+  { value: "full-body", label: "全身照", description: "人物从头到脚完整呈现" },
+  { value: "three-quarter-body", label: "三分之二全身照", description: "膝盖以上构图" },
+  { value: "half-body", label: "半身照", description: "腰部以上构图" },
+  { value: "medium-close-up", label: "中特写", description: "胸部以上构图" },
+  { value: "headshot", label: "大头照", description: "头肩构图，头部占画面主体" },
+  { value: "close-up", label: "特写", description: "面部特写构图" },
+  { value: "extreme-close-up", label: "超特写", description: "五官与局部极特写构图" },
+] as const satisfies ReadonlyArray<{ value: TiAngleFraming; label: string; description: string }>;
 const CAMERA_PARAMETER_KEYS = new Set([
   "cameraModel",
   "focalLengthMm",
@@ -147,6 +194,27 @@ function normalizeCameraParameters(value: unknown): TiAngleCameraParameters | un
   return Object.keys(camera).length > 0 ? camera : undefined;
 }
 
+function normalizeLighting(value: unknown): TiAngleLighting | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("lighting 必须是对象");
+  }
+  const raw = value as Record<string, unknown>;
+  for (const key of Object.keys(raw)) {
+    if (!LIGHTING_KEYS.has(key)) {
+      throw new TypeError(`lighting.${key} 不受支持`);
+    }
+  }
+  const pattern = optionalChoice(raw.pattern, "lighting.pattern", TI_ANGLE_LIGHT_PATTERNS.map((option) => option.value));
+  const style = optionalChoice(raw.style, "lighting.style", TI_ANGLE_LIGHT_STYLES.map((option) => option.value));
+  return {
+    azimuthDeg: Math.round(boundedNumber(raw.azimuthDeg, "lighting.azimuthDeg", LIGHT_AZIMUTH_MIN, LIGHT_AZIMUTH_MAX)) || 0,
+    elevationDeg: Math.round(boundedNumber(raw.elevationDeg, "lighting.elevationDeg", LIGHT_ELEVATION_MIN, LIGHT_ELEVATION_MAX)) || 0,
+    ...(pattern ? { pattern } : {}),
+    ...(style ? { style } : {}),
+  };
+}
+
 /** Validate the persisted, canonical shape without silently repairing values. */
 export function validateTiAngleConfig(value: unknown): asserts value is TiAngleConfig {
   const raw = record(value);
@@ -159,6 +227,8 @@ export function validateTiAngleConfig(value: unknown): asserts value is TiAngleC
   boundedNumber(raw.azimuthDeg, "azimuthDeg", AZIMUTH_MIN, AZIMUTH_MAX);
   boundedNumber(raw.elevationDeg, "elevationDeg", ELEVATION_MIN, ELEVATION_MAX);
   boundedNumber(raw.rollDeg, "rollDeg", ROLL_MIN, ROLL_MAX);
+  optionalChoice(raw.framing, "framing", TI_ANGLE_FRAMINGS.map((option) => option.value));
+  normalizeLighting(raw.lighting);
   normalizeCameraParameters(raw.camera);
 }
 
@@ -180,12 +250,16 @@ export function normalizeTiAngleConfig(value: unknown): TiAngleConfig {
   const elevation = boundedNumber(raw.elevationDeg, "elevationDeg", ELEVATION_MIN, ELEVATION_MAX);
   const roll = boundedNumber(raw.rollDeg, "rollDeg", ROLL_MIN, ROLL_MAX);
   const camera = normalizeCameraParameters(raw.camera);
+  const framing = optionalChoice(raw.framing, "framing", TI_ANGLE_FRAMINGS.map((option) => option.value));
+  const lighting = normalizeLighting(raw.lighting);
   return {
     version: TI_ANGLE_CONFIG_VERSION,
     enabled: raw.enabled,
     azimuthDeg: wrapAzimuth(Math.round(azimuth)),
     elevationDeg: Math.round(elevation) || 0,
     rollDeg: Math.round(roll) || 0,
+    ...(framing ? { framing } : {}),
+    ...(lighting ? { lighting } : {}),
     ...(camera ? { camera } : {}),
   };
 }
@@ -243,10 +317,56 @@ export function describeTiAngleCameraParameters(camera: TiAngleCameraParameters 
   ].filter((part): part is string => Boolean(part)).join(" · ");
 }
 
+
+export function describeTiAngleFraming(framing: TiAngleFraming | undefined): string {
+  if (!framing) return "";
+  return TI_ANGLE_FRAMINGS.find((option) => option.value === framing)?.label ?? "";
+}
+
+function framingConstraint(config: TiAngleConfig): string {
+  const option = config.framing && TI_ANGLE_FRAMINGS.find((entry) => entry.value === config.framing);
+  return option ? `构图景别：${option.label}（${option.description}）。` : "";
+}
+
+export function describeTiAngleLighting(lighting: TiAngleLighting | undefined): string {
+  if (!lighting) return "";
+  return `光${lighting.azimuthDeg}°/${lighting.elevationDeg}°`;
+}
+
+export function describeTiAngleLightPattern(pattern: TiAngleLightPattern | undefined): string {
+  if (!pattern) return "";
+  return TI_ANGLE_LIGHT_PATTERNS.find((option) => option.value === pattern)?.label ?? "";
+}
+
+export function describeTiAngleLightStyle(style: TiAngleLightStyle | undefined): string {
+  if (!style) return "";
+  return TI_ANGLE_LIGHT_STYLES.find((option) => option.value === style)?.label ?? "";
+}
+
+function lightingConstraint(config: TiAngleConfig): string {
+  const lighting = config.lighting;
+  if (!lighting) return "";
+  const horizontal = HORIZONTAL_LABELS[roundedAzimuthSector(lighting.azimuthDeg)];
+  const vertical = lighting.elevationDeg > 0 ? "自上向下" : lighting.elevationDeg < 0 ? "自下向上" : "水平";
+  const patternLabel = describeTiAngleLightPattern(lighting.pattern);
+  const styleLabel = describeTiAngleLightStyle(lighting.style);
+  const extras = [patternLabel ? `${patternLabel}布局` : "", styleLabel ? `${styleLabel}风格` : ""].filter(Boolean);
+  const suffix = extras.length > 0 ? `，${extras.join("，")}` : "";
+  return `光源方向：光源位于主体${horizontal}，${vertical}照射（方位角 ${lighting.azimuthDeg}°、高度角 ${lighting.elevationDeg}°）${suffix}。`;
+}
+
+/** What the constraint is allowed to touch, phrased positively. */
+function scopeSubject(config: TiAngleConfig): string {
+  const parts = ["观察视角"];
+  if (config.framing) parts.push("构图景别");
+  if (config.lighting) parts.push("光源方向");
+  if (config.camera) parts.push("已指定的相机成像参数");
+  return parts.join("和");
+}
 function cameraConstraint(config: TiAngleConfig): string {
   const description = describeTiAngleCameraParameters(config.camera);
   return description
-    ? `摄影参数：${description}。参数用于镜头透视、景深、运动表现与曝光表现，并保持场景布光方向和主体内容不变。`
+    ? `摄影参数：${description}。参数用于镜头透视、景深、运动表现与曝光表现，并保持${config.lighting ? "" : "场景布光方向和"}主体内容不变。`
     : "";
 }
 
@@ -258,24 +378,20 @@ function appendCameraConstraint(config: TiAngleConfig, text: string): string {
 /** Text shown before a downstream image model is selected. It is not a model adapter. */
 export function describeTiAngleText(config: TiAngleConfig): string {
   validateTiAngleConfig(config);
-  const scope = config.camera
-    ? "仅改变观察视角和已指定的相机成像参数，不把画面倾斜理解为身体侧倾。"
-    : "仅改变观察视角，不把画面倾斜理解为身体侧倾。";
+  const scope = `仅改变${scopeSubject(config)}，不把画面倾斜理解为身体侧倾。`;
   return appendCameraConstraint(
     config,
-    `通用视角描述（未绑定模型）：${viewDescription(config)}。保持人物身份、姿势、服装、材质、场景和光照不变；${scope}`,
+    `通用视角描述（未绑定模型）：${viewDescription(config)}。${framingConstraint(config)}${lightingConstraint(config)}保持人物身份、姿势、服装、材质、场景${config.lighting ? "" : "和光照"}不变；${scope}`,
   );
 }
 
 type TiAngleAdapter = (config: TiAngleConfig) => string;
 
 const adaptNaturalLanguage: TiAngleAdapter = (config) => {
-  const scope = config.camera
-    ? "只改变观察视角和已指定的相机成像参数，不把画面倾斜理解为身体侧倾。"
-    : "只改变观察视角，不把画面倾斜理解为身体侧倾。";
+  const scope = `只改变${scopeSubject(config)}，不把画面倾斜理解为身体侧倾。`;
   return appendCameraConstraint(
     config,
-    `将最终画面改为${viewDescription(config)}。保持人物身份、脸部、姿势、服装、材质、场景和光照；${scope}`,
+    `将最终画面改为${viewDescription(config)}。${framingConstraint(config)}${lightingConstraint(config)}保持人物身份、脸部、姿势、服装、材质、场景${config.lighting ? "" : "和光照"}；${scope}`,
   );
 };
 
@@ -286,18 +402,23 @@ const adaptSegmentedChinese: TiAngleAdapter = (config) => {
     "镜头约束：",
     `${viewDescription(config)}。`,
     `方位语义：${semantics.horizontal}；垂直方向：${semantics.vertical}；画面旋转：${semantics.roll}。`,
+    framingConstraint(config),
+    lightingConstraint(config),
     camera,
-    "保持人物身份、身体姿势、服装版型与材质、场景内容和光照方向；仅重新生成目标视角下可见的表面。",
+    `保持人物身份、身体姿势、服装版型与材质、场景内容${config.lighting ? "" : "和光照方向"}；仅重新生成目标视角下可见的表面。`,
     "画面 roll 只表示最终画面倾斜，不表示人物身体或头部倾斜。",
   ].filter(Boolean).join("\n");
 };
 
-const adaptConciseEdit: TiAngleAdapter = (config) => appendCameraConstraint(
-  config,
-  config.camera
-    ? `相机约束：${viewDescription(config)}。保持人物、姿势、服装、材质、场景和光照不变；只调整观察视角和已指定的相机成像参数，不要把画面倾斜改成身体倾斜。`
-    : `只改变相机观察视角：${viewDescription(config)}。保持人物、姿势、服装、材质、场景和光照不变；不要把画面倾斜改成身体倾斜。`,
-);
+const adaptConciseEdit: TiAngleAdapter = (config) => {
+  const scoped = Boolean(config.camera || config.framing || config.lighting);
+  const head = scoped ? "相机约束" : "只改变相机观察视角";
+  const keep = `保持人物、姿势、服装、材质、场景${config.lighting ? "" : "和光照"}不变`;
+  const tail = scoped
+    ? `${keep}；只调整${scopeSubject(config)}，不要把画面倾斜改成身体倾斜。`
+    : `${keep}；不要把画面倾斜改成身体倾斜。`;
+  return appendCameraConstraint(config, `${head}：${viewDescription(config)}。${framingConstraint(config)}${lightingConstraint(config)}${tail}`);
+};
 
 const ADAPTERS: Record<ImageModelId, TiAngleAdapter> = {
   "gemini-3-pro-image-preview": adaptSegmentedChinese,

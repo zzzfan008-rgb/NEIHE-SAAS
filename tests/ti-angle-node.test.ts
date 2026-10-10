@@ -15,10 +15,12 @@ const data: TiAngleNodeData = {
   status: "idle",
   angle: {
     version: 1,
-    enabled: false,
+    enabled: true,
     azimuthDeg: 0,
     elevationDeg: 0,
     rollDeg: 0,
+    framing: "half-body",
+    lighting: { azimuthDeg: 45, elevationDeg: 30 },
     camera: {
       cameraModel: "sony-a7r-v",
       focalLengthMm: 85,
@@ -43,6 +45,8 @@ const html = renderToStaticMarkup(
 assert.equal((nodeTypes["ti-angle"] as unknown as { type: unknown }).type, TiAngelNode);
 assert.match(html, /3D 视角预览/);
 assert.match(html, /输出视角约束/);
+assert.match(html, /半身照/);
+assert.match(html, /光45°\/30°/);
 assert.match(html, /相机参数/);
 assert.match(html, /查看输出文本/);
 assert.match(html, /Sony α7R V · 85 mm · 光圈 f\/2\.8/);
@@ -63,6 +67,14 @@ assert.match(nodeSource, /启用 3D 视角/);
 assert.match(nodeSource, /环绕角/);
 assert.match(nodeSource, /俯仰角/);
 assert.match(nodeSource, /画面倾斜/);
+assert.match(nodeSource, /构图视角/);
+assert.match(nodeSource, /照明角度/);
+assert.match(nodeSource, /光源方位角/);
+assert.match(nodeSource, /光源高度角/);
+assert.match(nodeSource, /布光模式/);
+assert.match(nodeSource, /照明风格/);
+assert.match(nodeSource, /TI_ANGLE_LIGHT_PATTERNS/);
+assert.match(nodeSource, /TI_ANGLE_LIGHT_STYLES/);
 assert.match(nodeSource, /品牌相机/);
 assert.match(nodeSource, /焦距/);
 assert.match(nodeSource, /ISO/);
