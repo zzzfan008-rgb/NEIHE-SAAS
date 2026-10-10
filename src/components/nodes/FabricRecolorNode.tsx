@@ -10,7 +10,7 @@ import {
 } from "@/store/flowStore";
 import { useCustomColors } from "@/store/customColors";
 import { isNodeRunActive, type ColorPaletteNodeData, type FabricRecolorNodeData } from "@/types/workflow";
-import { NodeFrame, RunButton, Developing } from "./NodeFrame";
+import { NodeFrame, RunButton } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { ModelControls } from "./ModelControls";
 import { Button } from "@/components/ui/button";
@@ -367,7 +367,6 @@ export function FabricRecolorNode({
                 : colors.length === 0 || (!hasFabricInput && !data.fabricImageUrl)
           }
         />
-        {running && <Developing />}
         <ImageGrid images={data.outputImages} />
       </NodeFrame>
       <Handle type="source" position={Position.Right} id="image" />

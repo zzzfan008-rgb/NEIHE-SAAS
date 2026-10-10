@@ -16,7 +16,7 @@ import {
   isNodeRunActive,
   type MaskRedrawNodeData,
 } from "@/types/workflow";
-import { Developing, inputClass, NodeFrame, RunButton } from "./NodeFrame";
+import { inputClass, NodeFrame, RunButton } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { MaskEditor } from "./MaskEditor";
 import { maskRedrawReadiness } from "@/lib/maskRedraw";
@@ -163,7 +163,6 @@ export function MaskRedrawNode({ id, data, selected }: NodeProps<Node<MaskRedraw
           label="生成局部修改"
           disabled={!readiness.canOpenRunAction}
         />
-        {running && <Developing />}
         <ImageGrid images={data.outputImages} />
           </>
         )}

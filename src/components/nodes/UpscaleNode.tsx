@@ -2,7 +2,7 @@ import { Position, type NodeProps, type Node } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
 import { useFlowStore } from "@/store/flowStore";
 import { isNodeRunActive, type UpscaleNodeData } from "@/types/workflow";
-import { NodeFrame, RunButton, Developing } from "./NodeFrame";
+import { NodeFrame, RunButton } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { ModelControls } from "./ModelControls";
 
@@ -44,7 +44,6 @@ export function UpscaleNode({ id, data, selected }: NodeProps<Node<UpscaleNodeDa
         </div>
         <ModelControls nodeId={id} modelId={data.modelId} modelOptions={data.modelOptions} disabled={running} />
         <RunButton status={data.status} onClick={() => void runNode(id)} label="高清放大" />
-        {running && <Developing />}
         <ImageGrid images={data.outputImages} />
       </NodeFrame>
       <Handle id="image" type="source" position={Position.Right} title="高清图片" />

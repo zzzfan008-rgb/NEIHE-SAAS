@@ -3,7 +3,7 @@ import { NodeHandle as Handle } from "./NodeHandle";
 import { useFlowStore } from "@/store/flowStore";
 import { BATCH_SIZES, isNodeRunActive, type SketchToRenderNodeData } from "@/types/workflow";
 import { imageModelAspectRatioPatch } from "@/types/imageModels";
-import { NodeFrame, RunButton, Developing, inputClass } from "./NodeFrame";
+import { NodeFrame, RunButton, inputClass } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { ModelControls } from "./ModelControls";
 import { useCoalescedTextEdit } from "@/hooks/useCoalescedTextEdit";
@@ -75,7 +75,6 @@ export function SketchToRenderNode({
         </div>
         <ModelControls nodeId={id} modelId={data.modelId} modelOptions={data.modelOptions} preferredAspectRatio={data.aspectRatio} disabled={running} />
         <RunButton status={data.status} onClick={() => void runNode(id)} label="生成效果图" />
-        {running && <Developing />}
         <ImageGrid images={data.outputImages} />
       </NodeFrame>
       <Handle id="image" type="source" position={Position.Right} title="生成图片" />

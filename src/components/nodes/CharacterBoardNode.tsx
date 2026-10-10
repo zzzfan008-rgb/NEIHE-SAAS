@@ -8,7 +8,7 @@ import { isNodeRunActive, type CharacterBoardNodeData } from "@/types/workflow";
 import { imageModelLabel } from "@/types/imageModels";
 import { uploadCharacterBoardSource } from "@/lib/characterBoardUpload";
 import { NodeHandle } from "./NodeHandle";
-import { NodeFrame, RunButton, Developing } from "./NodeFrame";
+import { NodeFrame, RunButton } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 
 const CHARACTER_BOARD_MODEL_IDS = ["gpt-image-2.5-flare", "gemini-3.1-flash-image"] as const;
@@ -102,7 +102,6 @@ export function CharacterBoardNode({ id, data, selected }: NodeProps<Node<Charac
       </div>
       {error && <p role="alert" className="text-xs text-red-500">{error}</p>}
       <RunButton status={data.status} label="生成人物板" disabled={disabled || !data.sourceImage} onClick={() => void runNode(id)} />
-      {running && <Developing />}
       <div className="[&_img]:max-h-48 [&_img]:object-contain">
         <ImageGrid images={data.outputImages} empty="生成后可连线传递人物板" renderAction={(url) =>
           <Button variant="outline" size="sm" className="nodrag nopan w-full border-[var(--gc-node-border)] bg-[var(--gc-node-main)] text-[var(--gc-node-text)] hover:bg-[var(--gc-node-inner-hover)] hover:text-[var(--gc-node-text)]" render={<a href={url} download="人物板.png" />}>下载人物板</Button>} />

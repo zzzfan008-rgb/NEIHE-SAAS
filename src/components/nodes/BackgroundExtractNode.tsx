@@ -11,7 +11,7 @@ import {
   isNodeRunActive,
   type BackgroundExtractNodeData,
 } from "@/types/workflow";
-import { NodeFrame, RunButton, Developing, inputClass } from "./NodeFrame";
+import { NodeFrame, RunButton, inputClass } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { FilePickerButton, uploadFile } from "./ImageInputNode";
 import { CanvasImage } from "./CanvasImage";
@@ -243,7 +243,6 @@ export function BackgroundExtractNode({
           disabled={readOnly || uploading || inputCount !== 1}
           onClick={() => void runNode(id)}
         />
-        {running && <Developing />}
         <ImageGrid images={data.outputImages} />
       </NodeFrame>
       <Handle

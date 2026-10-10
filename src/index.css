@@ -152,24 +152,6 @@ body {
 }
 
 /* ---- 生成中动画：方案 E 暗房显影 ---- */
-@keyframes develop-scan {
-  0%,
-  100% {
-    top: 8%;
-  }
-  50% {
-    top: 88%;
-  }
-}
-@keyframes develop-gridfade {
-  0%,
-  100% {
-    opacity: 0.12;
-  }
-  50% {
-    opacity: 0.3;
-  }
-}
 @keyframes develop-breathe {
   0%,
   100% {
@@ -178,42 +160,6 @@ body {
   50% {
     opacity: 0.55;
   }
-}
-
-.develop-overlay {
-  position: relative;
-  overflow: hidden;
-  border-radius: 8px;
-  border: 1px solid #262626;
-  background: linear-gradient(180deg, rgba(201, 166, 107, 0.05), rgba(201, 166, 107, 0.14));
-}
-.develop-overlay .develop-gridlines {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(201, 166, 107, 0.13) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(201, 166, 107, 0.13) 1px, transparent 1px);
-  background-size: 16px 16px;
-  animation: develop-gridfade 2s ease-in-out infinite;
-}
-.develop-overlay .develop-scanline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #c9a66b, transparent);
-  box-shadow: 0 0 12px #c9a66b;
-  animation: develop-scan 1.6s ease-in-out infinite;
-}
-.develop-overlay .develop-label {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  color: rgba(201, 166, 107, 0.8);
-  letter-spacing: 0.2em;
 }
 
 .btn-running-breathe {

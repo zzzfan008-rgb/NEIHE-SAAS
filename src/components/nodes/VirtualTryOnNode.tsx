@@ -9,7 +9,7 @@ import { isMultiImageTryOn, planMultiImageReferences } from "@/lib/multiImageTry
 import { inputPortSpecs } from "@/lib/workflowPorts";
 import { isNodeRunActive, type VirtualTryOnNodeData } from "@/types/workflow";
 import { ImageGrid } from "./ImageGrid";
-import { Developing, inputClass, NodeFrame, RunButton } from "./NodeFrame";
+import { inputClass, NodeFrame, RunButton } from "./NodeFrame";
 
 export const FASHION_ASPECT_RATIOS: ReadonlyArray<{
   value: VirtualTryOnNodeData["aspectRatio"];
@@ -161,9 +161,6 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
         {multiImageEdit && /[（(]OTHER[）)]/.test(data.error ?? "") && <p className="text-[9px] leading-relaxed text-[var(--gc-node-muted)]" role="note">
           服务方未说明具体触发原因，无法确定是哪张参考图或哪条要求导致拒绝。请结合服务方说明检查素材和要求。
         </p>}
-        {multiImageEdit && <p className="text-[9px] leading-relaxed text-[var(--gc-node-muted)]" aria-label="参考图传递策略">
-          前四张：人物、主穿搭、姿势、场景。已连接 {rawReferences.length} 张有效参考图 → {numberedReferences.length} 张传入，最多 14 张直接传入。姿势图仅提供动作参考，成片人物外貌只来自人物图。
-        </p>}
 
         {!staged && <label className="block space-y-1">
           <span className="text-[10px] text-neutral-500">补充要求（可选）</span>
@@ -223,7 +220,6 @@ export function VirtualTryOnNode({ id, data, selected }: NodeProps<Node<VirtualT
             label="使用简化提示词重试" />
           <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">会发起新的生成请求，可能产生费用；仅本次精简冗余说明，参考图、细节要求与拍摄参数不变。审核拒绝请查看服务方说明，简化不保证通过审核或生成成功。</p>
         </div>}
-        {running && <Developing />}
         <ImageGrid images={data.outputImages} />
       </NodeFrame>
       <Handle

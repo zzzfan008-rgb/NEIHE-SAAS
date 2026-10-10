@@ -19,7 +19,6 @@ import { inputPortSpecs } from "@/lib/workflowPorts";
 import { useFlowStore } from "@/store/flowStore";
 import { useActiveAiGateway } from "@/store/aiGatewayStore";
 import {
-  isNodeRunActive,
   type SeedanceOutputFormat,
   type SeedanceVideoModelId,
   type VideoAspectRatio,
@@ -27,7 +26,7 @@ import {
   type VideoGenerationMode,
   type VideoResolution,
 } from "@/types/workflow";
-import { Developing, NodeFrame, RunButton } from "./NodeFrame";
+import { NodeFrame, RunButton } from "./NodeFrame";
 
 const MODES: ReadonlyArray<{ value: VideoGenerationMode; label: string }> = [
   { value: "text-to-video", label: "文生视频" },
@@ -224,7 +223,6 @@ export function VideoGenerateNode({ id, data, selected }: NodeProps<Node<VideoGe
           {data.seconds === -1 ? "智能时长按实际输出计费；" : ""}生成会调用 API易并产生对应费用。
         </p>
         <RunButton status={data.status} onClick={() => void runNode(id)} label="生成视频" />
-        {isNodeRunActive(data.status) && <Developing />}
         {data.outputImages.map((video) => <video key={video} src={video} controls preload="metadata" className="nodrag max-h-44 w-full rounded-md bg-black" />)}
       </NodeFrame>
       <Handle id="video" type="source" position={Position.Right} title="视频输出" />

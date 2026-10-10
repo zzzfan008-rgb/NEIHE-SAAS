@@ -192,15 +192,5 @@ export function RunButton({ status, onClick, label = "运行", disabled }: RunBu
   );
 }
 
-export function Developing() {
-  return (
-    <div className="develop-overlay nodrag h-28 w-full">
-      <div className="develop-gridlines" />
-      <div className="develop-scanline" />
-      <span className="develop-label">显影中</span>
-    </div>
-  );
-}
-
 export const inputClass =
   "nodrag w-full rounded-md border border-[var(--gc-node-border)] bg-[var(--gc-node-inner)] px-2 py-1.5 text-xs text-[var(--gc-node-text)] placeholder:text-[var(--gc-node-muted)] outline-none focus-visible:border-[var(--gc-node-accent)] focus-visible:ring-2 focus-visible:ring-[var(--gc-node-accent)]/40";

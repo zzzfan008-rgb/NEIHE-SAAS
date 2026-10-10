@@ -35,12 +35,12 @@ export function SceneStabilizeControls({ nodeId, data }: { nodeId: string; data:
         placeholder="例如：整体呈现简洁的时装画册质感，减少过度磨皮。"
         className="min-h-20 resize-none text-xs [field-sizing:fixed]" />
     </label>
-    <p className="text-[9px] leading-relaxed text-[var(--gc-text-muted)]">{data.sceneInputMode === 'multi-reference-edit'
-      ? '姿势、人物、场景分别作为前三张原始参考图，一次生成成片。可选 Gemini 3 Pro Image 或 Gemini 3.1 Flash Image；Pro 输入图审核失败（OTHER）后可手动切换 Flash 或重新导出参考图。姿势图仅提供动作参考，其人物外貌不进入成片；成片人物外貌只来自人物图。TiAngel 关闭时，姿势图控制动作与取景；开启后，TiAngel 控制拍摄视角，姿势图仍控制肢体动作。'
-      : data.sceneInputMode === 'composed-person'
-      ? '人物基准图已完成人物身份、姿势与场景定版。本轮保留基准图，只替换主穿搭及指定配饰。'
-      : '身份、服装与场景由对应参考图决定。需要指定动作时，可从左侧“添加节点”添加人物姿势参考图并连接；未连接时依据创作想法自然安排动作。'}</p>
-    <p className="text-[9px] leading-relaxed text-[var(--gc-text-muted)]">第一轮不执行通用提示词增强，保留原始要求；审核拒绝时不自动改写重试。</p>
+    {data.sceneInputMode !== 'multi-reference-edit' && <>
+      <p className="text-[9px] leading-relaxed text-[var(--gc-text-muted)]">{data.sceneInputMode === 'composed-person'
+        ? '人物基准图已完成人物身份、姿势与场景定版。本轮保留基准图，只替换主穿搭及指定配饰。'
+        : '身份、服装与场景由对应参考图决定。需要指定动作时，可从左侧“添加节点”添加人物姿势参考图并连接；未连接时依据创作想法自然安排动作。'}</p>
+      <p className="text-[9px] leading-relaxed text-[var(--gc-text-muted)]">第一轮不执行通用提示词增强，保留原始要求；审核拒绝时不自动改写重试。</p>
+    </>}
     <Option label="图像模型" value={data.modelId} disabled={disabled}
       items={SCENE_STABILIZE_MODEL_IDS
         .filter(id => data.sceneInputMode !== 'multi-reference-edit' || id === 'gemini-3-pro-image-preview' || id === 'gemini-3.1-flash-image')

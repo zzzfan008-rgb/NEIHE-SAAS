@@ -1,6 +1,6 @@
 import { Position, type Node, type NodeProps } from "@xyflow/react";
 import { NodeHandle as Handle } from "./NodeHandle";
-import { NodeFrame, RunButton, Developing, inputClass } from "./NodeFrame";
+import { NodeFrame, RunButton, inputClass } from "./NodeFrame";
 import { ImageGrid } from "./ImageGrid";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
@@ -48,7 +48,6 @@ export function SketchOptimizeNode({ id, data, selected }: NodeProps<Node<Sketch
       </label>
       {inputCount !== 1 && <p className="text-[10px] text-(--gc-node-muted)">请连接一张已上传的草图或手绘图。</p>}
       <RunButton status={data.status} label="生成优化线稿" disabled={readOnly || inputCount !== 1} onClick={() => void runNode(id)} />
-      {running && <Developing />}
       <ImageGrid images={data.outputImages} />
     </NodeFrame>
     <Handle id="image" type="source" position={Position.Right} title="优化后的线稿" />
