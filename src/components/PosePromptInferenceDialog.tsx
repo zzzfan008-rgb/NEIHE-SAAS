@@ -3,7 +3,7 @@ import { analyzePosePrompt, clearPosePromptAppliedFlag, EMPTY_POSE_STATE, posePr
 import { useAuth } from '../auth/AuthContext';
 import { readPoseCredential, savePoseCredential } from '../lib/poseCredentials';
 import { useFlowStore, type DocumentTarget } from '../store/flowStore';
-import { SEQUENTIAL_POSE_HEADER, EDITED_POSE_HEADER, SEQUENTIAL_POSE_LABELS, isSequentialPosePrompt, optimizedPosePromptForImage, posePromptForImage, type PosePromptMode } from '../types/poseReference';
+import { SEQUENTIAL_POSE_HEADER, EDITED_POSE_HEADER, SEQUENTIAL_POSE_LABELS, optimizedPosePromptForImage, posePromptForImage, type PosePromptMode } from '../types/poseReference';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
@@ -78,11 +78,14 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
   const [discardOpen, setDiscardOpen] = useState(false);
   const optimizedText = draft?.text ?? savedOptimizedPrompt ?? '';
   const dirty = draft !== null && draft.text !== (savedOptimizedPrompt ?? '');
-  const sequentialText = isSequentialPosePrompt(optimizedText);
-  const textToSave = dirty && sequentialText
-    ? [EDITED_POSE_HEADER, ...optimizedText.trim().split('\n').slice(1)].join('\n') : optimizedText.trim();
-  const conflict = dirty && draft.revision !== revision;
   const editorMode = savedPromptMode ?? calibrationMode;
+  const poseTextLines = optimizedText.trim().split('\n').map(line => line.trim()).filter(Boolean);
+  const hasPoseHeader = poseTextLines[0] === SEQUENTIAL_POSE_HEADER || poseTextLines[0] === EDITED_POSE_HEADER;
+  const editedBody = poseTextLines.slice(hasPoseHeader ? 1 : 0);
+  const textToSave = dirty && editorMode === 'three-view'
+    ? [EDITED_POSE_HEADER, ...editedBody].join('\n')
+    : optimizedText.trim();
+  const conflict = dirty && draft.revision !== revision;
   const resultMatchesSaved = Boolean(result && result.prompt === savedPrompt && result.optimizedPrompt === savedOptimizedPrompt &&
     (result.calibrationMode ?? 'single') === (savedPromptMode ?? 'single'));
   const unavailableReason = useFlowStore(s => {
@@ -98,7 +101,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     return tab && !tab.readOnly && data?.kind === 'image-input' && data.imageUrl === source ? data : undefined;
   };
   const saveOptimized = async () => {
-    if (!writable || saving || running || conflict || (!dirty && !pendingSave) || !optimizedText.trim() || optimizedText.length > 4000) return;
+    if (!writable || saving || running || conflict || (!dirty && !pendingSave) || !optimizedText.trim() || optimizedText.length > 4000 || (dirty && editorMode === 'three-view' && editedBody.length === 0)) return;
     const data = currentData();
     if (!data || posePromptForImage(data) !== savedPrompt || optimizedPosePromptForImage(data) !== savedOptimizedPrompt ||
         (data.posePromptMode ?? 'single') !== savedPromptMode || (data.posePromptOptimizedVerified === true) !== savedOptimizedPromptVerified) {
@@ -115,24 +118,12 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
     };
     try {
       let verified = savedOptimizedPromptVerified;
-      let reason: string | undefined;
       if (dirty) {
-        verified = false;
+        verified = editorMode === 'three-view';
         if (editorMode === 'three-view') {
           if (!await useFlowStore.getState().saveProjectInTab(stableTarget)) throw new Error('项目保存失败，编辑稿仍保留，请重试');
-          if (!unchanged()) throw new Error('姿势来源或提示词已变化，请重新打开检查');
-          const response = await fetch('/api/pose-references/validate-prompt', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(30_000),
-            body: JSON.stringify({ projectId: target.projectId, nodeId, source, prompt: textToSave, provider,
-              ...(provider === 'deepseek' ? { apiKey: apiKey.trim() } : {}) }),
-          });
-          const validation = await response.json();
-          if (!response.ok) throw new Error(typeof validation.error === 'string' ? validation.error : '提示词校验失败，编辑稿仍保留');
-          if (typeof validation.verified !== 'boolean' || (validation.reason !== undefined && typeof validation.reason !== 'string')) throw new Error('提示词校验响应无效');
-          verified = validation.verified;
-          reason = validation.reason;
+          if (!unchanged()) throw new Error('姿势来源或提示词已变化，编辑稿未写入其他文档');
         }
-        if (!unchanged()) throw new Error('姿势来源或提示词已变化，编辑稿未写入其他文档');
         useFlowStore.getState().updateNodeDataInTab(stableTarget, nodeId, {
           posePrompt: savedPrompt?.trim() ? savedPrompt : textToSave,
           posePromptImage: source,
@@ -152,9 +143,9 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
       }
       setPendingSave(false);
       clearPosePromptAppliedFlag(stableTarget, nodeId, source, provider, user?.id, calibrationMode);
-      setSaveMessage(editorMode !== 'three-view' ? '优化提示词已保存' : verified
-        ? sequentialText ? '用户编辑的姿势提示词已保存，将按此文本用于生图；手动修改未经模型重新分析。' : '优化提示词已保存并通过旧版补充校验。'
-        : `编辑稿已保存，但格式或内容未通过校验，生图不采用此文本。${reason ?? ''}`);
+      setSaveMessage(editorMode !== 'three-view' ? '优化提示词已保存'
+        : dirty ? '用户编辑的姿势提示词已保存，将按此文本用于生图；手动修改未经模型重新分析。'
+        : '当前姿势提示词已保存到项目。');
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '项目保存失败，请重试保存');
     } finally {
@@ -386,13 +377,12 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
           {result?.calibrationMode === 'three-view' && !result.optimizedPromptVerified && (
             <p role="status" className="rounded-md border border-[var(--gc-border)] p-3 text-sm">
               三图反推已完成，优化文本未通过校验：{result.optimizationError ?? '未获得已校验的姿势补充。'}
-              原始结果保留用于对比；新结果需先确认替换，编辑稿保存时会复用已有证据校验，不调用模型。
+              原始结果保留用于对比；新结果需先确认替换，编辑稿保存后直接用于生图，不调用模型校验。
             </p>
           )}
           <p id="pose-optimized-help" className="text-xs text-[var(--gc-text-muted)]">
-            最终仅保留整体姿势、头部、视线、面部、上肢、肩部、腰部、胯部、下肢；未识别的项目不补写。
-            三图结果可直接编辑，请保留类别标题并使用“画面左/画面右”。保存时只校验格式与内容范围，不调用模型，也不要求逐字匹配原结果。
-            手动修改将明确标记为用户编辑，校验通过后完整用于生图；旧版四类补充继续按原规则处理。
+            三图结果可直接编辑，不强制九类格式，复杂姿势由人工核对校准；建议使用“画面左/画面右”描述方位。
+            保存时不调用模型、不做格式校验，编辑内容将明确标记为用户编辑并完整用于生图。
           </p>
           {unavailableReason && <p role="status" className="text-sm text-[var(--gc-text-muted)]">{unavailableReason}</p>}
           {editorMode === 'three-view' && <>
@@ -410,7 +400,7 @@ export default function PosePromptInferenceDialog({ target, nodeId, source, onCl
               setSaveMessage(undefined);
             }} />
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" disabled={!writable || saving || running || conflict || (!dirty && !pendingSave) || !optimizedText.trim() || optimizedText.length > 4000}
+            <Button type="button" size="sm" disabled={!writable || saving || running || conflict || (!dirty && !pendingSave) || !optimizedText.trim() || optimizedText.length > 4000 || (dirty && editorMode === 'three-view' && editedBody.length === 0)}
               onClick={() => void saveOptimized()}>{saving ? '正在保存…' : '保存优化提示词'}</Button>
             <Button type="button" size="sm" variant="outline" disabled={!draft || saving}
               onClick={() => { setDraft(null); setSaveMessage(undefined); setSaveError(undefined); }}>恢复当前保存内容</Button>

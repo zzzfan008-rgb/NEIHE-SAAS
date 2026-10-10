@@ -24,6 +24,13 @@ export function isSequentialPosePrompt(value: unknown): boolean {
   });
 }
 
+/** 用户编辑稿：标记头 + 任意非空正文；格式与内容由人工核对，不做结构校验。 */
+export function isEditedPosePrompt(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 4000) return false;
+  const [header, ...lines] = value.split('\n').map(line => line.trim()).filter(Boolean);
+  return header === EDITED_POSE_HEADER && lines.length > 0;
+}
+
 export function isPoseCalibrationStages(value: unknown): value is PoseCalibrationStages {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const stages = value as Record<string, unknown>;

@@ -243,6 +243,13 @@ for (const concise of [false, true]) {
   }
 }
 assert.doesNotMatch(multiImageTryOnPrompt(referenceMap, '', undefined, false, 'original', completePose, 'three-view', false), /下肢：双腿交叉/, '未经校验的九类草稿不进入生图');
+const freePose = '三图校准姿势（用户编辑）\n双手环抱胸前，左腿前伸，身体略后仰';
+assert.ok(multiImageTryOnPrompt(referenceMap, '', undefined, false, 'original', freePose, 'three-view', true).includes('双手环抱胸前，左腿前伸，身体略后仰'), '带用户编辑标记的自由文本按标记头直接采用');
+verifiedPose.data.posePromptOptimized = freePose;
+const freeReloaded = validateAndMigrateFlow(documentSnapshotToPersistedWorkflow(createDocumentSnapshot({ projectName: 'free pose', ...verifiedFlow })));
+const freeFirst = freeReloaded.nodes.find(node => node.data.kind === 'virtual-try-on')!;
+const freeStep = buildExecutionPlan(freeReloaded.nodes, freeReloaded.edges, { onlyNodeId: freeFirst.id, includeDownstream: false }).steps.find(step => step.nodeId === freeFirst.id)!;
+assert.equal(freeStep.params.posePrompt, freePose, '带用户编辑标记的自由文本跨持久化与DAG保持不变');
 for (const mode of ['single', 'three-view'] as const) {
   const editedFlow = structuredClone(calibrationFlow);
   const poseNode = editedFlow.nodes.find(node => node.id === 'pose')!;

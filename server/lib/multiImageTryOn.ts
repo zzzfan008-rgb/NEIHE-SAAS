@@ -8,7 +8,7 @@ import type { GenerationRequestSnapshot } from "./generationRecords";
 import { withImageProcessingSlot } from "./imageProcessingLimit";
 import { normalizeProviderImageDataUrl, PROVIDER_TARGET_BYTES, UPLOAD_MAX_INPUT_PIXELS } from "./uploadImageNormalization";
 import { MAX_IMAGE_BYTES } from "./imageValidation";
-import { isCalibratedPoseSupplement, isSequentialPosePrompt } from "../../src/types/poseReference";
+import { isCalibratedPoseSupplement, isEditedPosePrompt, isSequentialPosePrompt } from "../../src/types/poseReference";
 
 /** Local PNG contact sheet: no AI call, no crop/stretch, EXIF-correct, bounded memory. */
 export async function stitchReferenceImages(images: readonly string[]): Promise<string> {
@@ -97,7 +97,7 @@ export async function prepareMultiImageTryOn(
 export function multiImageTryOnPrompt(referenceMap: string, extra: string, angleControlText: string | undefined, concise = false, poseReferenceType?: unknown, posePrompt?: unknown, posePromptMode?: unknown, posePromptVerified?: unknown): string {
   const skeleton = poseReferenceType === "skeleton";
   const calibrated = posePromptMode === "three-view";
-  const sequential = calibrated && posePromptVerified === true && isSequentialPosePrompt(posePrompt);
+  const sequential = calibrated && posePromptVerified === true && (isSequentialPosePrompt(posePrompt) || isEditedPosePrompt(posePrompt));
   const poseText = typeof posePrompt === "string" ? posePrompt.trim() : "";
   // The header carries validation/editing state, not instructions for image generation.
   const sequentialPoseBody = sequential

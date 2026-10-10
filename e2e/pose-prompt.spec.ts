@@ -4,13 +4,15 @@ import { expect, test } from './fixtures';
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test('普通账号可编辑三图草稿，校验结果决定是否用于生图', async ({ page }) => {
+test('普通账号可编辑三图草稿，人工编辑直接用于生图', async ({ page }) => {
   const source = '/api/files/pose-e2e.png';
   const png = await sharp({ create: { width: 30, height: 50, channels: 3, background: '#777' } }).png().toBuffer();
   const image = `data:image/png;base64,${png.toString('base64')}`;
   let analysisCalls = 0;
   let validationCalls = 0;
   let failNextProjectSave = false;
+  let pausedProjectSave: Promise<void> | undefined;
+  let releaseProjectSave: (() => void) | undefined;
   const projectSaves: Array<{ flow: { nodes: Array<{ id: string; data: { posePrompt?: string } }> } }> = [];
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
@@ -34,6 +36,7 @@ test('普通账号可编辑三图草稿，校验结果决定是否用于生图',
         failNextProjectSave = false;
         return route.fulfill({ status: 503, json: { error: '项目保存暂时失败' } });
       }
+      if (pausedProjectSave) { const pause = pausedProjectSave; pausedProjectSave = undefined; await pause; }
       projectSaves.push(route.request().postDataJSON());
       return route.fulfill({ json: {} });
     }
@@ -80,30 +83,25 @@ test('普通账号可编辑三图草稿，校验结果决定是否用于生图',
   const text = '三图校准补充（仅补充图1不可见关系）\n视线方向：视线朝画面右侧';
   await editor.fill(text);
   await dialog.getByRole('button',{name:'保存优化提示词',exact:true}).click();
-  await expect(dialog.getByText('优化提示词已保存并通过旧版补充校验。', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('用户编辑的姿势提示词已保存，将按此文本用于生图；手动修改未经模型重新分析。',{exact:true})).toBeVisible();
   const stored = () => page.evaluate(async () => {
     const module = '/src/store/flowStore.ts';
     const {useFlowStore,selectActiveNodes} = await import(module);
     return selectActiveNodes(useFlowStore.getState()).find((n:{id:string})=>n.id==='pose')?.data;
   });
-  expect(await stored()).toMatchObject({posePromptMode:'three-view',posePromptOptimized:text,posePromptOptimizedVerified:true});
+  expect(await stored()).toMatchObject({posePromptMode:'three-view',posePromptOptimized:`三图校准姿势（用户编辑）\n${text}`,posePromptOptimizedVerified:true});
   await editor.fill(text.replace('画面右侧','画面左侧'));
   await dialog.getByRole('button',{name:'保存优化提示词',exact:true}).click();
-  await expect(dialog.getByText(/编辑稿已保存，但格式或内容未通过校验/)).toBeVisible();
-  expect((await stored()).posePromptOptimizedVerified).toBeUndefined();
+  await expect(dialog.getByText('用户编辑的姿势提示词已保存，将按此文本用于生图；手动修改未经模型重新分析。',{exact:true})).toBeVisible();
+  expect((await stored()).posePromptOptimizedVerified).toBe(true);
   await expect(editor).toBeEditable();
   expect(analysisCalls).toBe(1);
-  expect(validationCalls).toBe(2);
-  let releaseValidation!: () => void;
-  const pendingValidation = new Promise<void>(resolve => { releaseValidation = resolve; });
-  await page.route('**/api/pose-references/validate-prompt', async route => {
-    await pendingValidation;
-    await route.fulfill({json:{verified:true}});
-  });
-  await editor.fill(text);
-  const request = page.waitForRequest('**/api/pose-references/validate-prompt');
-  await dialog.getByRole('button',{name:'保存优化提示词',exact:true}).click();
-  await request;
+  expect(validationCalls).toBe(0);
+  pausedProjectSave = new Promise<void>(resolve => { releaseProjectSave = resolve; });
+  await editor.fill(`${text}\n编辑测试`);
+  const saveRequest = page.waitForRequest('**/api/projects');
+  const saveClick = dialog.getByRole('button',{name:'保存优化提示词',exact:true}).click();
+  await saveRequest;
   await page.evaluate(async () => {
     const module = '/src/store/flowStore.ts';
     const {useFlowStore} = await import(module);
@@ -111,9 +109,9 @@ test('普通账号可编辑三图草稿，校验结果决定是否用于生图',
       id:'pose',type:'image-input',position:{x:0,y:0},data:{kind:'image-input',label:'新节点',imageUrl:'/api/files/pose-e2e.png',status:'idle',poseReference:true},
     }],edges:[]});
   });
-  releaseValidation();
+  releaseProjectSave!();
+  await saveClick;
   await expect(dialog.getByText('姿势来源或提示词已变化，编辑稿未写入其他文档',{exact:true})).toBeVisible();
-  expect((await stored()).posePromptOptimized).toBeUndefined();
 });
 
 test('pose model selection, credential persistence, candidate application and logout', async ({ page }) => {
@@ -386,7 +384,7 @@ test('顺序校准九类结果可编辑、持久化且重新分析不覆盖草�
   await dialog.getByRole('button', { name: '保存优化提示词', exact: true }).click();
   await expect(dialog.getByText(/手动修改未经模型重新分析/)).toBeVisible();
   const manual = edited.replace('三图校准姿势', '三图校准姿势（用户编辑）');
-  expect(validated).toEqual([manual]);
+  expect(validated).toEqual([]);
   expect(analyses).toBe(2);
   const persisted = await page.evaluate(async () => {
     const modulePath = '/src/store/flowStore.ts';
