@@ -113,6 +113,18 @@ try {
     assert.equal(seen.length, count + 1, "Portkey must not retry or fall back across suppliers");
     assert.equal(seen.at(-1)!.key, `Bearer ${gatewayId}-fixture`);
   }
+  const geminiImages = {
+    model: "gemini-3.1-flash-image-preview", prompt: "fixture only", size: "3x4", quality: "2k",
+    n: 1, response_format: "b64_json", image: ["data:image/png;base64,Zmlyc3Q=", "data:image/png;base64,c2Vjb25k"],
+  };
+  const tuziImages = fixtureRequest("tuzi", "/v1/images/generations", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(geminiImages),
+  });
+  const tuziImagesResponse = await fetch(tuziImages.url, tuziImages.init);
+  assert.equal(tuziImagesResponse.status, 200);
+  assert.deepEqual((await tuziImagesResponse.json() as { payload: unknown }).payload, geminiImages,
+    "official gateway must preserve Tuzi image array order, model, quality and size without adding stream");
+  assert.deepEqual(seen.at(-1), { url: "/tuzi/v1/images/generations", key: "Bearer tuzi-fixture", method: "POST" });
   const seedance = fixtureRequest("apiyi", "/seedance/api/v3/contents/generations/tasks", { method: "POST" }, true);
   assert.equal((await fetch(seedance.url, seedance.init)).status, 200);
   assert.deepEqual(seen.at(-1), { url: "/seedance/seedance/api/v3/contents/generations/tasks", key: "Bearer seedance-fixture", method: "POST" });

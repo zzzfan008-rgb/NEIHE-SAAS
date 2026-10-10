@@ -87,8 +87,18 @@ try {
     if (first) { first = false; throw new ProviderError("网络中断", 503, id, "gateway_unavailable"); }
     return { images: [dataUrl], model: id };
   } });
-  await queue.processNextGenerationJob("gateway-worker", { resolveProvider, now: () => time, retryDelaysMs: [1] });
-  for (let i = 0; i < 3; i++) { time += 10_000; await queue.processNextGenerationJob("gateway-worker", { resolveProvider, now: () => time, retryDelaysMs: [1] }); }
+  const timingLogs: unknown[][] = [];
+  const originalInfo = console.info;
+  console.info = (...args: unknown[]) => { timingLogs.push(args); };
+  try {
+    await queue.processNextGenerationJob("gateway-worker", { resolveProvider, now: () => time, retryDelaysMs: [1] });
+    for (let i = 0; i < 3; i++) { time += 10_000; await queue.processNextGenerationJob("gateway-worker", { resolveProvider, now: () => time, retryDelaysMs: [1] }); }
+  } finally { console.info = originalInfo; }
+  const tuziTiming = timingLogs.filter((row) => row[0] === "[tuzi-image-persistence-timing]").map((row) => JSON.parse(String(row[1])));
+  assert.equal(tuziTiming.length, 1, "仅 Tuzi 图片任务记录结果持久化计时");
+  assert.equal(tuziTiming[0].runId, newer.id);
+  assert.ok(tuziTiming[0].persistMs >= 0 && tuziTiming[0].finalizeMs >= 0);
+  assert.doesNotMatch(JSON.stringify(tuziTiming), /test-only|data:image|https:/);
   assert.equal(selected.filter((gateway) => gateway === "apiyi").length, 2);
   assert.equal(selected.filter((gateway) => gateway === "tuzi").length, 1);
   const rows = await db.query<{ status: string }>("SELECT status FROM generation_runs WHERE id = ANY($1)", [[original.id, newer.id]]);

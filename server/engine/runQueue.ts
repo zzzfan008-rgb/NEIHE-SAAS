@@ -1227,9 +1227,18 @@ export async function processNextGenerationJob(
         },
       );
       await assertJobOwnedForCompletion(job, workerId);
+      const persistStarted = performance.now();
       const persistedImages = await persistStepImages(result.images, job);
+      const persistMs = Math.round(performance.now() - persistStarted);
       try {
+        const finalizeStarted = performance.now();
         await completeJobSuccess(job, workerId, result, persistedImages, options.now?.() ?? Date.now());
+        if (job.gatewayId === "tuzi" && job.step.kind !== "video-generate") {
+          console.info("[tuzi-image-persistence-timing]", JSON.stringify({
+            runId: job.runId, nodeId: job.nodeId, imageCount: persistedImages.length,
+            persistMs, finalizeMs: Math.round(performance.now() - finalizeStarted),
+          }));
+        }
       } catch (error) {
         await compensatePersistedImages(persistedImages, job, workerId);
         throw error;

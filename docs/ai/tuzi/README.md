@@ -1,6 +1,6 @@
 # Portkey 与 TuziAPI 接入
 
-文档与登录后的模型广场核对日期：2026-10-05。协议回归使用模拟响应，尚未进行真实密钥或付费生成验证。
+初次接入的文档与模型广场核对日期：2026-10-05；Gemini 非流式 Images 接口规范复核：2026-10-09。协议回归使用模拟响应，当前令牌的 Images 路由权限和实际生成耗时尚未进行付费验证。
 
 ## 配置与切换
 
@@ -31,14 +31,25 @@ Portkey 按任务的供应商元数据选择目标，关闭网关重试，不启
 | --- | --- |
 | GPT Image 2.5 Flare / Sunburst | `gpt-image-2.5-flare` / `gpt-image-2.5-sunburst`；OpenAI images |
 | GPT Image 2 / VIP | `gpt-image-2` / `gpt-image-2-vip`；OpenAI images |
-| Gemini 3 Pro Image | `gemini-3-pro-image-preview`；原生 Gemini |
-| Gemini 3.1 Flash Image | `gemini-3.1-flash-image`；原生 Gemini |
+| Gemini 3 Pro Image | `gemini-3-pro-image-preview`；非流式 Images generations |
+| Gemini 3.1 Flash Image | `gemini-3.1-flash-image-preview`；非流式 Images generations（应用内 ID 不变） |
 | Seedream 5 | `doubao-seedream-5-0-260128`；生成 JSON，编辑 multipart |
 | Seedance 2.0 / Fast / Mini / 2.5 | 保留项目内精确型号；`/v1/videos` 异步任务协议 |
 
 规划和提示词优化等聊天请求使用选中供应商的 `/v1/chat/completions`，保留项目配置的文本/视觉模型（默认 `gpt-5.6-terra`、`gemini-3-flash-preview`）。
 
 FLUX.2 Pro、Grok 图片模型未在本次 TuziAPI 模型广场查询中找到，前后端均阻止在 TuziAPI 下提交；不自动替换已有模型。参考图数量、排序、格式和尺寸校验沿用项目限制。实际模型权限、配额和参数支持仍需真实令牌验证。
+
+### Gemini 非流式图像协议与响应耗时
+
+- 官方 [generations 规范](https://tuzi-api.apifox.cn/343646956e0.md) 同时支持文生图和参考图编辑；[Gemini edits 规范](https://tuzi-api.apifox.cn/343646957e0.md) 已标记弃用。因此 Gemini 统一提交 JSON 到 `/v1/images/generations`，编辑时以 `image` 数组原序传入标准化后的参考图，不发送 `stream` 或 Chat messages，不退回原生 Gemini 路径。
+- `size` 使用比例（如 `3x4`），`quality` 使用 `1k` / `2k` / `4k`，不再把规格附在提示词后。Flash 的 `512` 和 `1:4` / `4:1` / `1:8` / `8:1` 不在此接口的公开契约中，Tuzi 请求前明确拒绝，不静默改规格；APIYI 不受影响。
+- 默认请求 `b64_json`，同时接受结构化 `data[].url`，包括没有文件扩展名的签名 URL。下载仍通过现有公网 DNS、重定向、体积和超时校验，再落盘；不把临时链接直接作为持久化结果。
+- 令牌需有该 Images 路由及所选模型的权限；供应商教程的 default / gemini-mix 分组说明不能替代对当前令牌的验证。不自动换分组、换供应商或重复提交。
+- Tuzi 图片响应按单个 JSON 对象增量检查完整性，一旦完整即解析并取消尾部读取，不再等待 HTTP EOF 或旧读取器的 5 秒尾部恢复间隔。这不是 SSE 生图；只是兼容 HTTP 对非流式 JSON 的分块传输。保留 80 MiB 响应上限、图片解码及 MIME 校验。
+- 空图片响应不推断为审核拒绝；显式供应商审核错误仍分类为拒绝。中断/残缺响应为 `outcome_unknown`，适配层不重发，Worker 原有重试策略保持不变。
+- `[tuzi-image-timing]` 记录准备、请求到响应头、响应体读取、图片校验及总耗时；请求阶段包含 Portkey/供应商等待，并非供应商控制台的纯生成耗时。`[tuzi-image-persistence-timing]` 记录下载/转码/落盘的合计 `persistMs` 和数据库完成/事件更新的 `finalizeMs`，仅用于 Tuzi 图片任务。日志不保存提示词、图片内容、结果 URL 或密钥。
+- 不以缩短超时、降低图片质量或跳过安全校验提速，也不承诺端到端固定 30～40 秒；真实供应商耗时与本地耗时须分别观察。
 
 ## 视频差异
 
@@ -50,6 +61,7 @@ FLUX.2 Pro、Grok 图片模型未在本次 TuziAPI 模型广场查询中找到�
 ## 验证入口
 
 - `tests/tuzi-provider.test.ts`：独立密钥、并发隔离、协议映射、蒙版/多图、素材审核和视频恢复。
+- `tests/tuzi-image-response.test.ts`：已注册到 `test:suite`；覆盖完整 JSON 不等尾部、逐字节/UTF-8 分片、URL/Base64、空结果/明确审核错误、中断不重发、80 MiB 限制及计时脱敏。
 - `tests/ai-gateway.test.ts`：管理员权限、持久化、版本冲突、队列快照及重试。
 - `tests/ai-gateway-client.test.ts`：过期响应、账号切换、并发冲突和读取失败恢复。
 - `tests/portkey.test.ts`：网关配置、并发隔离、凭据边界和禁止直连回退。
@@ -65,3 +77,4 @@ FLUX.2 Pro、Grok 图片模型未在本次 TuziAPI 模型广场查询中找到�
 - [OpenAI 兼容 API](https://api.tu-zi.com/docs/api/openai)
 - [Seedance 真人视频 API](https://api.tu-zi.com/docs/api/seedance-real-person-video)
 - [模型广场](https://api.tu-zi.com/pricing)
+- [Gemini 非流式 Images 接口规范](https://tuzi-api.apifox.cn/343646956e0.md)

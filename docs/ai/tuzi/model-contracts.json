@@ -7,7 +7,8 @@
     "https://api.tu-zi.com/docs/api/gemini",
     "https://api.tu-zi.com/docs/api/openai",
     "https://api.tu-zi.com/docs/api/seedance-real-person-video",
-    "https://api.tu-zi.com/pricing"
+    "https://api.tu-zi.com/pricing",
+    "https://tuzi-api.apifox.cn/343646956e0.md"
   ],
   "models": [
     {
@@ -37,13 +38,13 @@
     {
       "id": "gemini-3-pro-image-preview",
       "upstreamModelId": "gemini-3-pro-image-preview",
-      "protocol": "gemini",
+      "protocol": "gemini-images",
       "maxReferences": 14
     },
     {
       "id": "gemini-3.1-flash-image",
-      "upstreamModelId": "gemini-3.1-flash-image",
-      "protocol": "gemini",
+      "upstreamModelId": "gemini-3.1-flash-image-preview",
+      "protocol": "gemini-images",
       "maxReferences": 14
     },
     {
@@ -53,6 +54,12 @@
       "maxReferences": 8
     }
   ],
+  "geminiImages": {
+    "docsVerifiedAt": "2026-10-09",
+    "path": "/v1/images/generations",
+    "aspectRatios": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+    "imageSizes": ["1K", "2K", "4K"]
+  },
   "unsupportedImageModels": [
     "flux-2-pro",
     "grok-imagine-image"
@@ -69,6 +76,7 @@
   "notes": [
     "GPT Image 2.5 完整参数要求令牌可访问 image（绘画）分组。",
     "参考图数量沿用项目本地上限；实际可用能力和额度取决于令牌分组，尚未做付费实测。",
+    "Gemini 使用非流式 generations，参考图使用 image 数组；size 为 3x4 等比例，quality 为 1k/2k/4k。要求令牌支持该 Images 路由；不自动切换分组、协议或重发。",
     "Seedream 使用 TuziAPI 的 doubao 前缀，并通过 multipart /v1/images/edits 编辑。",
     "不把 flux-kontext 替代为 flux-2-pro，不自动切换不同模型。"
   ]

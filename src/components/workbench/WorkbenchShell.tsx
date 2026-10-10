@@ -28,27 +28,22 @@ interface WorkbenchShellProps {
  */
 export function WorkbenchShell({ inspector, conversation, onConversationClick, conversationCloseRequest, results, children }: WorkbenchShellProps) {
   const [state, dispatch] = useReducer(workbenchUiReducer, INITIAL_WORKBENCH_UI_STATE);
+  const resultsButtonRef = useRef<HTMLButtonElement>(null);
   const inspectorButtonRef = useRef<HTMLButtonElement>(null);
   const conversationButtonRef = useRef<HTMLButtonElement>(null);
   const previousDock = useRef<"closed" | "properties" | "conversation">("closed");
   const dockOpen = state.rightDockOpen || state.conversationDockOpen;
 
   useEffect(() => {
-    if (!state.resultsFlyoutOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      // Consume Escape so the dock-close listener below does not also fire on the same press.
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      dispatch({ type: "close-results-flyout" });
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [state.resultsFlyoutOpen]);
-
-  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (state.resultsFlyoutOpen) {
+        // Close results before either dock, but let App close its comparison overlay too.
+        event.preventDefault();
+        dispatch({ type: "close-results-flyout" });
+        resultsButtonRef.current?.focus();
+        return;
+      }
       if (state.conversationDockOpen) {
         dispatch({ type: "close-conversation-dock" });
       } else if (state.rightDockOpen) {
@@ -57,7 +52,7 @@ export function WorkbenchShell({ inspector, conversation, onConversationClick, c
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [state.conversationDockOpen, state.rightDockOpen]);
+  }, [state.resultsFlyoutOpen, state.conversationDockOpen, state.rightDockOpen]);
 
   // The panel decides whether a click while open means "switch" (stay open) or "collapse";
   // this request closes the conversation dock without re-triggering the button handler.
@@ -98,6 +93,7 @@ export function WorkbenchShell({ inspector, conversation, onConversationClick, c
                 type="button"
                 variant="ghost"
                 size="icon-lg"
+                ref={resultsButtonRef}
                 aria-label="结果 / 记录"
                 aria-controls={RESULTS_FLYOUT_PANEL_ID}
                 aria-expanded={state.resultsFlyoutOpen}
