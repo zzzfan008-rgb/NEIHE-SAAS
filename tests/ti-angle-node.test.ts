@@ -48,9 +48,8 @@ assert.match(html, /输出视角约束/);
 assert.match(html, /半身照/);
 assert.match(html, /光45°\/30°/);
 assert.match(html, /相机参数/);
-assert.match(html, /查看输出文本/);
 assert.match(html, /Sony α7R V · 85 mm · 光圈 f\/2\.8/);
-assert.equal(html.match(/aria-expanded="false"/g)?.length, 3);
+assert.equal(html.match(/aria-expanded="false"/g)?.length, 2);
 assert.doesNotMatch(html, /将最终画面改为/);
 assert.doesNotMatch(html, /启用 3D 视角/);
 assert.match(html, /preview-image/);
@@ -60,9 +59,7 @@ const nodeSource = readFileSync(
   new URL("../src/components/nodes/TiAngelNode.tsx", import.meta.url),
   "utf8",
 );
-assert.match(nodeSource, /navigator\.clipboard/);
 assert.match(nodeSource, /aria-controls/);
-assert.match(nodeSource, /未绑定模型/);
 assert.match(nodeSource, /启用 3D 视角/);
 assert.match(nodeSource, /环绕角/);
 assert.match(nodeSource, /俯仰角/);

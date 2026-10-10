@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Position, type Node, type NodeProps } from "@xyflow/react";
-import { ChevronDownIcon, CopyIcon, RotateCcwIcon } from "lucide-react";
+import { ChevronDownIcon, RotateCcwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
@@ -8,9 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import {
-  selectActiveEdges,
   selectActiveNodeInputImages,
-  selectActiveNodes,
   selectActiveReadOnly,
   useFlowStore,
 } from "@/store/flowStore";
@@ -23,14 +21,11 @@ import {
   TI_ANGLE_LIGHT_PATTERNS,
   TI_ANGLE_LIGHT_STYLES,
   TI_ANGLE_SHUTTER_SPEEDS,
-  compileTiAngleText,
   describeTiAngleCameraParameters,
   describeTiAngleFraming,
   describeTiAngleLighting,
-  describeTiAngleText,
   normalizeTiAngleConfig,
 } from "@/lib/tiAngle";
-import { isImageModelId, type ImageModelId } from "@/types/imageModels";
 import type {
   TiAngleCameraModel,
   TiAngleCameraParameters,
@@ -59,31 +54,6 @@ const UNSPECIFIED_CAMERA_PARAMETER = "__unspecified__";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
-}
-
-async function copyText(text: string): Promise<void> {
-  try {
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-  } catch {
-    // Keep the read-only text visible so users can select it manually.
-  }
-  try {
-    if (typeof document === "undefined") return;
-    const fallback = document.createElement("textarea");
-    fallback.value = text;
-    fallback.setAttribute("readonly", "true");
-    fallback.style.position = "fixed";
-    fallback.style.opacity = "0";
-    document.body.appendChild(fallback);
-    fallback.select();
-    document.execCommand("copy");
-    fallback.remove();
-  } catch {
-    // Copy failures are intentionally silent; the text remains selectable.
-  }
 }
 
 function AngleControl({
@@ -364,12 +334,9 @@ function ChipOptionGroup<T extends string>({
 export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeData>>) {
   const updateNodeData = useFlowStore((state) => state.updateNodeData);
   const previewImage = useFlowStore((state) => selectActiveNodeInputImages(state, id)[0]);
-  const edges = useFlowStore(selectActiveEdges);
-  const nodes = useFlowStore(selectActiveNodes);
   const readOnly = useFlowStore(selectActiveReadOnly);
   const [angleOpen, setAngleOpen] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [outputOpen, setOutputOpen] = useState(false);
   const controlsDisabled = readOnly || !data.angle.enabled;
 
   const updateAngle = (patch: Partial<TiAngleConfig>) => {
@@ -397,36 +364,8 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
     updateAngle({ lighting: next });
   };
 
-  const outputTargets = useMemo(() => {
-    const destinations = edges
-      .filter((edge) => edge.source === id && edge.sourceHandle === "text")
-      .map((edge) => {
-        const target = nodes.find((node) => node.id === edge.target);
-        const modelId = target && "modelId" in target.data && isImageModelId(target.data.modelId)
-          ? target.data.modelId
-          : null;
-        return {
-          key: edge.id,
-          nodeLabel: target?.data.label ?? edge.target,
-          modelId,
-        };
-      });
-    const targets = destinations.length > 0
-      ? destinations
-      : [{ key: "unbound", nodeLabel: "未连接第一阶段", modelId: null as ImageModelId | null }];
-    return targets.map((target) => ({
-      ...target,
-      text: data.angle.enabled
-        ? target.modelId
-          ? compileTiAngleText(data.angle, target.modelId).text
-          : describeTiAngleText(data.angle)
-        : "已关闭，不会输出视角与相机约束。",
-    }));
-  }, [data.angle, edges, id, nodes]);
-
   const angleSectionId = `${id}-angle-constraints`;
   const cameraSectionId = `${id}-camera-parameters`;
-  const outputId = `${id}-angle-output`;
   const angleSummary = data.angle.enabled
     ? [
         signedAngle(data.angle.azimuthDeg),
@@ -626,36 +565,6 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
               />
             </div>
             <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">用于控制镜头透视、景深、运动与曝光表现</p>
-          </div>
-        </TiAngleSection>
-        <TiAngleSection
-          id={outputId}
-          title="查看输出文本"
-          summary="按下游模型适配，点击展开查看"
-          open={outputOpen}
-          onOpenChange={setOutputOpen}
-        >
-          <div className="space-y-2">
-            {outputTargets.map((target) => (
-              <section key={target.key} className="space-y-1.5 rounded-md bg-[var(--gc-node-main)]/45 p-1.5">
-                <div className="text-[9px] text-[var(--gc-node-muted)]">
-                  <p>接收节点：{target.nodeLabel}</p>
-                  <p>模型：{target.modelId ?? "未绑定模型"}</p>
-                </div>
-                <p className="select-text whitespace-pre-wrap text-[9px] leading-relaxed text-[var(--gc-node-text)]">{target.text}</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  disabled={!data.angle.enabled}
-                  onClick={() => void copyText(target.text)}
-                  className="nodrag h-6 gap-1 text-[9px]"
-                >
-                  <CopyIcon aria-hidden="true" className="size-3" />
-                  复制约束文本
-                </Button>
-              </section>
-            ))}
           </div>
         </TiAngleSection>
       </NodeFrame>
