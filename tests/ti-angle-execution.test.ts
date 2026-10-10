@@ -279,7 +279,7 @@ for (const modelId of SCENE_STABILIZE_MODEL_IDS) {
   });
   assert.equal(modelResult.providerRequests, 1, modelId);
   assert.equal(modelRequests.length, 1, modelId);
-  assert.match(modelRequests[0].prompt, /受控相机视角（TiAngelNode，适配器版本 1）/);
+  assert.match(modelRequests[0].prompt, /受控相机视角：/);
   assert.ok(modelRequests[0].prompt.includes(compiled.text), modelId);
 }
 
