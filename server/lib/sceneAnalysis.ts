@@ -141,12 +141,13 @@ async function analyzeUncached(
   const { mime, base64 } = parseDataUrl(imageDataUrl);
   await options?.beforeProviderCall?.(1);
   const response = await fetchWithRetry(
-    `${config.aiBaseUrl()}/v1beta/models/${model}:generateContent`,
+    // Analysis/vision models exist only on APIYI; TuziAPI serves image-generation models only.
+    `${config.aiBaseUrl("apiyi")}/v1beta/models/${model}:generateContent`,
     () => ({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${config.aiApiKey()}`,
+        Authorization: `Bearer ${config.aiApiKey("apiyi")}`,
       },
       body: JSON.stringify({
         contents: [{
@@ -162,7 +163,7 @@ async function analyzeUncached(
         },
       }),
     }),
-    { timeoutMs: config.aiTimeoutMs(120_000), providerId: model },
+    { timeoutMs: config.aiTimeoutMs(120_000), providerId: model, gateway: "apiyi"},
   );
   const analysis = parseResponseText(await response.json());
   await writeCache(filePath, { schemaVersion: SCENE_ANALYSIS_SCHEMA_VERSION, model, analysis });

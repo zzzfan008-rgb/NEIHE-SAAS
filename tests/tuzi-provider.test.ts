@@ -120,9 +120,9 @@ try {
 
   response = () => Response.json({ choices: [{ message: { content: "{}" } }] });
   await withAiGateway("tuzi", () => new ApiYiImageConversationPlannerModel().complete({ systemPrompt: "JSON", userPayload: {} } as never));
-  assert.equal(calls.at(-1)!.url, "https://tuzi.example/v1/chat/completions");
+  assert.equal(calls.at(-1)!.url, "https://apiyi.example/v1/chat/completions");
   assert.equal(JSON.parse(String(calls.at(-1)!.init.body)).model, "gpt-5.6-terra");
-  console.log("  ✓ 对话规划也使用所选供应商");
+  console.log("  ✓ 对话规划固定走 APIYI，不随供应商切换");
 
   const video: ApiYiVideoRequest = { mode: "text-to-video", model: SEEDANCE_25_MODEL, prompt: "镜头缓慢推进", aspectRatio: "16:9", resolution: "720p", seconds: 5, generateAudio: false, outputFormat: "mp4", references: [] };
   const mp4 = Buffer.alloc(12); mp4.write("ftyp", 4, "ascii");

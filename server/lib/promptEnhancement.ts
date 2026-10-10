@@ -95,13 +95,14 @@ function parseStructuredEnhancement(payload: unknown): Pick<TryOnPromptEnhanceme
 
 async function chat(messages: Array<{ role: "system" | "user"; content: string }>): Promise<unknown> {
   const response = await fetchWithRetry(
-    `${config.aiBaseUrl()}/v1/chat/completions`,
+    // Analysis/vision models exist only on APIYI; TuziAPI serves image-generation models only.
+    `${config.aiBaseUrl("apiyi")}/v1/chat/completions`,
     () => ({
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.aiApiKey()}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.aiApiKey("apiyi")}` },
       body: JSON.stringify({ model: PROMPT_ENHANCER_MODEL, temperature: 0.1, messages }),
     }),
-    { timeoutMs: config.aiTimeoutMs(120_000), providerId: PROMPT_ENHANCER_MODEL, maxRetries: 0 },
+    { timeoutMs: config.aiTimeoutMs(120_000), providerId: PROMPT_ENHANCER_MODEL, gateway: "apiyi", maxRetries: 0 },
   );
   return response.json();
 }

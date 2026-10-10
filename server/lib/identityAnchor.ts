@@ -85,10 +85,11 @@ async function analyzeBox(imageDataUrl: string, model: string, options: Identity
   const { mime, base64 } = parseDataUrl(imageDataUrl);
   await options.beforeProviderCall?.(1);
   const response = await fetchWithRetry(
-    `${config.aiBaseUrl()}/v1beta/models/${model}:generateContent`,
+    // Analysis/vision models exist only on APIYI; TuziAPI serves image-generation models only.
+    `${config.aiBaseUrl("apiyi")}/v1beta/models/${model}:generateContent`,
     () => ({
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.aiApiKey()}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.aiApiKey("apiyi")}` },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [
           { text: "定位画面中主要人物的脸部边界框。只返回 JSON，坐标归一化到 0-1：{\"x\":0.0,\"y\":0.0,\"width\":0.0,\"height\":0.0}。边界框只包住完整脸部和下巴，不描述身份、性别、年龄、服装或背景。" },
@@ -97,7 +98,7 @@ async function analyzeBox(imageDataUrl: string, model: string, options: Identity
         generationConfig: { temperature: 0, responseMimeType: "application/json" },
       }),
     }),
-    { timeoutMs: config.aiTimeoutMs(120_000), providerId: model, maxRetries: 0 },
+    { timeoutMs: config.aiTimeoutMs(120_000), providerId: model, gateway: "apiyi", maxRetries: 0 },
   );
   return parseBox(await response.json());
 }

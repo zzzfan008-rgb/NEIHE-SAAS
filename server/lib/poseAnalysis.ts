@@ -353,7 +353,7 @@ function parseResponseText<T>(payload: unknown, parse: (value: unknown) => T): T
   const parts = candidate?.content?.parts;
   const text = Array.isArray(parts) ? parts.filter((part) => part && part.thought !== true && typeof part.text === 'string').map((part) => part.text).join('') : '';
   if (!text.trim()) throw new PoseAnalysisResponseError('姿势分析未返回可用文字');
-  const apiKey = config.aiApiKey();
+  const apiKey = config.aiApiKey("apiyi");
   if (apiKey && text.includes(apiKey)) throw new PoseAnalysisResponseError('姿势分析返回格式无效');
   const normalized = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   try {
@@ -720,16 +720,17 @@ async function requestPoseJSON<T>(imageDataUrl: string | null, model: string, in
     parts.push({ text: '姿势参考图：' }, { inline_data: { mime_type: mime, data: base64 } });
   }
   const response = await fetchWithRetry(
-    `${config.aiBaseUrl()}/v1beta/models/${model}:generateContent`,
+    // Analysis/vision models exist only on APIYI; TuziAPI serves image-generation models only.
+    `${config.aiBaseUrl("apiyi")}/v1beta/models/${model}:generateContent`,
     () => ({
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.aiApiKey()}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.aiApiKey("apiyi")}` },
       body: JSON.stringify({
         contents: [{ role: 'user', parts }],
         generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema },
       }),
     }),
-    { timeoutMs: config.aiTimeoutMs(120_000), providerId: model },
+    { timeoutMs: config.aiTimeoutMs(120_000), providerId: model, gateway: "apiyi"},
   );
   let payload: unknown;
   try { payload = await response.json(); }

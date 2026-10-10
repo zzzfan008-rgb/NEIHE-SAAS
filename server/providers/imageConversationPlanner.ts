@@ -12,9 +12,10 @@ export class ApiYiImageConversationPlannerModel implements ImageConversationPlan
     const startedAt = Date.now();
     let apiKey: string | undefined;
     try {
-      apiKey = config.aiApiKey();
+      apiKey = config.aiApiKey("apiyi");
       const response = await fetchWithRetry(
-        `${config.aiBaseUrl()}/v1/chat/completions`,
+        // The planner model exists only on APIYI; TuziAPI serves image-generation models only.
+        `${config.aiBaseUrl("apiyi")}/v1/chat/completions`,
         () => ({
           method: "POST",
           headers: {
@@ -38,6 +39,7 @@ export class ApiYiImageConversationPlannerModel implements ImageConversationPlan
         {
           timeoutMs: config.aiTimeoutMs(30_000),
           providerId: model,
+          gateway: "apiyi",
           maxRetries: 0,
         },
       );

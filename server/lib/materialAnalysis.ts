@@ -267,12 +267,13 @@ export async function analyzeMaterialImage(
   const mimeType = cropDataUrl.slice(5, cropDataUrl.indexOf(";"));
   const data = cropDataUrl.slice(comma + 1);
   const response = await fetcher(
-    `${config.aiBaseUrl()}/v1beta/models/${modelId}:generateContent`,
+    // Analysis/vision models exist only on APIYI; TuziAPI serves image-generation models only.
+    `${config.aiBaseUrl("apiyi")}/v1beta/models/${modelId}:generateContent`,
     () => ({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${config.aiApiKey()}`,
+        Authorization: `Bearer ${config.aiApiKey("apiyi")}`,
       },
       body: JSON.stringify({
         contents: [
@@ -290,7 +291,7 @@ export async function analyzeMaterialImage(
         },
       }),
     }),
-    { timeoutMs: config.aiTimeoutMs(120_000), providerId: modelId },
+    { timeoutMs: config.aiTimeoutMs(120_000), providerId: modelId, gateway: "apiyi"},
   );
   let parsed: unknown;
   try {

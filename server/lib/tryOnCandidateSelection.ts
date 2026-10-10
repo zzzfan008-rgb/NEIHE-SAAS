@@ -196,11 +196,12 @@ async function requestCandidateReview<T>(
   for (let attempt = 0; ; attempt += 1) {
     await beforeCall();
     try {
-      const response = await fetchWithRetry(`${config.aiBaseUrl()}/v1/chat/completions`, () => ({
+      // Analysis/vision models exist only on APIYI; TuziAPI serves image-generation models only.
+      const response = await fetchWithRetry(`${config.aiBaseUrl("apiyi")}/v1/chat/completions`, () => ({
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.aiApiKey()}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.aiApiKey("apiyi")}` },
         body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'user', content }] }),
-      }), { timeoutMs: config.aiTimeoutMs(180_000), providerId: model, maxRetries: 0 });
+      }), { timeoutMs: config.aiTimeoutMs(180_000), providerId: model, gateway: "apiyi", maxRetries: 0 });
       return parse(await response.json());
     } catch (error) {
       const retryable = error instanceof SyntaxError || (error instanceof ProviderError &&
