@@ -10,9 +10,9 @@ export const TRY_ON_PHOTOGRAPHIC_REALISM = [
 export const TRY_ON_NEGATIVE_CONSTRAINTS =
   "负向约束（negative prompts）：画面不呈现油腻泛光或油光满面的肤质、过度磨皮造成的塑料感或蜡像感皮肤、美颜滤镜质感、模糊或消失的皮肤纹理、塑胶反光高光、厚重假面妆容、AI 式过度美化与失真锐化。";
 
-/** Pose references contribute motion/framing only; their visible accessories must not leak into the output. */
+/** Pose references contribute motion/framing only; their visible garments and accessories must not leak into the output. */
 export const TRY_ON_POSE_REFERENCE_EXCLUSIONS =
-  "姿势参考仅提供动作、姿势与取景几何，不参考其中的任何配饰（如包包、眼镜/墨镜、帽子、戒指、手镯、手表、手环、耳环）。";
+  "姿势参考仅提供动作、姿势与取景几何，不参考其中的任何服饰与配饰（如包包、眼镜/墨镜、帽子、戒指、手镯、手表、手环、耳环）。";
 
 /** Outfit references contribute garments only; the wearer's facial features must not leak into the output. */
 export const TRY_ON_OUTFIT_REFERENCE_EXCLUSIONS =
