@@ -274,7 +274,7 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
       data-ti-angle-preview="true"
       data-ti-angle-image-state={textureState}
       aria-label="3D 视角预览"
-      className="relative h-52 overflow-hidden rounded-lg border border-[var(--gc-node-border)] bg-[#38383b]"
+      className="relative h-52 overflow-hidden rounded-md border border-[var(--gc-node-border)] bg-[#38383b]"
     >
       <canvas
         ref={canvasRef}
@@ -302,7 +302,7 @@ export function TiAnglePreview({ image, config, disabled = false, onCommit }: Ti
         拖动调整视角 · 旋钮倾斜 · 滚轮缩放
       </div>
       <span className="sr-only">示意参考图</span>
-      <div className="pointer-events-none absolute top-2 right-2 rounded bg-[var(--gc-node-main)]/80 px-1.5 py-0.5 font-mono text-[9px] text-[var(--gc-node-muted)]">
+      <div className="pointer-events-none absolute top-2 right-2 rounded-md bg-[var(--gc-node-main)]/80 px-1.5 py-0.5 font-mono text-[9px] text-[var(--gc-node-muted)]">
         {signedAngle(draft.azimuthDeg)} / {signedAngle(draft.elevationDeg)} / {signedAngle(draft.rollDeg)}
         {draft.lighting ? ` · 光 ${draft.lighting.azimuthDeg}°/${draft.lighting.elevationDeg}°` : ""}
       </div>

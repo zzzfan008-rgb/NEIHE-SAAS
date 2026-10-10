@@ -77,8 +77,17 @@ assert.match(nodeSource, /焦距/);
 assert.match(nodeSource, /ISO/);
 assert.match(nodeSource, /快门速度/);
 assert.match(nodeSource, /光圈大小/);
-assert.match(nodeSource, /#b98d45/);
-assert.match(nodeSource, /#181818/);
+const cssSource = readFileSync(
+  new URL("../src/index.css", import.meta.url),
+  "utf8",
+);
+assert.match(cssSource, /\.gc-ti-angle > \.gc-node-frame/);
+assert.match(cssSource, /\.gc-ti-btn/);
+assert.match(cssSource, /#b98d45/);
+assert.match(cssSource, /#181818/);
+assert.match(nodeSource, /gc-ti-btn/);
+assert.match(nodeSource, /gc-ti-angle/);
+assert.match(nodeSource, /grid-cols-2/);
 
 const librarySource = readFileSync(
   new URL("../src/components/panels/NodeLibraryPanel.tsx", import.meta.url),

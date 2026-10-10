@@ -618,3 +618,37 @@ body,
   border-color: var(--gc-node-accent);
 }
 .gc-node-card .gc-styling-control:hover:not(:disabled) { border-color: var(--gc-node-accent); }
+
+/* TiAngle 节点：双栏布局、统一圆角与深色可读按钮（黑底白字药丸，激活态金色）。 */
+.gc-ti-angle > .gc-node-frame { width: 560px; }
+.gc-ti-btn {
+  border: none;
+  border-radius: 999px;
+  background-color: rgba(0, 0, 0, 0.4);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.04),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  color: #fff;
+  font-weight: 800;
+  transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+.gc-ti-btn:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.5);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(252, 232, 3, 0.08);
+  color: #fce803;
+  transform: translateY(-2px);
+}
+.gc-ti-btn[data-active="true"] {
+  background-color: #b98d45;
+  color: #181818;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.gc-ti-btn[data-active="true"]:hover:not(:disabled) {
+  background-color: #c99a4d;
+  color: #181818;
+  transform: none;
+}

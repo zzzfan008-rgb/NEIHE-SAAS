@@ -229,13 +229,13 @@ function CameraParameterSelect({
         <SelectTrigger
           size="sm"
           aria-label={label}
-          className="nodrag nopan w-full min-w-0 border-[var(--gc-node-border)] bg-[var(--gc-node-main)] px-2 text-[9px] text-[var(--gc-node-text)]"
+          className="nodrag nopan w-full min-w-0 rounded-md border-[var(--gc-node-border)] bg-[var(--gc-node-main)] px-2 text-[9px] text-[var(--gc-node-text)] hover:border-[var(--gc-node-border)] focus-visible:border-[var(--gc-node-border)]"
         >
           <SelectValue>{selectedLabel}</SelectValue>
         </SelectTrigger>
         <SelectContent
           align="start"
-          className="border border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]"
+          className="rounded-md border border-[var(--gc-border)] bg-[var(--gc-panel)] text-[var(--gc-text)]"
         >
           <SelectItem value={UNSPECIFIED_CAMERA_PARAMETER} className="min-h-7 text-[10px]">不指定</SelectItem>
           {options.map((option) => (
@@ -317,10 +317,11 @@ function ChipOptionGroup<T extends string>({
               key={option.value}
               type="button"
               size="xs"
-              variant={active ? "secondary" : "outline"}
+              variant="ghost"
               disabled={disabled}
               aria-pressed={active}
-              className="nodrag h-5 px-1.5 text-[9px]"
+              data-active={active || undefined}
+              className="gc-ti-btn nodrag h-5 px-2 text-[9px]"
               onClick={() => onChange(active ? undefined : option.value)}
             >
               {option.label}
@@ -380,6 +381,7 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
   return (
     <>
       <Handle id="preview-image" type="target" position={Position.Left} title="示意参考图（仅显示）" />
+      <div className="gc-ti-angle">
       <NodeFrame
         nodeId={id}
         title={data.label}
@@ -388,6 +390,8 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
         selected={selected}
         summary={<p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">控制最终观察视角与成像参数，不改变人物与服装输入</p>}
       >
+        <div className="grid grid-cols-2 items-start gap-2">
+          <div className="min-w-0 space-y-2">
         <TiAnglePreview
           image={previewImage}
           config={data.angle}
@@ -396,6 +400,58 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
             if (!readOnly) updateNodeData(id, { angle: normalizeTiAngleConfig(next) });
           }}
         />
+        <TiAngleSection
+          id={cameraSectionId}
+          title="相机参数"
+          summary={cameraSummary}
+          open={cameraOpen}
+          onOpenChange={setCameraOpen}
+        >
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-1.5">
+              <div className="col-span-2">
+                <CameraParameterSelect
+                  label="品牌相机"
+                  value={data.angle.camera?.cameraModel}
+                  options={TI_ANGLE_CAMERA_MODELS}
+                  disabled={controlsDisabled}
+                  onChange={(cameraModel) => updateCamera({ cameraModel: cameraModel as TiAngleCameraModel | undefined })}
+                />
+              </div>
+              <DiscreteParameterSlider
+                label="焦距"
+                value={data.angle.camera?.focalLengthMm}
+                options={TI_ANGLE_FOCAL_LENGTHS.map((value) => ({ value, label: `${value} mm` }))}
+                disabled={controlsDisabled}
+                onChange={(focalLengthMm) => updateCamera({ focalLengthMm })}
+              />
+              <DiscreteParameterSlider
+                label="ISO"
+                value={data.angle.camera?.iso}
+                options={TI_ANGLE_ISO_VALUES.map((value) => ({ value, label: `ISO ${value}` }))}
+                disabled={controlsDisabled}
+                onChange={(iso) => updateCamera({ iso })}
+              />
+              <DiscreteParameterSlider
+                label="快门速度"
+                value={data.angle.camera?.shutterSpeed}
+                options={TI_ANGLE_SHUTTER_SPEEDS.map((value) => ({ value, label: `${value} s` }))}
+                disabled={controlsDisabled}
+                onChange={(shutterSpeed) => updateCamera({ shutterSpeed })}
+              />
+              <DiscreteParameterSlider
+                label="光圈大小"
+                value={data.angle.camera?.aperture}
+                options={TI_ANGLE_APERTURES.map((value) => ({ value, label: value }))}
+                disabled={controlsDisabled}
+                onChange={(aperture) => updateCamera({ aperture })}
+              />
+            </div>
+            <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">用于控制镜头透视、景深、运动与曝光表现</p>
+          </div>
+        </TiAngleSection>
+          </div>
+          <div className="min-w-0 space-y-2">
         <TiAngleSection
           id={angleSectionId}
           title="输出视角约束"
@@ -423,7 +479,7 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
                   size="xs"
                   disabled={controlsDisabled}
                   onClick={() => updateAngle({ azimuthDeg: 0, elevationDeg: 0, rollDeg: 0 })}
-                  className="nodrag h-6 gap-1 px-1.5 text-[9px]"
+                  className="gc-ti-btn nodrag h-6 gap-1 px-2.5 text-[9px]"
                 >
                   <RotateCcwIcon aria-hidden="true" className="size-3" />
                   重置视角
@@ -436,14 +492,13 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
                     <Button
                       key={preset.label}
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="xs"
                       aria-pressed={active}
                       disabled={controlsDisabled}
                       onClick={() => updateAngle({ azimuthDeg: preset.azimuthDeg, elevationDeg: 0, rollDeg: 0 })}
-                      className={active
-                        ? "nodrag h-6 border-[#b98d45] bg-[#b98d45] px-1 text-[9px] text-[#181818] hover:border-[#c99a4d] hover:bg-[#c99a4d] hover:text-[#181818] focus-visible:ring-[#b98d45]"
-                        : "nodrag h-6 border-[#b98d45] bg-[#181818] px-1 text-[9px] text-[#b98d45] hover:border-[#c99a4d] hover:bg-[#24211d] hover:text-[#c99a4d] focus-visible:ring-[#b98d45]"}
+                      data-active={active || undefined}
+                      className="gc-ti-btn nodrag h-6 px-2 text-[9px]"
                     >
                       {preset.label}
                     </Button>
@@ -517,57 +572,10 @@ export function TiAngelNode({ id, data, selected }: NodeProps<Node<TiAngleNodeDa
             </div>
           </div>
         </TiAngleSection>
-        <TiAngleSection
-          id={cameraSectionId}
-          title="相机参数"
-          summary={cameraSummary}
-          open={cameraOpen}
-          onOpenChange={setCameraOpen}
-        >
-          <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-1.5">
-              <div className="col-span-2">
-                <CameraParameterSelect
-                  label="品牌相机"
-                  value={data.angle.camera?.cameraModel}
-                  options={TI_ANGLE_CAMERA_MODELS}
-                  disabled={controlsDisabled}
-                  onChange={(cameraModel) => updateCamera({ cameraModel: cameraModel as TiAngleCameraModel | undefined })}
-                />
-              </div>
-              <DiscreteParameterSlider
-                label="焦距"
-                value={data.angle.camera?.focalLengthMm}
-                options={TI_ANGLE_FOCAL_LENGTHS.map((value) => ({ value, label: `${value} mm` }))}
-                disabled={controlsDisabled}
-                onChange={(focalLengthMm) => updateCamera({ focalLengthMm })}
-              />
-              <DiscreteParameterSlider
-                label="ISO"
-                value={data.angle.camera?.iso}
-                options={TI_ANGLE_ISO_VALUES.map((value) => ({ value, label: `ISO ${value}` }))}
-                disabled={controlsDisabled}
-                onChange={(iso) => updateCamera({ iso })}
-              />
-              <DiscreteParameterSlider
-                label="快门速度"
-                value={data.angle.camera?.shutterSpeed}
-                options={TI_ANGLE_SHUTTER_SPEEDS.map((value) => ({ value, label: `${value} s` }))}
-                disabled={controlsDisabled}
-                onChange={(shutterSpeed) => updateCamera({ shutterSpeed })}
-              />
-              <DiscreteParameterSlider
-                label="光圈大小"
-                value={data.angle.camera?.aperture}
-                options={TI_ANGLE_APERTURES.map((value) => ({ value, label: value }))}
-                disabled={controlsDisabled}
-                onChange={(aperture) => updateCamera({ aperture })}
-              />
-            </div>
-            <p className="text-[9px] leading-snug text-[var(--gc-node-muted)]">用于控制镜头透视、景深、运动与曝光表现</p>
           </div>
-        </TiAngleSection>
+        </div>
       </NodeFrame>
+      </div>
       <Handle id="text" type="source" position={Position.Right} title="视角与相机文本" />
     </>
   );
