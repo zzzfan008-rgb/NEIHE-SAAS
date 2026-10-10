@@ -188,6 +188,10 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
   }, [selectedImageIndex, stillImages.length]);
   const target = useFlowStore(useShallow(selectActiveDocumentTarget));
   const selectedImage = stillImages[Math.min(selectedImageIndex, stillImages.length - 1)];
+  const [imageAspect, setImageAspect] = useState<number | null>(null);
+  useEffect(() => setImageAspect(null), [selectedImage]);
+  // 结果图按自然宽高比铺满展示框：比例一致时 contain 即零裁剪零留边；过瘦高的图收敛到 0.45（约 261x580）防止节点拉成细高条。
+  const displayAspect = imageAspect == null ? 0.8 : Math.max(imageAspect, 0.45);
   const viewImage = () => { if (selectedImage) useFlowStore.getState().openViewer({ url: selectedImage, title: data.label }); };
 
   return (
@@ -197,8 +201,8 @@ export function ResultNode({ id, data, selected }: NodeProps<Node<ResultNodeData
         <MediaNodeActionToolbar nodeId={id} imageActions={videos.length === 0} hasImage={stillImages.length > 0} sourceHandle={`image:${selectedImageIndex}`} />
       </ResultSaveControls>
       <NodeFrame nodeId={id} title={data.label} status={data.status} error={data.error} selected={selected}>
-        {selectedImage ? <Button variant="ghost" aria-label="查看生成结果大图" className="gc-result-image nopan" onClick={viewImage}>
-          <CanvasImage source={selectedImage} alt={data.label} decoding="async" onPointerDown={(event) => beginCanvasImagePress(event, id, selectedImage)} />
+        {selectedImage ? <Button variant="ghost" aria-label="查看生成结果大图" className="gc-result-image nopan" style={{ aspectRatio: String(displayAspect) }} onClick={viewImage}>
+          <CanvasImage source={selectedImage} alt={data.label} decoding="async" onPointerDown={(event) => beginCanvasImagePress(event, id, selectedImage)} onLoad={(event) => { const img = event.currentTarget; if (img.naturalWidth > 0 && img.naturalHeight > 0) setImageAspect(img.naturalWidth / img.naturalHeight); }} />
         </Button> : videos.length === 0 && <div className="gc-result-empty">连接上游节点后自动汇总媒体</div>}
         {stillImages.length > 1 && <div className="nopan nowheel flex gap-1 overflow-x-auto" aria-label="结果图片选择">
           {stillImages.map((url, index) => <Button key={`${url}-${index}`} variant="outline" aria-label={`选择生成结果 ${index + 1}`} aria-pressed={selectedImageIndex === index} className="gc-result-thumbnail" onClick={() => setSelectedImageIndex(index)}><CanvasImage source={url} alt="" onPointerDown={(event) => beginCanvasImagePress(event, id, url)} /></Button>)}
